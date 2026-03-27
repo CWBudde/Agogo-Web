@@ -1,6 +1,7 @@
 import type { CreateDocumentCommand } from "@agogo/proto";
 import { useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
+import { LayersPanel } from "@/components/layers-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
@@ -313,23 +314,13 @@ export default function App() {
             ) : (
               <div className="mt-3 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 {activePanel === "layers" ? (
-                  <div className="space-y-3">
-                    <PanelTitle
-                      title="Layers"
-                      subtitle="Phase 1 starts with a single document background layer."
-                    />
-                    <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/8 p-3 text-sm text-slate-200">
-                      <div className="flex items-center justify-between">
-                        <span>{render?.uiMeta.activeDocumentName ?? "Untitled"}</span>
-                        <span className="text-xs uppercase tracking-[0.24em] text-cyan-100">
-                          Background
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-300">
-                        Visible · {render?.uiMeta.documentBackground ?? "transparent"} fill
-                      </p>
-                    </div>
-                  </div>
+                  <LayersPanel
+                    engine={engine}
+                    layers={render?.uiMeta.layers ?? []}
+                    activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                    documentWidth={render?.uiMeta.documentWidth ?? draft.width}
+                    documentHeight={render?.uiMeta.documentHeight ?? draft.height}
+                  />
                 ) : null}
 
                 {activePanel === "history" ? (
@@ -493,7 +484,10 @@ export default function App() {
                 className="h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm"
                 value={draft.name}
                 onChange={(event) =>
-                  setDraft((current) => ({ ...current, name: event.target.value }))
+                  setDraft((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
                 }
               />
             </Field>

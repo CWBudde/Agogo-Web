@@ -105,6 +105,105 @@ func TestDocumentLayerOperationsAndUndo(t *testing.T) {
 	}
 }
 
+func TestSetActiveLayerAndImplicitEmptyPixels(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	base, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+	}))
+	if err != nil {
+		t.Fatalf("add pixel layer without pixels: %v", err)
+	}
+	baseID := base.UIMeta.ActiveLayerID
+
+	group, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypeGroup,
+		Name:      "Group",
+	}))
+	if err != nil {
+		t.Fatalf("add group: %v", err)
+	}
+
+	selected, err := DispatchCommand(h, commandSetActiveLayer, mustJSON(t, SetActiveLayerPayload{LayerID: baseID}))
+	if err != nil {
+		t.Fatalf("set active layer: %v", err)
+	}
+	if selected.UIMeta.ActiveLayerID != baseID {
+		t.Fatalf("active layer id = %q, want %q", selected.UIMeta.ActiveLayerID, baseID)
+	}
+
+	frame, err := RenderFrame(h)
+	if err != nil {
+		t.Fatalf("render frame: %v", err)
+	}
+	if frame.BufferLen == 0 {
+		t.Fatal("render frame returned an empty buffer")
+	}
+	if frame.UIMeta.ActiveLayerID != baseID {
+		t.Fatalf("render active layer id = %q, want %q", frame.UIMeta.ActiveLayerID, baseID)
+	}
+	if len(frame.UIMeta.Layers) != 2 || frame.UIMeta.ActiveLayerName == group.UIMeta.ActiveLayerName {
+		t.Fatal("layer selection did not persist correctly across render")
+	}
+}
+
+func TestRenameLayerSupportsUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Sketch",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
+	renamed, err := DispatchCommand(h, commandSetLayerName, mustJSON(t, SetLayerNamePayload{
+		LayerID: layerID,
+		Name:    "Headline",
+	}))
+	if err != nil {
+		t.Fatalf("rename layer: %v", err)
+	}
+	meta, ok := findLayerMetaByID(renamed.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("renamed layer %q missing", layerID)
+	}
+	if meta.Name != "Headline" || renamed.UIMeta.ActiveLayerName != "Headline" {
+		t.Fatalf("renamed layer name = %q / %q, want Headline", meta.Name, renamed.UIMeta.ActiveLayerName)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo rename: %v", err)
+	}
+	meta, ok = findLayerMetaByID(undone.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q missing after undo", layerID)
+	}
+	if meta.Name != "Sketch" {
+		t.Fatalf("layer name after undo = %q, want Sketch", meta.Name)
+	}
+
+	redone, err := DispatchCommand(h, commandRedo, "")
+	if err != nil {
+		t.Fatalf("redo rename: %v", err)
+	}
+	meta, ok = findLayerMetaByID(redone.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q missing after redo", layerID)
+	}
+	if meta.Name != "Headline" {
+		t.Fatalf("layer name after redo = %q, want Headline", meta.Name)
+	}
+}
+
 func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
 	h := Init("")
 	defer Free(h)

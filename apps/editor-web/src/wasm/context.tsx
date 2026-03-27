@@ -107,6 +107,9 @@ export function EngineProvider({ children }: PropsWithChildren) {
       render: state.render,
       error: state.error,
       ready: state.handle ? Promise.resolve(state.handle) : null,
+      dispatchCommand(commandId: number, payload?: unknown) {
+        return run(commandId, payload);
+      },
       createDocument(command: CreateDocumentCommand) {
         return run(CommandID.CreateDocument, command);
       },
