@@ -415,9 +415,10 @@ export default function App() {
     let payload: string;
     // PK magic bytes 0x50 0x4B = ZIP file
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+      const chunkSize = 0x8000;
       let binary = "";
-      for (const byte of bytes) {
-        binary += String.fromCharCode(byte);
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
       }
       payload = btoa(binary);
     } else {

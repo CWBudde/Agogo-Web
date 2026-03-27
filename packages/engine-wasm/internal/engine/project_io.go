@@ -44,6 +44,8 @@ func (inst *instance) importProject(payload string) (RenderResult, error) {
 	inst.viewport.CenterX = float64(doc.Width) / 2
 	inst.viewport.CenterY = float64(doc.Height) / 2
 	inst.fitViewportToActiveDocument()
+	// History is intentionally cleared on import: opening a project starts a
+	// fresh undo stack regardless of any history stored in the archive.
 	inst.history.Clear()
 	return inst.render(), nil
 }
