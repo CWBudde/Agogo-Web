@@ -69,17 +69,17 @@
 
 ### Phase 2.1: Layer Tree Data Model
 
-- [ ] `LayerNode` interface (Go):
-  - [ ] `ID` (UUID), `Name`, `Visible`, `Locked` (pixels/position/all)
-  - [ ] `Opacity` (0–1), `Fill` (0–1, separate from opacity for layer styles)
-  - [ ] `BlendMode` enum
-  - [ ] `Parent` pointer, `Children []LayerNode` (for groups)
-  - [ ] `Mask *LayerMask`, `VectorMask *Path`, `ClippingBase bool`
-  - [ ] `StyleStack []LayerStyle`
+- [x] `LayerNode` interface (Go):
+  - [x] `ID` (UUID), `Name`, `Visible`, `Locked` (pixels/position/all)
+  - [x] `Opacity` (0–1), `Fill` (0–1, separate from opacity for layer styles)
+  - [x] `BlendMode` enum
+  - [x] `Parent` pointer, `Children []LayerNode` (for groups)
+  - [x] `Mask *LayerMask`, `VectorMask *Path`, `ClippingBase bool`
+  - [x] `StyleStack []LayerStyle`
 - [ ] Layer types implementing `LayerNode`:
-  - [ ] `PixelLayer`: raw RGBA pixel buffer, bounds (x/y offset within doc)
-  - [ ] `GroupLayer`: contains children, pass-through or isolated blend
-  - [ ] `AdjustmentLayer`: params only, no pixel data (Phase 5)
+  - [x] `PixelLayer`: raw RGBA pixel buffer, bounds (x/y offset within doc)
+  - [x] `GroupLayer`: contains children, pass-through or isolated blend
+  - [x] `AdjustmentLayer`: params only, no pixel data (Phase 5)
   - [ ] `TextLayer`: text params + cached raster (Phase 6)
   - [ ] `VectorLayer`: path + fill/stroke params + cached raster (Phase 6)
 - [ ] Layer operations:
