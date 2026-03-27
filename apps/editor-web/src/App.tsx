@@ -313,6 +313,7 @@ export default function App() {
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const contentVersion = render?.uiMeta.contentVersion;
   useEffect(() => {
@@ -369,6 +370,28 @@ export default function App() {
         height: imported.uiMeta.documentHeight || current.height,
         background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
       }));
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+    if (event.dataTransfer.types.includes("Files")) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = async (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragOver(false);
+    const file = event.dataTransfer.files[0];
+    if (file && (file.name.endsWith(".agp") || file.type === "application/json")) {
+      await openProject(file);
     }
   };
 
@@ -586,13 +609,19 @@ export default function App() {
                   </span>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 pt-[var(--ui-gap-2)]">
+              <section
+                className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${isDragOver ? " ring-2 ring-inset ring-blue-500" : ""}`}
+                aria-label="Canvas drop zone"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
                 <EditorCanvas
                   isPanMode={isPanMode || activeTool === "hand"}
                   isZoomTool={activeTool === "zoom"}
                   onCursorChange={setCursor}
                 />
-              </div>
+              </section>
             </main>
 
             <aside className="relative min-h-[36rem]">
