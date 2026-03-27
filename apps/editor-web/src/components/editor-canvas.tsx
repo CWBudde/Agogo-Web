@@ -51,6 +51,12 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
   const engine = useEngine();
   const render = engine.render;
 
+  // Keep a stable ref so the resize effect doesn't re-run whenever
+  // engine.resizeViewport gets a new identity (it changes on every render
+  // because the context useMemo depends on state.render).
+  const resizeViewportRef = useRef(engine.resizeViewport);
+  resizeViewportRef.current = engine.resizeViewport;
+
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const host = hostRef.current;
@@ -83,7 +89,7 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
         height: next.height,
         devicePixelRatio,
       };
-      engine.resizeViewport(next.width, next.height, devicePixelRatio);
+      resizeViewportRef.current(next.width, next.height, devicePixelRatio);
     };
 
     updateSize();
@@ -91,7 +97,7 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     observer.observe(host);
 
     return () => observer.disconnect();
-  }, [engine.handle, engine.resizeViewport]);
+  }, [engine.handle]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
