@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -593,6 +594,7 @@ func (doc *Document) nextActiveLayerID(children []LayerNode, deletedIndex int, d
 
 func (doc *Document) touchModifiedAt() {
 	doc.ModifiedAt = time.Now().UTC().Format(time.RFC3339)
+	doc.ContentVersion = atomic.AddInt64(&nextDocVersion, 1)
 }
 
 func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, error) {

@@ -64,19 +64,20 @@ type Background struct {
 }
 
 type Document struct {
-	Width         int         `json:"width"`
-	Height        int         `json:"height"`
-	Resolution    float64     `json:"resolution"`
-	ColorMode     string      `json:"colorMode"`
-	BitDepth      int         `json:"bitDepth"`
-	Background    Background  `json:"background"`
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	CreatedAt     string      `json:"createdAt"`
-	CreatedBy     string      `json:"createdBy"`
-	ModifiedAt    string      `json:"modifiedAt"`
-	ActiveLayerID string      `json:"activeLayerId,omitempty"`
-	LayerRoot     *GroupLayer `json:"-"`
+	Width          int         `json:"width"`
+	Height         int         `json:"height"`
+	Resolution     float64     `json:"resolution"`
+	ColorMode      string      `json:"colorMode"`
+	BitDepth       int         `json:"bitDepth"`
+	Background     Background  `json:"background"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	CreatedAt      string      `json:"createdAt"`
+	CreatedBy      string      `json:"createdBy"`
+	ModifiedAt     string      `json:"modifiedAt"`
+	ActiveLayerID  string      `json:"activeLayerId,omitempty"`
+	LayerRoot      *GroupLayer `json:"-"`
+	ContentVersion int64       `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
 }
 
 type ViewportState struct {
@@ -472,19 +473,43 @@ func (m *DocumentManager) CloseActive() error {
 }
 
 type instance struct {
-	pixels   []byte
-	manager  *DocumentManager
-	viewport ViewportState
-	history  *HistoryStack
-	frameID  int64
-	pointer  pointerDragState
+	pixels                  []byte
+	manager                 *DocumentManager
+	viewport                ViewportState
+	history                 *HistoryStack
+	frameID                 int64
+	pointer                 pointerDragState
+	cachedDocSurface        []byte
+	cachedDocID             string
+	cachedDocContentVersion int64
+}
+
+// compositeSurface returns the precomputed document composite for doc, reusing
+// the cached surface when the document content has not changed since the last
+// render. This avoids re-running the full compositing pipeline on every frame
+// when only the viewport transform changes (pan, zoom, rotate).
+func (inst *instance) compositeSurface(doc *Document) []byte {
+	if doc == nil {
+		inst.cachedDocSurface = nil
+		inst.cachedDocID = ""
+		inst.cachedDocContentVersion = 0
+		return nil
+	}
+	if inst.cachedDocID == doc.ID && inst.cachedDocContentVersion == doc.ContentVersion && len(inst.cachedDocSurface) > 0 {
+		return inst.cachedDocSurface
+	}
+	inst.cachedDocSurface = doc.renderCompositeSurface()
+	inst.cachedDocID = doc.ID
+	inst.cachedDocContentVersion = doc.ContentVersion
+	return inst.cachedDocSurface
 }
 
 var (
-	mu        sync.Mutex
-	nextID    int32 = 1
-	nextDocID int64 = 1
-	instances       = make(map[int32]*instance)
+	mu             sync.Mutex
+	nextID         int32 = 1
+	nextDocID      int64 = 1
+	nextDocVersion int64
+	instances            = make(map[int32]*instance)
 )
 
 // Init allocates a new engine instance and returns its handle.
@@ -1249,7 +1274,7 @@ func (inst *instance) render() RenderResult {
 		activeLayerName = activeLayer.Name()
 	}
 
-	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels)
+	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels, inst.compositeSurface(doc))
 	return RenderResult{
 		FrameID:     inst.nextFrameID(),
 		Viewport:    inst.viewport,
@@ -1392,7 +1417,9 @@ func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
 }
 
 // RenderViewport renders the document shell and the current composited layer tree.
-func RenderViewport(doc *Document, vp *ViewportState, reuse []byte) []byte {
+// documentSurface is the precomputed RGBA composite for the full document; pass nil
+// to skip layer compositing (e.g. when there are no layers).
+func RenderViewport(doc *Document, vp *ViewportState, reuse []byte, documentSurface []byte) []byte {
 	reuse = aggrender.RenderViewportBase(
 		&aggrender.Document{
 			Width:      doc.Width,
@@ -1410,8 +1437,8 @@ func RenderViewport(doc *Document, vp *ViewportState, reuse []byte) []byte {
 		reuse,
 	)
 
-	if surface := doc.renderCompositeSurface(); len(surface) > 0 {
-		compositeDocumentToViewport(reuse, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, surface)
+	if len(documentSurface) > 0 {
+		compositeDocumentToViewport(reuse, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, documentSurface)
 	}
 
 	return aggrender.RenderViewportOverlays(
