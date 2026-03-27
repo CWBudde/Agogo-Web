@@ -109,7 +109,7 @@ The project uses **lefthook** to run `biome`, `typecheck`, and `go-vet` in paral
 
 | Hook | Failure symptom | Fix |
 | ---- | --------------- | --- |
-| `biome` | "Formatter would have printed…" | `just fmt` (or `just lint-fix`), then re-stage |
+| `biome` | "Formatter would have printed…" | `just fmt`, then re-stage |
 | `biome` | Lint rule violations | `just lint-fix`, fix remaining issues manually, then re-stage |
 | `typecheck` | TypeScript type errors | Fix the TS errors, then re-stage |
 | `go-vet` | Go vet warnings | Fix the Go issues, then re-stage |
