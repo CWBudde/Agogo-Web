@@ -3,6 +3,10 @@ import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
+  onNewDocument(): void;
+  onOpenDocument(): void;
+  onSaveDocument(): void;
+  onExportDocument(): void;
   onZoomIn(): void;
   onZoomOut(): void;
   onFitToView(): void;
@@ -29,7 +33,29 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         return;
       }
 
-      const command = defaultKeymap.get(shortcutKey(event));
+      const key = shortcutKey(event);
+      switch (key) {
+        case "Mod+n":
+          event.preventDefault();
+          actions.onNewDocument();
+          return;
+        case "Mod+o":
+          event.preventDefault();
+          actions.onOpenDocument();
+          return;
+        case "Mod+s":
+          event.preventDefault();
+          actions.onSaveDocument();
+          return;
+        case "Mod+Shift+e":
+          event.preventDefault();
+          actions.onExportDocument();
+          return;
+        default:
+          break;
+      }
+
+      const command = defaultKeymap.get(key);
       switch (command) {
         case defaultKeymap.get(" "):
           event.preventDefault();

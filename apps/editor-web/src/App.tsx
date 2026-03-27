@@ -80,7 +80,11 @@ const menuItems: MenuPreviewMenu[] = [
         title: "Output",
         items: [
           { label: "Save", shortcut: "Ctrl+S", actionId: "save-project" },
-          { label: "Export As...", shortcut: "Ctrl+Shift+E", actionId: "export-project" },
+          {
+            label: "Export As...",
+            shortcut: "Ctrl+Shift+E",
+            actionId: "export-project",
+          },
           {
             label: "Generate Assets",
             tone: "muted",
@@ -337,6 +341,9 @@ export default function App() {
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
+  const [hasAutosave, setHasAutosave] = useState(() => {
+    return localStorage.getItem(AUTOSAVE_KEY) !== null;
+  });
 
   const contentVersion = render?.uiMeta.contentVersion;
   useEffect(() => {
@@ -427,6 +434,31 @@ export default function App() {
         background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
       }));
     }
+  };
+
+  const recoverAutosave = () => {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    if (!saved) {
+      setHasAutosave(false);
+      return;
+    }
+    const imported = engine.importProject(saved);
+    if (imported) {
+      setDraft((current) => ({
+        ...current,
+        name: imported.uiMeta.activeDocumentName || current.name,
+        width: imported.uiMeta.documentWidth || current.width,
+        height: imported.uiMeta.documentHeight || current.height,
+        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
+      }));
+    }
+    localStorage.removeItem(AUTOSAVE_KEY);
+    setHasAutosave(false);
+  };
+
+  const dismissAutosave = () => {
+    localStorage.removeItem(AUTOSAVE_KEY);
+    setHasAutosave(false);
   };
 
   const handleDragOver = (event: React.DragEvent) => {
@@ -690,6 +722,26 @@ export default function App() {
               </Button>
             </div>
           </header>
+
+          {hasAutosave && engine.status === "ready" ? (
+            <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-950/40 px-3 py-1.5 text-[12px] text-amber-200">
+              <span>Unsaved session detected.</span>
+              <button
+                type="button"
+                className="rounded bg-amber-600 px-2 py-0.5 text-white hover:bg-amber-500"
+                onClick={recoverAutosave}
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                className="rounded px-2 py-0.5 text-amber-400 hover:text-amber-200"
+                onClick={dismissAutosave}
+              >
+                Discard
+              </button>
+            </div>
+          ) : null}
 
           <div className="editor-chrome flex h-[36px] items-center justify-between gap-3 border-b border-border px-2">
             <div className="flex min-w-0 items-center gap-3 overflow-hidden">
@@ -1464,9 +1516,21 @@ const AUTOSAVE_EVERY_N_VERSIONS = 10;
 
 // Channel descriptor: short label, long name, indicator colour class.
 const CHANNELS = [
-  { id: "rgb", label: "RGB", name: "Composite", color: "bg-slate-400", shortcut: "~" },
+  {
+    id: "rgb",
+    label: "RGB",
+    name: "Composite",
+    color: "bg-slate-400",
+    shortcut: "~",
+  },
   { id: "r", label: "R", name: "Red", color: "bg-rose-400", shortcut: "1" },
-  { id: "g", label: "G", name: "Green", color: "bg-emerald-400", shortcut: "2" },
+  {
+    id: "g",
+    label: "G",
+    name: "Green",
+    color: "bg-emerald-400",
+    shortcut: "2",
+  },
   { id: "b", label: "B", name: "Blue", color: "bg-blue-400", shortcut: "3" },
   { id: "a", label: "A", name: "Alpha", color: "bg-slate-300", shortcut: "4" },
 ] as const;
@@ -1500,7 +1564,12 @@ function ChannelsPanel() {
               "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
               visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",
             ].join(" ")}
-            onClick={() => setVisible((current) => ({ ...current, [ch.id]: !current[ch.id] }))}
+            onClick={() =>
+              setVisible((current) => ({
+                ...current,
+                [ch.id]: !current[ch.id],
+              }))
+            }
           >
             {visible[ch.id] ? "O" : "-"}
           </button>
