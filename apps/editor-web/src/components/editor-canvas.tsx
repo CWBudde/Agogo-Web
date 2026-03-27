@@ -297,7 +297,8 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
         }
         event.preventDefault();
         const direction = event.deltaY > 0 ? 1 / 1.1 : 1.1;
-        engine.setZoom(render.viewport.zoom * direction);
+        const docPoint = clientPointToDocument(event.clientX, event.clientY);
+        engine.setZoom(render.viewport.zoom * direction, docPoint?.x, docPoint?.y);
       }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />
