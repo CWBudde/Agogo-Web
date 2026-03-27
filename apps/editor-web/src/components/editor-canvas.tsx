@@ -42,6 +42,11 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const zoomDragRef = useRef<ZoomDragState>(null);
+  const lastViewportRef = useRef<{
+    width: number;
+    height: number;
+    devicePixelRatio: number;
+  } | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
   const engine = useEngine();
   const render = engine.render;
@@ -54,9 +59,31 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     }
 
     const updateSize = () => {
-      const next = fitCanvasToElement(canvas, host, window.devicePixelRatio || 1);
-      setSize(next);
-      engine.resizeViewport(next.width, next.height, window.devicePixelRatio || 1);
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const next = fitCanvasToElement(canvas, host, devicePixelRatio);
+      setSize((current) =>
+        current.width === next.width && current.height === next.height ? current : next,
+      );
+
+      if (!engine.handle) {
+        return;
+      }
+
+      const previousViewport = lastViewportRef.current;
+      if (
+        previousViewport?.width === next.width &&
+        previousViewport.height === next.height &&
+        previousViewport.devicePixelRatio === devicePixelRatio
+      ) {
+        return;
+      }
+
+      lastViewportRef.current = {
+        width: next.width,
+        height: next.height,
+        devicePixelRatio,
+      };
+      engine.resizeViewport(next.width, next.height, devicePixelRatio);
     };
 
     updateSize();
@@ -64,7 +91,7 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     observer.observe(host);
 
     return () => observer.disconnect();
-  }, [engine]);
+  }, [engine.handle, engine.resizeViewport]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -162,7 +189,7 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
   return (
     <div
       ref={hostRef}
-      className="editor-surface relative h-full min-h-[42rem] overflow-hidden rounded-[1.6rem] border border-white/10"
+      className="relative h-full min-h-[32rem] overflow-hidden rounded-[var(--ui-radius-md)] border border-white/8 bg-[#111419]"
       onPointerDown={(event) => {
         if (!render) {
           return;

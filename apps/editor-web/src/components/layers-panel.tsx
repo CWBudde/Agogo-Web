@@ -180,38 +180,29 @@ export function LayersPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">Layers</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-400">
-            Inline rename and drag-reorder are now layered on top of the engine tree model.
-          </p>
+    <div className="flex h-full min-h-0 flex-col gap-[var(--ui-gap-2)]">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <div className="flex items-center gap-2 text-slate-300">
+          <span className="font-medium text-slate-100">Active</span>
+          <span className="truncate text-slate-400">{activeLayer?.name ?? "None"}</span>
         </div>
-        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-400">
-          {layerCount} layers
+        <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/12 px-1.5 py-1 text-slate-400">
+          {layerCount}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" className="h-9 px-3 text-xs" onClick={addPixelLayer}>
-          New Layer
-        </Button>
-        <Button variant="secondary" className="h-9 px-3 text-xs" onClick={addGroupLayer}>
-          New Group
-        </Button>
-        <Button
-          variant="secondary"
-          className="h-9 px-3 text-xs"
-          disabled={!activeLayer}
+      <div className="grid grid-cols-5 gap-[var(--ui-gap-1)]">
+        <ToolbarAction label="+L" title="New Layer" onClick={addPixelLayer} />
+        <ToolbarAction label="+G" title="New Group" onClick={addGroupLayer} />
+        <ToolbarAction
+          label="Mask"
+          title="Add Mask"
           onClick={() => addMask("reveal-all")}
-        >
-          Add Mask
-        </Button>
-        <Button
-          variant="secondary"
-          className="h-9 px-3 text-xs"
           disabled={!activeLayer}
+        />
+        <ToolbarAction
+          label="Merge"
+          title="Merge Down"
           onClick={() => {
             if (!activeLayer) {
               return;
@@ -220,13 +211,11 @@ export function LayersPanel({
               layerId: activeLayer.id,
             });
           }}
-        >
-          Merge Down
-        </Button>
-        <Button
-          variant="secondary"
-          className="h-9 px-3 text-xs"
           disabled={!activeLayer}
+        />
+        <ToolbarAction
+          label="Del"
+          title="Delete Layer"
           onClick={() => {
             if (!activeLayer) {
               return;
@@ -235,22 +224,18 @@ export function LayersPanel({
               layerId: activeLayer.id,
             });
           }}
-        >
-          Delete
-        </Button>
+          disabled={!activeLayer}
+        />
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3">
-        <ScrollArea
-          className="min-h-0 rounded-2xl border border-white/10 bg-black/15"
-          viewportClassName="p-3"
-        >
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-[var(--ui-gap-2)]">
+        <ScrollArea className="min-h-0 rounded-[var(--ui-radius-md)] border border-white/8 bg-black/12">
           {layers.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-slate-400">
-              No layers yet. Create a pixel layer or a group to start building the document tree.
+            <div className="px-3 py-4 text-[12px] text-slate-400">
+              No layers yet. Create a layer or group to start the stack.
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="p-[var(--ui-gap-2)]">
               {[...layers].reverse().map((layer) => (
                 <LayerTreeRow
                   key={layer.id}
@@ -306,101 +291,83 @@ export function LayersPanel({
           )}
         </ScrollArea>
 
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-black/15 p-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Selection</p>
-            <p className="mt-2 text-sm font-medium text-slate-100">
-              {activeLayer?.name ?? "No active layer"}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              {activeLayer ? describeLayer(activeLayer) : "Pick a row in the tree to edit it."}
-            </p>
-          </div>
+        <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/12 p-[var(--ui-gap-2)]">
+          <div className="grid gap-[var(--ui-gap-2)]">
+            <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+              <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Blend
+                <select
+                  className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-2 text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!activeLayer}
+                  value={activeLayer?.blendMode ?? "normal"}
+                  onChange={(event) => {
+                    if (!activeLayer) {
+                      return;
+                    }
+                    engine.dispatchCommand(CommandID.SetLayerBlendMode, {
+                      layerId: activeLayer.id,
+                      blendMode: event.target.value,
+                    });
+                  }}
+                >
+                  {blendModeOptions.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {formatBlendMode(mode)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="text-right text-[11px] text-slate-400">
+                {activeLayer ? describeLayer(activeLayer) : "No selection"}
+              </div>
+            </div>
 
-          <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.24em] text-slate-500">
-            Blend Mode
-            <select
-              className="h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            <RangeField
+              label="Opacity"
               disabled={!activeLayer}
-              value={activeLayer?.blendMode ?? "normal"}
-              onChange={(event) => {
+              value={Math.round((activeLayer?.opacity ?? 1) * 100)}
+              onChange={(value) => {
                 if (!activeLayer) {
                   return;
                 }
-                engine.dispatchCommand(CommandID.SetLayerBlendMode, {
+                engine.dispatchCommand(CommandID.SetLayerOpacity, {
                   layerId: activeLayer.id,
-                  blendMode: event.target.value,
+                  opacity: value / 100,
                 });
               }}
-            >
-              {blendModeOptions.map((mode) => (
-                <option key={mode} value={mode}>
-                  {formatBlendMode(mode)}
-                </option>
-              ))}
-            </select>
-          </label>
+            />
 
-          <RangeField
-            label="Opacity"
-            disabled={!activeLayer}
-            value={Math.round((activeLayer?.opacity ?? 1) * 100)}
-            onChange={(value) => {
-              if (!activeLayer) {
-                return;
-              }
-              engine.dispatchCommand(CommandID.SetLayerOpacity, {
-                layerId: activeLayer.id,
-                opacity: value / 100,
-              });
-            }}
-          />
+            <RangeField
+              label="Fill"
+              disabled={!activeLayer}
+              value={Math.round((activeLayer?.fillOpacity ?? 1) * 100)}
+              onChange={(value) => {
+                if (!activeLayer) {
+                  return;
+                }
+                engine.dispatchCommand(CommandID.SetLayerOpacity, {
+                  layerId: activeLayer.id,
+                  fillOpacity: value / 100,
+                });
+              }}
+            />
 
-          <RangeField
-            label="Fill"
-            disabled={!activeLayer}
-            value={Math.round((activeLayer?.fillOpacity ?? 1) * 100)}
-            onChange={(value) => {
-              if (!activeLayer) {
-                return;
-              }
-              engine.dispatchCommand(CommandID.SetLayerOpacity, {
-                layerId: activeLayer.id,
-                fillOpacity: value / 100,
-              });
-            }}
-          />
-
-          <div className="space-y-2 rounded-xl border border-white/8 bg-white/[0.02] p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs uppercase tracking-[0.24em] text-slate-500">Mask</span>
-              <span className="text-xs text-slate-400">
-                {activeLayer?.hasMask ? (activeLayer.maskEnabled ? "Enabled" : "Disabled") : "None"}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={Boolean(activeLayer?.hasMask) || !activeLayer}
-                onClick={() => addMask("reveal-all")}
-              >
-                Reveal All
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={Boolean(activeLayer?.hasMask) || !activeLayer}
-                onClick={() => addMask("hide-all")}
-              >
-                Hide All
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={!activeLayer?.hasMask}
+            <div className="grid grid-cols-2 gap-[var(--ui-gap-1)]">
+              <ActionButton
+                label={
+                  activeLayer?.hasMask
+                    ? activeLayer.maskEnabled
+                      ? "Disable Mask"
+                      : "Enable Mask"
+                    : "Reveal Mask"
+                }
+                disabled={!activeLayer}
                 onClick={() => {
                   if (!activeLayer) {
+                    return;
+                  }
+                  if (!activeLayer.hasMask) {
+                    addMask("reveal-all");
                     return;
                   }
                   engine.dispatchCommand(CommandID.SetLayerMaskEnabled, {
@@ -408,84 +375,72 @@ export function LayersPanel({
                     enabled: !activeLayer.maskEnabled,
                   });
                 }}
-              >
-                {activeLayer?.maskEnabled ? "Disable" : "Enable"}
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={!activeLayer?.hasMask}
+              />
+              <ActionButton
+                label={activeLayer?.clipToBelow ? "Release Clip" : "Clip To Below"}
+                disabled={!activeLayer}
                 onClick={() => {
                   if (!activeLayer) {
                     return;
                   }
-                  engine.dispatchCommand(CommandID.InvertLayerMask, {
+                  engine.dispatchCommand(CommandID.SetLayerClipToBelow, {
                     layerId: activeLayer.id,
+                    clipToBelow: !activeLayer.clipToBelow,
                   });
                 }}
-              >
-                Invert
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={!activeLayer?.hasMask}
-                onClick={() => {
-                  if (!activeLayer) {
-                    return;
-                  }
-                  engine.dispatchCommand(CommandID.ApplyLayerMask, {
-                    layerId: activeLayer.id,
-                  });
-                }}
-              >
-                Apply
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-8 px-2 text-xs"
-                disabled={!activeLayer?.hasMask}
-                onClick={() => {
-                  if (!activeLayer) {
-                    return;
-                  }
-                  engine.dispatchCommand(CommandID.DeleteLayerMask, {
-                    layerId: activeLayer.id,
-                  });
-                }}
-              >
-                Delete
-              </Button>
+              />
             </div>
-          </div>
-
-          <div className="space-y-2 rounded-xl border border-white/8 bg-white/[0.02] p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs uppercase tracking-[0.24em] text-slate-500">Clipping</span>
-              <span className="text-xs text-slate-400">
-                {activeLayer?.clipToBelow ? "Clipped to below" : "Independent"}
-              </span>
-            </div>
-            <Button
-              variant="secondary"
-              className="h-8 w-full px-2 text-xs"
-              disabled={!activeLayer}
-              onClick={() => {
-                if (!activeLayer) {
-                  return;
-                }
-                engine.dispatchCommand(CommandID.SetLayerClipToBelow, {
-                  layerId: activeLayer.id,
-                  clipToBelow: !activeLayer.clipToBelow,
-                });
-              }}
-            >
-              {activeLayer?.clipToBelow ? "Release Clipping" : "Clip To Below"}
-            </Button>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function ToolbarAction({
+  label,
+  title,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className="min-w-0 px-0 text-[11px]"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
+
+function ActionButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className="justify-center text-[11px]"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -545,30 +500,38 @@ function LayerTreeRow({
   const dropState = dropTarget?.layerId === layer.id ? dropTarget.position : null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-[var(--ui-gap-1)]">
       <div
-        className="space-y-1"
-        style={{ marginLeft: `${depth * 16 + (layer.clipToBelow ? 12 : 0)}px` }}
+        className="space-y-[var(--ui-gap-1)]"
+        style={{ marginLeft: `${depth * 12 + (layer.clipToBelow ? 10 : 0)}px` }}
       >
         <div
           className={[
-            "h-1 rounded-full transition",
+            "h-[2px] rounded-full transition",
             dropState === "before" ? "bg-cyan-300/90" : "bg-transparent",
           ].join(" ")}
         />
+
         <div
           className={[
-            "rounded-2xl border px-3 py-3 transition",
-            isDragging ? "border-white/5 bg-white/[0.015] opacity-50" : "",
+            "rounded-[var(--ui-radius-md)] border transition",
+            isDragging ? "border-white/5 bg-white/[0.02] opacity-50" : "",
             isActive
-              ? "border-cyan-400/30 bg-cyan-400/10"
-              : "border-white/8 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]",
+              ? "border-cyan-400/35 bg-cyan-400/10"
+              : "border-white/8 bg-white/[0.02] hover:border-white/12 hover:bg-white/[0.04]",
             dropState === "inside" ? "border-cyan-300/60 bg-cyan-300/10" : "",
           ].join(" ")}
           role="treeitem"
           tabIndex={0}
           aria-selected={isActive}
           draggable={!isEditing}
+          onClick={() => onSelect(layer.id)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onSelect(layer.id);
+            }
+          }}
           onDragStart={(event) => {
             event.stopPropagation();
             onDragStart(layer.id);
@@ -581,20 +544,12 @@ function LayerTreeRow({
             onDropLayer(layer);
           }}
         >
-          <div className="flex items-start gap-3">
-            <div className="flex items-center gap-2 pt-0.5">
-              <button
-                type="button"
-                className="cursor-grab rounded-lg border border-white/10 bg-black/20 px-1.5 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-400 transition hover:bg-black/30 active:cursor-grabbing"
-                onClick={(event) => event.stopPropagation()}
-                title="Drag to reorder"
-              >
-                ::
-              </button>
+          <div className="grid grid-cols-[auto_auto_1fr_auto] items-center gap-[var(--ui-gap-2)] px-2 py-1.5">
+            <div className="flex items-center gap-[var(--ui-gap-1)]">
               {isGroup ? (
                 <button
                   type="button"
-                  className="h-6 w-6 rounded-lg border border-white/10 bg-black/20 text-xs text-slate-300 transition hover:bg-black/30"
+                  className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] text-slate-400 transition hover:bg-white/6 hover:text-slate-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleGroup(layer.id);
@@ -602,117 +557,114 @@ function LayerTreeRow({
                 >
                   {isCollapsed ? ">" : "v"}
                 </button>
-              ) : null}
+              ) : (
+                <span className="block w-5" />
+              )}
               <button
                 type="button"
                 className={[
-                  "h-6 rounded-lg border px-2 text-[10px] uppercase tracking-[0.18em] transition",
+                  "flex h-5 min-w-5 items-center justify-center rounded-[var(--ui-radius-sm)] px-1 text-[10px] transition",
                   layer.visible
-                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-                    : "border-white/10 bg-black/20 text-slate-500",
+                    ? "bg-emerald-400/12 text-emerald-100"
+                    : "bg-black/20 text-slate-500",
                 ].join(" ")}
                 onClick={(event) => {
                   event.stopPropagation();
                   onToggleVisibility(layer.id, !layer.visible);
                 }}
+                title={layer.visible ? "Hide layer" : "Show layer"}
               >
-                {layer.visible ? "show" : "hide"}
+                {layer.visible ? "O" : "-"}
               </button>
             </div>
 
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-200">
+            <div className="flex h-8 w-8 items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200">
               {layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
             </div>
 
-            <div className="min-w-0 flex-1">
-              <button
-                type="button"
-                className="w-full min-w-0 text-left"
-                onClick={() => onSelect(layer.id)}
-                onDoubleClick={() => onStartRename(layer)}
-              >
-                <div className="flex items-center gap-2">
-                  {isEditing ? (
-                    <input
-                      className="h-8 w-full rounded-lg border border-cyan-400/30 bg-black/25 px-2 text-sm text-slate-100 outline-none"
-                      value={editingName}
-                      onBlur={onCommitRename}
-                      onChange={(event) => onEditingNameChange(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          onCommitRename();
-                        }
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          onCancelRename();
-                        }
-                      }}
-                    />
-                  ) : (
-                    <span className="truncate text-sm font-medium text-slate-100">
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)]">
+                {isEditing ? (
+                  <input
+                    className="h-6 w-full rounded-[var(--ui-radius-sm)] border border-cyan-400/30 bg-black/25 px-1.5 text-[12px] text-slate-100 outline-none"
+                    value={editingName}
+                    onBlur={onCommitRename}
+                    onChange={(event) => onEditingNameChange(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        onCommitRename();
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        onCancelRename();
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="min-w-0 text-left"
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      onStartRename(layer);
+                    }}
+                  >
+                    <span className="block truncate text-[12px] font-medium text-slate-100">
                       {layer.name}
                     </span>
-                  )}
-                  {layer.clippingBase ? (
-                    <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-amber-100">
-                      base
-                    </span>
-                  ) : null}
-                  {layer.clipToBelow ? (
-                    <span className="rounded-full border border-sky-400/25 bg-sky-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-sky-100">
-                      clip
-                    </span>
-                  ) : null}
-                  {layer.hasMask ? (
-                    <span className="rounded-full border border-fuchsia-400/25 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-fuchsia-100">
-                      mask
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                  <span>{describeLayer(layer)}</span>
-                  <span>{Math.round(layer.opacity * 100)}%</span>
-                  <span>{formatBlendMode(layer.blendMode)}</span>
-                </div>
-              </button>
+                  </button>
+                )}
+                {layer.clippingBase ? <MiniBadge label="base" tone="amber" /> : null}
+                {layer.clipToBelow ? <MiniBadge label="clip" tone="sky" /> : null}
+                {layer.hasMask ? <MiniBadge label="mask" tone="fuchsia" /> : null}
+              </div>
+              <div className="mt-[2px] flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+                <span>{formatBlendMode(layer.blendMode)}</span>
+                <span>{Math.round(layer.opacity * 100)}%</span>
+                {isGroup ? <span>{layer.isolated ? "Isolated" : "Pass-through"}</span> : null}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-[var(--ui-gap-1)]">
               <button
                 type="button"
-                className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-300 transition hover:bg-black/30"
+                className="flex h-5 min-w-6 items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30"
                 onClick={(event) => {
                   event.stopPropagation();
                   onCycleLock(layer.id, layer.lockMode);
                 }}
+                title="Cycle lock mode"
               >
                 {shortLockLabel(layer.lockMode)}
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-300 transition hover:bg-black/30"
-                onClick={(event) => {
+                className="flex h-5 min-w-6 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 active:cursor-grabbing"
+                onClick={(event) => event.stopPropagation()}
+                onDoubleClick={(event) => {
                   event.stopPropagation();
                   onDuplicate(layer.id);
                 }}
+                title="Drag to reorder, double-click to duplicate"
               >
-                dup
+                ::
               </button>
             </div>
           </div>
         </div>
+
         <div
           className={[
-            "h-1 rounded-full transition",
+            "h-[2px] rounded-full transition",
             dropState === "after" ? "bg-cyan-300/90" : "bg-transparent",
           ].join(" ")}
         />
       </div>
 
       {isGroup && !isCollapsed && children.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-[var(--ui-gap-1)]">
           {[...children].reverse().map((child) => (
             <LayerTreeRow
               key={child.id}
@@ -745,6 +697,26 @@ function LayerTreeRow({
   );
 }
 
+function MiniBadge({ label, tone }: { label: string; tone: "amber" | "sky" | "fuchsia" }) {
+  const toneClass =
+    tone === "amber"
+      ? "border-amber-400/25 bg-amber-400/10 text-amber-100"
+      : tone === "sky"
+        ? "border-sky-400/25 bg-sky-400/10 text-sky-100"
+        : "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-100";
+
+  return (
+    <span
+      className={[
+        "rounded-[var(--ui-radius-sm)] border px-1 py-[1px] text-[9px] uppercase tracking-[0.16em]",
+        toneClass,
+      ].join(" ")}
+    >
+      {label}
+    </span>
+  );
+}
+
 function RangeField({
   label,
   value,
@@ -757,11 +729,14 @@ function RangeField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="flex flex-col gap-2 text-xs uppercase tracking-[0.24em] text-slate-500">
-      {label}
-      <div className="flex items-center gap-2">
+    <label className="block">
+      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        <span>{label}</span>
+        <span className="text-slate-300">{value}</span>
+      </div>
+      <div className="grid grid-cols-[1fr_44px] items-center gap-[var(--ui-gap-2)]">
         <input
-          className="h-2 flex-1 accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-2 w-full accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
           type="range"
           min="0"
           max="100"
@@ -770,7 +745,7 @@ function RangeField({
           onChange={(event) => onChange(Number(event.target.value))}
         />
         <input
-          className="h-9 w-16 rounded-lg border border-white/10 bg-black/20 px-2 text-right text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-1.5 text-right text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
           type="number"
           min="0"
           max="100"

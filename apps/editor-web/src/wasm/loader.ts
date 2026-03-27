@@ -112,6 +112,7 @@ export async function loadEngine({
   const instance = result instanceof WebAssembly.Instance ? result : result.instance;
   const exports = instance.exports as WebAssembly.Exports & {
     memory?: WebAssembly.Memory;
+    mem?: WebAssembly.Memory;
   };
 
   void go.run(instance);
@@ -129,7 +130,12 @@ export async function loadEngine({
     throw new WasmEngineLoadError("EngineInit did not return a numeric handle.");
   }
 
-  const memory = exports.memory;
+  const memory =
+    exports.memory instanceof WebAssembly.Memory
+      ? exports.memory
+      : exports.mem instanceof WebAssembly.Memory
+        ? exports.mem
+        : undefined;
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new WasmEngineLoadError("The Wasm module did not export linear memory.");
   }

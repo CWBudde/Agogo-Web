@@ -59,6 +59,43 @@
 - [x] History panel UI implemented with command list, jump-to-state, and clear-history behavior.
 - [x] Keyboard shortcuts: `Ctrl+Z` (undo), `Ctrl+Shift+Z` (redo), `Ctrl+Alt+Z` (step back in history)
 
+### Phase 1.5: Dense Desktop UI Pass (Photoshop/Photopea-Inspired Shell)
+
+**Goal:** Move the current UI shell from a spacious card layout to a dense professional editor workspace with minimal margins and padding.
+
+**Design reference:** See `docs/ui-shell-phase-1_5-design.md`.
+
+**Acceptance criterion:** The editor reads as a compact desktop app: contiguous top chrome, narrow tool rail, dominant canvas stage, stacked right dock panels, and visibly denser panel rows without changing the Wasm rendering architecture.
+
+- [ ] Establish dense shell design tokens in `apps/editor-web/src/styles.css`
+  - [ ] Add compact spacing, control height, radius, border, and surface tokens
+  - [ ] Reduce heavy shadow/blur usage and flatten shell chrome
+  - [ ] Standardize compact panel/header/tab styling primitives
+- [ ] Refactor the main app frame in `apps/editor-web/src/App.tsx`
+  - [ ] Convert the current large rounded shell into a contiguous application frame
+  - [ ] Implement compact title/menu bar, compact options bar, and compact status bar
+  - [ ] Reduce global outer padding and inter-region gaps to match dense desktop UI expectations
+- [ ] Rework the left toolbar into a dense vertical tool rail
+  - [ ] Tighten width, button size, button spacing, and active state styling
+  - [ ] Keep tooltip/title support while removing always-visible spacious treatment
+  - [ ] Reserve structure for future grouped or flyout tools
+- [ ] Reframe the canvas area as an embedded stage instead of a card
+  - [ ] Use a darker stage around the document and reduce decorative chrome
+  - [ ] Ensure the canvas remains the dominant region at common desktop widths
+  - [ ] Preserve current pan/zoom/cursor behavior and resize handling
+- [ ] Rebuild the right dock into stacked software panels
+  - [ ] Replace the single padded dock card with compact dock sections
+  - [ ] Tighten resize affordance, header height, tabs, and body padding
+  - [ ] Keep Layers, Properties, History, and Navigator usable within the denser layout
+- [ ] Densify the Layers panel for editor-grade scanning
+  - [ ] Reduce row height, internal padding, and gaps
+  - [ ] Move toward thumbnail-first, icon-dense row composition
+  - [ ] Replace large text-heavy panel actions with a compact action strip where practical
+- [ ] Add shell QA and regression checks
+  - [ ] Verify keyboard focus visibility across menus, toolbar, tabs, and layer rows
+  - [ ] Verify layout at `1280px`, `1440px`, and `1728px+` widths
+  - [ ] Verify no JS-side pixel manipulation is introduced and existing engine-driven rendering still works
+
 ---
 
 ## Phase 2: Layer System (Pixel Layer, Groups, Blend Modes, Masks) + Layers Panel
