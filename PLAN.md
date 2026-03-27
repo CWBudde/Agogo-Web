@@ -134,14 +134,14 @@
   - [x] **Contrast:** Overlay, Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix
   - [x] **Inversion:** Difference, Exclusion, Subtract, Divide
   - [x] **Component:** Hue, Saturation, Color, Luminosity
-- [ ] Compositing pipeline:
+- [x] Compositing pipeline:
   - [x] Walk layer tree bottom-to-top
   - [x] Apply blend mode formulas and composite each layer onto the accumulator
   - [x] Apply layer masks during compositing
   - [x] Group layers: composite children into isolated buffer, then composite group onto parent
   - [x] Pass-through groups: children blend directly into parent context
-  - [ ] Clipping mask: clip layer's alpha to base layer's alpha
-- [ ] Performance: cache layer composites; invalidate only when layer or ancestors change
+  - [x] Clipping mask: clip layer's alpha to base layer's alpha
+- [x] Performance: cache layer composites; invalidate only when layer or ancestors change
 - [x] Write golden-image unit tests for each blend mode formula
 
 ### Phase 2.3: Layer Masks

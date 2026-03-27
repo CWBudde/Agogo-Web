@@ -116,7 +116,7 @@ func TestRenderViewportProducesOpaqueBuffer(t *testing.T) {
 		DevicePixelRatio: 1,
 	}
 
-	pixels := RenderViewport(doc, vp, nil)
+	pixels := RenderViewport(doc, vp, nil, nil)
 	if got, want := len(pixels), 128*96*4; got != want {
 		t.Fatalf("len(pixels) = %d, want %d", got, want)
 	}
@@ -144,7 +144,7 @@ func TestRenderViewportIncludesLayerComposite(t *testing.T) {
 	doc.LayerRoot.SetChildren([]LayerNode{base, top})
 	vp := &ViewportState{CenterX: 4, CenterY: 4, Zoom: 1, CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}
 
-	pixels := RenderViewport(doc, vp, nil)
+	pixels := RenderViewport(doc, vp, nil, doc.renderCompositeSurface())
 	red, green, blue, alpha := pixelAt(pixels, 8, 1, 1)
 	if red < 250 || green > 5 || blue < 250 || alpha != 255 {
 		t.Fatalf("viewport pixel = [%d %d %d %d], want screen blend close to [255 0 255 255]", red, green, blue, alpha)
@@ -176,8 +176,10 @@ func TestRenderViewportRespectsGroupIsolation(t *testing.T) {
 	}
 
 	vp := &ViewportState{CenterX: 4, CenterY: 4, Zoom: 1, CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}
-	passThrough := RenderViewport(buildDoc(false), vp, nil)
-	isolated := RenderViewport(buildDoc(true), vp, nil)
+	passThroughDoc := buildDoc(false)
+	isolatedDoc := buildDoc(true)
+	passThrough := RenderViewport(passThroughDoc, vp, nil, passThroughDoc.renderCompositeSurface())
+	isolated := RenderViewport(isolatedDoc, vp, nil, isolatedDoc.renderCompositeSurface())
 	passRed, _, passBlue, _ := pixelAt(passThrough, 8, 1, 1)
 	isoRed, _, isoBlue, _ := pixelAt(isolated, 8, 1, 1)
 	if passRed == isoRed && passBlue == isoBlue {
@@ -591,6 +593,78 @@ func TestClearHistoryDropsUndoRedoButKeepsCurrentState(t *testing.T) {
 	}
 	if cleared.Viewport.Zoom != 2 || cleared.Viewport.CenterX != 320 || cleared.Viewport.CenterY != 180 {
 		t.Fatalf("viewport after clear = %+v, want preserved current state", cleared.Viewport)
+	}
+}
+
+func TestCompositeSurfaceCacheReuseOnViewportChange(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	// Create a document with a coloured layer so the surface is non-trivial.
+	_, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "CacheTest", Width: 8, Height: 8,
+	}))
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+	_, err = DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}))
+	if err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+
+	// Prime the cache.
+	inst := instances[h]
+	doc := inst.manager.Active()
+	surface1 := inst.compositeSurface(doc)
+
+	// Viewport-only change: pan without touching layers.
+	inst.viewport.CenterX = 10
+
+	// Cache should still be valid because ContentVersion hasn't changed.
+	doc2 := inst.manager.Active()
+	surface2 := inst.compositeSurface(doc2)
+	if &surface1[0] != &surface2[0] {
+		t.Error("expected cache to be reused after viewport-only change, but got a new allocation")
+	}
+}
+
+func TestCompositeSurfaceCacheInvalidateOnLayerChange(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	_, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "CacheInvalidate", Width: 8, Height: 8,
+	}))
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+	_, err = DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}))
+	if err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+
+	// Prime the cache.
+	inst := instances[h]
+	doc := inst.manager.Active()
+	surface1 := inst.compositeSurface(doc)
+	firstPtr := &surface1[0]
+
+	// Mutate the document (add a layer), which changes ModifiedAt.
+	_, err = DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Red",
+		Bounds:    LayerBounds{W: 8, H: 8},
+		Pixels:    filledPixels(8, 8, [4]byte{255, 0, 0, 255}),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+
+	// Cache must be invalidated; the new surface has different content.
+	doc2 := inst.manager.Active()
+	surface2 := inst.compositeSurface(doc2)
+	if &surface2[0] == firstPtr {
+		t.Error("expected cache to be invalidated after layer change, but old surface was reused")
 	}
 }
 
