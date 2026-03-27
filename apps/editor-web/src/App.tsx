@@ -35,10 +35,20 @@ import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
 
+type FileMenuActionId =
+  | "new-document"
+  | "open-project"
+  | "open-recent"
+  | "save-project"
+  | "export-project"
+  | "generate-assets";
+
 type MenuPreviewItem = {
   label: string;
   shortcut?: string;
   tone?: MenuPreviewTone;
+  actionId?: FileMenuActionId;
+  disabled?: boolean;
 };
 
 type MenuPreviewMenu = {
@@ -56,17 +66,27 @@ const menuItems: MenuPreviewMenu[] = [
       {
         title: "Document",
         items: [
-          { label: "New Document", shortcut: "Ctrl+N", tone: "accent" },
-          { label: "Open...", shortcut: "Ctrl+O" },
-          { label: "Open Recent" },
+          {
+            label: "New Document",
+            shortcut: "Ctrl+N",
+            tone: "accent",
+            actionId: "new-document",
+          },
+          { label: "Open...", shortcut: "Ctrl+O", actionId: "open-project" },
+          { label: "Open Recent", actionId: "open-recent" },
         ],
       },
       {
         title: "Output",
         items: [
-          { label: "Save", shortcut: "Ctrl+S" },
-          { label: "Export As...", shortcut: "Ctrl+Shift+E" },
-          { label: "Generate Assets", tone: "muted" },
+          { label: "Save", shortcut: "Ctrl+S", actionId: "save-project" },
+          { label: "Export As...", shortcut: "Ctrl+Shift+E", actionId: "export-project" },
+          {
+            label: "Generate Assets",
+            tone: "muted",
+            actionId: "generate-assets",
+            disabled: true,
+          },
         ],
       },
     ],
@@ -302,9 +322,12 @@ export default function App() {
   const render = engine.render;
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
+  const lastSavedVersionRef = useRef<number>(0);
   const [activeTool, setActiveTool] = useState("brush");
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [openRecentOpen, setOpenRecentOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
@@ -326,6 +349,44 @@ export default function App() {
     }
   }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
+  useEffect(() => {
+    if (!engine.handle || contentVersion === undefined || contentVersion === 0) {
+      return;
+    }
+    if (contentVersion - lastSavedVersionRef.current < AUTOSAVE_EVERY_N_VERSIONS) {
+      return;
+    }
+    const base64Zip = engine.exportProject();
+    if (!base64Zip) {
+      return;
+    }
+    try {
+      localStorage.setItem(AUTOSAVE_KEY, base64Zip);
+      lastSavedVersionRef.current = contentVersion;
+    } catch {
+      // localStorage quota exceeded — silently skip
+    }
+  }, [contentVersion, engine.exportProject, engine.handle]);
+
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
+
+  const openProjectPicker = () => {
+    projectInputRef.current?.click();
+  };
+
+  const openNewDocumentDialog = () => {
+    setNewDocumentOpen(true);
+  };
+
   const saveProject = () => {
     const base64Zip = engine.exportProject();
     if (!base64Zip) {
@@ -336,14 +397,9 @@ export default function App() {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    const fileName = `${render?.uiMeta.activeDocumentName ?? draft.name}.agp`;
+    const fileName = `${activeDocumentName}.agp`;
     const blob = new Blob([bytes], { type: "application/zip" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadBlob(blob, fileName);
   };
 
   const openProject = async (file: File) => {
@@ -395,8 +451,73 @@ export default function App() {
     }
   };
 
+  const isFileMenuActionDisabled = (actionId: FileMenuActionId) => {
+    switch (actionId) {
+      case "save-project":
+      case "export-project":
+      case "generate-assets":
+        return !render || actionId === "generate-assets";
+      default:
+        return false;
+    }
+  };
+
+  const isMenuItemDisabled = (item: MenuPreviewItem) => {
+    if (item.disabled) {
+      return true;
+    }
+    if (!item.actionId) {
+      return true;
+    }
+    return isFileMenuActionDisabled(item.actionId);
+  };
+
+  const handleFileMenuAction = (actionId: FileMenuActionId) => {
+    if (isFileMenuActionDisabled(actionId)) {
+      return;
+    }
+
+    setOpenMenu(null);
+
+    switch (actionId) {
+      case "new-document":
+        openNewDocumentDialog();
+        break;
+      case "open-project":
+        openProjectPicker();
+        break;
+      case "open-recent":
+        setOpenRecentOpen(true);
+        break;
+      case "save-project":
+        saveProject();
+        break;
+      case "export-project":
+        setExportDialogOpen(true);
+        break;
+      default:
+        break;
+    }
+  };
+
   useKeyboardShortcuts({
     onPanModeChange: setIsPanMode,
+    onNewDocument() {
+      openNewDocumentDialog();
+    },
+    onOpenDocument() {
+      openProjectPicker();
+    },
+    onSaveDocument() {
+      if (!isFileMenuActionDisabled("save-project")) {
+        saveProject();
+      }
+    },
+    onExportDocument() {
+      if (!isFileMenuActionDisabled("export-project")) {
+        setExportDialogOpen(true);
+      }
+    },
     onZoomIn() {
       if (!render) {
         return;
@@ -467,6 +588,22 @@ export default function App() {
     : (toolItems.find((tool) => tool.id === activeTool)?.label ?? activeTool);
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
+      <input
+        ref={projectInputRef}
+        type="file"
+        accept=".agp,application/json"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) {
+            return;
+          }
+
+          await openProject(file);
+          event.target.value = "";
+        }}
+      />
+
       <div className="mx-auto min-h-screen max-w-[1920px] px-0">
         <div className="flex min-h-screen flex-col bg-[#1d2026]">
           <header className="editor-titlebar flex h-[34px] items-center justify-between gap-3 border-b border-border px-2">
@@ -508,7 +645,13 @@ export default function App() {
                         {menu.label}
                       </button>
 
-                      {isOpen ? <MenuPreviewPanel menu={menu} /> : null}
+                      {isOpen ? (
+                        <MenuPreviewPanel
+                          menu={menu}
+                          isItemDisabled={isMenuItemDisabled}
+                          onAction={handleFileMenuAction}
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
@@ -516,7 +659,7 @@ export default function App() {
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="sm" onClick={() => projectInputRef.current?.click()}>
+              <Button variant="ghost" size="sm" onClick={openProjectPicker}>
                 <OpenFolderIcon className="mr-1.5 h-3.5 w-3.5" />
                 Open
               </Button>
@@ -524,7 +667,7 @@ export default function App() {
                 <SaveIcon className="mr-1.5 h-3.5 w-3.5" />
                 Save
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setNewDocumentOpen(true)}>
+              <Button variant="ghost" size="sm" onClick={openNewDocumentDialog}>
                 <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
                 New
               </Button>
@@ -829,21 +972,6 @@ export default function App() {
         title="Create Document"
         description="Presets, dimensions, resolution, color mode, bit depth, and background feed the Go engine document manager."
       >
-        <input
-          ref={projectInputRef}
-          type="file"
-          accept=".agp,application/json"
-          className="hidden"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            if (!file) {
-              return;
-            }
-
-            await openProject(file);
-            event.target.value = "";
-          }}
-        />
         <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
           <div className="space-y-[var(--ui-gap-2)]">
             {presets.map((preset) => (
@@ -1012,6 +1140,69 @@ export default function App() {
           </Button>
         </div>
       </Dialog>
+
+      <Dialog
+        open={openRecentOpen}
+        title="Open Recent"
+        description="The browser build cannot reopen local files automatically yet, so recent documents are informational only for now."
+        className="max-w-lg"
+      >
+        <div className="space-y-3 text-[13px] text-slate-300">
+          <p>
+            Recent document tracking needs a persistent file-access layer. That is not wired into
+            the web shell yet.
+          </p>
+          <p className="text-slate-400">
+            Use Open to pick an .agp archive or legacy JSON project from disk.
+          </p>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
+          <Button variant="ghost" size="sm" onClick={() => setOpenRecentOpen(false)}>
+            Close
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setOpenRecentOpen(false);
+              openProjectPicker();
+            }}
+          >
+            Open...
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={exportDialogOpen}
+        title="Export As"
+        description="Project archive export is available now. Flattened image exports still need dedicated engine support."
+        className="max-w-lg"
+      >
+        <div className="space-y-3 text-[13px] text-slate-300">
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
+            <div className="text-[12px] font-medium text-slate-100">Project Archive (.agp)</div>
+            <div className="mt-1 text-[12px] text-slate-400">
+              Saves the current document state, layer tree, and history as {activeDocumentName}.agp.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
+          <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              saveProject();
+              setExportDialogOpen(false);
+            }}
+          >
+            Export Archive
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }
@@ -1034,7 +1225,15 @@ function MetricChip({ value }: { value: string }) {
   );
 }
 
-function MenuPreviewPanel({ menu }: { menu: MenuPreviewMenu }) {
+function MenuPreviewPanel({
+  menu,
+  isItemDisabled,
+  onAction,
+}: {
+  menu: MenuPreviewMenu;
+  isItemDisabled(item: MenuPreviewItem): boolean;
+  onAction(actionId: FileMenuActionId): void;
+}) {
   const items = menu.sections.flatMap((section) => section.items);
 
   return (
@@ -1049,35 +1248,65 @@ function MenuPreviewPanel({ menu }: { menu: MenuPreviewMenu }) {
       </div>
 
       <div className="py-1">
-        {items.map((item) => (
-          <MenuPreviewAction key={`${menu.label}-${item.label}`} item={item} />
-        ))}
+        {items.map((item) => {
+          const disabled = isItemDisabled(item);
+          return (
+            <MenuPreviewAction
+              key={`${menu.label}-${item.label}`}
+              item={item}
+              disabled={disabled}
+              onClick={
+                item.actionId ? () => onAction(item.actionId as FileMenuActionId) : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function MenuPreviewAction({ item }: { item: MenuPreviewItem }) {
+function MenuPreviewAction({
+  item,
+  disabled,
+  onClick,
+}: {
+  item: MenuPreviewItem;
+  disabled: boolean;
+  onClick?: () => void;
+}) {
   const ItemIcon = iconForMenuItem(item.label);
 
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition hover:bg-white/6"
+      className={[
+        "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition",
+        disabled
+          ? "cursor-not-allowed opacity-60"
+          : "hover:bg-white/6 focus:bg-white/6 focus:outline-none",
+      ].join(" ")}
+      disabled={disabled}
+      aria-disabled={disabled}
+      onClick={onClick}
     >
       <span className="flex min-w-0 items-center gap-2">
         <ItemIcon
           className={[
             "h-3.5 w-3.5 shrink-0",
-            item.tone === "accent"
-              ? "text-cyan-300"
-              : item.tone === "muted"
-                ? "text-slate-600"
+            disabled || item.tone === "muted"
+              ? "text-slate-600"
+              : item.tone === "accent"
+                ? "text-cyan-300"
                 : "text-slate-400",
           ].join(" ")}
         />
         <span
-          className={item.tone === "muted" ? "truncate text-slate-500" : "truncate text-slate-100"}
+          className={
+            disabled || item.tone === "muted"
+              ? "truncate text-slate-500"
+              : "truncate text-slate-100"
+          }
         >
           {item.label}
         </span>
@@ -1229,6 +1458,9 @@ function dockTitle(panel: AuxPanel) {
       return "Properties";
   }
 }
+
+const AUTOSAVE_KEY = "agogo:autosave";
+const AUTOSAVE_EVERY_N_VERSIONS = 10;
 
 // Channel descriptor: short label, long name, indicator colour class.
 const CHANNELS = [
