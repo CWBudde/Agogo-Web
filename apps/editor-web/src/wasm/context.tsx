@@ -11,6 +11,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
 } from "react";
 import { loadEngine } from "./loader";
 import type { EngineContextValue, EngineHandle } from "./types";
@@ -91,32 +92,38 @@ export function EngineProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  const value = useMemo<EngineContextValue>(() => {
+  // Stable ref that always points to the latest handle.
+  // Command handlers use this ref so their function identity doesn't change on
+  // every render (which would cause useEffect deps to re-fire on every frame).
+  const handleRef = useRef(state.handle);
+  handleRef.current = state.handle;
+
+  // Stable command handlers — created once, never change identity across renders.
+  // All functions call handleRef.current at invocation time so they always reach
+  // the live engine handle without capturing stale state in their closure.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handlers = useMemo(() => {
     const run = (commandId: number, payload?: unknown) => {
-      if (!state.handle) {
+      const handle = handleRef.current;
+      if (!handle) {
         return null;
       }
-      const render = state.handle.dispatch(commandId, payload);
-      dispatch({ type: "render", render });
-      return render;
+      const result = handle.dispatch(commandId, payload);
+      dispatch({ type: "render", render: result });
+      return result;
     };
 
     return {
-      status: state.status,
-      handle: state.handle,
-      render: state.render,
-      error: state.error,
-      ready: state.handle ? Promise.resolve(state.handle) : null,
       dispatchCommand(commandId: number, payload?: unknown) {
         return run(commandId, payload);
       },
       createDocument(command: CreateDocumentCommand) {
         return run(CommandID.CreateDocument, command);
       },
-      resizeViewport(canvasW, canvasH, devicePixelRatio) {
+      resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number) {
         return run(CommandID.Resize, { canvasW, canvasH, devicePixelRatio });
       },
-      setZoom(zoom, anchorX, anchorY) {
+      setZoom(zoom: number, anchorX?: number, anchorY?: number) {
         return run(CommandID.ZoomSet, {
           zoom,
           hasAnchor: anchorX !== undefined && anchorY !== undefined,
@@ -124,7 +131,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
           anchorY,
         });
       },
-      setPan(centerX, centerY) {
+      setPan(centerX: number, centerY: number) {
         return run(CommandID.PanSet, { centerX, centerY });
       },
       dispatchPointerEvent(command: PointerEventCommand) {
@@ -142,22 +149,23 @@ export function EngineProvider({ children }: PropsWithChildren) {
       clearHistory() {
         return run(CommandID.ClearHistory);
       },
-      setRotation(rotation) {
+      setRotation(rotation: number) {
         return run(CommandID.RotateViewSet, { rotation });
       },
       fitToView() {
         return run(CommandID.FitToView);
       },
       exportProject() {
-        return state.handle?.exportProject() ?? null;
+        return handleRef.current?.exportProject() ?? null;
       },
       importProject(projectJSON: string) {
-        if (!state.handle) {
+        const handle = handleRef.current;
+        if (!handle) {
           return null;
         }
-        const render = state.handle.importProject(projectJSON);
-        dispatch({ type: "render", render });
-        return render;
+        const result = handle.importProject(projectJSON);
+        dispatch({ type: "render", render: result });
+        return result;
       },
       undo() {
         return run(CommandID.Undo);
@@ -169,7 +177,19 @@ export function EngineProvider({ children }: PropsWithChildren) {
         window.location.reload();
       },
     };
-  }, [state.error, state.handle, state.render, state.status]);
+  }, []); // Intentionally empty — functions use handleRef, not closed-over state
+
+  const value = useMemo<EngineContextValue>(
+    () => ({
+      ...handlers,
+      status: state.status,
+      handle: state.handle,
+      render: state.render,
+      error: state.error,
+      ready: state.handle ? Promise.resolve(state.handle) : null,
+    }),
+    [handlers, state.error, state.handle, state.render, state.status],
+  );
 
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;
 }

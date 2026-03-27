@@ -1,6 +1,10 @@
 package engine
 
-import "testing"
+import (
+	"bytes"
+	"encoding/base64"
+	"testing"
+)
 
 func TestDocumentLayerOperationsAndUndo(t *testing.T) {
 	h := Init("")
@@ -364,6 +368,206 @@ func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
 	}
 }
 
+func TestDeleteLayerCommandSelectsNextSiblingAndSupportsUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	first, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "First",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{1, 2, 3, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add first layer: %v", err)
+	}
+	firstID := first.UIMeta.ActiveLayerID
+
+	middle, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Middle",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{4, 5, 6, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add middle layer: %v", err)
+	}
+	middleID := middle.UIMeta.ActiveLayerID
+
+	last, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Last",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{7, 8, 9, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add last layer: %v", err)
+	}
+	lastID := last.UIMeta.ActiveLayerID
+
+	selected, err := DispatchCommand(h, commandSetActiveLayer, mustJSON(t, SetActiveLayerPayload{LayerID: middleID}))
+	if err != nil {
+		t.Fatalf("set active layer: %v", err)
+	}
+	if selected.UIMeta.ActiveLayerID != middleID {
+		t.Fatalf("active layer id = %q, want %q", selected.UIMeta.ActiveLayerID, middleID)
+	}
+
+	deleted, err := DispatchCommand(h, commandDeleteLayer, mustJSON(t, DeleteLayerPayload{LayerID: middleID}))
+	if err != nil {
+		t.Fatalf("delete middle layer: %v", err)
+	}
+	if deleted.UIMeta.ActiveLayerID != lastID {
+		t.Fatalf("active layer after delete = %q, want %q", deleted.UIMeta.ActiveLayerID, lastID)
+	}
+	if _, ok := findLayerMetaByID(deleted.UIMeta.Layers, middleID); ok {
+		t.Fatalf("deleted layer %q still present after delete", middleID)
+	}
+	if _, ok := findLayerMetaByID(deleted.UIMeta.Layers, firstID); !ok {
+		t.Fatalf("first layer %q missing after delete", firstID)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo delete layer: %v", err)
+	}
+	if undone.UIMeta.ActiveLayerID != middleID {
+		t.Fatalf("active layer after undo = %q, want %q", undone.UIMeta.ActiveLayerID, middleID)
+	}
+	if _, ok := findLayerMetaByID(undone.UIMeta.Layers, middleID); !ok {
+		t.Fatalf("layer %q missing after undo", middleID)
+	}
+}
+
+func TestDeleteLayerSelectsPreviousSiblingWhenDeletingLastSibling(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	first := NewPixelLayer("First", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{1, 2, 3, 255})
+	last := NewPixelLayer("Last", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{4, 5, 6, 255})
+	doc.LayerRoot.SetChildren([]LayerNode{first, last})
+	doc.ActiveLayerID = last.ID()
+
+	if got := len(doc.Layers()); got != 2 {
+		t.Fatalf("len(Layers()) = %d, want 2", got)
+	}
+	if err := doc.DeleteLayer(last.ID()); err != nil {
+		t.Fatalf("DeleteLayer(last): %v", err)
+	}
+	if doc.ActiveLayerID != first.ID() {
+		t.Fatalf("active layer after deleting last sibling = %q, want %q", doc.ActiveLayerID, first.ID())
+	}
+	if got := len(doc.Layers()); got != 1 {
+		t.Fatalf("len(Layers()) after delete = %d, want 1", got)
+	}
+}
+
+func TestDeleteLayerSelectsParentWhenDeletingOnlyChild(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	group := NewGroupLayer("Group")
+	child := NewPixelLayer("Child", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{1, 2, 3, 255})
+	group.SetChildren([]LayerNode{child})
+	doc.LayerRoot.SetChildren([]LayerNode{group})
+	doc.ActiveLayerID = child.ID()
+
+	if err := doc.DeleteLayer(child.ID()); err != nil {
+		t.Fatalf("DeleteLayer(child): %v", err)
+	}
+	if doc.ActiveLayerID != group.ID() {
+		t.Fatalf("active layer after deleting only child = %q, want %q", doc.ActiveLayerID, group.ID())
+	}
+	if got := len(group.Children()); got != 0 {
+		t.Fatalf("group child count after delete = %d, want 0", got)
+	}
+}
+
+func TestDeleteLayerClearsActiveWhenDeletingLastRootLayer(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	only := NewPixelLayer("Only", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{1, 2, 3, 255})
+	doc.LayerRoot.SetChildren([]LayerNode{only})
+	doc.ActiveLayerID = only.ID()
+
+	if err := doc.DeleteLayer(only.ID()); err != nil {
+		t.Fatalf("DeleteLayer(only): %v", err)
+	}
+	if doc.ActiveLayerID != "" {
+		t.Fatalf("active layer after deleting last root layer = %q, want empty", doc.ActiveLayerID)
+	}
+	if got := len(doc.Layers()); got != 0 {
+		t.Fatalf("len(Layers()) after deleting last root layer = %d, want 0", got)
+	}
+}
+
+func TestDeleteLayerReturnsErrorForUnknownLayer(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	if err := doc.DeleteLayer("missing"); err == nil {
+		t.Fatal("expected DeleteLayer to fail for an unknown layer")
+	}
+}
+
+func TestSetLayerLockCommandUpdatesMetadataAndSupportsUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Locked",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{10, 20, 30, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
+	locked, err := DispatchCommand(h, commandSetLayerLock, mustJSON(t, SetLayerLockPayload{
+		LayerID:  layerID,
+		LockMode: LayerLockAll,
+	}))
+	if err != nil {
+		t.Fatalf("set layer lock: %v", err)
+	}
+	meta, ok := findLayerMetaByID(locked.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q not found after locking", layerID)
+	}
+	if meta.LockMode != LayerLockAll {
+		t.Fatalf("lock mode after set = %q, want %q", meta.LockMode, LayerLockAll)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo lock change: %v", err)
+	}
+	meta, ok = findLayerMetaByID(undone.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q missing after undo", layerID)
+	}
+	if meta.LockMode != LayerLockNone {
+		t.Fatalf("lock mode after undo = %q, want %q", meta.LockMode, LayerLockNone)
+	}
+
+	redone, err := DispatchCommand(h, commandRedo, "")
+	if err != nil {
+		t.Fatalf("redo lock change: %v", err)
+	}
+	meta, ok = findLayerMetaByID(redone.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q missing after redo", layerID)
+	}
+	if meta.LockMode != LayerLockAll {
+		t.Fatalf("lock mode after redo = %q, want %q", meta.LockMode, LayerLockAll)
+	}
+
+	doc := instances[h].manager.Active()
+	active := doc.ActiveLayer()
+	if active == nil || active.LockMode() != LayerLockAll {
+		t.Fatalf("active layer lock mode = %v, want %q", active, LayerLockAll)
+	}
+
+	if err := doc.SetLayerLock("missing", LayerLockPixels); err == nil {
+		t.Fatal("expected SetLayerLock to fail for an unknown layer")
+	}
+}
+
 func TestRenderLayerToSurfaceAppliesRasterMask(t *testing.T) {
 	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
 	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
@@ -558,6 +762,263 @@ func TestClipToBelowRequiresBaseLayer(t *testing.T) {
 	}
 }
 
+func TestFlattenImageCommandDiscardsHiddenLayersAndSupportsUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Flatten Image",
+		Width:      2,
+		Height:     2,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels: []byte{
+			10, 20, 30, 255,
+			10, 20, 30, 255,
+			10, 20, 30, 255,
+			10, 20, 30, 255,
+		},
+	})); err != nil {
+		t.Fatalf("add base layer: %v", err)
+	}
+
+	hidden, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Hidden",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    filledPixels(2, 2, [4]byte{200, 10, 10, 255}),
+	}))
+	if err != nil {
+		t.Fatalf("add hidden layer: %v", err)
+	}
+	hiddenID := hidden.UIMeta.ActiveLayerID
+	if _, err := DispatchCommand(h, commandSetLayerVis, mustJSON(t, SetLayerVisibilityPayload{LayerID: hiddenID, Visible: false})); err != nil {
+		t.Fatalf("hide layer: %v", err)
+	}
+
+	group, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypeGroup,
+		Name:      "Group",
+	}))
+	if err != nil {
+		t.Fatalf("add group: %v", err)
+	}
+	groupID := group.UIMeta.ActiveLayerID
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:     LayerTypePixel,
+		Name:          "Group Red",
+		ParentLayerID: groupID,
+		Bounds:        LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:        []byte{255, 0, 0, 255},
+	})); err != nil {
+		t.Fatalf("add group red layer: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:     LayerTypePixel,
+		Name:          "Group Blue",
+		ParentLayerID: groupID,
+		Bounds:        LayerBounds{X: 1, Y: 0, W: 1, H: 1},
+		Pixels:        []byte{0, 0, 255, 255},
+	})); err != nil {
+		t.Fatalf("add group blue layer: %v", err)
+	}
+
+	expectedSurface := append([]byte(nil), instances[h].manager.Active().renderCompositeSurface()...)
+
+	flattened, err := DispatchCommand(h, commandFlattenImage, "")
+	if err != nil {
+		t.Fatalf("flatten image: %v", err)
+	}
+	if len(flattened.UIMeta.Layers) != 1 {
+		t.Fatalf("flattened root layer count = %d, want 1", len(flattened.UIMeta.Layers))
+	}
+	if flattened.UIMeta.Layers[0].Name != "Background" || flattened.UIMeta.Layers[0].LayerType != LayerTypePixel {
+		t.Fatalf("flattened layer meta = %+v, want a Background pixel layer", flattened.UIMeta.Layers[0])
+	}
+
+	activeDoc := instances[h].manager.Active()
+	children := activeDoc.LayerRoot.Children()
+	if len(children) != 1 {
+		t.Fatalf("active document child count = %d, want 1", len(children))
+	}
+	flattenedLayer, ok := children[0].(*PixelLayer)
+	if !ok {
+		t.Fatalf("flattened layer type = %T, want *PixelLayer", children[0])
+	}
+	if !bytes.Equal(flattenedLayer.Pixels, expectedSurface) {
+		t.Fatalf("flattened pixels = %v, want %v", flattenedLayer.Pixels, expectedSurface)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo flatten image: %v", err)
+	}
+	if _, ok := findLayerMetaByID(undone.UIMeta.Layers, hiddenID); !ok {
+		t.Fatalf("hidden layer %q missing after undo", hiddenID)
+	}
+	hiddenMeta, _ := findLayerMetaByID(undone.UIMeta.Layers, hiddenID)
+	if hiddenMeta.Visible {
+		t.Fatal("hidden layer should remain hidden after undoing flatten image")
+	}
+}
+
+func TestFlattenImageFailsWithoutVisibleLayers(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	hidden := NewPixelLayer("Hidden", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{1, 2, 3, 255})
+	hidden.SetVisible(false)
+	doc.LayerRoot.SetChildren([]LayerNode{hidden})
+
+	if err := doc.FlattenImage(); err == nil {
+		t.Fatal("expected flatten image to fail without visible layers")
+	}
+}
+
+func TestGenerateAllThumbnailsIncludesMixedLayerTypesAndMasks(t *testing.T) {
+	doc := &Document{Width: 2, Height: 2, LayerRoot: NewGroupLayer("Root")}
+	pixel := NewPixelLayer("Pixel", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	pixel.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 2, Data: []byte{255, 0, 0, 255}})
+
+	text := NewTextLayer("Text", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, "A", []byte{0, 255, 0, 255})
+	vector := NewVectorLayer("Vector", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, &Path{Closed: true, Points: []PathPoint{{X: 1, Y: 0}, {X: 2, Y: 0}, {X: 2, Y: 1}}}, []byte{0, 0, 255, 255})
+	group := NewGroupLayer("Group")
+	group.SetChildren([]LayerNode{text, vector})
+	doc.LayerRoot.SetChildren([]LayerNode{pixel, group})
+
+	thumbs, err := doc.generateAllThumbnails(2, 2)
+	if err != nil {
+		t.Fatalf("generateAllThumbnails: %v", err)
+	}
+	if len(thumbs) != 4 {
+		t.Fatalf("thumbnail count = %d, want 4", len(thumbs))
+	}
+
+	pixelThumb := mustDecodeThumbnail(t, thumbs[pixel.ID()].LayerRGBA)
+	if pixelThumb[0] != 255 || pixelThumb[1] != 0 || pixelThumb[2] != 0 || pixelThumb[3] != 255 {
+		t.Fatalf("pixel thumbnail first pixel = %v, want opaque red", pixelThumb[:4])
+	}
+	maskThumb := mustDecodeThumbnail(t, thumbs[pixel.ID()].MaskRGBA)
+	if maskThumb[0] != 255 || maskThumb[1] != 255 || maskThumb[2] != 255 || maskThumb[3] != 255 {
+		t.Fatalf("mask thumbnail first pixel = %v, want opaque white", maskThumb[:4])
+	}
+	if maskThumb[4] != 0 || maskThumb[5] != 0 || maskThumb[6] != 0 || maskThumb[7] != 255 {
+		t.Fatalf("mask thumbnail second pixel = %v, want opaque black", maskThumb[4:8])
+	}
+
+	textThumb := mustDecodeThumbnail(t, thumbs[text.ID()].LayerRGBA)
+	if textThumb[0] != 0 || textThumb[1] != 255 || textThumb[2] != 0 || textThumb[3] != 255 {
+		t.Fatalf("text thumbnail first pixel = %v, want opaque green", textThumb[:4])
+	}
+
+	vectorThumb := mustDecodeThumbnail(t, thumbs[vector.ID()].LayerRGBA)
+	if vectorThumb[0] != 0 || vectorThumb[1] != 0 || vectorThumb[2] != 255 || vectorThumb[3] != 255 {
+		t.Fatalf("vector thumbnail first pixel = %v, want opaque blue", vectorThumb[:4])
+	}
+
+	groupThumb := mustDecodeThumbnail(t, thumbs[group.ID()].LayerRGBA)
+	if groupThumb[0] != 0 || groupThumb[1] != 255 || groupThumb[2] != 0 || groupThumb[3] != 255 {
+		t.Fatalf("group thumbnail first pixel = %v, want opaque green", groupThumb[:4])
+	}
+	if groupThumb[4] != 0 || groupThumb[5] != 0 || groupThumb[6] != 255 || groupThumb[7] != 255 {
+		t.Fatalf("group thumbnail second pixel = %v, want opaque blue", groupThumb[4:8])
+	}
+}
+
+func TestGetLayerThumbnailsCommandReturnsEntriesWithoutHistoryMutation(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Thumbs",
+		Width:      2,
+		Height:     2,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Masked",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    filledPixels(2, 2, [4]byte{50, 60, 70, 255}),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+	if _, err := DispatchCommand(h, commandAddLayerMask, mustJSON(t, AddLayerMaskPayload{LayerID: layerID, Mode: AddLayerMaskRevealAll})); err != nil {
+		t.Fatalf("add layer mask: %v", err)
+	}
+
+	historyBefore := instances[h].history.CurrentIndex()
+	result, err := DispatchCommand(h, commandGetLayerThumbnails, "")
+	if err != nil {
+		t.Fatalf("get layer thumbnails: %v", err)
+	}
+	if instances[h].history.CurrentIndex() != historyBefore {
+		t.Fatal("get layer thumbnails should not add a history entry")
+	}
+	entry, ok := result.Thumbnails[layerID]
+	if !ok {
+		t.Fatalf("missing thumbnail for layer %q", layerID)
+	}
+	if got := len(mustDecodeThumbnail(t, entry.LayerRGBA)); got != thumbnailSize*thumbnailSize*4 {
+		t.Fatalf("layer thumbnail length = %d, want %d", got, thumbnailSize*thumbnailSize*4)
+	}
+	if got := len(mustDecodeThumbnail(t, entry.MaskRGBA)); got != thumbnailSize*thumbnailSize*4 {
+		t.Fatalf("mask thumbnail length = %d, want %d", got, thumbnailSize*thumbnailSize*4)
+	}
+}
+
+func TestFlattenLayerTreeAndScaleHelpers(t *testing.T) {
+	first := NewPixelLayer("First", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{1, 2, 3, 4})
+	childA := NewPixelLayer("Child A", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{5, 6, 7, 8})
+	childB := NewPixelLayer("Child B", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{9, 10, 11, 12})
+	group := NewGroupLayer("Group")
+	group.SetChildren([]LayerNode{childA, childB})
+
+	flattened := flattenLayerTree([]LayerNode{first, group})
+	if got, want := len(flattened), 4; got != want {
+		t.Fatalf("flattened layer count = %d, want %d", got, want)
+	}
+	if flattened[0].ID() != first.ID() || flattened[1].ID() != group.ID() || flattened[2].ID() != childA.ID() || flattened[3].ID() != childB.ID() {
+		t.Fatalf("unexpected flatten order: [%s %s %s %s]", flattened[0].ID(), flattened[1].ID(), flattened[2].ID(), flattened[3].ID())
+	}
+
+	scaledRGBA := scaleRGBA([]byte{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+		9, 10, 11, 12,
+		13, 14, 15, 16,
+	}, 2, 2, 1, 1)
+	if !bytes.Equal(scaledRGBA, []byte{1, 2, 3, 4}) {
+		t.Fatalf("scaled RGBA = %v, want [1 2 3 4]", scaledRGBA)
+	}
+
+	scaledGray := scaleGrayToRGBA([]byte{255, 0, 0, 128}, 2, 2, 1, 1)
+	if !bytes.Equal(scaledGray, []byte{255, 255, 255, 255}) {
+		t.Fatalf("scaled gray RGBA = %v, want [255 255 255 255]", scaledGray)
+	}
+}
+
 func findLayerMetaByID(layers []LayerNodeMeta, targetID string) (LayerNodeMeta, bool) {
 	for _, layer := range layers {
 		if layer.ID == targetID {
@@ -568,4 +1029,13 @@ func findLayerMetaByID(layers []LayerNodeMeta, targetID string) (LayerNodeMeta, 
 		}
 	}
 	return LayerNodeMeta{}, false
+}
+
+func mustDecodeThumbnail(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatalf("DecodeString(%q): %v", value, err)
+	}
+	return decoded
 }

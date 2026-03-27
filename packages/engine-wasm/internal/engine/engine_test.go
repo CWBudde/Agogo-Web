@@ -668,6 +668,166 @@ func TestCompositeSurfaceCacheInvalidateOnLayerChange(t *testing.T) {
 	}
 }
 
+func TestDocumentManagerSwitchReplaceAndCloseActive(t *testing.T) {
+	manager := newDocumentManager()
+	docA := testDocumentFixture("doc-a", "A", 100, 80)
+	if err := manager.ReplaceActive(docA); err != nil {
+		t.Fatalf("ReplaceActive without active document: %v", err)
+	}
+	if manager.ActiveID() != docA.ID {
+		t.Fatalf("active document id = %q, want %q", manager.ActiveID(), docA.ID)
+	}
+
+	activeCopy := manager.Active()
+	activeCopy.Name = "mutated"
+	if manager.Active().Name != docA.Name {
+		t.Fatal("Active should return a clone, not the stored document pointer")
+	}
+
+	docB := testDocumentFixture("doc-b", "B", 320, 200)
+	manager.Create(docB)
+	if manager.ActiveID() != docB.ID {
+		t.Fatalf("active document id after Create = %q, want %q", manager.ActiveID(), docB.ID)
+	}
+
+	if err := manager.Switch("missing"); err == nil {
+		t.Fatal("expected Switch to fail for an unknown document")
+	}
+	if err := manager.Switch(docA.ID); err != nil {
+		t.Fatalf("Switch(docA): %v", err)
+	}
+	if manager.ActiveID() != docA.ID {
+		t.Fatalf("active document id after Switch = %q, want %q", manager.ActiveID(), docA.ID)
+	}
+
+	replacement := testDocumentFixture(docA.ID, "A updated", 640, 480)
+	if err := manager.ReplaceActive(replacement); err != nil {
+		t.Fatalf("ReplaceActive(docA replacement): %v", err)
+	}
+	active := manager.Active()
+	if active.Name != replacement.Name || active.Width != replacement.Width || active.Height != replacement.Height {
+		t.Fatalf("active document after replace = %+v, want %+v", active, replacement)
+	}
+
+	if err := manager.CloseActive(); err != nil {
+		t.Fatalf("CloseActive on first document: %v", err)
+	}
+	if manager.ActiveID() != docB.ID {
+		t.Fatalf("active document id after closing A = %q, want %q", manager.ActiveID(), docB.ID)
+	}
+
+	if err := manager.CloseActive(); err != nil {
+		t.Fatalf("CloseActive on last document: %v", err)
+	}
+	if manager.ActiveID() != "" {
+		t.Fatalf("active document id after closing all documents = %q, want empty", manager.ActiveID())
+	}
+	if manager.Active() != nil {
+		t.Fatal("expected Active to return nil after closing all documents")
+	}
+	if err := manager.CloseActive(); err != nil {
+		t.Fatalf("CloseActive without active document should be a no-op: %v", err)
+	}
+}
+
+func TestCloseDocumentActivatesPreviousDocumentAndUndoRestoresClosedDocument(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Second",
+		Width:      800,
+		Height:     600,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "white",
+	})); err != nil {
+		t.Fatalf("create second document: %v", err)
+	}
+	third, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Third",
+		Width:      320,
+		Height:     240,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	}))
+	if err != nil {
+		t.Fatalf("create third document: %v", err)
+	}
+	if third.UIMeta.ActiveDocumentName != "Third" {
+		t.Fatalf("active document name before close = %q, want Third", third.UIMeta.ActiveDocumentName)
+	}
+
+	closed, err := DispatchCommand(h, commandCloseDocument, "")
+	if err != nil {
+		t.Fatalf("close document: %v", err)
+	}
+	if closed.UIMeta.ActiveDocumentName != "Second" {
+		t.Fatalf("active document name after close = %q, want Second", closed.UIMeta.ActiveDocumentName)
+	}
+	if closed.UIMeta.DocumentWidth != 800 || closed.UIMeta.DocumentHeight != 600 {
+		t.Fatalf("active document size after close = %dx%d, want 800x600", closed.UIMeta.DocumentWidth, closed.UIMeta.DocumentHeight)
+	}
+	if closed.Viewport.CenterX != 400 || closed.Viewport.CenterY != 300 {
+		t.Fatalf("viewport center after close = %.2f, %.2f, want 400, 300", closed.Viewport.CenterX, closed.Viewport.CenterY)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo close document: %v", err)
+	}
+	if undone.UIMeta.ActiveDocumentName != "Third" {
+		t.Fatalf("active document name after undo = %q, want Third", undone.UIMeta.ActiveDocumentName)
+	}
+	if undone.UIMeta.DocumentWidth != 320 || undone.UIMeta.DocumentHeight != 240 {
+		t.Fatalf("active document size after undo = %dx%d, want 320x240", undone.UIMeta.DocumentWidth, undone.UIMeta.DocumentHeight)
+	}
+
+	redone, err := DispatchCommand(h, commandRedo, "")
+	if err != nil {
+		t.Fatalf("redo close document: %v", err)
+	}
+	if redone.UIMeta.ActiveDocumentName != "Second" {
+		t.Fatalf("active document name after redo = %q, want Second", redone.UIMeta.ActiveDocumentName)
+	}
+}
+
+func TestCloseLastDocumentReturnsNoActiveDocumentState(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	closed, err := DispatchCommand(h, commandCloseDocument, "")
+	if err != nil {
+		t.Fatalf("close last document: %v", err)
+	}
+	if closed.BufferLen != 0 || closed.BufferPtr != 0 {
+		t.Fatalf("buffer after closing last document = len %d ptr %d, want 0/0", closed.BufferLen, closed.BufferPtr)
+	}
+	if closed.UIMeta.ActiveDocumentID != "" || closed.UIMeta.ActiveDocumentName != "" {
+		t.Fatalf("active document after closing last = %q/%q, want empty", closed.UIMeta.ActiveDocumentID, closed.UIMeta.ActiveDocumentName)
+	}
+	if closed.UIMeta.StatusText != "No active document" {
+		t.Fatalf("status text after closing last document = %q, want No active document", closed.UIMeta.StatusText)
+	}
+	if !closed.UIMeta.CanUndo {
+		t.Fatal("closing the last document should still be undoable")
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo close last document: %v", err)
+	}
+	if undone.UIMeta.ActiveDocumentName == "" {
+		t.Fatal("undo close last document should restore an active document")
+	}
+	if undone.BufferLen == 0 {
+		t.Fatal("undo close last document should restore the render buffer")
+	}
+}
+
 func TestVectorMaskAddDeleteUndoable(t *testing.T) {
 	h := Init("")
 	defer Free(h)
@@ -804,4 +964,21 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 	return string(bytes)
+}
+
+func testDocumentFixture(id, name string, width, height int) *Document {
+	return &Document{
+		Width:      width,
+		Height:     height,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		ID:         id,
+		Name:       name,
+		CreatedAt:  "2026-03-27T10:00:00Z",
+		CreatedBy:  "agogo-web-test",
+		ModifiedAt: "2026-03-27T10:00:00Z",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
 }
