@@ -51,6 +51,7 @@ const (
 	commandSetMaskEditMode    = 0x0115
 	commandGetLayerThumbnails = 0x0116
 	commandFlattenImage       = 0x0117
+	commandOpenImageFile      = 0x0118
 	commandBeginTxn           = 0xffe0
 	commandEndTxn             = 0xffe1
 	commandClearHistory       = 0xffe2
@@ -1232,6 +1233,34 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err
 				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandOpenImageFile:
+		var payload OpenImageFilePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: fmt.Sprintf("Open image: %s", payload.Name),
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.newDocument(CreateDocumentPayload{
+					Name:   payload.Name,
+					Width:  payload.Width,
+					Height: payload.Height,
+				})
+				bounds := LayerBounds{X: 0, Y: 0, W: payload.Width, H: payload.Height}
+				layer := NewPixelLayer("Background", bounds, payload.Pixels)
+				if err := doc.AddLayer(layer, doc.LayerRoot.ID(), -1); err != nil {
+					return snapshot{}, err
+				}
+				inst.manager.Create(doc)
+				inst.viewport.CenterX = float64(doc.Width) / 2
+				inst.viewport.CenterY = float64(doc.Height) / 2
+				inst.fitViewportToActiveDocument()
 				return inst.captureSnapshot(), nil
 			},
 		}

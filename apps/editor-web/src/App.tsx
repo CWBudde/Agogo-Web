@@ -437,6 +437,36 @@ export default function App() {
     }
   };
 
+  const openImageFile = async (file: File) => {
+    const bitmap = await createImageBitmap(file);
+    const { width, height } = bitmap;
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let i = 0; i < data.length; i += chunkSize) {
+      binary += String.fromCharCode(...data.subarray(i, i + chunkSize));
+    }
+    const result = engine.dispatchCommand(CommandID.OpenImageFile, {
+      name: file.name,
+      width,
+      height,
+      pixels: btoa(binary),
+    });
+    if (result) {
+      setDraft((current) => ({
+        ...current,
+        name: result.uiMeta.activeDocumentName || file.name,
+        width,
+        height,
+      }));
+    }
+  };
+
   const recoverAutosave = () => {
     const saved = localStorage.getItem(AUTOSAVE_KEY);
     if (!saved) {
@@ -479,8 +509,11 @@ export default function App() {
     event.preventDefault();
     setIsDragOver(false);
     const file = event.dataTransfer.files[0];
-    if (file && (file.name.endsWith(".agp") || file.type === "application/json")) {
+    if (!file) return;
+    if (file.name.endsWith(".agp") || file.type === "application/json") {
       await openProject(file);
+    } else if (file.type.startsWith("image/")) {
+      await openImageFile(file);
     }
   };
 
@@ -624,7 +657,7 @@ export default function App() {
       <input
         ref={projectInputRef}
         type="file"
-        accept=".agp,application/json"
+        accept=".agp,application/json,image/png,image/jpeg,image/gif,image/webp,image/bmp"
         className="hidden"
         onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -632,7 +665,11 @@ export default function App() {
             return;
           }
 
-          await openProject(file);
+          if (file.name.endsWith(".agp") || file.type === "application/json") {
+            await openProject(file);
+          } else if (file.type.startsWith("image/")) {
+            await openImageFile(file);
+          }
           event.target.value = "";
         }}
       />

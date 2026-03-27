@@ -29,6 +29,13 @@ type AddLayerPayload struct {
 	Isolated       bool            `json:"isolated,omitempty"`
 }
 
+type OpenImageFilePayload struct {
+	Name   string `json:"name"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Pixels []byte `json:"pixels"`
+}
+
 type DeleteLayerPayload struct {
 	LayerID string `json:"layerId"`
 }

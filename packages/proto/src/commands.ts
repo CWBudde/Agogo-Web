@@ -37,6 +37,7 @@ export enum CommandID {
   SetMaskEditMode = 0x0115,
   GetLayerThumbnails = 0x0116,
   FlattenImage = 0x0117,
+  OpenImageFile = 0x0118,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
