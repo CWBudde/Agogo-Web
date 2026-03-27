@@ -146,18 +146,18 @@
 
 ### Phase 2.3: Layer Masks
 
-- [ ] Raster layer mask:
+- [x] Raster layer mask:
   - [x] Grayscale 8-bit buffer (same size as document, white=reveal, black=hide)
   - [x] Operations: `AddMask(revealAll/hideAll/fromSelection)`, `DeleteMask`, `ApplyMask`, `InvertMask`
-  - [ ] Edit mask: painting on mask activates mask-edit mode (border indicator in UI)
+  - [x] Edit mask: painting on mask activates mask-edit mode (border indicator in UI)
   - [x] Disable/enable mask (Shift+click thumbnail in Layers panel)
 - [x] Clipping mask:
   - [x] `ClipToBelow bool` flag on layer
   - [x] Compositing: clipped layer alpha *= base layer alpha
   - [x] Visual indent in Layers panel for clipped layers
-- [ ] Vector mask placeholder:
-  - [ ] `VectorMask *Path` field (renders to raster mask at composite time)
-  - [ ] Full implementation deferred to Phase 6.1
+- [x] Vector mask placeholder:
+  - [x] `VectorMask *Path` field (renders to raster mask at composite time)
+  - [x] Full implementation deferred to Phase 6.1
 
 ### Phase 2.4: Layers Panel UI
 
