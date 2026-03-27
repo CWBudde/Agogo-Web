@@ -137,6 +137,11 @@ type layerBase struct {
 	styleStack   []LayerStyle
 }
 
+type mutableLayerNode interface {
+	LayerNode
+	setID(string)
+}
+
 func newLayerBase(name string) layerBase {
 	return layerBase{
 		id:          newLayerID(),
@@ -151,6 +156,10 @@ func newLayerBase(name string) layerBase {
 
 func (l *layerBase) ID() string {
 	return l.id
+}
+
+func (l *layerBase) setID(id string) {
+	l.id = id
 }
 
 func (l *layerBase) Name() string {
@@ -314,6 +323,82 @@ func NewAdjustmentLayer(name, adjustmentKind string, params json.RawMessage) *Ad
 	}
 }
 
+type TextLayer struct {
+	layerBase
+	Bounds       LayerBounds `json:"bounds"`
+	Text         string      `json:"text"`
+	FontFamily   string      `json:"fontFamily"`
+	FontSize     float64     `json:"fontSize"`
+	Color        [4]uint8    `json:"color"`
+	CachedRaster []byte      `json:"cachedRaster,omitempty"`
+}
+
+func NewTextLayer(name string, bounds LayerBounds, text string, cachedRaster []byte) *TextLayer {
+	return &TextLayer{
+		layerBase:    newLayerBase(name),
+		Bounds:       bounds,
+		Text:         text,
+		FontFamily:   "system-ui",
+		FontSize:     16,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CachedRaster: append([]byte(nil), cachedRaster...),
+	}
+}
+
+func (l *TextLayer) LayerType() LayerType {
+	return LayerTypeText
+}
+
+func (l *TextLayer) Clone() LayerNode {
+	return &TextLayer{
+		layerBase:    l.cloneBase(),
+		Bounds:       l.Bounds,
+		Text:         l.Text,
+		FontFamily:   l.FontFamily,
+		FontSize:     l.FontSize,
+		Color:        l.Color,
+		CachedRaster: append([]byte(nil), l.CachedRaster...),
+	}
+}
+
+type VectorLayer struct {
+	layerBase
+	Bounds       LayerBounds `json:"bounds"`
+	Shape        *Path       `json:"shape,omitempty"`
+	FillColor    [4]uint8    `json:"fillColor"`
+	StrokeColor  [4]uint8    `json:"strokeColor"`
+	StrokeWidth  float64     `json:"strokeWidth"`
+	CachedRaster []byte      `json:"cachedRaster,omitempty"`
+}
+
+func NewVectorLayer(name string, bounds LayerBounds, shape *Path, cachedRaster []byte) *VectorLayer {
+	return &VectorLayer{
+		layerBase:    newLayerBase(name),
+		Bounds:       bounds,
+		Shape:        clonePath(shape),
+		FillColor:    [4]uint8{0, 0, 0, 255},
+		StrokeColor:  [4]uint8{0, 0, 0, 0},
+		StrokeWidth:  0,
+		CachedRaster: append([]byte(nil), cachedRaster...),
+	}
+}
+
+func (l *VectorLayer) LayerType() LayerType {
+	return LayerTypeVector
+}
+
+func (l *VectorLayer) Clone() LayerNode {
+	return &VectorLayer{
+		layerBase:    l.cloneBase(),
+		Bounds:       l.Bounds,
+		Shape:        clonePath(l.Shape),
+		FillColor:    l.FillColor,
+		StrokeColor:  l.StrokeColor,
+		StrokeWidth:  l.StrokeWidth,
+		CachedRaster: append([]byte(nil), l.CachedRaster...),
+	}
+}
+
 func (l *AdjustmentLayer) LayerType() LayerType {
 	return LayerTypeAdjustment
 }
@@ -403,6 +488,158 @@ func cloneLayerStyles(styles []LayerStyle) []LayerStyle {
 
 func cloneJSONRawMessage(message json.RawMessage) json.RawMessage {
 	return append(json.RawMessage(nil), message...)
+}
+
+func cloneLayerForDuplicate(layer LayerNode) LayerNode {
+	if layer == nil {
+		return nil
+	}
+	clone := layer.Clone()
+	reassignLayerIDs(clone)
+	clone.SetParent(nil)
+	return clone
+}
+
+func reassignLayerIDs(layer LayerNode) {
+	if layer == nil {
+		return
+	}
+	if mutable, ok := layer.(mutableLayerNode); ok {
+		mutable.setID(newLayerID())
+	}
+	for _, child := range layer.Children() {
+		reassignLayerIDs(child)
+	}
+}
+
+func cloneGroupLayer(group *GroupLayer) *GroupLayer {
+	if group == nil {
+		return nil
+	}
+	clone, ok := group.Clone().(*GroupLayer)
+	if !ok {
+		return nil
+	}
+	clone.SetParent(nil)
+	return clone
+}
+
+func layerTreeEqual(a, b LayerNode) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	if a.ID() != b.ID() || a.LayerType() != b.LayerType() || a.Name() != b.Name() || a.Visible() != b.Visible() {
+		return false
+	}
+	if a.LockMode() != b.LockMode() || a.Opacity() != b.Opacity() || a.FillOpacity() != b.FillOpacity() {
+		return false
+	}
+	if a.BlendMode() != b.BlendMode() || a.ClippingBase() != b.ClippingBase() {
+		return false
+	}
+	if !layerMaskEqual(a.Mask(), b.Mask()) || !pathEqual(a.VectorMask(), b.VectorMask()) {
+		return false
+	}
+	if !layerStylesEqual(a.StyleStack(), b.StyleStack()) {
+		return false
+	}
+
+	switch left := a.(type) {
+	case *PixelLayer:
+		right, ok := b.(*PixelLayer)
+		if !ok || left.Bounds != right.Bounds || string(left.Pixels) != string(right.Pixels) {
+			return false
+		}
+	case *AdjustmentLayer:
+		right, ok := b.(*AdjustmentLayer)
+		if !ok || left.AdjustmentKind != right.AdjustmentKind || string(left.Params) != string(right.Params) {
+			return false
+		}
+	case *TextLayer:
+		right, ok := b.(*TextLayer)
+		if !ok || left.Bounds != right.Bounds || left.Text != right.Text || left.FontFamily != right.FontFamily {
+			return false
+		}
+		if left.FontSize != right.FontSize || left.Color != right.Color || string(left.CachedRaster) != string(right.CachedRaster) {
+			return false
+		}
+	case *VectorLayer:
+		right, ok := b.(*VectorLayer)
+		if !ok || left.Bounds != right.Bounds || !pathEqual(left.Shape, right.Shape) {
+			return false
+		}
+		if left.FillColor != right.FillColor || left.StrokeColor != right.StrokeColor || left.StrokeWidth != right.StrokeWidth {
+			return false
+		}
+		if string(left.CachedRaster) != string(right.CachedRaster) {
+			return false
+		}
+	case *GroupLayer:
+		right, ok := b.(*GroupLayer)
+		if !ok || left.Isolated != right.Isolated {
+			return false
+		}
+	default:
+		return false
+	}
+
+	leftChildren := a.Children()
+	rightChildren := b.Children()
+	if len(leftChildren) != len(rightChildren) {
+		return false
+	}
+	for index := range leftChildren {
+		if !layerTreeEqual(leftChildren[index], rightChildren[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func layerMaskEqual(a, b *LayerMask) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return a.Enabled == b.Enabled && a.Width == b.Width && a.Height == b.Height && string(a.Data) == string(b.Data)
+}
+
+func pathEqual(a, b *Path) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	if a.Closed != b.Closed || len(a.Points) != len(b.Points) {
+		return false
+	}
+	for index := range a.Points {
+		if a.Points[index] != b.Points[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func layerStylesEqual(a, b []LayerStyle) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for index := range a {
+		if a[index].Kind != b[index].Kind || a[index].Enabled != b[index].Enabled {
+			return false
+		}
+		if string(a[index].Params) != string(b[index].Params) {
+			return false
+		}
+	}
+	return true
 }
 
 func newLayerID() string {

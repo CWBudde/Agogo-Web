@@ -20,6 +20,7 @@ export interface ViewportMeta {
 
 export interface UIMeta {
   activeLayerId: string | null;
+  activeLayerName: string | null;
   cursorType: string;
   statusText: string;
   rulerOriginX: number;
@@ -33,6 +34,24 @@ export interface UIMeta {
   documentWidth: number;
   documentHeight: number;
   documentBackground: string;
+  layers: LayerNodeMeta[];
+}
+
+export interface LayerNodeMeta {
+  id: string;
+  name: string;
+  layerType: "pixel" | "group" | "adjustment" | "text" | "vector";
+  parentId?: string;
+  visible: boolean;
+  lockMode: "none" | "pixels" | "position" | "all";
+  opacity: number;
+  fillOpacity: number;
+  blendMode: string;
+  clippingBase: boolean;
+  hasMask: boolean;
+  hasVectorMask: boolean;
+  isolated?: boolean;
+  children?: LayerNodeMeta[];
 }
 
 export interface HistoryEntry {

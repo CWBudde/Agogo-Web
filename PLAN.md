@@ -80,13 +80,13 @@
   - [x] `PixelLayer`: raw RGBA pixel buffer, bounds (x/y offset within doc)
   - [x] `GroupLayer`: contains children, pass-through or isolated blend
   - [x] `AdjustmentLayer`: params only, no pixel data (Phase 5)
-  - [ ] `TextLayer`: text params + cached raster (Phase 6)
-  - [ ] `VectorLayer`: path + fill/stroke params + cached raster (Phase 6)
-- [ ] Layer operations:
-  - [ ] `AddLayer`, `DeleteLayer`, `DuplicateLayer`, `MoveLayer` (reorder in tree)
-  - [ ] `SetVisibility`, `SetOpacity`, `SetBlendMode`, `SetLock`
-  - [ ] `FlattenLayer`, `MergeDown`, `MergeVisible`
-- [ ] All operations go through history (undo-able)
+  - [x] `TextLayer`: text params + cached raster (Phase 6)
+  - [x] `VectorLayer`: path + fill/stroke params + cached raster (Phase 6)
+- [x] Layer operations:
+  - [x] `AddLayer`, `DeleteLayer`, `DuplicateLayer`, `MoveLayer` (reorder in tree)
+  - [x] `SetVisibility`, `SetOpacity`, `SetBlendMode`, `SetLock`
+  - [x] `FlattenLayer`, `MergeDown`, `MergeVisible`
+- [x] All operations go through history (undo-able)
 
 ### Phase 2.2: Blend Modes & Compositing
 

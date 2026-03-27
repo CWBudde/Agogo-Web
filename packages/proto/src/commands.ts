@@ -19,6 +19,11 @@ export enum CommandID {
   SetLayerVisibility = 0x0103,
   SetLayerOpacity = 0x0104,
   SetLayerBlendMode = 0x0105,
+  DuplicateLayer = 0x0106,
+  SetLayerLock = 0x0107,
+  FlattenLayer = 0x0108,
+  MergeDown = 0x0109,
+  MergeVisible = 0x010a,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -30,6 +35,36 @@ export enum CommandID {
 
 export type DocumentBackground = "transparent" | "white" | "color";
 export type DocumentColorMode = "rgb" | "gray";
+export type LayerType = "pixel" | "group" | "adjustment" | "text" | "vector";
+export type LayerLockMode = "none" | "pixels" | "position" | "all";
+export type LayerBlendMode =
+  | "normal"
+  | "dissolve"
+  | "multiply"
+  | "color-burn"
+  | "linear-burn"
+  | "darken"
+  | "darker-color"
+  | "screen"
+  | "color-dodge"
+  | "linear-dodge"
+  | "lighten"
+  | "lighter-color"
+  | "overlay"
+  | "soft-light"
+  | "hard-light"
+  | "vivid-light"
+  | "linear-light"
+  | "pin-light"
+  | "hard-mix"
+  | "difference"
+  | "exclusion"
+  | "subtract"
+  | "divide"
+  | "hue"
+  | "saturation"
+  | "color"
+  | "luminosity";
 
 export interface CreateDocumentCommand {
   name: string;
@@ -85,4 +120,92 @@ export interface EndTransactionCommand {
 
 export interface JumpHistoryCommand {
   historyIndex: number;
+}
+
+export interface LayerBoundsCommand {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PathPointCommand {
+  x: number;
+  y: number;
+  inX?: number;
+  inY?: number;
+  outX?: number;
+  outY?: number;
+  hasCurve?: boolean;
+}
+
+export interface PathCommand {
+  closed: boolean;
+  points: PathPointCommand[];
+}
+
+export interface AddLayerCommand {
+  layerType: LayerType;
+  name?: string;
+  parentLayerId?: string;
+  index?: number;
+  bounds?: LayerBoundsCommand;
+  pixels?: number[];
+  adjustmentKind?: string;
+  params?: unknown;
+  text?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  color?: [number, number, number, number];
+  path?: PathCommand;
+  fillColor?: [number, number, number, number];
+  strokeColor?: [number, number, number, number];
+  strokeWidth?: number;
+  cachedRaster?: number[];
+  isolated?: boolean;
+}
+
+export interface DeleteLayerCommand {
+  layerId: string;
+}
+
+export interface DuplicateLayerCommand {
+  layerId: string;
+  parentLayerId?: string;
+  index?: number;
+}
+
+export interface MoveLayerCommand {
+  layerId: string;
+  parentLayerId?: string;
+  index?: number;
+}
+
+export interface SetLayerVisibilityCommand {
+  layerId: string;
+  visible: boolean;
+}
+
+export interface SetLayerOpacityCommand {
+  layerId: string;
+  opacity?: number;
+  fillOpacity?: number;
+}
+
+export interface SetLayerBlendModeCommand {
+  layerId: string;
+  blendMode: LayerBlendMode;
+}
+
+export interface SetLayerLockCommand {
+  layerId: string;
+  lockMode: LayerLockMode;
+}
+
+export interface FlattenLayerCommand {
+  layerId: string;
+}
+
+export interface MergeDownCommand {
+  layerId: string;
 }

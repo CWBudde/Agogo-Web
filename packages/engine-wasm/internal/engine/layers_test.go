@@ -107,6 +107,41 @@ func TestNewAdjustmentLayerDefaultsAndClone(t *testing.T) {
 	}
 }
 
+func TestTextAndVectorLayerCloneDeepCopiesRasterState(t *testing.T) {
+	text := NewTextLayer("Title", LayerBounds{X: 3, Y: 4, W: 2, H: 1}, "Agogo", []byte{1, 2, 3, 255, 4, 5, 6, 255})
+	text.FontFamily = "Recursive"
+	text.FontSize = 42
+	text.Color = [4]uint8{10, 20, 30, 255}
+	textClone, ok := text.Clone().(*TextLayer)
+	if !ok {
+		t.Fatalf("text clone type = %T, want *TextLayer", text.Clone())
+	}
+	textClone.CachedRaster[0] = 99
+	if text.CachedRaster[0] == 99 {
+		t.Fatal("text cached raster shares backing storage")
+	}
+	if textClone.Text != "Agogo" || textClone.FontFamily != "Recursive" || textClone.FontSize != 42 {
+		t.Fatal("text clone lost textual properties")
+	}
+
+	vector := NewVectorLayer("Shape", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 2}}}, []byte{7, 8, 9, 255})
+	vector.FillColor = [4]uint8{200, 100, 50, 255}
+	vector.StrokeColor = [4]uint8{5, 6, 7, 255}
+	vector.StrokeWidth = 3
+	vectorClone, ok := vector.Clone().(*VectorLayer)
+	if !ok {
+		t.Fatalf("vector clone type = %T, want *VectorLayer", vector.Clone())
+	}
+	vectorClone.Shape.Points[0].X = 20
+	if vector.Shape.Points[0].X == 20 {
+		t.Fatal("vector shape shares backing storage")
+	}
+	vectorClone.CachedRaster[0] = 88
+	if vector.CachedRaster[0] == 88 {
+		t.Fatal("vector cached raster shares backing storage")
+	}
+}
+
 func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	group := NewGroupLayer("Effects")
 	group.SetOpacity(0.5)
