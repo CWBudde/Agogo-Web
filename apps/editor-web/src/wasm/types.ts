@@ -22,6 +22,7 @@ export interface EngineContextValue {
   render: RenderResult | null;
   error: Error | null;
   ready: Promise<EngineHandle> | null;
+  dispatchCommand(commandId: number, payload?: unknown): RenderResult | null;
   createDocument(command: CreateDocumentCommand): RenderResult | null;
   resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number): RenderResult | null;
   setZoom(zoom: number, anchorX?: number, anchorY?: number): RenderResult | null;

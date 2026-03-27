@@ -41,6 +41,8 @@ const (
 	commandInvertLayerMask = 0x010e
 	commandSetMaskEnabled  = 0x010f
 	commandSetLayerClip    = 0x0110
+	commandSetActiveLayer  = 0x0111
+	commandSetLayerName    = 0x0112
 	commandBeginTxn        = 0xffe0
 	commandEndTxn          = 0xffe1
 	commandClearHistory    = 0xffe2
@@ -1044,6 +1046,45 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, fmt.Errorf("no active document")
 				}
 				if err := doc.SetLayerClipToBelow(payload.LayerID, payload.ClipToBelow); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetActiveLayer:
+		var payload SetActiveLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		if err := doc.SetActiveLayer(payload.LayerID); err != nil {
+			return RenderResult{}, err
+		}
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerName:
+		var payload SetLayerNamePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Rename layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerName(payload.LayerID, payload.Name); err != nil {
 					return snapshot{}, err
 				}
 				if err := inst.manager.ReplaceActive(doc); err != nil {

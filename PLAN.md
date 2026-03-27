@@ -114,10 +114,10 @@
   - [x] Operations: `AddMask(revealAll/hideAll/fromSelection)`, `DeleteMask`, `ApplyMask`, `InvertMask`
   - [ ] Edit mask: painting on mask activates mask-edit mode (border indicator in UI)
   - [x] Disable/enable mask (Shift+click thumbnail in Layers panel)
-- [ ] Clipping mask:
+- [x] Clipping mask:
   - [x] `ClipToBelow bool` flag on layer
   - [x] Compositing: clipped layer alpha *= base layer alpha
-  - [ ] Visual indent in Layers panel for clipped layers
+  - [x] Visual indent in Layers panel for clipped layers
 - [ ] Vector mask placeholder:
   - [ ] `VectorMask *Path` field (renders to raster mask at composite time)
   - [ ] Full implementation deferred to Phase 6.1
@@ -125,24 +125,24 @@
 ### Phase 2.4: Layers Panel UI
 
 - [ ] Tree view:
-  - [ ] Nested rows for groups (collapsible with arrow toggle)
+  - [x] Nested rows for groups (collapsible with arrow toggle)
   - [ ] Layer thumbnail (small composite preview, updated on change)
   - [ ] Mask thumbnail next to layer thumbnail (if mask present)
-  - [ ] Layer name (double-click to rename inline)
+  - [x] Layer name (double-click to rename inline)
 - [ ] Controls per layer row:
-  - [ ] Visibility eye icon (click to toggle, Alt+click to solo)
-  - [ ] Lock icon (click → cycle none/pixels/position/all)
+  - [x] Visibility eye icon (click to toggle, Alt+click to solo)
+  - [x] Lock icon (click → cycle none/pixels/position/all)
   - [ ] Blend mode dropdown
   - [ ] Opacity slider/input (0–100%)
   - [ ] Fill opacity slider/input (0–100%)
-- [ ] Panel toolbar: New Layer, New Group, Add Mask, Delete Layer, Merge Down
+- [x] Panel toolbar: New Layer, New Group, Add Mask, Delete Layer, Merge Down
 - [ ] Context menu (right-click on layer):
   - [ ] Duplicate Layer, Delete Layer, Merge Down, Merge Visible, Flatten Image
   - [ ] Group Layers, Ungroup
   - [ ] Add Layer Mask (Reveal All / Hide All / From Selection)
   - [ ] Add Clipping Mask / Release Clipping Mask
   - [ ] Layer Properties (rename + color tag)
-- [ ] Drag-and-drop reordering within the tree
+- [x] Drag-and-drop reordering within the tree
 - [ ] Multi-select (Shift/Ctrl+click) for bulk operations
 - [ ] Channels panel stub (RGB + Alpha channels, view only initially)
 

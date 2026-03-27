@@ -30,6 +30,8 @@ export enum CommandID {
   InvertLayerMask = 0x010e,
   SetLayerMaskEnabled = 0x010f,
   SetLayerClipToBelow = 0x0110,
+  SetActiveLayer = 0x0111,
+  SetLayerName = 0x0112,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -243,4 +245,13 @@ export interface SetLayerMaskEnabledCommand {
 export interface SetLayerClipToBelowCommand {
   layerId: string;
   clipToBelow: boolean;
+}
+
+export interface SetActiveLayerCommand {
+  layerId: string;
+}
+
+export interface SetLayerNameCommand {
+  layerId: string;
+  name: string;
 }

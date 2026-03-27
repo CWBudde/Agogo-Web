@@ -107,6 +107,15 @@ type SetLayerClipToBelowPayload struct {
 	ClipToBelow bool   `json:"clipToBelow"`
 }
 
+type SetActiveLayerPayload struct {
+	LayerID string `json:"layerId"`
+}
+
+type SetLayerNamePayload struct {
+	LayerID string `json:"layerId"`
+	Name    string `json:"name"`
+}
+
 type LayerNodeMeta struct {
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
@@ -291,6 +300,34 @@ func (doc *Document) SetLayerLock(layerID string, mode LayerLockMode) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetLockMode(mode)
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) SetActiveLayer(layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	if layerID == "" {
+		doc.ActiveLayerID = ""
+		return nil
+	}
+	if _, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID); !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	doc.ActiveLayerID = layerID
+	return nil
+}
+
+func (doc *Document) SetLayerName(layerID, name string) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	layer.SetName(name)
 	doc.touchModifiedAt()
 	return nil
 }
@@ -564,7 +601,11 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 		if payload.Bounds.W <= 0 || payload.Bounds.H <= 0 {
 			return nil, fmt.Errorf("pixel layer requires valid bounds, got %dx%d", payload.Bounds.W, payload.Bounds.H)
 		}
-		return NewPixelLayer(payload.Name, payload.Bounds, payload.Pixels), nil
+		pixels := payload.Pixels
+		if len(pixels) == 0 {
+			pixels = make([]byte, payload.Bounds.W*payload.Bounds.H*4)
+		}
+		return NewPixelLayer(payload.Name, payload.Bounds, pixels), nil
 	case LayerTypeGroup:
 		group := NewGroupLayer(payload.Name)
 		group.Isolated = payload.Isolated
