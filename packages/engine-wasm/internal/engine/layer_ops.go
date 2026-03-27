@@ -453,15 +453,15 @@ func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
 	case *TextLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
 	case *VectorLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
 	case *AdjustmentLayer:
 		return fmt.Errorf("adjustment layer %q cannot be flattened before compositing is implemented", typed.Name())
 	case *GroupLayer:
-		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 {
+		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
 			for _, child := range typed.Children() {
 				if err := doc.compositeLayerOnto(dest, child); err != nil {
 					return err
@@ -475,6 +475,7 @@ func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
 				return err
 			}
 		}
+		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask())
 		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed))
 		return nil
 	default:
@@ -483,9 +484,6 @@ func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
 }
 
 func ensureRasterizableLayer(layer LayerNode) error {
-	if layer.Mask() != nil {
-		return fmt.Errorf("layer %q cannot be merged while raster masks are not implemented", layer.Name())
-	}
 	if layer.VectorMask() != nil {
 		return fmt.Errorf("layer %q cannot be merged while vector masks are not implemented", layer.Name())
 	}
@@ -502,7 +500,7 @@ func effectiveLayerOpacity(layer LayerNode) float64 {
 	return clampUnit(layer.Opacity() * layer.FillOpacity())
 }
 
-func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64) error {
+func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask) error {
 	if bounds.W <= 0 || bounds.H <= 0 || len(src) == 0 || opacity <= 0 {
 		return nil
 	}
@@ -521,11 +519,60 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 				continue
 			}
 			srcIndex := (y*bounds.W + x) * 4
+			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
+			if maskAlpha == 0 {
+				continue
+			}
 			destIndex := (docY*docW + docX) * 4
-			compositePixelWithBlend(dest[destIndex:destIndex+4], src[srcIndex:srcIndex+4], blendMode, opacity, pixelNoiseSeed(docX, docY))
+			srcPixel := src[srcIndex : srcIndex+4]
+			if maskAlpha == 255 {
+				compositePixelWithBlend(dest[destIndex:destIndex+4], srcPixel, blendMode, opacity, pixelNoiseSeed(docX, docY))
+				continue
+			}
+			var masked [4]byte
+			copy(masked[:], srcPixel)
+			masked[3] = scaleMaskedAlpha(srcPixel[3], maskAlpha)
+			if masked[3] == 0 {
+				continue
+			}
+			compositePixelWithBlend(dest[destIndex:destIndex+4], masked[:], blendMode, opacity, pixelNoiseSeed(docX, docY))
 		}
 	}
 	return nil
+}
+
+func applyLayerMaskToSurface(surface []byte, docW, docH int, mask *LayerMask) {
+	if len(surface) == 0 || docW <= 0 || docH <= 0 || mask == nil || !mask.Enabled {
+		return
+	}
+	for docY := 0; docY < docH; docY++ {
+		for docX := 0; docX < docW; docX++ {
+			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
+			if maskAlpha == 255 {
+				continue
+			}
+			index := (docY*docW + docX) * 4
+			surface[index+3] = scaleMaskedAlpha(surface[index+3], maskAlpha)
+		}
+	}
+}
+
+func layerMaskAlphaAt(mask *LayerMask, docX, docY int) uint8 {
+	if mask == nil || !mask.Enabled || mask.Width <= 0 || mask.Height <= 0 {
+		return 255
+	}
+	expectedLen := mask.Width * mask.Height
+	if len(mask.Data) < expectedLen {
+		return 255
+	}
+	if docX < 0 || docX >= mask.Width || docY < 0 || docY >= mask.Height {
+		return 0
+	}
+	return mask.Data[docY*mask.Width+docX]
+}
+
+func scaleMaskedAlpha(alpha, maskAlpha uint8) uint8 {
+	return uint8((uint16(alpha)*uint16(maskAlpha) + 127) / 255)
 }
 
 func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64) {

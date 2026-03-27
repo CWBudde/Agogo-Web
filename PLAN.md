@@ -90,21 +90,22 @@
 
 ### Phase 2.2: Blend Modes & Compositing
 
-- [ ] Implement full blend mode set (Porter-Duff + Photoshop blend formulas):
-  - [ ] **Normal group:** Normal, Dissolve
-  - [ ] **Darkening:** Multiply, Color Burn, Linear Burn, Darken, Darker Color
-  - [ ] **Lightening:** Screen, Color Dodge, Linear Dodge (Add), Lighten, Lighter Color
-  - [ ] **Contrast:** Overlay, Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix
-  - [ ] **Inversion:** Difference, Exclusion, Subtract, Divide
-  - [ ] **Component:** Hue, Saturation, Color, Luminosity
+- [x] Implement full blend mode set (Porter-Duff + Photoshop blend formulas):
+  - [x] **Normal group:** Normal, Dissolve
+  - [x] **Darkening:** Multiply, Color Burn, Linear Burn, Darken, Darker Color
+  - [x] **Lightening:** Screen, Color Dodge, Linear Dodge (Add), Lighten, Lighter Color
+  - [x] **Contrast:** Overlay, Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix
+  - [x] **Inversion:** Difference, Exclusion, Subtract, Divide
+  - [x] **Component:** Hue, Saturation, Color, Luminosity
 - [ ] Compositing pipeline:
-  - [ ] Walk layer tree bottom-to-top
-  - [ ] For each layer: apply mask, apply blend mode formula, composite onto accumulator
-  - [ ] Group layers: composite children into isolated buffer, then composite group onto parent
-  - [ ] Pass-through groups: children blend directly into parent context
+  - [x] Walk layer tree bottom-to-top
+  - [x] Apply blend mode formulas and composite each layer onto the accumulator
+  - [x] Apply layer masks during compositing
+  - [x] Group layers: composite children into isolated buffer, then composite group onto parent
+  - [x] Pass-through groups: children blend directly into parent context
   - [ ] Clipping mask: clip layer's alpha to base layer's alpha
 - [ ] Performance: cache layer composites; invalidate only when layer or ancestors change
-- [ ] Write golden-image unit tests for each blend mode formula
+- [x] Write golden-image unit tests for each blend mode formula
 
 ### Phase 2.3: Layer Masks
 

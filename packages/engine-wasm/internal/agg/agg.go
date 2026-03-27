@@ -34,9 +34,14 @@ var (
 	centerGuide      = agglib.NewColor(255, 255, 255, 48)
 )
 
-// RenderViewport renders the current document and viewport using the public
+// RenderViewport renders the current document shell and overlays using the public
 // agg_go Agg2D facade from v0.2.6.
 func RenderViewport(doc *Document, vp *Viewport, reuse []byte) []byte {
+	reuse = RenderViewportBase(doc, vp, reuse)
+	return RenderViewportOverlays(doc, vp, reuse)
+}
+
+func RenderViewportBase(doc *Document, vp *Viewport, reuse []byte) []byte {
 	width := maxInt(vp.CanvasW, 1)
 	height := maxInt(vp.CanvasH, 1)
 	size := width * height * 4
@@ -49,20 +54,41 @@ func RenderViewport(doc *Document, vp *Viewport, reuse []byte) []byte {
 	renderer.ClearAll(canvasBackground)
 	renderer.NoLine()
 
-	renderer.ResetTransformations()
-	renderer.Translate(float64(width)/2, float64(height)/2)
-	renderer.Rotate(vp.Rotation * math.Pi / 180)
-	renderer.Scale(vp.Zoom, vp.Zoom)
-	renderer.Translate(-vp.CenterX, -vp.CenterY)
+	configureViewportTransform(renderer, width, height, vp)
 
 	minX, minY, maxX, maxY := visibleWorldBounds(renderer, width, height, doc)
-	renderDocument(renderer, doc, vp, minX, minY, maxX, maxY)
+	renderDocumentBackground(renderer, doc, minX, minY, maxX, maxY)
+
+	return reuse
+}
+
+func RenderViewportOverlays(doc *Document, vp *Viewport, reuse []byte) []byte {
+	width := maxInt(vp.CanvasW, 1)
+	height := maxInt(vp.CanvasH, 1)
+	size := width * height * 4
+	if len(reuse) != size {
+		reuse = make([]byte, size)
+	}
+
+	renderer := agglib.NewAgg2D()
+	renderer.Attach(reuse, width, height, width*4)
+	renderer.NoLine()
+	configureViewportTransform(renderer, width, height, vp)
+	renderDocumentBorder(renderer, doc, vp)
 	renderGuides(renderer, doc, vp)
 
 	return reuse
 }
 
-func renderDocument(renderer *agglib.Agg2D, doc *Document, vp *Viewport, minX, minY, maxX, maxY float64) {
+func configureViewportTransform(renderer *agglib.Agg2D, width, height int, vp *Viewport) {
+	renderer.ResetTransformations()
+	renderer.Translate(float64(width)/2, float64(height)/2)
+	renderer.Rotate(vp.Rotation * math.Pi / 180)
+	renderer.Scale(vp.Zoom, vp.Zoom)
+	renderer.Translate(-vp.CenterX, -vp.CenterY)
+}
+
+func renderDocumentBackground(renderer *agglib.Agg2D, doc *Document, minX, minY, maxX, maxY float64) {
 	renderer.NoLine()
 
 	switch doc.Background {
@@ -75,7 +101,9 @@ func renderDocument(renderer *agglib.Agg2D, doc *Document, vp *Viewport, minX, m
 	default:
 		drawCheckerboard(renderer, minX, minY, maxX, maxY, doc)
 	}
+}
 
+func renderDocumentBorder(renderer *agglib.Agg2D, doc *Document, vp *Viewport) {
 	lineWidth := 1.5
 	if vp.Zoom > 0 {
 		lineWidth = math.Max(1.0/vp.Zoom, 0.75)

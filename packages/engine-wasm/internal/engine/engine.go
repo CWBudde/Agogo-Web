@@ -1174,9 +1174,30 @@ func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
 	}
 }
 
-// RenderViewport renders an empty document view with pan, zoom, and rotation.
+// RenderViewport renders the document shell and the current composited layer tree.
 func RenderViewport(doc *Document, vp *ViewportState, reuse []byte) []byte {
-	return aggrender.RenderViewport(
+	reuse = aggrender.RenderViewportBase(
+		&aggrender.Document{
+			Width:      doc.Width,
+			Height:     doc.Height,
+			Background: doc.Background.Kind,
+		},
+		&aggrender.Viewport{
+			CenterX:  vp.CenterX,
+			CenterY:  vp.CenterY,
+			Zoom:     clampZoom(vp.Zoom),
+			Rotation: vp.Rotation,
+			CanvasW:  vp.CanvasW,
+			CanvasH:  vp.CanvasH,
+		},
+		reuse,
+	)
+
+	if surface := doc.renderCompositeSurface(); len(surface) > 0 {
+		compositeDocumentToViewport(reuse, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, surface)
+	}
+
+	return aggrender.RenderViewportOverlays(
 		&aggrender.Document{
 			Width:      doc.Width,
 			Height:     doc.Height,

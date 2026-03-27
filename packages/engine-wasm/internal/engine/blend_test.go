@@ -10,29 +10,64 @@ func TestCompositePixelWithBlendModes(t *testing.T) {
 	top := []byte{192, 96, 32, 255}
 
 	tests := []struct {
-		name    string
-		mode    BlendMode
-		expect  [4]uint8
-		opacity float64
+		name   string
+		mode   BlendMode
+		expect [4]uint8
 	}{
-		{name: "normal", mode: BlendModeNormal, expect: [4]uint8{192, 96, 32, 255}, opacity: 1},
-		{name: "multiply", mode: BlendModeMultiply, expect: [4]uint8{48, 48, 24, 255}, opacity: 1},
-		{name: "screen", mode: BlendModeScreen, expect: [4]uint8{208, 176, 200, 255}, opacity: 1},
-		{name: "overlay", mode: BlendModeOverlay, expect: [4]uint8{96, 96, 145, 255}, opacity: 1},
-		{name: "difference", mode: BlendModeDifference, expect: [4]uint8{128, 32, 160, 255}, opacity: 1},
-		{name: "half-opacity", mode: BlendModeMultiply, expect: [4]uint8{56, 88, 108, 255}, opacity: 0.5},
+		{name: "normal", mode: BlendModeNormal, expect: [4]uint8{192, 96, 32, 255}},
+		{name: "dissolve", mode: BlendModeDissolve, expect: [4]uint8{192, 96, 32, 255}},
+		{name: "multiply", mode: BlendModeMultiply, expect: [4]uint8{48, 48, 24, 255}},
+		{name: "color-burn", mode: BlendModeColorBurn, expect: [4]uint8{1, 0, 0, 255}},
+		{name: "linear-burn", mode: BlendModeLinearBurn, expect: [4]uint8{1, 0, 0, 255}},
+		{name: "darken", mode: BlendModeDarken, expect: [4]uint8{64, 96, 32, 255}},
+		{name: "darker-color", mode: BlendModeDarkerColor, expect: [4]uint8{64, 128, 192, 255}},
+		{name: "screen", mode: BlendModeScreen, expect: [4]uint8{208, 176, 200, 255}},
+		{name: "color-dodge", mode: BlendModeColorDodge, expect: [4]uint8{255, 205, 220, 255}},
+		{name: "linear-dodge", mode: BlendModeLinearDodge, expect: [4]uint8{255, 224, 224, 255}},
+		{name: "lighten", mode: BlendModeLighten, expect: [4]uint8{192, 128, 192, 255}},
+		{name: "lighter-color", mode: BlendModeLighterColor, expect: [4]uint8{192, 96, 32, 255}},
+		{name: "overlay", mode: BlendModeOverlay, expect: [4]uint8{96, 97, 145, 255}},
+		{name: "soft-light", mode: BlendModeSoftLight, expect: [4]uint8{96, 112, 156, 255}},
+		{name: "hard-light", mode: BlendModeHardLight, expect: [4]uint8{161, 96, 48, 255}},
+		{name: "vivid-light", mode: BlendModeVividLight, expect: [4]uint8{130, 86, 4, 255}},
+		{name: "linear-light", mode: BlendModeLinearLight, expect: [4]uint8{193, 65, 1, 255}},
+		{name: "pin-light", mode: BlendModePinLight, expect: [4]uint8{129, 128, 64, 255}},
+		{name: "hard-mix", mode: BlendModeHardMix, expect: [4]uint8{255, 0, 0, 255}},
+		{name: "difference", mode: BlendModeDifference, expect: [4]uint8{128, 32, 160, 255}},
+		{name: "exclusion", mode: BlendModeExclusion, expect: [4]uint8{160, 128, 176, 255}},
+		{name: "subtract", mode: BlendModeSubtract, expect: [4]uint8{0, 32, 160, 255}},
+		{name: "divide", mode: BlendModeDivide, expect: [4]uint8{85, 255, 255, 255}},
+		{name: "hue", mode: BlendModeHue, expect: [4]uint8{175, 98, 47, 255}},
+		{name: "saturation", mode: BlendModeSaturation, expect: [4]uint8{51, 131, 211, 255}},
+		{name: "color", mode: BlendModeColor, expect: [4]uint8{190, 94, 30, 255}},
+		{name: "luminosity", mode: BlendModeLuminosity, expect: [4]uint8{66, 130, 194, 255}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dest := append([]byte(nil), base...)
-			compositePixelWithBlend(dest, top, test.mode, test.opacity, 0)
+			compositePixelWithBlend(dest, top, test.mode, 1, 1234)
 			for index := range dest {
-				if diff := math.Abs(float64(dest[index]) - float64(test.expect[index])); diff > 1 {
+				if dest[index] != test.expect[index] {
 					t.Fatalf("pixel[%d] = %d, want %d", index, dest[index], test.expect[index])
 				}
 			}
 		})
+	}
+}
+
+func TestCompositePixelWithBlendRespectsOpacity(t *testing.T) {
+	base := []byte{64, 128, 192, 255}
+	top := []byte{192, 96, 32, 255}
+	dest := append([]byte(nil), base...)
+
+	compositePixelWithBlend(dest, top, BlendModeMultiply, 0.5, 0)
+
+	expect := [4]uint8{56, 88, 108, 255}
+	for index := range dest {
+		if diff := math.Abs(float64(dest[index]) - float64(expect[index])); diff > 1 {
+			t.Fatalf("pixel[%d] = %d, want %d", index, dest[index], expect[index])
+		}
 	}
 }
 
