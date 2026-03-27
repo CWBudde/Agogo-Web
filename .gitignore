@@ -4,6 +4,7 @@ node_modules/
 
 # ── Frontend build output ────────────────────────────────────────────────────
 apps/editor-web/dist/
+*.tsbuildinfo
 apps/editor-web/public/engine.wasm
 apps/editor-web/public/wasm_exec.js
 
