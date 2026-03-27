@@ -13,36 +13,6 @@ func (doc *Document) renderCompositeSurface() []byte {
 	return buffer
 }
 
-func (doc *Document) compositeLayerOntoViewport(dest []byte, layer LayerNode) {
-	if layer == nil || !layer.Visible() {
-		return
-	}
-
-	switch typed := layer.(type) {
-	case *PixelLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
-	case *TextLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
-	case *VectorLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
-	case *AdjustmentLayer:
-		return
-	case *GroupLayer:
-		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
-			for _, child := range typed.Children() {
-				doc.compositeLayerOntoViewport(dest, child)
-			}
-			return
-		}
-		temp := make([]byte, len(dest))
-		for _, child := range typed.Children() {
-			doc.compositeLayerOntoViewport(temp, child)
-		}
-		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask())
-		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed))
-	}
-}
-
 func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Document, vp *ViewportState, documentSurface []byte) {
 	if len(canvas) == 0 || canvasW <= 0 || canvasH <= 0 || doc == nil || len(documentSurface) == 0 {
 		return

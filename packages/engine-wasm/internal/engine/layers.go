@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -214,8 +215,22 @@ func (l *layerBase) BlendMode() BlendMode {
 	return l.blendMode
 }
 
+func isValidBlendMode(mode BlendMode) bool {
+	switch mode {
+	case BlendModeNormal, BlendModeDissolve, BlendModeMultiply, BlendModeColorBurn,
+		BlendModeLinearBurn, BlendModeDarken, BlendModeDarkerColor, BlendModeScreen,
+		BlendModeColorDodge, BlendModeLinearDodge, BlendModeLighten, BlendModeLighterColor,
+		BlendModeOverlay, BlendModeSoftLight, BlendModeHardLight, BlendModeVividLight,
+		BlendModeLinearLight, BlendModePinLight, BlendModeHardMix, BlendModeDifference,
+		BlendModeExclusion, BlendModeSubtract, BlendModeDivide, BlendModeHue,
+		BlendModeSaturation, BlendModeColor, BlendModeLuminosity:
+		return true
+	}
+	return false
+}
+
 func (l *layerBase) SetBlendMode(mode BlendMode) {
-	if mode == "" {
+	if !isValidBlendMode(mode) {
 		l.blendMode = BlendModeNormal
 		return
 	}
@@ -315,7 +330,7 @@ func (l *PixelLayer) LayerType() LayerType {
 func (l *PixelLayer) Clone() LayerNode {
 	copyPixels := append([]byte(nil), l.Pixels...)
 	return &PixelLayer{
-		layerBase: l.layerBase.cloneBase(),
+		layerBase: l.cloneBase(),
 		Bounds:    l.Bounds,
 		Pixels:    copyPixels,
 	}
@@ -363,7 +378,7 @@ func (l *TextLayer) LayerType() LayerType {
 
 func (l *TextLayer) Clone() LayerNode {
 	return &TextLayer{
-		layerBase:    l.layerBase.cloneBase(),
+		layerBase:    l.cloneBase(),
 		Bounds:       l.Bounds,
 		Text:         l.Text,
 		FontFamily:   l.FontFamily,
@@ -401,7 +416,7 @@ func (l *VectorLayer) LayerType() LayerType {
 
 func (l *VectorLayer) Clone() LayerNode {
 	return &VectorLayer{
-		layerBase:    l.layerBase.cloneBase(),
+		layerBase:    l.cloneBase(),
 		Bounds:       l.Bounds,
 		Shape:        clonePath(l.Shape),
 		FillColor:    l.FillColor,
@@ -417,7 +432,7 @@ func (l *AdjustmentLayer) LayerType() LayerType {
 
 func (l *AdjustmentLayer) Clone() LayerNode {
 	return &AdjustmentLayer{
-		layerBase:      l.layerBase.cloneBase(),
+		layerBase:      l.cloneBase(),
 		AdjustmentKind: l.AdjustmentKind,
 		Params:         cloneJSONRawMessage(l.Params),
 	}
@@ -454,7 +469,7 @@ func (l *GroupLayer) SetChildren(children []LayerNode) {
 
 func (l *GroupLayer) Clone() LayerNode {
 	clone := &GroupLayer{
-		layerBase: l.layerBase.cloneBase(),
+		layerBase: l.cloneBase(),
 		Isolated:  l.Isolated,
 	}
 	children := make([]LayerNode, 0, len(l.children))
@@ -562,12 +577,12 @@ func layerTreeEqual(a, b LayerNode) bool {
 	switch left := a.(type) {
 	case *PixelLayer:
 		right, ok := b.(*PixelLayer)
-		if !ok || left.Bounds != right.Bounds || string(left.Pixels) != string(right.Pixels) {
+		if !ok || left.Bounds != right.Bounds || !bytes.Equal(left.Pixels, right.Pixels) {
 			return false
 		}
 	case *AdjustmentLayer:
 		right, ok := b.(*AdjustmentLayer)
-		if !ok || left.AdjustmentKind != right.AdjustmentKind || string(left.Params) != string(right.Params) {
+		if !ok || left.AdjustmentKind != right.AdjustmentKind || !bytes.Equal(left.Params, right.Params) {
 			return false
 		}
 	case *TextLayer:
@@ -575,7 +590,7 @@ func layerTreeEqual(a, b LayerNode) bool {
 		if !ok || left.Bounds != right.Bounds || left.Text != right.Text || left.FontFamily != right.FontFamily {
 			return false
 		}
-		if left.FontSize != right.FontSize || left.Color != right.Color || string(left.CachedRaster) != string(right.CachedRaster) {
+		if left.FontSize != right.FontSize || left.Color != right.Color || !bytes.Equal(left.CachedRaster, right.CachedRaster) {
 			return false
 		}
 	case *VectorLayer:
@@ -586,7 +601,7 @@ func layerTreeEqual(a, b LayerNode) bool {
 		if left.FillColor != right.FillColor || left.StrokeColor != right.StrokeColor || left.StrokeWidth != right.StrokeWidth {
 			return false
 		}
-		if string(left.CachedRaster) != string(right.CachedRaster) {
+		if !bytes.Equal(left.CachedRaster, right.CachedRaster) {
 			return false
 		}
 	case *GroupLayer:
@@ -618,7 +633,7 @@ func layerMaskEqual(a, b *LayerMask) bool {
 	if a == nil {
 		return true
 	}
-	return a.Enabled == b.Enabled && a.Width == b.Width && a.Height == b.Height && string(a.Data) == string(b.Data)
+	return a.Enabled == b.Enabled && a.Width == b.Width && a.Height == b.Height && bytes.Equal(a.Data, b.Data)
 }
 
 func pathEqual(a, b *Path) bool {
@@ -647,7 +662,7 @@ func layerStylesEqual(a, b []LayerStyle) bool {
 		if a[index].Kind != b[index].Kind || a[index].Enabled != b[index].Enabled {
 			return false
 		}
-		if string(a[index].Params) != string(b[index].Params) {
+		if !bytes.Equal(a[index].Params, b[index].Params) {
 			return false
 		}
 	}

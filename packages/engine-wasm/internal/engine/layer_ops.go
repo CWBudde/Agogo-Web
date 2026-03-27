@@ -408,8 +408,9 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	if mask == nil {
 		return fmt.Errorf("layer %q has no mask", layer.Name())
 	}
-	mask.Enabled = enabled
-	layer.SetMask(mask)
+	updated := cloneLayerMask(mask)
+	updated.Enabled = enabled
+	layer.SetMask(updated)
 	doc.touchModifiedAt()
 	return nil
 }
@@ -485,21 +486,33 @@ func (doc *Document) MergeVisible() error {
 	}
 	root := doc.ensureLayerRoot()
 	children := root.Children()
-	visible := make([]LayerNode, 0, len(children))
-	hidden := make([]LayerNode, 0, len(children))
+
+	hasVisible := false
 	for _, child := range children {
 		if child.Visible() {
-			visible = append(visible, child)
-			continue
+			hasVisible = true
+			break
 		}
-		hidden = append(hidden, child)
 	}
-	if len(visible) == 0 {
+	if !hasVisible {
 		return fmt.Errorf("no visible layers to merge")
 	}
-	merged, err := doc.mergeVisibleNodes(visible)
-	if err != nil {
-		return err
+
+	// Render the full document composite so that all nested visible content at every
+	// level of the layer hierarchy is included, not just root-level layers.
+	surface := doc.renderCompositeSurface()
+	if surface == nil {
+		return fmt.Errorf("failed to render composite surface")
+	}
+	merged := NewPixelLayer("Merged Visible", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, surface)
+
+	// Preserve root-level hidden layers; visible content (including groups and their
+	// nested children) is represented by the merged composite.
+	hidden := make([]LayerNode, 0, len(children))
+	for _, child := range children {
+		if !child.Visible() {
+			hidden = append(hidden, child)
+		}
 	}
 	hidden = append(hidden, merged)
 	root.SetChildren(hidden)
@@ -526,15 +539,15 @@ func (doc *Document) groupForID(groupID string) (*GroupLayer, error) {
 }
 
 func (doc *Document) nextActiveLayerID(children []LayerNode, deletedIndex int, deleted LayerNode) string {
-	for candidate := deletedIndex; candidate < len(children); candidate++ {
-		if candidate == deletedIndex {
-			continue
-		}
-		return children[candidate].ID()
+	// Prefer the sibling immediately below the deleted layer.
+	if deletedIndex+1 < len(children) {
+		return children[deletedIndex+1].ID()
 	}
+	// Fall back to the sibling above.
 	if deletedIndex > 0 {
 		return children[deletedIndex-1].ID()
 	}
+	// No siblings; select the parent unless it is the root.
 	if parent := deleted.Parent(); parent != nil && parent.Parent() != nil {
 		return parent.ID()
 	}
@@ -548,12 +561,18 @@ func (doc *Document) touchModifiedAt() {
 func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, error) {
 	switch payload.LayerType {
 	case LayerTypePixel:
+		if payload.Bounds.W <= 0 || payload.Bounds.H <= 0 {
+			return nil, fmt.Errorf("pixel layer requires valid bounds, got %dx%d", payload.Bounds.W, payload.Bounds.H)
+		}
 		return NewPixelLayer(payload.Name, payload.Bounds, payload.Pixels), nil
 	case LayerTypeGroup:
 		group := NewGroupLayer(payload.Name)
 		group.Isolated = payload.Isolated
 		return group, nil
 	case LayerTypeAdjustment:
+		if payload.AdjustmentKind == "" {
+			return nil, fmt.Errorf("adjustment layer requires adjustmentKind")
+		}
 		return NewAdjustmentLayer(payload.Name, payload.AdjustmentKind, payload.Params), nil
 	case LayerTypeText:
 		layer := NewTextLayer(payload.Name, payload.Bounds, payload.Text, payload.CachedRaster)
@@ -606,14 +625,6 @@ func (doc *Document) mergeNodesToPixelLayer(bottom, top LayerNode, name string) 
 	return NewPixelLayer(name, LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, buffer), nil
 }
 
-func (doc *Document) mergeVisibleNodes(nodes []LayerNode) (*PixelLayer, error) {
-	buffer, err := doc.renderLayersToSurface(nodes)
-	if err != nil {
-		return nil, err
-	}
-	return NewPixelLayer("Merged Visible", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, buffer), nil
-}
-
 func (doc *Document) renderLayerToSurface(layer LayerNode) ([]byte, error) {
 	buffer := make([]byte, doc.Width*doc.Height*4)
 	clipAlpha, err := doc.clippingBaseSurfaceForLayer(layer)
@@ -647,11 +658,11 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), clipAlpha)
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
 	case *TextLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), clipAlpha)
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
 	case *VectorLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), clipAlpha)
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
 	case *AdjustmentLayer:
 		return fmt.Errorf("adjustment layer %q cannot be flattened before compositing is implemented", typed.Name())
 	case *GroupLayer:
@@ -714,7 +725,17 @@ func ensureRasterizableLayer(layer LayerNode) error {
 	return nil
 }
 
+// effectiveLayerOpacity returns the whole-layer composite opacity, which applies
+// to the complete layer surface including any layer effects (Phase 5). Use this
+// when compositing groups or checking pass-through conditions.
 func effectiveLayerOpacity(layer LayerNode) float64 {
+	return layer.Opacity()
+}
+
+// effectiveContentOpacity returns the opacity used when compositing pixel content.
+// Fill opacity reduces only the layer's own pixels, not its effects (drop shadows,
+// strokes, etc. added in Phase 5). Use this for PixelLayer, TextLayer, VectorLayer.
+func effectiveContentOpacity(layer LayerNode) float64 {
 	return clampUnit(layer.Opacity() * layer.FillOpacity())
 }
 

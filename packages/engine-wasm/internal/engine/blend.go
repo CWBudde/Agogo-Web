@@ -211,11 +211,17 @@ func blendDivide(backdrop, source float64) float64 {
 }
 
 func dissolveEnabled(alpha float64, seed uint32) bool {
-	value := float64(seed%10000) / 10000
-	return value < alpha
+	// Normalize the full 32-bit seed to [0, 1) for uniform threshold distribution.
+	// The previous seed%10000 approach reduced entropy to 10000 levels, which caused
+	// visible banding artifacts at low alpha values.
+	const invMaxUint32Plus1 = 1.0 / (1 << 32) // 1/4294967296
+	return float64(seed)*invMaxUint32Plus1 < alpha
 }
 
 func colorLuminance(color [3]float64) float64 {
+	// Rec. 601 luma coefficients — intentionally matches Photoshop's Hue/Saturation/
+	// Color/Luminosity blend group. W3C compositing spec uses Rec. 709 (0.2126, 0.7152,
+	// 0.0722) instead; do not "correct" these without re-verifying Photoshop parity.
 	return 0.3*color[0] + 0.59*color[1] + 0.11*color[2]
 }
 
