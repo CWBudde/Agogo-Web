@@ -43,7 +43,10 @@ const blendModeGroups: BlendModeGroup[] = [
       "hard-mix",
     ],
   },
-  { label: "Inversion", modes: ["difference", "exclusion", "subtract", "divide"] },
+  {
+    label: "Inversion",
+    modes: ["difference", "exclusion", "subtract", "divide"],
+  },
   { label: "Component", modes: ["hue", "saturation", "color", "luminosity"] },
 ];
 
@@ -60,13 +63,38 @@ const THUMBNAIL_SIZE = 32;
 
 // Color labels for layer organization (UI-only, not persisted in the engine).
 const COLOR_TAGS = [
-  { id: "none", label: "None", bg: "bg-transparent", border: "border-white/20" },
+  {
+    id: "none",
+    label: "None",
+    bg: "bg-transparent",
+    border: "border-white/20",
+  },
   { id: "red", label: "Red", bg: "bg-rose-500", border: "border-rose-400" },
-  { id: "orange", label: "Orange", bg: "bg-orange-500", border: "border-orange-400" },
-  { id: "yellow", label: "Yellow", bg: "bg-yellow-400", border: "border-yellow-300" },
-  { id: "green", label: "Green", bg: "bg-emerald-500", border: "border-emerald-400" },
+  {
+    id: "orange",
+    label: "Orange",
+    bg: "bg-orange-500",
+    border: "border-orange-400",
+  },
+  {
+    id: "yellow",
+    label: "Yellow",
+    bg: "bg-yellow-400",
+    border: "border-yellow-300",
+  },
+  {
+    id: "green",
+    label: "Green",
+    bg: "bg-emerald-500",
+    border: "border-emerald-400",
+  },
   { id: "blue", label: "Blue", bg: "bg-blue-500", border: "border-blue-400" },
-  { id: "violet", label: "Violet", bg: "bg-violet-500", border: "border-violet-400" },
+  {
+    id: "violet",
+    label: "Violet",
+    bg: "bg-violet-500",
+    border: "border-violet-400",
+  },
   { id: "gray", label: "Gray", bg: "bg-slate-500", border: "border-slate-400" },
 ] as const;
 
@@ -715,7 +743,10 @@ export function LayersPanel({
             });
           }}
           onColorTag={(tag) =>
-            setColorTags((current) => ({ ...current, [propertiesLayerId]: tag }))
+            setColorTags((current) => ({
+              ...current,
+              [propertiesLayerId]: tag,
+            }))
           }
           onClose={() => setPropertiesLayerId(null)}
         />
@@ -900,7 +931,7 @@ function LayerTreeRow({
               {isGroup ? (
                 <button
                   type="button"
-                  className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] text-slate-400 transition hover:bg-white/6 hover:text-slate-100"
+                  className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] text-slate-400 transition hover:bg-white/6 hover:text-slate-100 focus-visible:outline-none"
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleGroup(layer.id);
@@ -914,7 +945,7 @@ function LayerTreeRow({
               <button
                 type="button"
                 className={[
-                  "flex h-5 min-w-5 items-center justify-center rounded-[var(--ui-radius-sm)] px-1 text-[10px] transition",
+                  "flex h-5 min-w-5 items-center justify-center rounded-[var(--ui-radius-sm)] px-1 text-[10px] transition focus-visible:outline-none",
                   layer.visible
                     ? "bg-emerald-400/12 text-emerald-100"
                     : "bg-black/20 text-slate-500",
@@ -941,7 +972,7 @@ function LayerTreeRow({
               <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)]">
                 {isEditing ? (
                   <input
-                    className="h-6 w-full rounded-[var(--ui-radius-sm)] border border-cyan-400/30 bg-black/25 px-1.5 text-[12px] text-slate-100 outline-none"
+                    className="h-6 w-full rounded-[var(--ui-radius-sm)] border border-cyan-400/30 bg-black/25 px-1.5 text-[12px] text-slate-100 outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/30"
                     value={editingName}
                     onBlur={onCommitRename}
                     onChange={(event) => onEditingNameChange(event.target.value)}
@@ -960,7 +991,7 @@ function LayerTreeRow({
                 ) : (
                   <button
                     type="button"
-                    className="min-w-0 text-left"
+                    className="min-w-0 rounded-[var(--ui-radius-sm)] text-left focus-visible:outline-none"
                     onDoubleClick={(event) => {
                       event.stopPropagation();
                       onStartRename(layer);
@@ -986,7 +1017,7 @@ function LayerTreeRow({
             <div className="flex items-center gap-[var(--ui-gap-1)]">
               <button
                 type="button"
-                className="flex h-5 min-w-6 items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30"
+                className="flex h-5 min-w-6 items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 focus-visible:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onCycleLock(layer.id, layer.lockMode);
@@ -997,7 +1028,7 @@ function LayerTreeRow({
               </button>
               <button
                 type="button"
-                className="flex h-5 min-w-6 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 active:cursor-grabbing"
+                className="flex h-5 min-w-6 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 active:cursor-grabbing focus-visible:outline-none"
                 onClick={(event) => event.stopPropagation()}
                 onDoubleClick={(event) => {
                   event.stopPropagation();
@@ -1157,7 +1188,7 @@ function LayerThumbnail({
     <div className="flex items-center gap-0.5">
       <div
         className={[
-          "relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
+          "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
           layer.hasMask && !layer.maskEnabled ? "opacity-60" : "",
         ].join(" ")}
         title={`${layer.layerType} layer${layer.hasMask ? (layer.maskEnabled ? ", mask enabled" : ", mask disabled") : ""}`}
@@ -1201,7 +1232,7 @@ function LayerThumbnail({
           type="button"
           title={isEditingMask ? "Exit mask edit mode" : "Edit mask"}
           className={[
-            "relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border transition",
+            "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border transition focus-visible:outline-none",
             isEditingMask
               ? "border-orange-400/60 bg-orange-400/8"
               : "border-white/8 bg-black/18 hover:border-fuchsia-400/40",
@@ -1279,7 +1310,7 @@ function LayerContextMenu({
   return (
     <div
       role="menu"
-      className="fixed z-50 min-w-56 rounded-[var(--ui-radius-md)] border border-white/10 bg-[#171b21] p-1 shadow-[0_14px_36px_rgba(0,0,0,0.42)]"
+      className="editor-popup fixed z-50 min-w-56 rounded-[var(--ui-radius-md)] p-1"
       style={{ left: x, top: y }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -1325,7 +1356,7 @@ function MenuAction({
     <button
       type="button"
       className={[
-        "flex w-full items-center rounded-[var(--ui-radius-sm)] px-2.5 py-1.5 text-left text-[12px] transition",
+        "flex w-full items-center rounded-[var(--ui-radius-sm)] px-2.5 py-1.5 text-left text-[12px] transition focus-visible:outline-none",
         disabled
           ? "cursor-not-allowed text-slate-600"
           : destructive
@@ -1368,7 +1399,7 @@ function RangeField({
       </div>
       <div className="grid grid-cols-[1fr_44px] items-center gap-[var(--ui-gap-2)]">
         <input
-          className="h-2 w-full accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-2 w-full accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
           type="range"
           min="0"
           max="100"
@@ -1377,7 +1408,7 @@ function RangeField({
           onChange={(event) => onChange(Number(event.target.value))}
         />
         <input
-          className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-1.5 text-right text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-1.5 text-right text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
           type="number"
           min="0"
           max="100"
@@ -1536,21 +1567,21 @@ function LayerPropertiesDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="editor-backdrop fixed inset-0 z-50 flex items-center justify-center"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
         }
       }}
     >
-      <div className="w-72 rounded-[var(--ui-radius-md)] border border-white/10 bg-[#1d2026] p-4 shadow-[0_20px_48px_rgba(0,0,0,0.6)]">
+      <div className="editor-popup w-72 rounded-[var(--ui-radius-md)] p-4">
         <h2 className="mb-3 text-[13px] font-semibold text-slate-100">Layer Properties</h2>
 
         <div className="mb-3">
           <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">
             Name
             <input
-              className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-black/25 px-2 text-[12px] text-slate-100 outline-none focus:border-cyan-400/40"
+              className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-black/25 px-2 text-[12px] text-slate-100 outline-none focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
               value={name}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {

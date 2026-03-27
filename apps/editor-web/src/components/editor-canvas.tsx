@@ -139,7 +139,9 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     }
 
     const bytes = engine.handle.readPixels(render);
-    const imageData = new ImageData(bytes, render.viewport.canvasW, render.viewport.canvasH);
+    const pixelCopy = new Uint8ClampedArray(bytes.length);
+    pixelCopy.set(bytes);
+    const imageData = new ImageData(pixelCopy, render.viewport.canvasW, render.viewport.canvasH);
     context.putImageData(imageData, 0, 0);
     engine.handle.free(render.bufferPtr);
   }, [engine.handle, render]);
@@ -351,8 +353,8 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />
       {engine.status !== "ready" ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6 backdrop-blur-sm">
-          <div className="max-w-lg rounded-2xl border border-white/10 bg-slate-950/85 p-5 text-center shadow-2xl">
+        <div className="editor-backdrop absolute inset-0 flex items-center justify-center p-6">
+          <div className="editor-popup max-w-lg rounded-[var(--ui-radius-lg)] p-5 text-center">
             <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Wasm bridge</p>
             <h2 className="mt-2 text-lg font-semibold text-slate-100">
               {engine.status === "loading" ? "Loading engine" : "Engine not connected"}

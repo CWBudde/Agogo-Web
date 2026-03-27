@@ -699,7 +699,7 @@ export default function App() {
                       <button
                         type="button"
                         className={[
-                          "px-1.5 py-1 text-[12px] transition",
+                          "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
                           isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
                         ].join(" ")}
                         aria-expanded={isOpen}
@@ -767,14 +767,14 @@ export default function App() {
               <span>Unsaved session detected.</span>
               <button
                 type="button"
-                className="rounded bg-amber-600 px-2 py-0.5 text-white hover:bg-amber-500"
+                className="rounded bg-amber-600 px-2 py-0.5 text-white hover:bg-amber-500 focus-visible:outline-none"
                 onClick={recoverAutosave}
               >
                 Restore
               </button>
               <button
                 type="button"
-                className="rounded px-2 py-0.5 text-amber-400 hover:text-amber-200"
+                className="rounded px-2 py-0.5 text-amber-400 hover:text-amber-200 focus-visible:outline-none"
                 onClick={dismissAutosave}
               >
                 Discard
@@ -810,7 +810,7 @@ export default function App() {
                     key={tool.id}
                     type="button"
                     className={[
-                      "flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] font-semibold transition",
+                      "flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] font-semibold transition focus-visible:outline-none",
                       active
                         ? "bg-cyan-400/14 text-cyan-100"
                         : "bg-transparent text-slate-400 hover:bg-white/6 hover:text-slate-100",
@@ -915,7 +915,7 @@ export default function App() {
                             key={id}
                             type="button"
                             className={[
-                              "rounded-[1px] border px-2 py-1 text-[11px] transition",
+                              "rounded-[1px] border px-2 py-1 text-[11px] transition focus-visible:outline-none",
                               activeAuxPanel === id
                                 ? "border-white/12 bg-panel-soft text-slate-100"
                                 : "border-transparent text-slate-400 hover:border-white/8 hover:bg-white/5 hover:text-slate-200",
@@ -984,7 +984,7 @@ export default function App() {
                                     key={entry.id}
                                     type="button"
                                     className={[
-                                      "w-full rounded-[var(--ui-radius-sm)] border px-2 py-1.5 text-left text-[12px] transition",
+                                      "w-full rounded-[var(--ui-radius-sm)] border px-2 py-1.5 text-left text-[12px] transition focus-visible:outline-none",
                                       entry.id === currentHistoryIndex
                                         ? "border-cyan-400/35 bg-cyan-400/10 text-slate-100"
                                         : entry.state === "undone"
@@ -1299,7 +1299,7 @@ export default function App() {
 }
 
 const fieldClassName =
-  "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40";
+  "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30";
 
 function ChromeLabel({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -1330,7 +1330,7 @@ function MenuPreviewPanel({
   return (
     <div
       className={[
-        "absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden border border-white/10 bg-[#171b21] shadow-[0_14px_36px_rgba(0,0,0,0.42)]",
+        "editor-popup absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden",
         menu.align === "right" ? "right-0" : "left-0",
       ].join(" ")}
     >
@@ -1372,7 +1372,7 @@ function MenuPreviewAction({
     <button
       type="button"
       className={[
-        "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition",
+        "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
         disabled
           ? "cursor-not-allowed opacity-60"
           : "hover:bg-white/6 focus:bg-white/6 focus:outline-none",
@@ -1525,7 +1525,7 @@ function CompactRange({
       </div>
       <input
         id={id}
-        className="h-2 w-full accent-cyan-400"
+        className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
         type="range"
         min={min}
         max={max}
