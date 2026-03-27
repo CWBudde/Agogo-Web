@@ -127,6 +127,106 @@ func TestRenderViewportProducesOpaqueBuffer(t *testing.T) {
 	}
 }
 
+func TestRenderViewportIncludesLayerComposite(t *testing.T) {
+	doc := &Document{
+		Width:      8,
+		Height:     8,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Layered",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 8, H: 8}, filledPixels(8, 8, [4]byte{0, 0, 255, 255}))
+	top := NewPixelLayer("Top", LayerBounds{X: 0, Y: 0, W: 8, H: 8}, filledPixels(8, 8, [4]byte{255, 0, 0, 255}))
+	top.SetBlendMode(BlendModeScreen)
+	doc.LayerRoot.SetChildren([]LayerNode{base, top})
+	vp := &ViewportState{CenterX: 4, CenterY: 4, Zoom: 1, CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}
+
+	pixels := RenderViewport(doc, vp, nil)
+	red, green, blue, alpha := pixelAt(pixels, 8, 1, 1)
+	if red < 250 || green > 5 || blue < 250 || alpha != 255 {
+		t.Fatalf("viewport pixel = [%d %d %d %d], want screen blend close to [255 0 255 255]", red, green, blue, alpha)
+	}
+}
+
+func TestRenderViewportRespectsGroupIsolation(t *testing.T) {
+	buildDoc := func(isolated bool) *Document {
+		doc := &Document{
+			Width:      8,
+			Height:     8,
+			Resolution: 72,
+			ColorMode:  "rgb",
+			BitDepth:   8,
+			Background: parseBackground("transparent"),
+			Name:       "Groups",
+			LayerRoot:  NewGroupLayer("Root"),
+		}
+		bottom := NewPixelLayer("Bottom", LayerBounds{X: 0, Y: 0, W: 8, H: 8}, filledPixels(8, 8, [4]byte{0, 0, 255, 255}))
+		multiply := NewPixelLayer("Multiply", LayerBounds{X: 0, Y: 0, W: 8, H: 8}, filledPixels(8, 8, [4]byte{255, 0, 0, 255}))
+		multiply.SetBlendMode(BlendModeMultiply)
+		screen := NewPixelLayer("Screen", LayerBounds{X: 0, Y: 0, W: 8, H: 8}, filledPixels(8, 8, [4]byte{0, 255, 0, 255}))
+		screen.SetBlendMode(BlendModeScreen)
+		group := NewGroupLayer("Group")
+		group.Isolated = isolated
+		group.SetChildren([]LayerNode{multiply, screen})
+		doc.LayerRoot.SetChildren([]LayerNode{bottom, group})
+		return doc
+	}
+
+	vp := &ViewportState{CenterX: 4, CenterY: 4, Zoom: 1, CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}
+	passThrough := RenderViewport(buildDoc(false), vp, nil)
+	isolated := RenderViewport(buildDoc(true), vp, nil)
+	passRed, _, passBlue, _ := pixelAt(passThrough, 8, 1, 1)
+	isoRed, _, isoBlue, _ := pixelAt(isolated, 8, 1, 1)
+	if passRed == isoRed && passBlue == isoBlue {
+		t.Fatal("expected isolated and pass-through groups to render differently in the viewport")
+	}
+}
+
+func TestRenderCompositeSurfaceAppliesRasterMask(t *testing.T) {
+	doc := &Document{
+		Width:      2,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Masked",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	group := NewGroupLayer("Group")
+	group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 0}})
+	child := NewPixelLayer("Fill", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	group.SetChildren([]LayerNode{child})
+	doc.LayerRoot.SetChildren([]LayerNode{group})
+
+	surface := doc.renderCompositeSurface()
+	if got := surface[:4]; got[0] != 255 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("first composite pixel = %v, want opaque red", got)
+	}
+	if got := surface[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 0 {
+		t.Fatalf("second composite pixel = %v, want fully masked out", got)
+	}
+}
+
+func filledPixels(width, height int, color [4]byte) []byte {
+	pixels := make([]byte, width*height*4)
+	for index := 0; index < len(pixels); index += 4 {
+		copy(pixels[index:index+4], color[:])
+	}
+	return pixels
+}
+
+func pixelAt(pixels []byte, width, x, y int) (byte, byte, byte, byte) {
+	index := (y*width + x) * 4
+	return pixels[index], pixels[index+1], pixels[index+2], pixels[index+3]
+}
+
 func TestInvalidHandleFails(t *testing.T) {
 	if _, err := DispatchCommand(9999, commandResize, mustJSON(t, ResizePayload{CanvasW: 10, CanvasH: 10})); err == nil {
 		t.Fatal("expected invalid handle error")

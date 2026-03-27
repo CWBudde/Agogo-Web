@@ -265,6 +265,50 @@ func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
 	}
 }
 
+func TestRenderLayerToSurfaceAppliesRasterMask(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	layer.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 0}})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render masked layer: %v", err)
+	}
+
+	if surface[0] != 255 || surface[1] != 0 || surface[2] != 0 || surface[3] != 255 {
+		t.Fatalf("first pixel = %v, want opaque red", surface[:4])
+	}
+	if surface[4] != 0 || surface[5] != 0 || surface[6] != 0 || surface[7] != 0 {
+		t.Fatalf("second pixel = %v, want fully masked out", surface[4:8])
+	}
+}
+
+func TestRenderLayerToSurfaceAppliesGroupRasterMask(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	child := NewPixelLayer("Child", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		0, 255, 0, 255,
+		0, 255, 0, 255,
+	})
+	group := NewGroupLayer("Group")
+	group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 0}})
+	group.SetChildren([]LayerNode{child})
+
+	surface, err := doc.renderLayerToSurface(group)
+	if err != nil {
+		t.Fatalf("render masked group: %v", err)
+	}
+
+	if surface[0] != 0 || surface[1] != 255 || surface[2] != 0 || surface[3] != 255 {
+		t.Fatalf("first pixel = %v, want opaque green", surface[:4])
+	}
+	if surface[4] != 0 || surface[5] != 0 || surface[6] != 0 || surface[7] != 0 {
+		t.Fatalf("second pixel = %v, want fully masked out", surface[4:8])
+	}
+}
+
 func findLayerMetaByID(layers []LayerNodeMeta, targetID string) (LayerNodeMeta, bool) {
 	for _, layer := range layers {
 		if layer.ID == targetID {
