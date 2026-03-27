@@ -38,10 +38,18 @@ function fitCanvasToElement(
   return { width, height };
 }
 
+type PendingZoom = {
+  zoom: number;
+  anchorX: number | undefined;
+  anchorY: number | undefined;
+};
+
 export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const zoomDragRef = useRef<ZoomDragState>(null);
+  const pendingZoomRef = useRef<PendingZoom | null>(null);
+  const zoomRafRef = useRef<number | null>(null);
   const lastViewportRef = useRef<{
     width: number;
     height: number;
@@ -100,6 +108,15 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
   }, [engine.handle]);
 
   useEffect(() => {
+    return () => {
+      if (zoomRafRef.current !== null) {
+        cancelAnimationFrame(zoomRafRef.current);
+        zoomRafRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !engine.handle || !render || render.bufferLen === 0) {
       return;
@@ -111,11 +128,7 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     }
 
     const bytes = engine.handle.readPixels(render);
-    const imageData = new ImageData(
-      new Uint8ClampedArray(bytes),
-      render.viewport.canvasW,
-      render.viewport.canvasH,
-    );
+    const imageData = new ImageData(bytes, render.viewport.canvasW, render.viewport.canvasH);
     context.putImageData(imageData, 0, 0);
     engine.handle.free(render.bufferPtr);
   }, [engine.handle, render]);
@@ -298,7 +311,24 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
         event.preventDefault();
         const direction = event.deltaY > 0 ? 1 / 1.1 : 1.1;
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
-        engine.setZoom(render.viewport.zoom * direction, docPoint?.x, docPoint?.y);
+        // Read from pending ref first — avoids stale React state when events
+        // arrive faster than React can re-render.
+        const currentZoom = pendingZoomRef.current?.zoom ?? render.viewport.zoom;
+        pendingZoomRef.current = {
+          zoom: currentZoom * direction,
+          anchorX: docPoint?.x,
+          anchorY: docPoint?.y,
+        };
+        if (zoomRafRef.current === null) {
+          zoomRafRef.current = requestAnimationFrame(() => {
+            zoomRafRef.current = null;
+            const pending = pendingZoomRef.current;
+            if (pending) {
+              pendingZoomRef.current = null;
+              engine.setZoom(pending.zoom, pending.anchorX, pending.anchorY);
+            }
+          });
+        }
       }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />

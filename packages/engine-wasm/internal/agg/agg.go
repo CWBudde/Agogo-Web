@@ -81,11 +81,12 @@ func RenderViewportOverlays(doc *Document, vp *Viewport, reuse []byte) []byte {
 }
 
 func configureViewportTransform(renderer *agglib.Agg2D, width, height int, vp *Viewport) {
+	const degToRad = math.Pi / 180
 	renderer.ResetTransformations()
 	renderer.Translate(-vp.CenterX, -vp.CenterY)
 	renderer.Scale(vp.Zoom, vp.Zoom)
-	renderer.Rotate(vp.Rotation * math.Pi / 180)
-	renderer.Translate(float64(width)/2, float64(height)/2)
+	renderer.Rotate(vp.Rotation * degToRad)
+	renderer.Translate(float64(width)*0.5, float64(height)*0.5)
 }
 
 func renderDocumentBackground(renderer *agglib.Agg2D, doc *Document, minX, minY, maxX, maxY float64) {
