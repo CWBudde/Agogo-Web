@@ -574,8 +574,8 @@ func Init(configJSON string) int32 {
 		Background: stringValueOrDefault(config.Background, "transparent"),
 	})
 	inst.manager.Create(doc)
-	inst.viewport.CenterX = float64(doc.Width) / 2
-	inst.viewport.CenterY = float64(doc.Height) / 2
+	inst.viewport.CenterX = float64(doc.Width) * 0.5
+	inst.viewport.CenterY = float64(doc.Height) * 0.5
 
 	instances[id] = inst
 	return id
@@ -612,8 +612,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			applyFn: func(inst *instance) (snapshot, error) {
 				doc := inst.newDocument(payload)
 				inst.manager.Create(doc)
-				inst.viewport.CenterX = float64(doc.Width) / 2
-				inst.viewport.CenterY = float64(doc.Height) / 2
+				inst.viewport.CenterX = float64(doc.Width) * 0.5
+				inst.viewport.CenterY = float64(doc.Height) * 0.5
 				inst.fitViewportToActiveDocument()
 				return inst.captureSnapshot(), nil
 			},
@@ -629,8 +629,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, err
 				}
 				if doc := inst.manager.Active(); doc != nil {
-					inst.viewport.CenterX = float64(doc.Width) / 2
-					inst.viewport.CenterY = float64(doc.Height) / 2
+					inst.viewport.CenterX = float64(doc.Width) * 0.5
+					inst.viewport.CenterY = float64(doc.Height) * 0.5
 					inst.fitViewportToActiveDocument()
 				}
 				return inst.captureSnapshot(), nil
@@ -1258,8 +1258,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, err
 				}
 				inst.manager.Create(doc)
-				inst.viewport.CenterX = float64(doc.Width) / 2
-				inst.viewport.CenterY = float64(doc.Height) / 2
+				inst.viewport.CenterX = float64(doc.Width) * 0.5
+				inst.viewport.CenterY = float64(doc.Height) * 0.5
 				inst.fitViewportToActiveDocument()
 				return inst.captureSnapshot(), nil
 			},
@@ -1535,8 +1535,8 @@ func (inst *instance) fitViewportToActiveDocument() {
 	if doc == nil {
 		return
 	}
-	inst.viewport.CenterX = float64(doc.Width) / 2
-	inst.viewport.CenterY = float64(doc.Height) / 2
+	inst.viewport.CenterX = float64(doc.Width) * 0.5
+	inst.viewport.CenterY = float64(doc.Height) * 0.5
 
 	canvasW := maxInt(inst.viewport.CanvasW, 1)
 	canvasH := maxInt(inst.viewport.CanvasH, 1)
@@ -1656,7 +1656,8 @@ func documentsEqual(a, b *Document) bool {
 }
 
 func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {
-	radians := rotation * math.Pi / 180
+	const degToRad = math.Pi / 180
+	radians := rotation * degToRad
 	cosTheta := math.Cos(radians)
 	sinTheta := math.Sin(radians)
 	return (deltaX*cosTheta + deltaY*sinTheta) / zoom,

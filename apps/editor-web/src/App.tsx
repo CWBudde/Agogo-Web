@@ -441,7 +441,8 @@ export default function App() {
     const bitmap = await createImageBitmap(file);
     const { width, height } = bitmap;
     const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     ctx.drawImage(bitmap, 0, 0);
     bitmap.close();
     const imageData = ctx.getImageData(0, 0, width, height);

@@ -116,6 +116,17 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     };
   }, []);
 
+  // Once React commits a new render, if no rAF is pending the pending zoom has
+  // been fully processed and render.viewport.zoom is fresh — safe to clear.
+  // render is used as a change signal (not a value), so Biome's exhaustive-deps
+  // rule doesn't apply here.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: render is an intentional change trigger
+  useEffect(() => {
+    if (zoomRafRef.current === null) {
+      pendingZoomRef.current = null;
+    }
+  }, [render]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !engine.handle || !render || render.bufferLen === 0) {
@@ -163,8 +174,8 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     const canvasX = point.x;
     const canvasY = point.y;
 
-    const dx = canvasX - render.viewport.canvasW / 2;
-    const dy = canvasY - render.viewport.canvasH / 2;
+    const dx = canvasX - render.viewport.canvasW * 0.5;
+    const dy = canvasY - render.viewport.canvasH * 0.5;
     const radians = (render.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
@@ -192,8 +203,8 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     if (!point) {
       return null;
     }
-    const dx = point.x - render.viewport.canvasW / 2;
-    const dy = point.y - render.viewport.canvasH / 2;
+    const dx = point.x - render.viewport.canvasW * 0.5;
+    const dy = point.y - render.viewport.canvasH * 0.5;
     const radians = (render.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
@@ -324,7 +335,14 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
             zoomRafRef.current = null;
             const pending = pendingZoomRef.current;
             if (pending) {
-              pendingZoomRef.current = null;
+              // Retain the dispatched zoom so events arriving before React
+              // re-renders don't fall back to stale render.viewport.zoom.
+              // The useEffect([render]) below clears this once React catches up.
+              pendingZoomRef.current = {
+                zoom: pending.zoom,
+                anchorX: undefined,
+                anchorY: undefined,
+              };
               engine.setZoom(pending.zoom, pending.anchorX, pending.anchorY);
             }
           });
