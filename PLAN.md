@@ -185,16 +185,16 @@
 
 ### Phase 2.5: Internal Project Save/Load
 
-- [ ] Define internal project format (`.agp` — Agogo Project):
-  - [ ] JSON manifest: document metadata, layer tree structure, blend modes, masks config, history metadata
-  - [ ] Binary blobs: pixel data per layer (raw RGBA, zstd-compressed)
-  - [ ] Packaged as ZIP (JSON + blobs in single file, easy to inspect)
-- [ ] `SaveProject(doc) -> []byte`: serialize to `.agp`
-- [ ] `LoadProject([]byte) -> Document`: deserialize from `.agp`
-- [ ] File > Save / Save As (browser file system API / download)
-- [ ] File > Open (file picker, drag & drop onto canvas)
-- [ ] Auto-save to `localStorage` (every N commands, configurable)
-- [ ] Recovery on next open if auto-save present
+- [x] Define internal project format (`.agp` — Agogo Project):
+  - [x] JSON manifest: document metadata, layer tree structure, blend modes, masks config, history metadata
+  - [x] Binary blobs: pixel data per layer (raw RGBA, deflate-compressed via ZIP)
+  - [x] Packaged as ZIP (JSON + blobs in single file, easy to inspect)
+- [x] `SaveProject(doc) -> []byte`: serialize to `.agp`
+- [x] `LoadProject([]byte) -> Document`: deserialize from `.agp`
+- [x] File > Save / Save As (browser file system API / download)
+- [x] File > Open (file picker, drag & drop onto canvas)
+- [x] Auto-save to `localStorage` (every N commands, configurable)
+- [x] Recovery on next open if auto-save present
 
 ---
 
