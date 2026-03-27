@@ -668,6 +668,135 @@ func TestCompositeSurfaceCacheInvalidateOnLayerChange(t *testing.T) {
 	}
 }
 
+func TestVectorMaskAddDeleteUndoable(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{W: 4, H: 4},
+		Pixels:    make([]byte, 4*4*4),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := result.UIMeta.ActiveLayerID
+
+	// Add vector mask.
+	after, err := DispatchCommand(h, commandAddVectorMask, mustJSON(t, AddVectorMaskPayload{LayerID: layerID}))
+	if err != nil {
+		t.Fatalf("add vector mask: %v", err)
+	}
+	layers := after.UIMeta.Layers
+	if len(layers) == 0 || !layers[0].HasVectorMask {
+		t.Fatal("expected layer to have a vector mask after AddVectorMask")
+	}
+
+	// Delete vector mask.
+	after, err = DispatchCommand(h, commandDeleteVectorMask, mustJSON(t, DeleteVectorMaskPayload{LayerID: layerID}))
+	if err != nil {
+		t.Fatalf("delete vector mask: %v", err)
+	}
+	if len(after.UIMeta.Layers) > 0 && after.UIMeta.Layers[0].HasVectorMask {
+		t.Fatal("expected vector mask to be removed after DeleteVectorMask")
+	}
+
+	// Undo delete restores mask.
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if len(undone.UIMeta.Layers) == 0 || !undone.UIMeta.Layers[0].HasVectorMask {
+		t.Fatal("expected vector mask restored after undo of DeleteVectorMask")
+	}
+}
+
+func TestMaskEditModeNotTrackedInHistory(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{W: 4, H: 4},
+		Pixels:    make([]byte, 4*4*4),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := result.UIMeta.ActiveLayerID
+
+	// Add a mask so we can enter mask edit mode.
+	if _, err := DispatchCommand(h, commandAddLayerMask, mustJSON(t, AddLayerMaskPayload{
+		LayerID: layerID,
+		Mode:    AddLayerMaskRevealAll,
+	})); err != nil {
+		t.Fatalf("add mask: %v", err)
+	}
+
+	historyBefore := instances[h].history.CurrentIndex()
+
+	// Enter mask edit mode.
+	after, err := DispatchCommand(h, commandSetMaskEditMode, mustJSON(t, SetMaskEditModePayload{
+		LayerID: layerID,
+		Editing: true,
+	}))
+	if err != nil {
+		t.Fatalf("set mask edit mode: %v", err)
+	}
+	if after.UIMeta.MaskEditLayerID != layerID {
+		t.Fatalf("maskEditLayerId = %q, want %q", after.UIMeta.MaskEditLayerID, layerID)
+	}
+
+	// History must not have grown — mask edit is not undoable.
+	if instances[h].history.CurrentIndex() != historyBefore {
+		t.Fatal("SetMaskEditMode should not add a history entry")
+	}
+
+	// Exit mask edit mode.
+	exit, err := DispatchCommand(h, commandSetMaskEditMode, mustJSON(t, SetMaskEditModePayload{
+		LayerID: layerID,
+		Editing: false,
+	}))
+	if err != nil {
+		t.Fatalf("exit mask edit mode: %v", err)
+	}
+	if exit.UIMeta.MaskEditLayerID != "" {
+		t.Fatalf("maskEditLayerId after exit = %q, want empty", exit.UIMeta.MaskEditLayerID)
+	}
+}
+
+func TestVectorMaskRendersWithoutError(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	_, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}))
+	if err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+
+	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{W: 8, H: 8},
+		Pixels:    filledPixels(8, 8, [4]byte{255, 0, 0, 255}),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := result.UIMeta.ActiveLayerID
+
+	if _, err := DispatchCommand(h, commandAddVectorMask, mustJSON(t, AddVectorMaskPayload{LayerID: layerID})); err != nil {
+		t.Fatalf("add vector mask: %v", err)
+	}
+
+	// Rendering with a vector mask should succeed (mask silently ignored as placeholder).
+	if _, err := RenderFrame(h); err != nil {
+		t.Fatalf("RenderFrame with vector mask: %v", err)
+	}
+}
+
 func mustJSON(t *testing.T, value any) string {
 	t.Helper()
 	bytes, err := json.Marshal(value)

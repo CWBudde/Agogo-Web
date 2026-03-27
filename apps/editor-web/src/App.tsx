@@ -754,6 +754,7 @@ export default function App() {
                         engine={engine}
                         layers={render?.uiMeta.layers ?? []}
                         activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                        maskEditLayerId={render?.uiMeta.maskEditLayerId ?? null}
                         documentWidth={render?.uiMeta.documentWidth ?? draft.width}
                         documentHeight={render?.uiMeta.documentHeight ?? draft.height}
                       />

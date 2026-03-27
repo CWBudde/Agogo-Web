@@ -35,6 +35,8 @@ export interface UIMeta {
   documentHeight: number;
   documentBackground: string;
   layers: LayerNodeMeta[];
+  /** Set when the user is actively editing a layer mask; empty/absent otherwise. */
+  maskEditLayerId?: string;
 }
 
 export interface LayerNodeMeta {

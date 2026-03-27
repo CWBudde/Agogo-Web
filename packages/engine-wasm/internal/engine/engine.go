@@ -15,39 +15,42 @@ import (
 )
 
 const (
-	commandCreateDocument  = 0x0001
-	commandCloseDocument   = 0x0002
-	commandZoomSet         = 0x0010
-	commandPanSet          = 0x0011
-	commandRotateViewSet   = 0x0012
-	commandResize          = 0x0013
-	commandFitToView       = 0x0014
-	commandPointerEvent    = 0x0015
-	commandJumpHistory     = 0x0016
-	commandAddLayer        = 0x0100
-	commandDeleteLayer     = 0x0101
-	commandMoveLayer       = 0x0102
-	commandSetLayerVis     = 0x0103
-	commandSetLayerOp      = 0x0104
-	commandSetLayerBlend   = 0x0105
-	commandDuplicateLayer  = 0x0106
-	commandSetLayerLock    = 0x0107
-	commandFlattenLayer    = 0x0108
-	commandMergeDown       = 0x0109
-	commandMergeVisible    = 0x010a
-	commandAddLayerMask    = 0x010b
-	commandDeleteLayerMask = 0x010c
-	commandApplyLayerMask  = 0x010d
-	commandInvertLayerMask = 0x010e
-	commandSetMaskEnabled  = 0x010f
-	commandSetLayerClip    = 0x0110
-	commandSetActiveLayer  = 0x0111
-	commandSetLayerName    = 0x0112
-	commandBeginTxn        = 0xffe0
-	commandEndTxn          = 0xffe1
-	commandClearHistory    = 0xffe2
-	commandUndo            = 0xfff0
-	commandRedo            = 0xfff1
+	commandCreateDocument   = 0x0001
+	commandCloseDocument    = 0x0002
+	commandZoomSet          = 0x0010
+	commandPanSet           = 0x0011
+	commandRotateViewSet    = 0x0012
+	commandResize           = 0x0013
+	commandFitToView        = 0x0014
+	commandPointerEvent     = 0x0015
+	commandJumpHistory      = 0x0016
+	commandAddLayer         = 0x0100
+	commandDeleteLayer      = 0x0101
+	commandMoveLayer        = 0x0102
+	commandSetLayerVis      = 0x0103
+	commandSetLayerOp       = 0x0104
+	commandSetLayerBlend    = 0x0105
+	commandDuplicateLayer   = 0x0106
+	commandSetLayerLock     = 0x0107
+	commandFlattenLayer     = 0x0108
+	commandMergeDown        = 0x0109
+	commandMergeVisible     = 0x010a
+	commandAddLayerMask     = 0x010b
+	commandDeleteLayerMask  = 0x010c
+	commandApplyLayerMask   = 0x010d
+	commandInvertLayerMask  = 0x010e
+	commandSetMaskEnabled   = 0x010f
+	commandSetLayerClip     = 0x0110
+	commandSetActiveLayer   = 0x0111
+	commandSetLayerName     = 0x0112
+	commandAddVectorMask    = 0x0113
+	commandDeleteVectorMask = 0x0114
+	commandSetMaskEditMode  = 0x0115
+	commandBeginTxn         = 0xffe0
+	commandEndTxn           = 0xffe1
+	commandClearHistory     = 0xffe2
+	commandUndo             = 0xfff0
+	commandRedo             = 0xfff1
 )
 
 const (
@@ -120,6 +123,9 @@ type UIMeta struct {
 	DocumentHeight      int             `json:"documentHeight"`
 	DocumentBackground  string          `json:"documentBackground"`
 	Layers              []LayerNodeMeta `json:"layers"`
+	// MaskEditLayerID is set when the user is actively editing a layer mask.
+	// The UI uses this to show the mask-edit border indicator.
+	MaskEditLayerID string `json:"maskEditLayerId,omitempty"`
 }
 
 type RenderResult struct {
@@ -482,6 +488,9 @@ type instance struct {
 	cachedDocSurface        []byte
 	cachedDocID             string
 	cachedDocContentVersion int64
+	// maskEditLayerID tracks which layer's mask is currently being edited.
+	// This is UI state only — not included in history snapshots.
+	maskEditLayerID string
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -509,7 +518,7 @@ var (
 	nextID         int32 = 1
 	nextDocID      int64 = 1
 	nextDocVersion int64
-	instances            = make(map[int32]*instance)
+	instances      = make(map[int32]*instance)
 )
 
 // Init allocates a new engine instance and returns its handle.
@@ -1121,6 +1130,65 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.Execute(inst, command); err != nil {
 			return RenderResult{}, err
 		}
+	case commandAddVectorMask:
+		var payload AddVectorMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Add vector mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.AddVectorMask(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandDeleteVectorMask:
+		var payload DeleteVectorMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Delete vector mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.DeleteVectorMask(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetMaskEditMode:
+		var payload SetMaskEditModePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		// Mask edit mode is UI state only — not tracked in history.
+		if payload.Editing {
+			inst.maskEditLayerID = payload.LayerID
+		} else {
+			inst.maskEditLayerID = ""
+		}
 	case commandResize:
 		var payload ResizePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -1265,6 +1333,7 @@ func (inst *instance) render() RenderResult {
 				CurrentHistoryIndex: inst.history.CurrentIndex(),
 				CanUndo:             inst.history.CanUndo(),
 				CanRedo:             inst.history.CanRedo(),
+				MaskEditLayerID:     inst.maskEditLayerID,
 			},
 		}
 	}
@@ -1299,6 +1368,7 @@ func (inst *instance) render() RenderResult {
 			DocumentHeight:      doc.Height,
 			DocumentBackground:  doc.Background.Kind,
 			Layers:              doc.LayerMeta(),
+			MaskEditLayerID:     inst.maskEditLayerID,
 		},
 	}
 }

@@ -43,6 +43,7 @@ type LayersPanelProps = {
   engine: EngineContextValue;
   layers: LayerNodeMeta[];
   activeLayerId: string | null;
+  maskEditLayerId: string | null;
   documentWidth: number;
   documentHeight: number;
 };
@@ -51,6 +52,7 @@ export function LayersPanel({
   engine,
   layers,
   activeLayerId,
+  maskEditLayerId,
   documentWidth,
   documentHeight,
 }: LayersPanelProps) {
@@ -158,6 +160,14 @@ export function LayersPanel({
         mode,
       });
     }
+  };
+
+  const toggleMaskEdit = (layerId: string) => {
+    const isCurrentlyEditing = maskEditLayerId === layerId;
+    engine.dispatchCommand(CommandID.SetMaskEditMode, {
+      layerId,
+      editing: !isCurrentlyEditing,
+    });
   };
 
   const toggleMaskEnabledForSelection = () => {
@@ -441,6 +451,7 @@ export function LayersPanel({
                   layer={layer}
                   depth={0}
                   activeLayerId={activeLayerId}
+                  maskEditLayerId={maskEditLayerId}
                   selectedLayerIds={selectedIds}
                   collapsedGroups={collapsedGroups}
                   draggedLayerId={draggedLayerId}
@@ -470,6 +481,7 @@ export function LayersPanel({
                       lockMode: nextLockMode(lockMode),
                     })
                   }
+                  onToggleMaskEdit={toggleMaskEdit}
                   onDuplicate={(layerId) => duplicateLayers([layerId])}
                   onDragStart={(layerId) => {
                     setDraggedLayerId(layerId);
@@ -615,6 +627,20 @@ export function LayersPanel({
           onAddMaskReveal={() => addMaskToSelection("reveal-all")}
           onAddMaskHide={() => addMaskToSelection("hide-all")}
           onAddMaskFromSelection={() => addMaskToSelection("from-selection")}
+          onAddVectorMask={() => {
+            if (contextLayer) {
+              engine.dispatchCommand(CommandID.AddVectorMask, {
+                layerId: contextLayer.id,
+              });
+            }
+          }}
+          onDeleteVectorMask={() => {
+            if (contextLayer) {
+              engine.dispatchCommand(CommandID.DeleteVectorMask, {
+                layerId: contextLayer.id,
+              });
+            }
+          }}
           onToggleClip={() => {
             if (!contextLayer) {
               return;
@@ -678,6 +704,7 @@ type LayerTreeRowProps = {
   layer: LayerNodeMeta;
   depth: number;
   activeLayerId: string | null;
+  maskEditLayerId: string | null;
   selectedLayerIds: string[];
   collapsedGroups: Record<string, boolean>;
   draggedLayerId: string | null;
@@ -695,6 +722,7 @@ type LayerTreeRowProps = {
   ) => void;
   onToggleVisibility: (layerId: string, visible: boolean) => void;
   onCycleLock: (layerId: string, lockMode: LayerLockMode) => void;
+  onToggleMaskEdit: (layerId: string) => void;
   onDuplicate: (layerId: string) => void;
   onDragStart: (layerId: string) => void;
   onDragEnd: () => void;
@@ -707,6 +735,7 @@ function LayerTreeRow({
   layer,
   depth,
   activeLayerId,
+  maskEditLayerId,
   selectedLayerIds,
   collapsedGroups,
   draggedLayerId,
@@ -721,6 +750,7 @@ function LayerTreeRow({
   onSelect,
   onToggleVisibility,
   onCycleLock,
+  onToggleMaskEdit,
   onDuplicate,
   onDragStart,
   onDragEnd,
@@ -734,6 +764,7 @@ function LayerTreeRow({
   const isSelected = selectedLayerIds.includes(layer.id);
   const isDragging = layer.id === draggedLayerId;
   const isEditing = layer.id === editingLayerId;
+  const isEditingMask = layer.id === maskEditLayerId;
   const children = layer.children ?? [];
   const dropState = dropTarget?.layerId === layer.id ? dropTarget.position : null;
 
@@ -754,9 +785,11 @@ function LayerTreeRow({
           className={[
             "rounded-[var(--ui-radius-md)] border transition",
             isDragging ? "border-white/5 bg-white/[0.02] opacity-50" : "",
-            isSelected || isActive
-              ? "border-cyan-400/35 bg-cyan-400/10"
-              : "border-white/8 bg-white/[0.02] hover:border-white/12 hover:bg-white/[0.04]",
+            isEditingMask
+              ? "border-orange-400/60 bg-orange-400/8"
+              : isSelected || isActive
+                ? "border-cyan-400/35 bg-cyan-400/10"
+                : "border-white/8 bg-white/[0.02] hover:border-white/12 hover:bg-white/[0.04]",
             dropState === "inside" ? "border-cyan-300/60 bg-cyan-300/10" : "",
           ].join(" ")}
           role="treeitem"
@@ -821,7 +854,11 @@ function LayerTreeRow({
               </button>
             </div>
 
-            <LayerThumbnail layer={layer} />
+            <LayerThumbnail
+              layer={layer}
+              isEditingMask={isEditingMask}
+              onToggleMaskEdit={() => onToggleMaskEdit(layer.id)}
+            />
 
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)]">
@@ -860,6 +897,7 @@ function LayerTreeRow({
                 {layer.clippingBase ? <MiniBadge label="base" tone="amber" /> : null}
                 {layer.clipToBelow ? <MiniBadge label="clip" tone="sky" /> : null}
                 {layer.hasMask ? <MiniBadge label="mask" tone="fuchsia" /> : null}
+                {layer.hasVectorMask ? <MiniBadge label="vmask" tone="emerald" /> : null}
               </div>
               <div className="mt-[2px] flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
                 <span>{formatBlendMode(layer.blendMode)}</span>
@@ -912,6 +950,7 @@ function LayerTreeRow({
               layer={child}
               depth={depth + 1}
               activeLayerId={activeLayerId}
+              maskEditLayerId={maskEditLayerId}
               selectedLayerIds={selectedLayerIds}
               collapsedGroups={collapsedGroups}
               draggedLayerId={draggedLayerId}
@@ -926,6 +965,7 @@ function LayerTreeRow({
               onSelect={onSelect}
               onToggleVisibility={onToggleVisibility}
               onCycleLock={onCycleLock}
+              onToggleMaskEdit={onToggleMaskEdit}
               onDuplicate={onDuplicate}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
@@ -940,13 +980,21 @@ function LayerTreeRow({
   );
 }
 
-function MiniBadge({ label, tone }: { label: string; tone: "amber" | "sky" | "fuchsia" }) {
+function MiniBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "amber" | "sky" | "fuchsia" | "emerald";
+}) {
   const toneClass =
     tone === "amber"
       ? "border-amber-400/25 bg-amber-400/10 text-amber-100"
       : tone === "sky"
         ? "border-sky-400/25 bg-sky-400/10 text-sky-100"
-        : "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-100";
+        : tone === "emerald"
+          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+          : "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-100";
 
   return (
     <span
@@ -960,7 +1008,15 @@ function MiniBadge({ label, tone }: { label: string; tone: "amber" | "sky" | "fu
   );
 }
 
-function LayerThumbnail({ layer }: { layer: LayerNodeMeta }) {
+function LayerThumbnail({
+  layer,
+  isEditingMask,
+  onToggleMaskEdit,
+}: {
+  layer: LayerNodeMeta;
+  isEditingMask: boolean;
+  onToggleMaskEdit: () => void;
+}) {
   const toneClass =
     layer.layerType === "group"
       ? "from-slate-500/60 via-slate-700/60 to-slate-950"
@@ -988,8 +1044,22 @@ function LayerThumbnail({ layer }: { layer: LayerNodeMeta }) {
       {layer.clipToBelow ? (
         <span className="absolute left-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-sky-300" />
       ) : null}
+      {layer.hasVectorMask ? (
+        <span className="absolute left-0.5 bottom-0.5 h-1.5 w-1.5 rounded-full bg-emerald-300" />
+      ) : null}
       {layer.hasMask ? (
-        <span className="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-fuchsia-300" />
+        <button
+          type="button"
+          title={isEditingMask ? "Exit mask edit mode" : "Edit mask"}
+          className={[
+            "absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full transition hover:scale-125",
+            isEditingMask ? "bg-orange-300 ring-1 ring-orange-300/60" : "bg-fuchsia-300",
+          ].join(" ")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleMaskEdit();
+          }}
+        />
       ) : null}
     </div>
   );
@@ -1016,6 +1086,8 @@ function LayerContextMenu({
   onAddMaskReveal,
   onAddMaskHide,
   onAddMaskFromSelection,
+  onAddVectorMask,
+  onDeleteVectorMask,
   onToggleClip,
 }: {
   x: number;
@@ -1032,6 +1104,8 @@ function LayerContextMenu({
   onAddMaskReveal: () => void;
   onAddMaskHide: () => void;
   onAddMaskFromSelection: () => void;
+  onAddVectorMask: () => void;
+  onDeleteVectorMask: () => void;
   onToggleClip: () => void;
 }) {
   return (
@@ -1056,6 +1130,9 @@ function LayerContextMenu({
       <MenuAction label="Add Mask: Reveal All" onClick={onAddMaskReveal} />
       <MenuAction label="Add Mask: Hide All" onClick={onAddMaskHide} />
       <MenuAction label="Add Mask: From Selection" onClick={onAddMaskFromSelection} />
+      <MenuSeparator />
+      <MenuAction label="Add Vector Mask" onClick={onAddVectorMask} />
+      <MenuAction label="Delete Vector Mask" onClick={onDeleteVectorMask} />
       <MenuSeparator />
       <MenuAction label="Toggle Clipping" onClick={onToggleClip} />
     </div>

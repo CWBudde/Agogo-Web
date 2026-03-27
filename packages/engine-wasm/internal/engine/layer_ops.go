@@ -117,6 +117,19 @@ type SetLayerNamePayload struct {
 	Name    string `json:"name"`
 }
 
+type AddVectorMaskPayload struct {
+	LayerID string `json:"layerId"`
+}
+
+type DeleteVectorMaskPayload struct {
+	LayerID string `json:"layerId"`
+}
+
+type SetMaskEditModePayload struct {
+	LayerID string `json:"layerId"`
+	Editing bool   `json:"editing"`
+}
+
 type LayerNodeMeta struct {
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
@@ -453,6 +466,39 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	return nil
 }
 
+func (doc *Document) AddVectorMask(layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if layer.VectorMask() != nil {
+		return fmt.Errorf("layer %q already has a vector mask", layer.Name())
+	}
+	// Placeholder: creates an empty path. Full path editing deferred to Phase 6.1.
+	layer.SetVectorMask(&Path{Closed: true})
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) DeleteVectorMask(layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if layer.VectorMask() == nil {
+		return fmt.Errorf("layer %q has no vector mask", layer.Name())
+	}
+	layer.SetVectorMask(nil)
+	doc.touchModifiedAt()
+	return nil
+}
+
 func (doc *Document) SetLayerClipToBelow(layerID string, clipToBelow bool) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
@@ -759,9 +805,8 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 }
 
 func ensureRasterizableLayer(layer LayerNode) error {
-	if layer.VectorMask() != nil {
-		return fmt.Errorf("layer %q cannot be merged while vector masks are not implemented", layer.Name())
-	}
+	// Vector masks are not yet rasterized during compositing (Phase 6.1).
+	// They are stored as data but silently ignored in rendering for now.
 	if len(layer.StyleStack()) > 0 {
 		return fmt.Errorf("layer %q cannot be merged while layer styles are not rasterized", layer.Name())
 	}

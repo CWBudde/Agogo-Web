@@ -32,6 +32,9 @@ export enum CommandID {
   SetLayerClipToBelow = 0x0110,
   SetActiveLayer = 0x0111,
   SetLayerName = 0x0112,
+  AddVectorMask = 0x0113,
+  DeleteVectorMask = 0x0114,
+  SetMaskEditMode = 0x0115,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -254,4 +257,17 @@ export interface SetActiveLayerCommand {
 export interface SetLayerNameCommand {
   layerId: string;
   name: string;
+}
+
+export interface AddVectorMaskCommand {
+  layerId: string;
+}
+
+export interface DeleteVectorMaskCommand {
+  layerId: string;
+}
+
+export interface SetMaskEditModeCommand {
+  layerId: string;
+  editing: boolean;
 }
