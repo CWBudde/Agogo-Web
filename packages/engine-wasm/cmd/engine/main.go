@@ -47,6 +47,28 @@ func main() {
 		return encodeResult(result)
 	}))
 
+	js.Global().Set("ExportProject", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		handle := int32(args[0].Int())
+		result, err := engine.ExportProject(handle)
+		if err != nil {
+			return encodeResult(map[string]string{"error": err.Error()})
+		}
+		return result
+	}))
+
+	js.Global().Set("ImportProject", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		handle := int32(args[0].Int())
+		payload := ""
+		if len(args) > 1 {
+			payload = args[1].String()
+		}
+		result, err := engine.ImportProject(handle, payload)
+		if err != nil {
+			return encodeResult(map[string]string{"error": err.Error()})
+		}
+		return encodeResult(result)
+	}))
+
 	js.Global().Set("GetBufferPtr", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		return engine.GetBufferPtr(int32(args[0].Int()))
 	}))

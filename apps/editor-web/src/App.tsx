@@ -1,15 +1,29 @@
 import type { CreateDocumentCommand } from "@agogo/proto";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
 import {
   BrushToolIcon,
+  ClipboardIcon,
+  CopyIcon,
   EraserToolIcon,
+  FitScreenIcon,
   HandToolIcon,
+  InfoIcon,
   LassoToolIcon,
+  LayersIcon,
   MarqueeToolIcon,
   MoveToolIcon,
+  NewDocumentIcon,
+  OpenFolderIcon,
+  PanelsIcon,
+  RedoIcon,
+  SaveIcon,
+  ScissorsIcon,
+  SelectionIcon,
   ShapeToolIcon,
+  SlidersIcon,
   TypeToolIcon,
+  UndoIcon,
   ZoomToolIcon,
 } from "@/components/editor-icons";
 import { LayersPanel } from "@/components/layers-panel";
@@ -19,7 +33,197 @@ import { Separator } from "@/components/ui/separator";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useEngine } from "@/wasm/context";
 
-const menuItems = ["File", "Edit", "Image", "Layer", "Select", "Filter", "View", "Window", "Help"];
+type MenuPreviewTone = "default" | "accent" | "muted";
+
+type MenuPreviewItem = {
+  label: string;
+  shortcut?: string;
+  tone?: MenuPreviewTone;
+};
+
+type MenuPreviewMenu = {
+  label: string;
+  caption: string;
+  align?: "left" | "right";
+  sections: { title: string; items: MenuPreviewItem[] }[];
+};
+
+const menuItems: MenuPreviewMenu[] = [
+  {
+    label: "File",
+    caption: "Document lifecycle and export flow preview.",
+    sections: [
+      {
+        title: "Document",
+        items: [
+          { label: "New Document", shortcut: "Ctrl+N", tone: "accent" },
+          { label: "Open...", shortcut: "Ctrl+O" },
+          { label: "Open Recent" },
+        ],
+      },
+      {
+        title: "Output",
+        items: [
+          { label: "Save", shortcut: "Ctrl+S" },
+          { label: "Export As...", shortcut: "Ctrl+Shift+E" },
+          { label: "Generate Assets", tone: "muted" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Edit",
+    caption: "History, clipboard, and transform placeholders.",
+    sections: [
+      {
+        title: "History",
+        items: [
+          { label: "Undo", shortcut: "Ctrl+Z", tone: "accent" },
+          { label: "Redo", shortcut: "Ctrl+Shift+Z" },
+        ],
+      },
+      {
+        title: "Clipboard",
+        items: [
+          { label: "Cut", shortcut: "Ctrl+X" },
+          { label: "Copy", shortcut: "Ctrl+C" },
+          { label: "Paste", shortcut: "Ctrl+V" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Image",
+    caption: "Canvas-wide operations and color management preview.",
+    sections: [
+      {
+        title: "Adjustments",
+        items: [{ label: "Levels..." }, { label: "Curves..." }, { label: "Hue/Saturation..." }],
+      },
+      {
+        title: "Geometry",
+        items: [{ label: "Image Size..." }, { label: "Canvas Size..." }, { label: "Trim" }],
+      },
+    ],
+  },
+  {
+    label: "Layer",
+    caption: "Layer stack actions matching the right-side dock.",
+    sections: [
+      {
+        title: "Create",
+        items: [
+          { label: "New Layer", shortcut: "Shift+Ctrl+N", tone: "accent" },
+          { label: "New Group" },
+          { label: "Layer Mask" },
+        ],
+      },
+      {
+        title: "Arrange",
+        items: [
+          { label: "Duplicate Layer", shortcut: "Ctrl+J" },
+          { label: "Merge Down", shortcut: "Ctrl+E" },
+          { label: "Rasterize", tone: "muted" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Select",
+    caption: "Selection workflows and edge refinement preview.",
+    sections: [
+      {
+        title: "Global",
+        items: [
+          { label: "All", shortcut: "Ctrl+A" },
+          { label: "Deselect", shortcut: "Ctrl+D" },
+          { label: "Inverse", shortcut: "Shift+Ctrl+I" },
+        ],
+      },
+      {
+        title: "Refine",
+        items: [
+          { label: "Grow" },
+          { label: "Feather..." },
+          { label: "Select and Mask", tone: "muted" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Filter",
+    caption: "Effect categories and future gallery entry points.",
+    sections: [
+      {
+        title: "Recent",
+        items: [
+          { label: "Last Filter", shortcut: "Ctrl+F" },
+          { label: "Fade Last Filter", tone: "muted" },
+        ],
+      },
+      {
+        title: "Families",
+        items: [{ label: "Blur" }, { label: "Noise" }, { label: "Stylize" }],
+      },
+    ],
+  },
+  {
+    label: "View",
+    caption: "Viewport controls that mirror the current chrome.",
+    sections: [
+      {
+        title: "Zoom",
+        items: [
+          { label: "Zoom In", shortcut: "Ctrl++", tone: "accent" },
+          { label: "Zoom Out", shortcut: "Ctrl+-" },
+          { label: "Fit on Screen", shortcut: "Ctrl+0" },
+        ],
+      },
+      {
+        title: "Overlays",
+        items: [{ label: "Pixel Grid" }, { label: "Rulers" }, { label: "Guides", tone: "muted" }],
+      },
+    ],
+  },
+  {
+    label: "Window",
+    caption: "Dock and workspace organization preview.",
+    align: "right",
+    sections: [
+      {
+        title: "Panels",
+        items: [{ label: "Layers", tone: "accent" }, { label: "Navigator" }, { label: "History" }],
+      },
+      {
+        title: "Workspace",
+        items: [{ label: "Essentials" }, { label: "Painting" }, { label: "Reset Workspace" }],
+      },
+    ],
+  },
+  {
+    label: "Help",
+    caption: "Support, onboarding, and diagnostics preview.",
+    align: "right",
+    sections: [
+      {
+        title: "Learn",
+        items: [
+          { label: "Welcome Tour" },
+          { label: "Keyboard Shortcuts" },
+          { label: "What’s New" },
+        ],
+      },
+      {
+        title: "Support",
+        items: [
+          { label: "Report Feedback" },
+          { label: "System Info" },
+          { label: "Release Notes", tone: "muted" },
+        ],
+      },
+    ],
+  },
+];
 
 const toolItems = [
   { id: "move", label: "Move", Icon: MoveToolIcon },
@@ -96,15 +300,48 @@ function formatDimension(value: number, unit: DocumentUnit) {
 export default function App() {
   const engine = useEngine();
   const render = engine.render;
+  const menuBarRef = useRef<HTMLDivElement | null>(null);
+  const projectInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTool, setActiveTool] = useState("brush");
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
+
+  const saveProject = () => {
+    const projectJSON = engine.exportProject();
+    if (!projectJSON) {
+      return;
+    }
+
+    const fileName = `${render?.uiMeta.activeDocumentName ?? draft.name}.agp`;
+    const blob = new Blob([projectJSON], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const openProject = async (file: File) => {
+    const projectJSON = await file.text();
+    const imported = engine.importProject(projectJSON);
+    if (imported) {
+      setDraft((current) => ({
+        ...current,
+        name: imported.uiMeta.activeDocumentName || current.name,
+        width: imported.uiMeta.documentWidth || current.width,
+        height: imported.uiMeta.documentHeight || current.height,
+        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
+      }));
+    }
+  };
 
   useKeyboardShortcuts({
     onPanModeChange: setIsPanMode,
@@ -131,6 +368,31 @@ export default function App() {
     },
   });
 
+  useEffect(() => {
+    if (!openMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!menuBarRef.current?.contains(event.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenu(null);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenu]);
+
   const documentSize = render
     ? `${render.uiMeta.documentWidth} x ${render.uiMeta.documentHeight}`
     : "No document";
@@ -151,14 +413,16 @@ export default function App() {
   const activeToolLabel = isPanMode
     ? "Hand (temporary)"
     : (toolItems.find((tool) => tool.id === activeTool)?.label ?? activeTool);
-
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
       <div className="mx-auto min-h-screen max-w-[1920px] px-0">
         <div className="flex min-h-screen flex-col bg-[#1d2026]">
           <header className="editor-titlebar flex h-[34px] items-center justify-between gap-3 border-b border-border px-2">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex items-center gap-2 pr-3">
+            <div
+              ref={menuBarRef}
+              className="flex min-w-0 flex-nowrap items-center gap-3 overflow-visible"
+            >
+              <div className="flex shrink-0 items-center gap-2 pr-3">
                 <div className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] bg-cyan-400/95 text-[11px] font-black text-slate-950">
                   A
                 </div>
@@ -166,24 +430,54 @@ export default function App() {
                   Agogo Studio
                 </span>
               </div>
-              <nav className="hidden items-center gap-1 border-l border-white/8 pl-3 md:flex">
-                {menuItems.map((item) => (
-                  <button
-                    key={item}
-                    className="rounded-[var(--ui-radius-sm)] px-1.5 py-1 text-[12px] text-slate-400 transition hover:bg-white/6 hover:text-slate-100"
-                    type="button"
-                  >
-                    {item}
-                  </button>
-                ))}
+
+              <nav className="flex min-w-0 flex-nowrap items-center gap-1 border-l border-white/8 pl-3">
+                {menuItems.map((menu) => {
+                  const isOpen = openMenu === menu.label;
+                  return (
+                    <div key={menu.label} className="relative shrink-0">
+                      <button
+                        type="button"
+                        className={[
+                          "px-1.5 py-1 text-[12px] transition",
+                          isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
+                        ].join(" ")}
+                        aria-expanded={isOpen}
+                        aria-haspopup="menu"
+                        onClick={() =>
+                          setOpenMenu((current) => (current === menu.label ? null : menu.label))
+                        }
+                        onPointerEnter={() => {
+                          if (openMenu) {
+                            setOpenMenu(menu.label);
+                          }
+                        }}
+                      >
+                        {menu.label}
+                      </button>
+
+                      {isOpen ? <MenuPreviewPanel menu={menu} /> : null}
+                    </div>
+                  );
+                })}
               </nav>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => projectInputRef.current?.click()}>
+                <OpenFolderIcon className="mr-1.5 h-3.5 w-3.5" />
+                Open
+              </Button>
+              <Button variant="ghost" size="sm" onClick={saveProject}>
+                <SaveIcon className="mr-1.5 h-3.5 w-3.5" />
+                Save
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => setNewDocumentOpen(true)}>
+                <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
                 New
               </Button>
               <Button variant="ghost" size="sm" onClick={() => engine.fitToView()}>
+                <FitScreenIcon className="mr-1.5 h-3.5 w-3.5" />
                 Fit
               </Button>
               <Button
@@ -192,9 +486,11 @@ export default function App() {
                 onClick={() => engine.undo()}
                 disabled={!render?.uiMeta.canUndo}
               >
+                <UndoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Undo
               </Button>
               <Button size="sm" onClick={() => engine.redo()} disabled={!render?.uiMeta.canRedo}>
+                <RedoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Redo
               </Button>
             </div>
@@ -368,6 +664,28 @@ export default function App() {
                             value={render?.viewport.rotation ?? 0}
                             onChange={(value) => engine.setRotation(value)}
                           />
+                          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/10 p-2">
+                            <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                              Channels
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 text-[12px] text-slate-200">
+                              {[
+                                ["RGB", "Composite view"],
+                                ["R", "Red"],
+                                ["G", "Green"],
+                                ["B", "Blue"],
+                                ["A", "Alpha"],
+                              ].map(([label, description]) => (
+                                <div
+                                  key={label}
+                                  className="flex items-center justify-between rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 px-2 py-1.5"
+                                >
+                                  <span className="font-medium text-slate-100">{label}</span>
+                                  <span className="text-[11px] text-slate-500">{description}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       ) : null}
 
@@ -470,6 +788,21 @@ export default function App() {
         title="Create Document"
         description="Presets, dimensions, resolution, color mode, bit depth, and background feed the Go engine document manager."
       >
+        <input
+          ref={projectInputRef}
+          type="file"
+          accept=".agp,application/json"
+          className="hidden"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) {
+              return;
+            }
+
+            await openProject(file);
+            event.target.value = "";
+          }}
+        />
         <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
           <div className="space-y-[var(--ui-gap-2)]">
             {presets.map((preset) => (
@@ -658,6 +991,124 @@ function MetricChip({ value }: { value: string }) {
   return (
     <span className="rounded-[1px] border border-white/8 bg-panel-soft px-1.5 py-1">{value}</span>
   );
+}
+
+function MenuPreviewPanel({ menu }: { menu: MenuPreviewMenu }) {
+  const items = menu.sections.flatMap((section) => section.items);
+
+  return (
+    <div
+      className={[
+        "absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden border border-white/10 bg-[#171b21] shadow-[0_14px_36px_rgba(0,0,0,0.42)]",
+        menu.align === "right" ? "right-0" : "left-0",
+      ].join(" ")}
+    >
+      <div className="border-b border-white/8 px-2.5 py-2 text-[11px] text-slate-400">
+        {menu.caption}
+      </div>
+
+      <div className="py-1">
+        {items.map((item) => (
+          <MenuPreviewAction key={`${menu.label}-${item.label}`} item={item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MenuPreviewAction({ item }: { item: MenuPreviewItem }) {
+  const ItemIcon = iconForMenuItem(item.label);
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition hover:bg-white/6"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <ItemIcon
+          className={[
+            "h-3.5 w-3.5 shrink-0",
+            item.tone === "accent"
+              ? "text-cyan-300"
+              : item.tone === "muted"
+                ? "text-slate-600"
+                : "text-slate-400",
+          ].join(" ")}
+        />
+        <span
+          className={item.tone === "muted" ? "truncate text-slate-500" : "truncate text-slate-100"}
+        >
+          {item.label}
+        </span>
+      </span>
+      {item.shortcut ? (
+        <span className="ml-4 shrink-0 text-[11px] text-slate-500">{item.shortcut}</span>
+      ) : null}
+    </button>
+  );
+}
+
+function iconForMenuItem(label: string) {
+  const lower = label.toLowerCase();
+
+  if (lower.includes("new")) {
+    return NewDocumentIcon;
+  }
+  if (lower.includes("open")) {
+    return OpenFolderIcon;
+  }
+  if (lower.includes("save") || lower.includes("export") || lower.includes("assets")) {
+    return SaveIcon;
+  }
+  if (lower.includes("undo")) {
+    return UndoIcon;
+  }
+  if (lower.includes("redo")) {
+    return RedoIcon;
+  }
+  if (lower.includes("cut")) {
+    return ScissorsIcon;
+  }
+  if (lower.includes("copy")) {
+    return CopyIcon;
+  }
+  if (lower.includes("paste")) {
+    return ClipboardIcon;
+  }
+  if (lower.includes("layer") || lower.includes("rasterize") || lower.includes("merge")) {
+    return LayersIcon;
+  }
+  if (lower.includes("select") || lower.includes("feather") || lower.includes("inverse")) {
+    return SelectionIcon;
+  }
+  if (
+    lower.includes("levels") ||
+    lower.includes("curves") ||
+    lower.includes("hue") ||
+    lower.includes("blur") ||
+    lower.includes("noise") ||
+    lower.includes("stylize") ||
+    lower.includes("filter")
+  ) {
+    return SlidersIcon;
+  }
+  if (
+    lower.includes("zoom") ||
+    lower.includes("rulers") ||
+    lower.includes("grid") ||
+    lower.includes("guides")
+  ) {
+    return ZoomToolIcon;
+  }
+  if (
+    lower.includes("workspace") ||
+    lower.includes("navigator") ||
+    lower.includes("history") ||
+    lower.includes("panels")
+  ) {
+    return PanelsIcon;
+  }
+  return InfoIcon;
 }
 
 function DockSection({

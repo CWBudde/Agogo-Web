@@ -148,6 +148,17 @@ export function EngineProvider({ children }: PropsWithChildren) {
       fitToView() {
         return run(CommandID.FitToView);
       },
+      exportProject() {
+        return state.handle?.exportProject() ?? null;
+      },
+      importProject(projectJSON: string) {
+        if (!state.handle) {
+          return null;
+        }
+        const render = state.handle.importProject(projectJSON);
+        dispatch({ type: "render", render });
+        return render;
+      },
       undo() {
         return run(CommandID.Undo);
       },

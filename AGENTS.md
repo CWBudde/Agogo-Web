@@ -103,6 +103,28 @@ The code is proprietary (MeKo-Tech). Two licensing issues exist before commercia
 - `agg_go` dependency needs a LICENSE file
 - GPC (Polygon Clipper) is non-commercial only → must be replaced with Clipper2
 
+## Pre-commit Hook Failures
+
+The project uses **lefthook** to run `biome`, `typecheck`, and `go-vet` in parallel before every commit. If `git commit` fails, address the failing check:
+
+| Hook | Failure symptom | Fix |
+| ---- | --------------- | --- |
+| `biome` | "Formatter would have printed…" | `just fmt` (or `just lint-fix`), then re-stage |
+| `biome` | Lint rule violations | `just lint-fix`, fix remaining issues manually, then re-stage |
+| `typecheck` | TypeScript type errors | Fix the TS errors, then re-stage |
+| `go-vet` | Go vet warnings | Fix the Go issues, then re-stage |
+
+**General workflow when a commit is blocked:**
+
+```bash
+just fmt          # auto-format everything (biome + gofumpt + gci + shfmt)
+just lint-fix     # auto-fix lint issues
+git add -u        # re-stage the fixed files
+git commit -m "your message"
+```
+
+Never use `--no-verify` to bypass hooks — the same checks run in CI and will fail there.
+
 ## Implementation Plan
 
 See `PLAN.md` for the full phased roadmap.

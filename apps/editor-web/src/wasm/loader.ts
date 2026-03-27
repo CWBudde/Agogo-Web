@@ -10,6 +10,8 @@ declare global {
     EngineInit?: (configJSON: string) => number;
     DispatchCommand?: (handle: number, commandId: number, payloadJSON?: string) => string;
     RenderFrame?: (handle: number) => string;
+    ExportProject?: (handle: number) => string;
+    ImportProject?: (handle: number, payloadJSON?: string) => string;
     Free?: (pointer: number) => void;
   }
 }
@@ -120,8 +122,10 @@ export async function loadEngine({
   const init = window.EngineInit;
   const dispatch = window.DispatchCommand;
   const renderFrame = window.RenderFrame;
+  const exportProject = window.ExportProject;
+  const importProject = window.ImportProject;
 
-  if (!init || !dispatch || !renderFrame) {
+  if (!init || !dispatch || !renderFrame || !exportProject || !importProject) {
     throw new WasmEngineLoadError("The Go runtime did not register the expected engine functions.");
   }
 
@@ -148,6 +152,12 @@ export async function loadEngine({
     },
     renderFrame() {
       return parseRenderResult(renderFrame(handle));
+    },
+    exportProject() {
+      return exportProject(handle);
+    },
+    importProject(projectJSON: string) {
+      return parseRenderResult(importProject(handle, projectJSON));
     },
     readPixels(render: RenderResult) {
       return new Uint8ClampedArray(memory.buffer, render.bufferPtr, render.bufferLen);

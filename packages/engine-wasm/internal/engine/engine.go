@@ -1174,6 +1174,32 @@ func RenderFrame(handle int32) (RenderResult, error) {
 	return inst.render(), nil
 }
 
+// ExportProject returns the current active document as a JSON project archive.
+func ExportProject(handle int32) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return "", fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	return inst.exportProject()
+}
+
+// ImportProject loads a JSON project archive into the active engine instance.
+func ImportProject(handle int32, payload string) (RenderResult, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	return inst.importProject(payload)
+}
+
 // GetBufferPtr returns the pointer to the pixel buffer inside Wasm linear memory.
 func GetBufferPtr(handle int32) int32 {
 	mu.Lock()

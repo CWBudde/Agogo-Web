@@ -12,6 +12,8 @@ export interface EngineHandle {
   readonly memory: WebAssembly.Memory;
   dispatch(commandId: number, payload?: unknown): RenderResult;
   renderFrame(): RenderResult;
+  exportProject(): string;
+  importProject(projectJSON: string): RenderResult;
   readPixels(render: RenderResult): Uint8ClampedArray;
   free(pointer: number): void;
 }
@@ -34,6 +36,8 @@ export interface EngineContextValue {
   clearHistory(): RenderResult | null;
   setRotation(rotation: number): RenderResult | null;
   fitToView(): RenderResult | null;
+  exportProject(): string | null;
+  importProject(projectJSON: string): RenderResult | null;
   undo(): RenderResult | null;
   redo(): RenderResult | null;
   reload(): void;
