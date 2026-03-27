@@ -1,0 +1,32 @@
+name: go-test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/engine-wasm/go.mod
+          cache-dependency-path: packages/engine-wasm/go.sum
+
+      - name: go vet
+        run: go vet ./...
+        working-directory: packages/engine-wasm
+
+      - name: go test
+        run: go test -race ./...
+        working-directory: packages/engine-wasm
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: packages/engine-wasm

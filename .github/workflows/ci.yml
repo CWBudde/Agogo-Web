@@ -1,0 +1,24 @@
+name: CI
+
+on: push
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  biome:
+    uses: ./.github/workflows/test-biome.yml
+
+  typecheck:
+    uses: ./.github/workflows/test-typecheck.yml
+
+  go-test:
+    uses: ./.github/workflows/test-go.yml
+
+  build:
+    uses: ./.github/workflows/build.yml
+    needs: [biome, typecheck, go-test]

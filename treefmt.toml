@@ -1,0 +1,40 @@
+# treefmt configuration for Agogo-Web
+# Multi-language code formatting
+
+[global]
+excludes = [
+    "**/.git/**",
+    "go.sum",
+    "go.mod",
+    "bun.lock",
+    "**/node_modules/**",
+    "**/dist/**",
+    "apps/editor-web/public/**",
+    "packages/engine-wasm/coverage.*",
+]
+
+# Go formatter
+[formatter.gofumpt]
+command = "gofumpt"
+options = ["-w"]
+includes = ["*.go"]
+
+# Go import organizer (runs after gofumpt)
+[formatter.gci]
+command = "gci"
+options = ["write"]
+includes = ["*.go"]
+priority = 1
+
+# TypeScript / JavaScript / JSON — Biome
+[formatter.biome]
+command = "biome"
+options = ["format", "--write"]
+includes = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.json"]
+excludes = ["**/node_modules/**", "**/dist/**"]
+
+# Shell scripts
+[formatter.shfmt]
+command = "shfmt"
+options = ["-s", "-w"]
+includes = ["*.sh"]

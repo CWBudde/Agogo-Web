@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      root: apps/editor-web
+      glob: "*.{ts,tsx,js,jsx,json}"
+      run: bun run lint
+
+    - name: typecheck
+      root: apps/editor-web
+      glob: "*.{ts,tsx}"
+      run: bun run typecheck
+
+    - name: go-vet
+      root: packages/engine-wasm
+      glob: "*.go"
+      run: go vet ./...
