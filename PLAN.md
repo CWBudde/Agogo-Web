@@ -76,7 +76,7 @@
   - [x] `Parent` pointer, `Children []LayerNode` (for groups)
   - [x] `Mask *LayerMask`, `VectorMask *Path`, `ClippingBase bool`
   - [x] `StyleStack []LayerStyle`
-- [ ] Layer types implementing `LayerNode`:
+- [x] Layer types implementing `LayerNode`:
   - [x] `PixelLayer`: raw RGBA pixel buffer, bounds (x/y offset within doc)
   - [x] `GroupLayer`: contains children, pass-through or isolated blend
   - [x] `AdjustmentLayer`: params only, no pixel data (Phase 5)

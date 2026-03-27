@@ -161,6 +161,13 @@ func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
 		t.Fatal("merge down should create a new merged layer id")
 	}
 
+	if _, err := DispatchCommand(h, commandSetLayerBlend, mustJSON(t, SetLayerBlendModePayload{
+		LayerID:   mergedDown.UIMeta.ActiveLayerID,
+		BlendMode: BlendModeMultiply,
+	})); err != nil {
+		t.Fatalf("set merged layer blend mode: %v", err)
+	}
+
 	hidden, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
 		LayerType: LayerTypePixel,
 		Name:      "Hidden",
@@ -188,6 +195,73 @@ func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
 	}
 	if hiddenMeta.Visible {
 		t.Fatal("hidden layer should remain hidden after merge visible")
+	}
+}
+
+func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	bottom, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Bottom",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{128, 128, 128, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add bottom: %v", err)
+	}
+
+	top, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Top",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add top: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandSetLayerBlend, mustJSON(t, SetLayerBlendModePayload{
+		LayerID:   top.UIMeta.ActiveLayerID,
+		BlendMode: BlendModeScreen,
+	})); err != nil {
+		t.Fatalf("set top blend mode: %v", err)
+	}
+
+	merged, err := DispatchCommand(h, commandMergeDown, mustJSON(t, MergeDownPayload{LayerID: top.UIMeta.ActiveLayerID}))
+	if err != nil {
+		t.Fatalf("merge down with blend mode: %v", err)
+	}
+	if merged.UIMeta.ActiveLayerID == bottom.UIMeta.ActiveLayerID {
+		t.Fatal("merge down should create a new layer for blended output")
+	}
+
+	text, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:    LayerTypeText,
+		Name:         "Glow",
+		Bounds:       LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Text:         "A",
+		CachedRaster: []byte{0, 0, 255, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add text: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandSetLayerBlend, mustJSON(t, SetLayerBlendModePayload{
+		LayerID:   text.UIMeta.ActiveLayerID,
+		BlendMode: BlendModeOverlay,
+	})); err != nil {
+		t.Fatalf("set text blend mode: %v", err)
+	}
+	flattened, err := DispatchCommand(h, commandFlattenLayer, mustJSON(t, FlattenLayerPayload{LayerID: text.UIMeta.ActiveLayerID}))
+	if err != nil {
+		t.Fatalf("flatten with blend mode: %v", err)
+	}
+	flattenedLayer, ok := findLayerMetaByID(flattened.UIMeta.Layers, flattened.UIMeta.ActiveLayerID)
+	if !ok {
+		t.Fatalf("flattened layer %q missing", flattened.UIMeta.ActiveLayerID)
+	}
+	if flattenedLayer.LayerType != LayerTypePixel {
+		t.Fatalf("flattened layer type = %q, want %q", flattenedLayer.LayerType, LayerTypePixel)
 	}
 }
 

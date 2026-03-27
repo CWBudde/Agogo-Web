@@ -3,7 +3,6 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"time"
 )
 
@@ -454,21 +453,29 @@ func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed))
 	case *TextLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed))
 	case *VectorLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, effectiveLayerOpacity(typed))
+		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed))
 	case *AdjustmentLayer:
 		return fmt.Errorf("adjustment layer %q cannot be flattened before compositing is implemented", typed.Name())
 	case *GroupLayer:
+		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 {
+			for _, child := range typed.Children() {
+				if err := doc.compositeLayerOnto(dest, child); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		temp := make([]byte, len(dest))
 		for _, child := range typed.Children() {
 			if err := doc.compositeLayerOnto(temp, child); err != nil {
 				return err
 			}
 		}
-		compositeDocumentSurface(dest, temp, effectiveLayerOpacity(typed))
+		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed))
 		return nil
 	default:
 		return fmt.Errorf("unsupported layer type %T", layer)
@@ -488,9 +495,6 @@ func ensureRasterizableLayer(layer LayerNode) error {
 	if len(layer.StyleStack()) > 0 {
 		return fmt.Errorf("layer %q cannot be merged while layer styles are not rasterized", layer.Name())
 	}
-	if layer.BlendMode() != BlendModeNormal {
-		return fmt.Errorf("layer %q uses unsupported blend mode %q", layer.Name(), layer.BlendMode())
-	}
 	return nil
 }
 
@@ -498,7 +502,7 @@ func effectiveLayerOpacity(layer LayerNode) float64 {
 	return clampUnit(layer.Opacity() * layer.FillOpacity())
 }
 
-func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, opacity float64) error {
+func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64) error {
 	if bounds.W <= 0 || bounds.H <= 0 || len(src) == 0 || opacity <= 0 {
 		return nil
 	}
@@ -518,44 +522,25 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 			}
 			srcIndex := (y*bounds.W + x) * 4
 			destIndex := (docY*docW + docX) * 4
-			compositePixel(dest[destIndex:destIndex+4], src[srcIndex:srcIndex+4], opacity)
+			compositePixelWithBlend(dest[destIndex:destIndex+4], src[srcIndex:srcIndex+4], blendMode, opacity, pixelNoiseSeed(docX, docY))
 		}
 	}
 	return nil
 }
 
-func compositeDocumentSurface(dest, src []byte, opacity float64) {
+func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64) {
 	if len(dest) != len(src) || opacity <= 0 {
 		return
 	}
 	for offset := 0; offset < len(dest); offset += 4 {
-		compositePixel(dest[offset:offset+4], src[offset:offset+4], opacity)
+		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, opacity, uint32(offset/4))
 	}
 }
 
-func compositePixel(dest, src []byte, opacity float64) {
-	if len(dest) < 4 || len(src) < 4 {
-		return
-	}
-	srcAlpha := (float64(src[3]) / 255) * opacity
-	if srcAlpha <= 0 {
-		return
-	}
-	destAlpha := float64(dest[3]) / 255
-	outAlpha := srcAlpha + destAlpha*(1-srcAlpha)
-	if outAlpha <= 0 {
-		for index := 0; index < 4; index++ {
-			dest[index] = 0
-		}
-		return
-	}
-	for channel := 0; channel < 3; channel++ {
-		srcValue := float64(src[channel]) / 255
-		destValue := float64(dest[channel]) / 255
-		outValue := (srcValue*srcAlpha + destValue*destAlpha*(1-srcAlpha)) / outAlpha
-		dest[channel] = uint8(math.Round(clampUnit(outValue) * 255))
-	}
-	dest[3] = uint8(math.Round(clampUnit(outAlpha) * 255))
+func pixelNoiseSeed(x, y int) uint32 {
+	seed := uint32(x)*73856093 ^ uint32(y)*19349663 ^ 0x9e3779b9
+	seed ^= seed >> 16
+	return seed
 }
 
 func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
