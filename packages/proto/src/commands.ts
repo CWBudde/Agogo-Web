@@ -24,6 +24,12 @@ export enum CommandID {
   FlattenLayer = 0x0108,
   MergeDown = 0x0109,
   MergeVisible = 0x010a,
+  AddLayerMask = 0x010b,
+  DeleteLayerMask = 0x010c,
+  ApplyLayerMask = 0x010d,
+  InvertLayerMask = 0x010e,
+  SetLayerMaskEnabled = 0x010f,
+  SetLayerClipToBelow = 0x0110,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -208,4 +214,33 @@ export interface FlattenLayerCommand {
 
 export interface MergeDownCommand {
   layerId: string;
+}
+
+export type AddLayerMaskMode = "reveal-all" | "hide-all" | "from-selection";
+
+export interface AddLayerMaskCommand {
+  layerId: string;
+  mode: AddLayerMaskMode;
+}
+
+export interface DeleteLayerMaskCommand {
+  layerId: string;
+}
+
+export interface ApplyLayerMaskCommand {
+  layerId: string;
+}
+
+export interface InvertLayerMaskCommand {
+  layerId: string;
+}
+
+export interface SetLayerMaskEnabledCommand {
+  layerId: string;
+  enabled: boolean;
+}
+
+export interface SetLayerClipToBelowCommand {
+  layerId: string;
+  clipToBelow: boolean;
 }

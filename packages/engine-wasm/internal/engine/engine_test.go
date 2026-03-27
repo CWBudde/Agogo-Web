@@ -214,6 +214,168 @@ func TestRenderCompositeSurfaceAppliesRasterMask(t *testing.T) {
 	}
 }
 
+func TestLayerMaskCommandsUpdateMetadataAndUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Masked",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
+	withMask, err := DispatchCommand(h, commandAddLayerMask, mustJSON(t, AddLayerMaskPayload{LayerID: layerID, Mode: AddLayerMaskRevealAll}))
+	if err != nil {
+		t.Fatalf("add mask command: %v", err)
+	}
+	meta, ok := findLayerMetaByID(withMask.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q not found after add mask", layerID)
+	}
+	if !meta.HasMask || !meta.MaskEnabled {
+		t.Fatalf("mask metadata = %+v, want enabled mask", meta)
+	}
+
+	disabled, err := DispatchCommand(h, commandSetMaskEnabled, mustJSON(t, SetLayerMaskEnabledPayload{LayerID: layerID, Enabled: false}))
+	if err != nil {
+		t.Fatalf("disable mask command: %v", err)
+	}
+	meta, ok = findLayerMetaByID(disabled.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q not found after disable mask", layerID)
+	}
+	if !meta.HasMask || meta.MaskEnabled {
+		t.Fatalf("mask metadata after disable = %+v, want disabled mask", meta)
+	}
+
+	applied, err := DispatchCommand(h, commandApplyLayerMask, mustJSON(t, ApplyLayerMaskPayload{LayerID: layerID}))
+	if err != nil {
+		t.Fatalf("apply mask command: %v", err)
+	}
+	meta, ok = findLayerMetaByID(applied.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q not found after apply mask", layerID)
+	}
+	if meta.HasMask || meta.MaskEnabled {
+		t.Fatalf("mask metadata after apply = %+v, want no mask", meta)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo apply mask: %v", err)
+	}
+	meta, ok = findLayerMetaByID(undone.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("layer %q not found after undo", layerID)
+	}
+	if !meta.HasMask || meta.MaskEnabled {
+		t.Fatalf("mask metadata after undo = %+v, want disabled mask restored", meta)
+	}
+}
+
+func TestLayerClipCommandUpdatesMetadataAndUndo(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	base, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 1},
+		Pixels: []byte{
+			0, 0, 255, 255,
+			0, 0, 255, 0,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("add base layer: %v", err)
+	}
+	baseID := base.UIMeta.ActiveLayerID
+
+	top, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Top",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 1},
+		Pixels: []byte{
+			255, 0, 0, 255,
+			255, 0, 0, 255,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("add top layer: %v", err)
+	}
+	topID := top.UIMeta.ActiveLayerID
+
+	clipped, err := DispatchCommand(h, commandSetLayerClip, mustJSON(t, SetLayerClipToBelowPayload{LayerID: topID, ClipToBelow: true}))
+	if err != nil {
+		t.Fatalf("set clip command: %v", err)
+	}
+	baseMeta, ok := findLayerMetaByID(clipped.UIMeta.Layers, baseID)
+	if !ok {
+		t.Fatalf("base layer %q not found", baseID)
+	}
+	topMeta, ok := findLayerMetaByID(clipped.UIMeta.Layers, topID)
+	if !ok {
+		t.Fatalf("top layer %q not found", topID)
+	}
+	if !baseMeta.ClippingBase || !topMeta.ClipToBelow {
+		t.Fatalf("unexpected clipping metadata: base=%+v top=%+v", baseMeta, topMeta)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo clip command: %v", err)
+	}
+	baseMeta, ok = findLayerMetaByID(undone.UIMeta.Layers, baseID)
+	if !ok {
+		t.Fatalf("base layer %q not found after undo", baseID)
+	}
+	topMeta, ok = findLayerMetaByID(undone.UIMeta.Layers, topID)
+	if !ok {
+		t.Fatalf("top layer %q not found after undo", topID)
+	}
+	if baseMeta.ClippingBase || topMeta.ClipToBelow {
+		t.Fatalf("unexpected metadata after undo: base=%+v top=%+v", baseMeta, topMeta)
+	}
+}
+
+func TestRenderCompositeSurfaceAppliesClipToBelow(t *testing.T) {
+	doc := &Document{
+		Width:      2,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Clipped",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		0, 0, 255, 255,
+		0, 0, 255, 0,
+	})
+	top := NewPixelLayer("Top", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	doc.LayerRoot.SetChildren([]LayerNode{base, top})
+	if err := doc.SetLayerClipToBelow(top.ID(), true); err != nil {
+		t.Fatalf("set clip to below: %v", err)
+	}
+
+	surface := doc.renderCompositeSurface()
+	if got := surface[:4]; got[0] != 255 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("first composite pixel = %v, want opaque red", got)
+	}
+	if got := surface[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 0 {
+		t.Fatalf("second composite pixel = %v, want fully clipped transparent pixel", got)
+	}
+}
+
 func filledPixels(width, height int, color [4]byte) []byte {
 	pixels := make([]byte, width*height*4)
 	for index := 0; index < len(pixels); index += 4 {

@@ -80,6 +80,8 @@ type LayerNode interface {
 	SetMask(*LayerMask)
 	VectorMask() *Path
 	SetVectorMask(*Path)
+	ClipToBelow() bool
+	SetClipToBelow(bool)
 	ClippingBase() bool
 	SetClippingBase(bool)
 	StyleStack() []LayerStyle
@@ -133,6 +135,7 @@ type layerBase struct {
 	parent       LayerNode
 	mask         *LayerMask
 	vectorMask   *Path
+	clipToBelow  bool
 	clippingBase bool
 	styleStack   []LayerStyle
 }
@@ -249,6 +252,14 @@ func (l *layerBase) SetVectorMask(mask *Path) {
 	l.vectorMask = clonePath(mask)
 }
 
+func (l *layerBase) ClipToBelow() bool {
+	return l.clipToBelow
+}
+
+func (l *layerBase) SetClipToBelow(clipToBelow bool) {
+	l.clipToBelow = clipToBelow
+}
+
 func (l *layerBase) ClippingBase() bool {
 	return l.clippingBase
 }
@@ -276,6 +287,7 @@ func (l *layerBase) cloneBase() layerBase {
 		blendMode:    l.blendMode,
 		mask:         cloneLayerMask(l.mask),
 		vectorMask:   clonePath(l.vectorMask),
+		clipToBelow:  l.clipToBelow,
 		clippingBase: l.clippingBase,
 		styleStack:   cloneLayerStyles(l.styleStack),
 	}
@@ -303,7 +315,7 @@ func (l *PixelLayer) LayerType() LayerType {
 func (l *PixelLayer) Clone() LayerNode {
 	copyPixels := append([]byte(nil), l.Pixels...)
 	return &PixelLayer{
-		layerBase: l.cloneBase(),
+		layerBase: l.layerBase.cloneBase(),
 		Bounds:    l.Bounds,
 		Pixels:    copyPixels,
 	}
@@ -351,7 +363,7 @@ func (l *TextLayer) LayerType() LayerType {
 
 func (l *TextLayer) Clone() LayerNode {
 	return &TextLayer{
-		layerBase:    l.cloneBase(),
+		layerBase:    l.layerBase.cloneBase(),
 		Bounds:       l.Bounds,
 		Text:         l.Text,
 		FontFamily:   l.FontFamily,
@@ -389,7 +401,7 @@ func (l *VectorLayer) LayerType() LayerType {
 
 func (l *VectorLayer) Clone() LayerNode {
 	return &VectorLayer{
-		layerBase:    l.cloneBase(),
+		layerBase:    l.layerBase.cloneBase(),
 		Bounds:       l.Bounds,
 		Shape:        clonePath(l.Shape),
 		FillColor:    l.FillColor,
@@ -405,7 +417,7 @@ func (l *AdjustmentLayer) LayerType() LayerType {
 
 func (l *AdjustmentLayer) Clone() LayerNode {
 	return &AdjustmentLayer{
-		layerBase:      l.cloneBase(),
+		layerBase:      l.layerBase.cloneBase(),
 		AdjustmentKind: l.AdjustmentKind,
 		Params:         cloneJSONRawMessage(l.Params),
 	}
@@ -442,7 +454,7 @@ func (l *GroupLayer) SetChildren(children []LayerNode) {
 
 func (l *GroupLayer) Clone() LayerNode {
 	clone := &GroupLayer{
-		layerBase: l.cloneBase(),
+		layerBase: l.layerBase.cloneBase(),
 		Isolated:  l.Isolated,
 	}
 	children := make([]LayerNode, 0, len(l.children))
@@ -537,7 +549,7 @@ func layerTreeEqual(a, b LayerNode) bool {
 	if a.LockMode() != b.LockMode() || a.Opacity() != b.Opacity() || a.FillOpacity() != b.FillOpacity() {
 		return false
 	}
-	if a.BlendMode() != b.BlendMode() || a.ClippingBase() != b.ClippingBase() {
+	if a.BlendMode() != b.BlendMode() || a.ClipToBelow() != b.ClipToBelow() || a.ClippingBase() != b.ClippingBase() {
 		return false
 	}
 	if !layerMaskEqual(a.Mask(), b.Mask()) || !pathEqual(a.VectorMask(), b.VectorMask()) {

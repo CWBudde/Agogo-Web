@@ -309,6 +309,156 @@ func TestRenderLayerToSurfaceAppliesGroupRasterMask(t *testing.T) {
 	}
 }
 
+func TestLayerMaskOperations(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+
+	if err := doc.AddLayerMask(layer.ID(), AddLayerMaskHideAll); err != nil {
+		t.Fatalf("add mask: %v", err)
+	}
+	mask := layer.Mask()
+	if mask == nil || len(mask.Data) != 2 || mask.Data[0] != 0 || mask.Data[1] != 0 {
+		t.Fatalf("mask = %#v, want 2 hidden pixels", mask)
+	}
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render hidden mask: %v", err)
+	}
+	if surface[3] != 0 || surface[7] != 0 {
+		t.Fatalf("hidden mask alpha = [%d %d], want [0 0]", surface[3], surface[7])
+	}
+
+	if err := doc.InvertLayerMask(layer.ID()); err != nil {
+		t.Fatalf("invert mask: %v", err)
+	}
+	surface, err = doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render inverted mask: %v", err)
+	}
+	if surface[3] != 255 || surface[7] != 255 {
+		t.Fatalf("inverted mask alpha = [%d %d], want [255 255]", surface[3], surface[7])
+	}
+
+	partial := layer.Mask()
+	partial.Data = []byte{255, 0}
+	layer.SetMask(partial)
+	if err := doc.SetLayerMaskEnabled(layer.ID(), false); err != nil {
+		t.Fatalf("disable mask: %v", err)
+	}
+	surface, err = doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render disabled mask: %v", err)
+	}
+	if surface[3] != 255 || surface[7] != 255 {
+		t.Fatalf("disabled mask alpha = [%d %d], want [255 255]", surface[3], surface[7])
+	}
+
+	if err := doc.SetLayerMaskEnabled(layer.ID(), true); err != nil {
+		t.Fatalf("enable mask: %v", err)
+	}
+	surface, err = doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render enabled mask: %v", err)
+	}
+	if surface[3] != 255 || surface[7] != 0 {
+		t.Fatalf("enabled mask alpha = [%d %d], want [255 0]", surface[3], surface[7])
+	}
+
+	if err := doc.DeleteLayerMask(layer.ID()); err != nil {
+		t.Fatalf("delete mask: %v", err)
+	}
+	if layer.Mask() != nil {
+		t.Fatal("mask should be deleted")
+	}
+	if _, err := doc.renderLayerToSurface(layer); err != nil {
+		t.Fatalf("render after delete: %v", err)
+	}
+}
+
+func TestApplyLayerMaskBakesAlpha(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	layer.SetMask(&LayerMask{Enabled: false, Width: 2, Height: 1, Data: []byte{255, 0}})
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+
+	if err := doc.ApplyLayerMask(layer.ID()); err != nil {
+		t.Fatalf("apply mask: %v", err)
+	}
+	if layer.Mask() != nil {
+		t.Fatal("mask should be removed after apply")
+	}
+	if layer.Pixels[3] != 255 || layer.Pixels[7] != 0 {
+		t.Fatalf("applied pixel alpha = [%d %d], want [255 0]", layer.Pixels[3], layer.Pixels[7])
+	}
+}
+
+func TestAddLayerMaskFromSelectionRequiresSelectionEngine(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{255, 0, 0, 255})
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+
+	if err := doc.AddLayerMask(layer.ID(), AddLayerMaskFromSelection); err == nil {
+		t.Fatal("expected from-selection mask creation to fail before selections exist")
+	}
+}
+
+func TestClipToBelowCompositesAgainstBaseAlpha(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		0, 0, 255, 255,
+		0, 0, 255, 0,
+	})
+	top := NewPixelLayer("Top", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	doc.LayerRoot.SetChildren([]LayerNode{base, top})
+
+	if err := doc.SetLayerClipToBelow(top.ID(), true); err != nil {
+		t.Fatalf("set clip to below: %v", err)
+	}
+	if !base.ClippingBase() || !top.ClipToBelow() {
+		t.Fatalf("unexpected clipping flags: base=%v top=%v", base.ClippingBase(), top.ClipToBelow())
+	}
+
+	surface, err := doc.renderLayersToSurface(doc.LayerRoot.Children())
+	if err != nil {
+		t.Fatalf("render clipped stack: %v", err)
+	}
+	if surface[0] != 255 || surface[1] != 0 || surface[2] != 0 || surface[3] != 255 {
+		t.Fatalf("first pixel = %v, want opaque red from clipped layer", surface[:4])
+	}
+	if surface[4] != 0 || surface[5] != 0 || surface[6] != 0 || surface[7] != 0 {
+		t.Fatalf("second pixel = %v, want fully clipped transparent pixel", surface[4:8])
+	}
+
+	merged, err := doc.mergeNodesToPixelLayer(base, top, "Merged")
+	if err != nil {
+		t.Fatalf("merge clipped pair: %v", err)
+	}
+	if merged.Pixels[3] != 255 || merged.Pixels[7] != 0 {
+		t.Fatalf("merged alpha = [%d %d], want [255 0]", merged.Pixels[3], merged.Pixels[7])
+	}
+}
+
+func TestClipToBelowRequiresBaseLayer(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Only", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{255, 0, 0, 255})
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+
+	if err := doc.SetLayerClipToBelow(layer.ID(), true); err == nil {
+		t.Fatal("expected clip-to-below to fail without a base layer")
+	}
+}
+
 func findLayerMetaByID(layers []LayerNodeMeta, targetID string) (LayerNodeMeta, bool) {
 	for _, layer := range layers {
 		if layer.ID == targetID {

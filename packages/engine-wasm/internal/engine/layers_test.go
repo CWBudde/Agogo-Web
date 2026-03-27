@@ -149,6 +149,7 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	group.SetLockMode(LayerLockPosition)
 	group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 2, Data: []byte{255, 127, 64, 0}})
 	group.SetVectorMask(&Path{Closed: true, Points: []PathPoint{{X: 1, Y: 2}, {X: 3, Y: 4}}})
+	group.SetClipToBelow(true)
 	group.SetClippingBase(true)
 	group.SetStyleStack([]LayerStyle{{
 		Kind:    "drop-shadow",
@@ -175,6 +176,9 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	}
 	if clone.LockMode() != LayerLockPosition {
 		t.Fatalf("clone lock mode = %q, want %q", clone.LockMode(), LayerLockPosition)
+	}
+	if !clone.ClipToBelow() {
+		t.Fatal("clone lost clip-to-below flag")
 	}
 	if !clone.ClippingBase() {
 		t.Fatal("clone lost clipping base flag")

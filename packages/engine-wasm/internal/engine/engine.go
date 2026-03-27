@@ -15,31 +15,37 @@ import (
 )
 
 const (
-	commandCreateDocument = 0x0001
-	commandCloseDocument  = 0x0002
-	commandZoomSet        = 0x0010
-	commandPanSet         = 0x0011
-	commandRotateViewSet  = 0x0012
-	commandResize         = 0x0013
-	commandFitToView      = 0x0014
-	commandPointerEvent   = 0x0015
-	commandJumpHistory    = 0x0016
-	commandAddLayer       = 0x0100
-	commandDeleteLayer    = 0x0101
-	commandMoveLayer      = 0x0102
-	commandSetLayerVis    = 0x0103
-	commandSetLayerOp     = 0x0104
-	commandSetLayerBlend  = 0x0105
-	commandDuplicateLayer = 0x0106
-	commandSetLayerLock   = 0x0107
-	commandFlattenLayer   = 0x0108
-	commandMergeDown      = 0x0109
-	commandMergeVisible   = 0x010a
-	commandBeginTxn       = 0xffe0
-	commandEndTxn         = 0xffe1
-	commandClearHistory   = 0xffe2
-	commandUndo           = 0xfff0
-	commandRedo           = 0xfff1
+	commandCreateDocument  = 0x0001
+	commandCloseDocument   = 0x0002
+	commandZoomSet         = 0x0010
+	commandPanSet          = 0x0011
+	commandRotateViewSet   = 0x0012
+	commandResize          = 0x0013
+	commandFitToView       = 0x0014
+	commandPointerEvent    = 0x0015
+	commandJumpHistory     = 0x0016
+	commandAddLayer        = 0x0100
+	commandDeleteLayer     = 0x0101
+	commandMoveLayer       = 0x0102
+	commandSetLayerVis     = 0x0103
+	commandSetLayerOp      = 0x0104
+	commandSetLayerBlend   = 0x0105
+	commandDuplicateLayer  = 0x0106
+	commandSetLayerLock    = 0x0107
+	commandFlattenLayer    = 0x0108
+	commandMergeDown       = 0x0109
+	commandMergeVisible    = 0x010a
+	commandAddLayerMask    = 0x010b
+	commandDeleteLayerMask = 0x010c
+	commandApplyLayerMask  = 0x010d
+	commandInvertLayerMask = 0x010e
+	commandSetMaskEnabled  = 0x010f
+	commandSetLayerClip    = 0x0110
+	commandBeginTxn        = 0xffe0
+	commandEndTxn          = 0xffe1
+	commandClearHistory    = 0xffe2
+	commandUndo            = 0xfff0
+	commandRedo            = 0xfff1
 )
 
 const (
@@ -894,6 +900,150 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, fmt.Errorf("no active document")
 				}
 				if err := doc.MergeVisible(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandAddLayerMask:
+		var payload AddLayerMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Add layer mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.AddLayerMask(payload.LayerID, payload.Mode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandDeleteLayerMask:
+		var payload DeleteLayerMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Delete layer mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.DeleteLayerMask(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandApplyLayerMask:
+		var payload ApplyLayerMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Apply layer mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.ApplyLayerMask(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandInvertLayerMask:
+		var payload InvertLayerMaskPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Invert layer mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.InvertLayerMask(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetMaskEnabled:
+		var payload SetLayerMaskEnabledPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Toggle layer mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerMaskEnabled(payload.LayerID, payload.Enabled); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerClip:
+		var payload SetLayerClipToBelowPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set clipping mask",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerClipToBelow(payload.LayerID, payload.ClipToBelow); err != nil {
 					return snapshot{}, err
 				}
 				if err := inst.manager.ReplaceActive(doc); err != nil {

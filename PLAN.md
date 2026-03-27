@@ -110,13 +110,13 @@
 ### Phase 2.3: Layer Masks
 
 - [ ] Raster layer mask:
-  - [ ] Grayscale 8-bit buffer (same size as document, white=reveal, black=hide)
-  - [ ] Operations: `AddMask(revealAll/hideAll/fromSelection)`, `DeleteMask`, `ApplyMask`, `InvertMask`
+  - [x] Grayscale 8-bit buffer (same size as document, white=reveal, black=hide)
+  - [x] Operations: `AddMask(revealAll/hideAll/fromSelection)`, `DeleteMask`, `ApplyMask`, `InvertMask`
   - [ ] Edit mask: painting on mask activates mask-edit mode (border indicator in UI)
-  - [ ] Disable/enable mask (Shift+click thumbnail in Layers panel)
+  - [x] Disable/enable mask (Shift+click thumbnail in Layers panel)
 - [ ] Clipping mask:
-  - [ ] `ClipToBelow bool` flag on layer
-  - [ ] Compositing: clipped layer alpha *= base layer alpha
+  - [x] `ClipToBelow bool` flag on layer
+  - [x] Compositing: clipped layer alpha *= base layer alpha
   - [ ] Visual indent in Layers panel for clipped layers
 - [ ] Vector mask placeholder:
   - [ ] `VectorMask *Path` field (renders to raster mask at composite time)

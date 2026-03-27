@@ -47,8 +47,10 @@ export interface LayerNodeMeta {
   opacity: number;
   fillOpacity: number;
   blendMode: string;
+  clipToBelow: boolean;
   clippingBase: boolean;
   hasMask: boolean;
+  maskEnabled: boolean;
   hasVectorMask: boolean;
   isolated?: boolean;
   children?: LayerNodeMeta[];

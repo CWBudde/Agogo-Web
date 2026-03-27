@@ -6,9 +6,9 @@ func (doc *Document) renderCompositeSurface() []byte {
 	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
 		return nil
 	}
-	buffer := make([]byte, doc.Width*doc.Height*4)
-	for _, layer := range doc.ensureLayerRoot().Children() {
-		doc.compositeLayerOntoViewport(buffer, layer)
+	buffer, err := doc.renderLayersToSurface(doc.ensureLayerRoot().Children())
+	if err != nil {
+		return nil
 	}
 	return buffer
 }
@@ -20,11 +20,11 @@ func (doc *Document) compositeLayerOntoViewport(dest []byte, layer LayerNode) {
 
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
+		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
 	case *TextLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
+		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
 	case *VectorLayer:
-		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask())
+		_ = compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveLayerOpacity(typed), typed.Mask(), nil)
 	case *AdjustmentLayer:
 		return
 	case *GroupLayer:
