@@ -52,6 +52,19 @@ const (
 	commandGetLayerThumbnails = 0x0116
 	commandFlattenImage       = 0x0117
 	commandOpenImageFile      = 0x0118
+	commandNewSelection       = 0x0200
+	commandSelectAll          = 0x0201
+	commandDeselect           = 0x0202
+	commandReselect           = 0x0203
+	commandInvertSelection    = 0x0204
+	commandFeatherSelection   = 0x0205
+	commandExpandSelection    = 0x0206
+	commandContractSelection  = 0x0207
+	commandSmoothSelection    = 0x0208
+	commandBorderSelection    = 0x0209
+	commandTransformSelection = 0x020a
+	commandSelectColorRange   = 0x020b
+	commandQuickSelect        = 0x020c
 	commandBeginTxn           = 0xffe0
 	commandEndTxn             = 0xffe1
 	commandClearHistory       = 0xffe2
@@ -86,6 +99,8 @@ type Document struct {
 	ModifiedAt     string      `json:"modifiedAt"`
 	ActiveLayerID  string      `json:"activeLayerId,omitempty"`
 	LayerRoot      *GroupLayer `json:"-"`
+	Selection      *Selection  `json:"-"`
+	LastSelection  *Selection  `json:"-"`
 	ContentVersion int64       `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
 }
 
@@ -142,7 +157,8 @@ type UIMeta struct {
 	ContentVersion int64 `json:"contentVersion"`
 	// MaskEditLayerID is set when the user is actively editing a layer mask.
 	// The UI uses this to show the mask-edit border indicator.
-	MaskEditLayerID string `json:"maskEditLayerId,omitempty"`
+	MaskEditLayerID string        `json:"maskEditLayerId,omitempty"`
+	Selection       SelectionMeta `json:"selection"`
 }
 
 type RenderResult struct {
@@ -1267,6 +1283,302 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.Execute(inst, command); err != nil {
 			return RenderResult{}, err
 		}
+	case commandNewSelection:
+		var payload CreateSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.CreateSelection(payload.Shape, payload.Rect, payload.Polygon, payload.Mode, payload.AntiAlias); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSelectAll:
+		command := &snapshotCommand{
+			description: "Select all",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SelectAll(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandDeselect:
+		command := &snapshotCommand{
+			description: "Deselect",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.Deselect(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandReselect:
+		command := &snapshotCommand{
+			description: "Reselect",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.Reselect(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandInvertSelection:
+		command := &snapshotCommand{
+			description: "Invert selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.InvertSelection(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandFeatherSelection:
+		var payload FeatherSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Feather selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.FeatherSelection(payload.Radius); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandExpandSelection:
+		var payload ExpandSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Expand selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.ExpandSelection(payload.Pixels); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandContractSelection:
+		var payload ContractSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Contract selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.ContractSelection(payload.Pixels); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSmoothSelection:
+		var payload SmoothSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Smooth selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SmoothSelection(payload.Radius); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandBorderSelection:
+		var payload BorderSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Border selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.BorderSelection(payload.Width); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandTransformSelection:
+		var payload TransformSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Transform selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.TransformSelection(payload.A, payload.B, payload.C, payload.D, payload.TX, payload.TY); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSelectColorRange:
+		var payload SelectColorRangePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Color range selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SelectColorRange(payload.LayerID, payload.TargetColor, payload.Fuzziness, payload.SampleMerged, payload.Mode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandQuickSelect:
+		var payload QuickSelectPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Quick selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.QuickSelect(payload.X, payload.Y, payload.Tolerance, payload.EdgeSensitivity, payload.LayerID, payload.SampleMerged, payload.Mode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
 	case commandResize:
 		var payload ResizePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -1396,11 +1708,12 @@ func GetBufferLen(handle int32) int32 {
 }
 
 func (inst *instance) render() RenderResult {
+	frameID := inst.nextFrameID()
 	doc := inst.manager.Active()
 	if doc == nil {
 		inst.pixels = inst.pixels[:0]
 		return RenderResult{
-			FrameID:     inst.nextFrameID(),
+			FrameID:     frameID,
 			Viewport:    inst.viewport,
 			DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
 			PixelFormat: "rgba8-premultiplied",
@@ -1422,8 +1735,9 @@ func (inst *instance) render() RenderResult {
 	}
 
 	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels, inst.compositeSurface(doc))
+	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
 	return RenderResult{
-		FrameID:     inst.nextFrameID(),
+		FrameID:     frameID,
 		Viewport:    inst.viewport,
 		DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
 		PixelFormat: "rgba8-premultiplied",
@@ -1448,6 +1762,7 @@ func (inst *instance) render() RenderResult {
 			Layers:              doc.LayerMeta(),
 			ContentVersion:      doc.ContentVersion,
 			MaskEditLayerID:     inst.maskEditLayerID,
+			Selection:           doc.selectionMeta(),
 		},
 	}
 }
@@ -1614,6 +1929,8 @@ func cloneDocument(doc *Document) *Document {
 	}
 	copyDoc := *doc
 	copyDoc.LayerRoot = cloneGroupLayer(doc.LayerRoot)
+	copyDoc.Selection = cloneSelection(doc.Selection)
+	copyDoc.LastSelection = cloneSelection(doc.LastSelection)
 	return &copyDoc
 }
 
@@ -1650,6 +1967,9 @@ func documentsEqual(a, b *Document) bool {
 		return false
 	}
 	if a.ActiveLayerID != b.ActiveLayerID {
+		return false
+	}
+	if !selectionEqual(a.Selection, b.Selection) || !selectionEqual(a.LastSelection, b.LastSelection) {
 		return false
 	}
 	return layerTreeEqual(a.LayerRoot, b.LayerRoot)

@@ -39,6 +39,21 @@ export enum CommandID {
   FlattenImage = 0x0117,
   OpenImageFile = 0x0118,
 
+  // Phase 3: Selection
+  NewSelection = 0x0200,
+  SelectAll = 0x0201,
+  Deselect = 0x0202,
+  Reselect = 0x0203,
+  InvertSelection = 0x0204,
+  FeatherSelection = 0x0205,
+  ExpandSelection = 0x0206,
+  ContractSelection = 0x0207,
+  SmoothSelection = 0x0208,
+  BorderSelection = 0x0209,
+  TransformSelection = 0x020a,
+  SelectColorRange = 0x020b,
+  QuickSelect = 0x020c,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -225,10 +240,72 @@ export interface MergeDownCommand {
 }
 
 export type AddLayerMaskMode = "reveal-all" | "hide-all" | "from-selection";
+export type SelectionCombineMode = "replace" | "add" | "subtract" | "intersect";
+export type SelectionShape = "rect" | "ellipse" | "polygon";
 
 export interface AddLayerMaskCommand {
   layerId: string;
   mode: AddLayerMaskMode;
+}
+
+export interface SelectionPointCommand {
+  x: number;
+  y: number;
+}
+
+export interface CreateSelectionCommand {
+  shape: SelectionShape;
+  mode?: SelectionCombineMode;
+  rect?: LayerBoundsCommand;
+  polygon?: SelectionPointCommand[];
+  antiAlias?: boolean;
+}
+
+export interface FeatherSelectionCommand {
+  radius: number;
+}
+
+export interface ExpandSelectionCommand {
+  pixels: number;
+}
+
+export interface ContractSelectionCommand {
+  pixels: number;
+}
+
+export interface SmoothSelectionCommand {
+  radius: number;
+}
+
+export interface BorderSelectionCommand {
+  width: number;
+}
+
+export interface TransformSelectionCommand {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  tx: number;
+  ty: number;
+}
+
+export interface SelectColorRangeCommand {
+  layerId?: string;
+  targetColor: [number, number, number, number];
+  fuzziness: number;
+  sampleMerged?: boolean;
+  mode?: SelectionCombineMode;
+}
+
+export interface QuickSelectCommand {
+  x: number;
+  y: number;
+  tolerance: number;
+  edgeSensitivity?: number;
+  layerId?: string;
+  sampleMerged?: boolean;
+  mode?: SelectionCombineMode;
 }
 
 export interface DeleteLayerMaskCommand {
