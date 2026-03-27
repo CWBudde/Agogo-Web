@@ -24,6 +24,17 @@ const (
 	commandFitToView      = 0x0014
 	commandPointerEvent   = 0x0015
 	commandJumpHistory    = 0x0016
+	commandAddLayer       = 0x0100
+	commandDeleteLayer    = 0x0101
+	commandMoveLayer      = 0x0102
+	commandSetLayerVis    = 0x0103
+	commandSetLayerOp     = 0x0104
+	commandSetLayerBlend  = 0x0105
+	commandDuplicateLayer = 0x0106
+	commandSetLayerLock   = 0x0107
+	commandFlattenLayer   = 0x0108
+	commandMergeDown      = 0x0109
+	commandMergeVisible   = 0x010a
 	commandBeginTxn       = 0xffe0
 	commandEndTxn         = 0xffe1
 	commandClearHistory   = 0xffe2
@@ -45,17 +56,19 @@ type Background struct {
 }
 
 type Document struct {
-	Width      int        `json:"width"`
-	Height     int        `json:"height"`
-	Resolution float64    `json:"resolution"`
-	ColorMode  string     `json:"colorMode"`
-	BitDepth   int        `json:"bitDepth"`
-	Background Background `json:"background"`
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	CreatedAt  string     `json:"createdAt"`
-	CreatedBy  string     `json:"createdBy"`
-	ModifiedAt string     `json:"modifiedAt"`
+	Width         int         `json:"width"`
+	Height        int         `json:"height"`
+	Resolution    float64     `json:"resolution"`
+	ColorMode     string      `json:"colorMode"`
+	BitDepth      int         `json:"bitDepth"`
+	Background    Background  `json:"background"`
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	CreatedAt     string      `json:"createdAt"`
+	CreatedBy     string      `json:"createdBy"`
+	ModifiedAt    string      `json:"modifiedAt"`
+	ActiveLayerID string      `json:"activeLayerId,omitempty"`
+	LayerRoot     *GroupLayer `json:"-"`
 }
 
 type ViewportState struct {
@@ -82,20 +95,22 @@ type HistoryEntry struct {
 }
 
 type UIMeta struct {
-	ActiveLayerID       string         `json:"activeLayerId"`
-	CursorType          string         `json:"cursorType"`
-	StatusText          string         `json:"statusText"`
-	RulerOriginX        float64        `json:"rulerOriginX"`
-	RulerOriginY        float64        `json:"rulerOriginY"`
-	History             []HistoryEntry `json:"history"`
-	CanUndo             bool           `json:"canUndo"`
-	CanRedo             bool           `json:"canRedo"`
-	CurrentHistoryIndex int            `json:"currentHistoryIndex"`
-	ActiveDocumentID    string         `json:"activeDocumentId"`
-	ActiveDocumentName  string         `json:"activeDocumentName"`
-	DocumentWidth       int            `json:"documentWidth"`
-	DocumentHeight      int            `json:"documentHeight"`
-	DocumentBackground  string         `json:"documentBackground"`
+	ActiveLayerID       string          `json:"activeLayerId"`
+	ActiveLayerName     string          `json:"activeLayerName"`
+	CursorType          string          `json:"cursorType"`
+	StatusText          string          `json:"statusText"`
+	RulerOriginX        float64         `json:"rulerOriginX"`
+	RulerOriginY        float64         `json:"rulerOriginY"`
+	History             []HistoryEntry  `json:"history"`
+	CanUndo             bool            `json:"canUndo"`
+	CanRedo             bool            `json:"canRedo"`
+	CurrentHistoryIndex int             `json:"currentHistoryIndex"`
+	ActiveDocumentID    string          `json:"activeDocumentId"`
+	ActiveDocumentName  string          `json:"activeDocumentName"`
+	DocumentWidth       int             `json:"documentWidth"`
+	DocumentHeight      int             `json:"documentHeight"`
+	DocumentBackground  string          `json:"documentBackground"`
+	Layers              []LayerNodeMeta `json:"layers"`
 }
 
 type RenderResult struct {
@@ -614,6 +629,282 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.Execute(inst, command); err != nil {
 			return RenderResult{}, err
 		}
+	case commandAddLayer:
+		var payload AddLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: fmt.Sprintf("Add %s layer", payload.LayerType),
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				layer, err := doc.newLayerFromPayload(payload)
+				if err != nil {
+					return snapshot{}, err
+				}
+				index := -1
+				if payload.Index != nil {
+					index = *payload.Index
+				}
+				if err := doc.AddLayer(layer, payload.ParentLayerID, index); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandDeleteLayer:
+		var payload DeleteLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Delete layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.DeleteLayer(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandMoveLayer:
+		var payload MoveLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Move layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				index := -1
+				if payload.Index != nil {
+					index = *payload.Index
+				}
+				if err := doc.MoveLayer(payload.LayerID, payload.ParentLayerID, index); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerVis:
+		var payload SetLayerVisibilityPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Toggle layer visibility",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerVisibility(payload.LayerID, payload.Visible); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerOp:
+		var payload SetLayerOpacityPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set layer opacity",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerOpacity(payload.LayerID, payload.Opacity, payload.FillOpacity); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerBlend:
+		var payload SetLayerBlendModePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set layer blend mode",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerBlendMode(payload.LayerID, payload.BlendMode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandDuplicateLayer:
+		var payload DuplicateLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Duplicate layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				index := -1
+				if payload.Index != nil {
+					index = *payload.Index
+				}
+				if _, err := doc.DuplicateLayer(payload.LayerID, payload.ParentLayerID, index); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetLayerLock:
+		var payload SetLayerLockPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set layer lock",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetLayerLock(payload.LayerID, payload.LockMode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandFlattenLayer:
+		var payload FlattenLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Flatten layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.FlattenLayer(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandMergeDown:
+		var payload MergeDownPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Merge down",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.MergeDown(payload.LayerID); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandMergeVisible:
+		command := &snapshotCommand{
+			description: "Merge visible layers",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.MergeVisible(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
 	case commandResize:
 		var payload ResizePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -736,6 +1027,11 @@ func (inst *instance) render() RenderResult {
 		}
 	}
 
+	activeLayerName := ""
+	if activeLayer := doc.ActiveLayer(); activeLayer != nil {
+		activeLayerName = activeLayer.Name()
+	}
+
 	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels)
 	return RenderResult{
 		FrameID:     inst.nextFrameID(),
@@ -745,7 +1041,8 @@ func (inst *instance) render() RenderResult {
 		BufferPtr:   int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
 		BufferLen:   int32(len(inst.pixels)),
 		UIMeta: UIMeta{
-			ActiveLayerID:       "",
+			ActiveLayerID:       doc.ActiveLayerID,
+			ActiveLayerName:     activeLayerName,
 			CursorType:          inst.cursorType(),
 			StatusText:          inst.statusText(doc),
 			RulerOriginX:        0,
@@ -759,6 +1056,7 @@ func (inst *instance) render() RenderResult {
 			DocumentWidth:       doc.Width,
 			DocumentHeight:      doc.Height,
 			DocumentBackground:  doc.Background.Kind,
+			Layers:              doc.LayerMeta(),
 		},
 	}
 }
@@ -872,6 +1170,7 @@ func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
 		CreatedAt:  timestamp,
 		CreatedBy:  "agogo-web",
 		ModifiedAt: timestamp,
+		LayerRoot:  NewGroupLayer("Root"),
 	}
 }
 
@@ -900,6 +1199,7 @@ func cloneDocument(doc *Document) *Document {
 		return nil
 	}
 	copyDoc := *doc
+	copyDoc.LayerRoot = cloneGroupLayer(doc.LayerRoot)
 	return &copyDoc
 }
 
@@ -916,7 +1216,29 @@ func snapshotsEqual(a, b snapshot) bool {
 	if a.Document == nil {
 		return true
 	}
-	return *a.Document == *b.Document
+	return documentsEqual(a.Document, b.Document)
+}
+
+func documentsEqual(a, b *Document) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	if a.Width != b.Width || a.Height != b.Height || a.Resolution != b.Resolution || a.ColorMode != b.ColorMode {
+		return false
+	}
+	if a.BitDepth != b.BitDepth || a.Background != b.Background || a.ID != b.ID || a.Name != b.Name {
+		return false
+	}
+	if a.CreatedAt != b.CreatedAt || a.CreatedBy != b.CreatedBy || a.ModifiedAt != b.ModifiedAt {
+		return false
+	}
+	if a.ActiveLayerID != b.ActiveLayerID {
+		return false
+	}
+	return layerTreeEqual(a.LayerRoot, b.LayerRoot)
 }
 
 func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {
