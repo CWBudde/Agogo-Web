@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
@@ -357,7 +358,7 @@ func (doc *Document) AddLayerMask(layerID string, mode AddLayerMaskMode) error {
 	if layer.Mask() != nil {
 		return fmt.Errorf("layer %q already has a mask", layer.Name())
 	}
-	fill := byte(255)
+	var fill byte
 	switch mode {
 	case "", AddLayerMaskRevealAll:
 		fill = 255
@@ -604,6 +605,143 @@ func (doc *Document) MergeVisible() error {
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAt()
 	return nil
+}
+
+// FlattenImage merges all visible layers into a single "Background" pixel layer,
+// discarding hidden layers. This is the standard Photoshop "Flatten Image" behaviour.
+func (doc *Document) FlattenImage() error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	root := doc.ensureLayerRoot()
+	children := root.Children()
+
+	hasVisible := false
+	for _, child := range children {
+		if child.Visible() {
+			hasVisible = true
+			break
+		}
+	}
+	if !hasVisible {
+		return fmt.Errorf("no visible layers to flatten")
+	}
+
+	surface := doc.renderCompositeSurface()
+	if surface == nil {
+		return fmt.Errorf("failed to render composite surface")
+	}
+	flattened := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, surface)
+	root.SetChildren([]LayerNode{flattened})
+	doc.normalizeClippingState()
+	doc.ActiveLayerID = flattened.ID()
+	doc.touchModifiedAt()
+	return nil
+}
+
+// generateAllThumbnails builds thumbnailSize×thumbnailSize previews for every
+// layer in the active document. The result is a map of layer ID → ThumbnailEntry.
+func (doc *Document) generateAllThumbnails(thumbW, thumbH int) (map[string]ThumbnailEntry, error) {
+	if doc == nil {
+		return nil, fmt.Errorf("document is required")
+	}
+	all := flattenLayerTree(doc.ensureLayerRoot().Children())
+	result := make(map[string]ThumbnailEntry, len(all))
+	for _, layer := range all {
+		layerRGBA, maskRGBA := doc.generateLayerThumbnail(layer, thumbW, thumbH)
+		entry := ThumbnailEntry{
+			LayerRGBA: base64.StdEncoding.EncodeToString(layerRGBA),
+		}
+		if len(maskRGBA) > 0 {
+			entry.MaskRGBA = base64.StdEncoding.EncodeToString(maskRGBA)
+		}
+		result[layer.ID()] = entry
+	}
+	return result, nil
+}
+
+// generateLayerThumbnail returns RGBA pixel data for the layer thumbnail and (if
+// a mask is present) the mask thumbnail. Both buffers are thumbW×thumbH×4 bytes.
+func (doc *Document) generateLayerThumbnail(layer LayerNode, thumbW, thumbH int) (layerRGBA, maskRGBA []byte) {
+	switch typed := layer.(type) {
+	case *PixelLayer:
+		if len(typed.Pixels) > 0 && typed.Bounds.W > 0 && typed.Bounds.H > 0 {
+			layerRGBA = scaleRGBA(typed.Pixels, typed.Bounds.W, typed.Bounds.H, thumbW, thumbH)
+		}
+	case *TextLayer:
+		if len(typed.CachedRaster) > 0 && typed.Bounds.W > 0 && typed.Bounds.H > 0 {
+			layerRGBA = scaleRGBA(typed.CachedRaster, typed.Bounds.W, typed.Bounds.H, thumbW, thumbH)
+		}
+	case *VectorLayer:
+		if len(typed.CachedRaster) > 0 && typed.Bounds.W > 0 && typed.Bounds.H > 0 {
+			layerRGBA = scaleRGBA(typed.CachedRaster, typed.Bounds.W, typed.Bounds.H, thumbW, thumbH)
+		}
+	case *GroupLayer:
+		if len(typed.Children()) > 0 {
+			buf, err := doc.renderLayerToSurface(typed)
+			if err == nil {
+				layerRGBA = scaleRGBA(buf, doc.Width, doc.Height, thumbW, thumbH)
+			}
+		}
+	}
+
+	if mask := layer.Mask(); mask != nil && len(mask.Data) > 0 && mask.Width > 0 && mask.Height > 0 {
+		maskRGBA = scaleGrayToRGBA(mask.Data, mask.Width, mask.Height, thumbW, thumbH)
+	}
+	return layerRGBA, maskRGBA
+}
+
+// flattenLayerTree returns all layers in depth-first order, recursing into groups.
+func flattenLayerTree(layers []LayerNode) []LayerNode {
+	result := make([]LayerNode, 0, len(layers))
+	for _, layer := range layers {
+		result = append(result, layer)
+		if children := layer.Children(); len(children) > 0 {
+			result = append(result, flattenLayerTree(children)...)
+		}
+	}
+	return result
+}
+
+// scaleRGBA downsamples an RGBA pixel buffer using nearest-neighbour sampling.
+// The source buffer must be srcW×srcH×4 bytes; the result is dstW×dstH×4 bytes.
+func scaleRGBA(src []byte, srcW, srcH, dstW, dstH int) []byte {
+	dst := make([]byte, dstW*dstH*4)
+	for y := range dstH {
+		for x := range dstW {
+			sx := x * srcW / dstW
+			sy := y * srcH / dstH
+			si := (sy*srcW + sx) * 4
+			di := (y*dstW + x) * 4
+			if si+4 <= len(src) {
+				copy(dst[di:di+4], src[si:si+4])
+			}
+		}
+	}
+	return dst
+}
+
+// scaleGrayToRGBA downsamples a grayscale mask buffer and converts it to RGBA.
+// The source buffer must be srcW×srcH×1 bytes (one byte per pixel, 0=black, 255=white).
+func scaleGrayToRGBA(src []byte, srcW, srcH, dstW, dstH int) []byte {
+	dst := make([]byte, dstW*dstH*4)
+	for y := range dstH {
+		for x := range dstW {
+			sx := x * srcW / dstW
+			sy := y * srcH / dstH
+			si := sy*srcW + sx
+			di := (y*dstW + x) * 4
+			var gray byte
+			if si < len(src) {
+				gray = src[si]
+			}
+			dst[di] = gray
+			dst[di+1] = gray
+			dst[di+2] = gray
+			dst[di+3] = 255
+		}
+	}
+	return dst
 }
 
 func (doc *Document) groupForID(groupID string) (*GroupLayer, error) {
@@ -873,8 +1011,8 @@ func applyLayerMaskToSurface(surface []byte, docW, docH int, mask *LayerMask) {
 	if len(surface) == 0 || docW <= 0 || docH <= 0 || mask == nil || !mask.Enabled {
 		return
 	}
-	for docY := 0; docY < docH; docY++ {
-		for docX := 0; docX < docW; docX++ {
+	for docY := range docH {
+		for docX := range docW {
 			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
 			if maskAlpha == 255 {
 				continue

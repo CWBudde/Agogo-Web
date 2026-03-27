@@ -18,6 +18,13 @@ export interface ViewportMeta {
   devicePixelRatio: number;
 }
 
+export interface ThumbnailEntry {
+  /** Base64-encoded RGBA pixel data at thumbnailSize × thumbnailSize pixels. */
+  layerRGBA: string;
+  /** Base64-encoded RGBA pixel data for the mask (grayscale converted to RGBA). Present only when the layer has a mask. */
+  maskRGBA?: string;
+}
+
 export interface UIMeta {
   activeLayerId: string | null;
   activeLayerName: string | null;
@@ -35,6 +42,8 @@ export interface UIMeta {
   documentHeight: number;
   documentBackground: string;
   layers: LayerNodeMeta[];
+  /** Monotonic counter incremented on every document mutation. Use to detect when thumbnails need refresh. */
+  contentVersion: number;
   /** Set when the user is actively editing a layer mask; empty/absent otherwise. */
   maskEditLayerId?: string;
 }
@@ -72,4 +81,6 @@ export interface RenderResult {
   bufferPtr: number;
   bufferLen: number;
   uiMeta: UIMeta;
+  /** Present only in the response to GetLayerThumbnails. Maps layer ID → thumbnail RGBA data. */
+  thumbnails?: Record<string, ThumbnailEntry>;
 }

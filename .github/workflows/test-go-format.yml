@@ -1,0 +1,37 @@
+name: go-format
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/engine-wasm/go.mod
+          cache-dependency-path: packages/engine-wasm/go.sum
+
+      - name: Install treefmt
+        run: |
+          curl -fsSL https://github.com/numtide/treefmt/releases/download/v2.1.1/treefmt_2.1.1_linux_amd64.tar.gz \
+            | sudo tar -C /usr/local/bin -xz treefmt
+
+      - name: Install Go formatters
+        run: |
+          go install mvdan.cc/gofumpt@latest
+          go install github.com/daixiang0/gci@latest
+
+      - name: Install shfmt
+        run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+
+      - name: Check formatting
+        run: just check-formatted

@@ -14,43 +14,48 @@ import (
 	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
 )
 
+// thumbnailSize is the width and height of layer preview thumbnails in pixels.
+const thumbnailSize = 32
+
 const (
-	commandCreateDocument   = 0x0001
-	commandCloseDocument    = 0x0002
-	commandZoomSet          = 0x0010
-	commandPanSet           = 0x0011
-	commandRotateViewSet    = 0x0012
-	commandResize           = 0x0013
-	commandFitToView        = 0x0014
-	commandPointerEvent     = 0x0015
-	commandJumpHistory      = 0x0016
-	commandAddLayer         = 0x0100
-	commandDeleteLayer      = 0x0101
-	commandMoveLayer        = 0x0102
-	commandSetLayerVis      = 0x0103
-	commandSetLayerOp       = 0x0104
-	commandSetLayerBlend    = 0x0105
-	commandDuplicateLayer   = 0x0106
-	commandSetLayerLock     = 0x0107
-	commandFlattenLayer     = 0x0108
-	commandMergeDown        = 0x0109
-	commandMergeVisible     = 0x010a
-	commandAddLayerMask     = 0x010b
-	commandDeleteLayerMask  = 0x010c
-	commandApplyLayerMask   = 0x010d
-	commandInvertLayerMask  = 0x010e
-	commandSetMaskEnabled   = 0x010f
-	commandSetLayerClip     = 0x0110
-	commandSetActiveLayer   = 0x0111
-	commandSetLayerName     = 0x0112
-	commandAddVectorMask    = 0x0113
-	commandDeleteVectorMask = 0x0114
-	commandSetMaskEditMode  = 0x0115
-	commandBeginTxn         = 0xffe0
-	commandEndTxn           = 0xffe1
-	commandClearHistory     = 0xffe2
-	commandUndo             = 0xfff0
-	commandRedo             = 0xfff1
+	commandCreateDocument     = 0x0001
+	commandCloseDocument      = 0x0002
+	commandZoomSet            = 0x0010
+	commandPanSet             = 0x0011
+	commandRotateViewSet      = 0x0012
+	commandResize             = 0x0013
+	commandFitToView          = 0x0014
+	commandPointerEvent       = 0x0015
+	commandJumpHistory        = 0x0016
+	commandAddLayer           = 0x0100
+	commandDeleteLayer        = 0x0101
+	commandMoveLayer          = 0x0102
+	commandSetLayerVis        = 0x0103
+	commandSetLayerOp         = 0x0104
+	commandSetLayerBlend      = 0x0105
+	commandDuplicateLayer     = 0x0106
+	commandSetLayerLock       = 0x0107
+	commandFlattenLayer       = 0x0108
+	commandMergeDown          = 0x0109
+	commandMergeVisible       = 0x010a
+	commandAddLayerMask       = 0x010b
+	commandDeleteLayerMask    = 0x010c
+	commandApplyLayerMask     = 0x010d
+	commandInvertLayerMask    = 0x010e
+	commandSetMaskEnabled     = 0x010f
+	commandSetLayerClip       = 0x0110
+	commandSetActiveLayer     = 0x0111
+	commandSetLayerName       = 0x0112
+	commandAddVectorMask      = 0x0113
+	commandDeleteVectorMask   = 0x0114
+	commandSetMaskEditMode    = 0x0115
+	commandGetLayerThumbnails = 0x0116
+	commandFlattenImage       = 0x0117
+	commandBeginTxn           = 0xffe0
+	commandEndTxn             = 0xffe1
+	commandClearHistory       = 0xffe2
+	commandUndo               = 0xfff0
+	commandRedo               = 0xfff1
 )
 
 const (
@@ -106,6 +111,14 @@ type HistoryEntry struct {
 	State       string `json:"state"`
 }
 
+// ThumbnailEntry holds base64-encoded RGBA pixel buffers for a layer preview.
+// LayerRGBA is always present (when the layer has rasterizable content).
+// MaskRGBA is only present when the layer has a pixel mask.
+type ThumbnailEntry struct {
+	LayerRGBA string `json:"layerRGBA"`
+	MaskRGBA  string `json:"maskRGBA,omitempty"`
+}
+
 type UIMeta struct {
 	ActiveLayerID       string          `json:"activeLayerId"`
 	ActiveLayerName     string          `json:"activeLayerName"`
@@ -123,6 +136,9 @@ type UIMeta struct {
 	DocumentHeight      int             `json:"documentHeight"`
 	DocumentBackground  string          `json:"documentBackground"`
 	Layers              []LayerNodeMeta `json:"layers"`
+	// ContentVersion is a monotonic counter incremented on every document mutation.
+	// The UI uses this to know when to refresh layer thumbnails.
+	ContentVersion int64 `json:"contentVersion"`
 	// MaskEditLayerID is set when the user is actively editing a layer mask.
 	// The UI uses this to show the mask-edit border indicator.
 	MaskEditLayerID string `json:"maskEditLayerId,omitempty"`
@@ -136,6 +152,8 @@ type RenderResult struct {
 	BufferPtr   int32         `json:"bufferPtr"`
 	BufferLen   int32         `json:"bufferLen"`
 	UIMeta      UIMeta        `json:"uiMeta"`
+	// Thumbnails is non-nil only in the response to commandGetLayerThumbnails.
+	Thumbnails map[string]ThumbnailEntry `json:"thumbnails,omitempty"`
 }
 
 type EngineConfig struct {
@@ -1189,6 +1207,37 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		} else {
 			inst.maskEditLayerID = ""
 		}
+	case commandGetLayerThumbnails:
+		// Read-only command: return a render result with thumbnails embedded.
+		result := inst.render()
+		doc := inst.manager.Active()
+		if doc != nil {
+			thumbs, err := doc.generateAllThumbnails(thumbnailSize, thumbnailSize)
+			if err == nil {
+				result.Thumbnails = thumbs
+			}
+		}
+		return result, nil
+	case commandFlattenImage:
+		command := &snapshotCommand{
+			description: "Flatten image",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.FlattenImage(); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
 	case commandResize:
 		var payload ResizePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -1368,6 +1417,7 @@ func (inst *instance) render() RenderResult {
 			DocumentHeight:      doc.Height,
 			DocumentBackground:  doc.Background.Kind,
 			Layers:              doc.LayerMeta(),
+			ContentVersion:      doc.ContentVersion,
 			MaskEditLayerID:     inst.maskEditLayerID,
 		},
 	}

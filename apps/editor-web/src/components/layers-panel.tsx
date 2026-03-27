@@ -4,6 +4,7 @@ import {
   type LayerBlendMode,
   type LayerLockMode,
   type LayerNodeMeta,
+  type ThumbnailEntry,
 } from "@agogo/proto";
 import {
   type DragEvent,
@@ -11,23 +12,39 @@ import {
   type MouseEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { EngineContextValue } from "@/wasm/types";
 
-const blendModeOptions: LayerBlendMode[] = [
-  "normal",
-  "multiply",
-  "screen",
-  "overlay",
-  "soft-light",
-  "hard-light",
-  "difference",
-  "exclusion",
-  "color",
-  "luminosity",
+type BlendModeGroup = { label: string; modes: LayerBlendMode[] };
+
+const blendModeGroups: BlendModeGroup[] = [
+  { label: "Normal", modes: ["normal", "dissolve"] },
+  {
+    label: "Darken",
+    modes: ["darken", "multiply", "color-burn", "linear-burn", "darker-color"],
+  },
+  {
+    label: "Lighten",
+    modes: ["lighten", "screen", "color-dodge", "linear-dodge", "lighter-color"],
+  },
+  {
+    label: "Contrast",
+    modes: [
+      "overlay",
+      "soft-light",
+      "hard-light",
+      "vivid-light",
+      "linear-light",
+      "pin-light",
+      "hard-mix",
+    ],
+  },
+  { label: "Inversion", modes: ["difference", "exclusion", "subtract", "divide"] },
+  { label: "Component", modes: ["hue", "saturation", "color", "luminosity"] },
 ];
 
 const lockModeCycle: LayerLockMode[] = ["none", "pixels", "position", "all"];
@@ -39,6 +56,22 @@ type DropTarget = {
   position: DropPosition;
 } | null;
 
+const THUMBNAIL_SIZE = 32;
+
+// Color labels for layer organization (UI-only, not persisted in the engine).
+const COLOR_TAGS = [
+  { id: "none", label: "None", bg: "bg-transparent", border: "border-white/20" },
+  { id: "red", label: "Red", bg: "bg-rose-500", border: "border-rose-400" },
+  { id: "orange", label: "Orange", bg: "bg-orange-500", border: "border-orange-400" },
+  { id: "yellow", label: "Yellow", bg: "bg-yellow-400", border: "border-yellow-300" },
+  { id: "green", label: "Green", bg: "bg-emerald-500", border: "border-emerald-400" },
+  { id: "blue", label: "Blue", bg: "bg-blue-500", border: "border-blue-400" },
+  { id: "violet", label: "Violet", bg: "bg-violet-500", border: "border-violet-400" },
+  { id: "gray", label: "Gray", bg: "bg-slate-500", border: "border-slate-400" },
+] as const;
+
+type ColorTagId = (typeof COLOR_TAGS)[number]["id"];
+
 type LayersPanelProps = {
   engine: EngineContextValue;
   layers: LayerNodeMeta[];
@@ -46,6 +79,7 @@ type LayersPanelProps = {
   maskEditLayerId: string | null;
   documentWidth: number;
   documentHeight: number;
+  thumbnails: Record<string, ThumbnailEntry>;
 };
 
 export function LayersPanel({
@@ -55,6 +89,7 @@ export function LayersPanel({
   maskEditLayerId,
   documentWidth,
   documentHeight,
+  thumbnails,
 }: LayersPanelProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
@@ -64,6 +99,8 @@ export function LayersPanel({
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [lastSelectedLayerId, setLastSelectedLayerId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<LayerContextMenuState>(null);
+  const [colorTags, setColorTags] = useState<Record<string, ColorTagId>>({});
+  const [propertiesLayerId, setPropertiesLayerId] = useState<string | null>(null);
 
   const activeLayer = useMemo(
     () => findLayerById(layers, activeLayerId ?? "") ?? firstLayer(layers),
@@ -266,6 +303,11 @@ export function LayersPanel({
     setContextMenu({ layerId: layer.id, x, y });
   };
 
+  const openLayerProperties = (layer: LayerNodeMeta) => {
+    setPropertiesLayerId(layer.id);
+    setContextMenu(null);
+  };
+
   const contextLayer = contextMenu ? findLayerById(layers, contextMenu.layerId) : null;
   const canGroupSelection =
     getSelectedLayers().length >= 2 &&
@@ -458,6 +500,8 @@ export function LayersPanel({
                   dropTarget={dropTarget}
                   editingLayerId={editingLayerId}
                   editingName={editingName}
+                  thumbnails={thumbnails}
+                  colorTags={colorTags}
                   onEditingNameChange={setEditingName}
                   onStartRename={startRename}
                   onCommitRename={commitRename}
@@ -519,10 +563,14 @@ export function LayersPanel({
                     });
                   }}
                 >
-                  {blendModeOptions.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {formatBlendMode(mode)}
-                    </option>
+                  {blendModeGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.modes.map((mode) => (
+                        <option key={mode} value={mode}>
+                          {formatBlendMode(mode)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </label>
@@ -622,6 +670,7 @@ export function LayersPanel({
             }
           }}
           onMergeVisible={() => engine.dispatchCommand(CommandID.MergeVisible)}
+          onFlattenImage={() => engine.dispatchCommand(CommandID.FlattenImage)}
           onGroup={groupSelection}
           onUngroup={ungroupSelection}
           onAddMaskReveal={() => addMaskToSelection("reveal-all")}
@@ -647,6 +696,28 @@ export function LayersPanel({
             }
             toggleClipForSelection(!contextLayer.clipToBelow);
           }}
+          onLayerProperties={() => {
+            if (contextLayer) {
+              openLayerProperties(contextLayer);
+            }
+          }}
+        />
+      ) : null}
+
+      {propertiesLayerId ? (
+        <LayerPropertiesDialog
+          layer={findLayerById(layers, propertiesLayerId)}
+          colorTag={colorTags[propertiesLayerId] ?? "none"}
+          onRename={(name) => {
+            engine.dispatchCommand(CommandID.SetLayerName, {
+              layerId: propertiesLayerId,
+              name,
+            });
+          }}
+          onColorTag={(tag) =>
+            setColorTags((current) => ({ ...current, [propertiesLayerId]: tag }))
+          }
+          onClose={() => setPropertiesLayerId(null)}
         />
       ) : null}
     </div>
@@ -711,6 +782,8 @@ type LayerTreeRowProps = {
   dropTarget: DropTarget;
   editingLayerId: string | null;
   editingName: string;
+  thumbnails: Record<string, ThumbnailEntry>;
+  colorTags: Record<string, ColorTagId>;
   onEditingNameChange: (value: string) => void;
   onStartRename: (layer: LayerNodeMeta) => void;
   onCommitRename: () => void;
@@ -742,6 +815,8 @@ function LayerTreeRow({
   dropTarget,
   editingLayerId,
   editingName,
+  thumbnails,
+  colorTags,
   onEditingNameChange,
   onStartRename,
   onCommitRename,
@@ -856,6 +931,8 @@ function LayerTreeRow({
 
             <LayerThumbnail
               layer={layer}
+              thumbnail={thumbnails[layer.id]}
+              colorTag={colorTags[layer.id] ?? "none"}
               isEditingMask={isEditingMask}
               onToggleMaskEdit={() => onToggleMaskEdit(layer.id)}
             />
@@ -957,6 +1034,8 @@ function LayerTreeRow({
               dropTarget={dropTarget}
               editingLayerId={editingLayerId}
               editingName={editingName}
+              thumbnails={thumbnails}
+              colorTags={colorTags}
               onEditingNameChange={onEditingNameChange}
               onStartRename={onStartRename}
               onCommitRename={onCommitRename}
@@ -1008,12 +1087,55 @@ function MiniBadge({
   );
 }
 
+function base64ToUint8ClampedArray(b64: string): Uint8ClampedArray {
+  const binary = atob(b64);
+  const bytes = new Uint8ClampedArray(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function ThumbnailCanvas({
+  rgbaB64,
+  size,
+  className,
+}: {
+  rgbaB64: string;
+  size: number;
+  className?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !rgbaB64) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const bytes = base64ToUint8ClampedArray(rgbaB64);
+    const imageData = new ImageData(bytes, size, size);
+    ctx.putImageData(imageData, 0, 0);
+  }, [rgbaB64, size]);
+  return (
+    <canvas
+      ref={canvasRef}
+      width={size}
+      height={size}
+      className={className}
+      style={{ imageRendering: "pixelated" }}
+    />
+  );
+}
+
 function LayerThumbnail({
   layer,
+  thumbnail,
+  colorTag,
   isEditingMask,
   onToggleMaskEdit,
 }: {
   layer: LayerNodeMeta;
+  thumbnail: ThumbnailEntry | undefined;
+  colorTag: ColorTagId;
   isEditingMask: boolean;
   onToggleMaskEdit: () => void;
 }) {
@@ -1028,38 +1150,79 @@ function LayerThumbnail({
             ? "from-emerald-500/20 via-slate-800/60 to-slate-950"
             : "from-fuchsia-500/20 via-slate-800/60 to-slate-950";
 
+  const colorTagInfo = COLOR_TAGS.find((c) => c.id === colorTag);
+
   return (
-    <div
-      className={[
-        "relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
-        layer.hasMask && !layer.maskEnabled ? "opacity-60" : "",
-      ].join(" ")}
-      title={`${layer.layerType} layer${layer.hasMask ? (layer.maskEnabled ? ", mask enabled" : ", mask disabled") : ""}`}
-    >
-      <div className={`absolute inset-0 bg-gradient-to-br ${toneClass}`} />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_60%)]" />
-      <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-slate-100">
-        {layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
-      </span>
-      {layer.clipToBelow ? (
-        <span className="absolute left-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-sky-300" />
-      ) : null}
-      {layer.hasVectorMask ? (
-        <span className="absolute left-0.5 bottom-0.5 h-1.5 w-1.5 rounded-full bg-emerald-300" />
-      ) : null}
+    <div className="flex items-center gap-0.5">
+      <div
+        className={[
+          "relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
+          layer.hasMask && !layer.maskEnabled ? "opacity-60" : "",
+        ].join(" ")}
+        title={`${layer.layerType} layer${layer.hasMask ? (layer.maskEnabled ? ", mask enabled" : ", mask disabled") : ""}`}
+      >
+        {thumbnail?.layerRGBA ? (
+          <ThumbnailCanvas
+            rgbaB64={thumbnail.layerRGBA}
+            size={THUMBNAIL_SIZE}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <>
+            <div
+              className={`absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] bg-gradient-to-br ${toneClass}`}
+            />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_60%)]" />
+            <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-slate-100">
+              {layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
+            </span>
+          </>
+        )}
+        {colorTag !== "none" && colorTagInfo ? (
+          <span
+            className={[
+              "absolute left-0.5 top-0.5 h-2 w-2 rounded-full border",
+              colorTagInfo.bg,
+              colorTagInfo.border,
+            ].join(" ")}
+          />
+        ) : null}
+        {layer.clipToBelow ? (
+          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-sky-300" />
+        ) : null}
+        {layer.hasVectorMask ? (
+          <span className="absolute bottom-0.5 left-0.5 h-1.5 w-1.5 rounded-full bg-emerald-300" />
+        ) : null}
+      </div>
+
       {layer.hasMask ? (
         <button
           type="button"
           title={isEditingMask ? "Exit mask edit mode" : "Edit mask"}
           className={[
-            "absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full transition hover:scale-125",
-            isEditingMask ? "bg-orange-300 ring-1 ring-orange-300/60" : "bg-fuchsia-300",
+            "relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border transition",
+            isEditingMask
+              ? "border-orange-400/60 bg-orange-400/8"
+              : "border-white/8 bg-black/18 hover:border-fuchsia-400/40",
           ].join(" ")}
           onClick={(event) => {
             event.stopPropagation();
             onToggleMaskEdit();
           }}
-        />
+        >
+          {thumbnail?.maskRGBA ? (
+            <ThumbnailCanvas
+              rgbaB64={thumbnail.maskRGBA}
+              size={THUMBNAIL_SIZE}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <span className="text-[8px] uppercase tracking-[0.18em] text-slate-400">m</span>
+          )}
+          {isEditingMask ? (
+            <span className="absolute inset-0 rounded-[var(--ui-radius-sm)] ring-1 ring-orange-400/60" />
+          ) : null}
+        </button>
       ) : null}
     </div>
   );
@@ -1081,6 +1244,7 @@ function LayerContextMenu({
   onDelete,
   onMergeDown,
   onMergeVisible,
+  onFlattenImage,
   onGroup,
   onUngroup,
   onAddMaskReveal,
@@ -1089,6 +1253,7 @@ function LayerContextMenu({
   onAddVectorMask,
   onDeleteVectorMask,
   onToggleClip,
+  onLayerProperties,
 }: {
   x: number;
   y: number;
@@ -1099,6 +1264,7 @@ function LayerContextMenu({
   onDelete: () => void;
   onMergeDown: () => void;
   onMergeVisible: () => void;
+  onFlattenImage: () => void;
   onGroup: () => void;
   onUngroup: () => void;
   onAddMaskReveal: () => void;
@@ -1107,6 +1273,7 @@ function LayerContextMenu({
   onAddVectorMask: () => void;
   onDeleteVectorMask: () => void;
   onToggleClip: () => void;
+  onLayerProperties: () => void;
 }) {
   return (
     <div
@@ -1123,6 +1290,7 @@ function LayerContextMenu({
       <MenuSeparator />
       <MenuAction label="Merge Down" onClick={onMergeDown} />
       <MenuAction label="Merge Visible" onClick={onMergeVisible} />
+      <MenuAction label="Flatten Image" onClick={onFlattenImage} />
       <MenuSeparator />
       <MenuAction label="Group Layers" onClick={onGroup} disabled={!canGroupSelection} />
       <MenuAction label="Ungroup" onClick={onUngroup} disabled={!canUngroupSelection} />
@@ -1135,6 +1303,8 @@ function LayerContextMenu({
       <MenuAction label="Delete Vector Mask" onClick={onDeleteVectorMask} />
       <MenuSeparator />
       <MenuAction label="Toggle Clipping" onClick={onToggleClip} />
+      <MenuSeparator />
+      <MenuAction label="Layer Properties…" onClick={onLayerProperties} />
     </div>
   );
 }
@@ -1334,4 +1504,108 @@ function containsLayerId(layers: LayerNodeMeta[], targetId: string): boolean {
     }
   }
   return false;
+}
+
+function LayerPropertiesDialog({
+  layer,
+  colorTag,
+  onRename,
+  onColorTag,
+  onClose,
+}: {
+  layer: LayerNodeMeta | null;
+  colorTag: ColorTagId;
+  onRename: (name: string) => void;
+  onColorTag: (tag: ColorTagId) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(layer?.name ?? "");
+
+  if (!layer) {
+    return null;
+  }
+
+  const handleApply = () => {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== layer.name) {
+      onRename(trimmed);
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="w-72 rounded-[var(--ui-radius-md)] border border-white/10 bg-[#1d2026] p-4 shadow-[0_20px_48px_rgba(0,0,0,0.6)]">
+        <h2 className="mb-3 text-[13px] font-semibold text-slate-100">Layer Properties</h2>
+
+        <div className="mb-3">
+          <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            Name
+            <input
+              className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-black/25 px-2 text-[12px] text-slate-100 outline-none focus:border-cyan-400/40"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  handleApply();
+                }
+                if (event.key === "Escape") {
+                  onClose();
+                }
+              }}
+              // biome-ignore lint/a11y/noAutofocus: dialog input intentionally focused on open
+              autoFocus
+            />
+          </label>
+        </div>
+
+        <div className="mb-4">
+          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            Color Label
+          </div>
+          <div className="flex gap-1.5">
+            {COLOR_TAGS.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                title={tag.label}
+                className={[
+                  "h-5 w-5 rounded-full border-2 transition hover:scale-110",
+                  tag.id === "none"
+                    ? "border-white/20 bg-transparent hover:border-white/40"
+                    : `${tag.bg} ${tag.border}`,
+                  colorTag === tag.id
+                    ? "ring-2 ring-cyan-400/60 ring-offset-1 ring-offset-[#1d2026]"
+                    : "",
+                ].join(" ")}
+                onClick={() => onColorTag(tag.id)}
+              >
+                {tag.id === "none" ? (
+                  <span className="flex h-full w-full items-center justify-center text-[8px] text-slate-400">
+                    ×
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleApply}>
+            Apply
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }

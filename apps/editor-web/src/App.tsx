@@ -1,4 +1,4 @@
-import type { CreateDocumentCommand } from "@agogo/proto";
+import { CommandID, type CreateDocumentCommand, type ThumbnailEntry } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
 import {
@@ -255,7 +255,7 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "history" | "navigator";
+type AuxPanel = "properties" | "history" | "navigator" | "channels";
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -312,6 +312,18 @@ export default function App() {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
+  const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
+
+  const contentVersion = render?.uiMeta.contentVersion;
+  useEffect(() => {
+    if (contentVersion === undefined || !engine.handle) {
+      return;
+    }
+    const result = engine.dispatchCommand(CommandID.GetLayerThumbnails);
+    if (result?.thumbnails) {
+      setLayerThumbnails(result.thumbnails);
+    }
+  }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
   const saveProject = () => {
     const projectJSON = engine.exportProject();
@@ -599,7 +611,7 @@ export default function App() {
                   >
                     »
                   </Button>
-                  {["P", "H", "N", "L"].map((label) => (
+                  {["P", "C", "H", "N", "L"].map((label) => (
                     <div
                       key={label}
                       className="flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] text-slate-400"
@@ -615,6 +627,7 @@ export default function App() {
                       <div className="flex items-center gap-[var(--ui-gap-1)]">
                         {[
                           ["properties", "Properties"],
+                          ["channels", "Channels"],
                           ["history", "History"],
                           ["navigator", "Navigator"],
                         ].map(([id, label]) => (
@@ -664,28 +677,6 @@ export default function App() {
                             value={render?.viewport.rotation ?? 0}
                             onChange={(value) => engine.setRotation(value)}
                           />
-                          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/10 p-2">
-                            <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                              Channels
-                            </div>
-                            <div className="grid grid-cols-2 gap-1 text-[12px] text-slate-200">
-                              {[
-                                ["RGB", "Composite view"],
-                                ["R", "Red"],
-                                ["G", "Green"],
-                                ["B", "Blue"],
-                                ["A", "Alpha"],
-                              ].map(([label, description]) => (
-                                <div
-                                  key={label}
-                                  className="flex items-center justify-between rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 px-2 py-1.5"
-                                >
-                                  <span className="font-medium text-slate-100">{label}</span>
-                                  <span className="text-[11px] text-slate-500">{description}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
                       ) : null}
 
@@ -747,6 +738,8 @@ export default function App() {
                           />
                         </div>
                       ) : null}
+
+                      {activeAuxPanel === "channels" ? <ChannelsPanel /> : null}
                     </DockSection>
 
                     <DockSection title="Layers" className="border-t border-border">
@@ -757,6 +750,7 @@ export default function App() {
                         maskEditLayerId={render?.uiMeta.maskEditLayerId ?? null}
                         documentWidth={render?.uiMeta.documentWidth ?? draft.width}
                         documentHeight={render?.uiMeta.documentHeight ?? draft.height}
+                        thumbnails={layerThumbnails}
                       />
                     </DockSection>
                   </div>
@@ -1183,9 +1177,63 @@ function dockTitle(panel: AuxPanel) {
       return "History";
     case "navigator":
       return "Navigator";
+    case "channels":
+      return "Channels";
     default:
       return "Properties";
   }
+}
+
+// Channel descriptor: short label, long name, indicator colour class.
+const CHANNELS = [
+  { id: "rgb", label: "RGB", name: "Composite", color: "bg-slate-400", shortcut: "~" },
+  { id: "r", label: "R", name: "Red", color: "bg-rose-400", shortcut: "1" },
+  { id: "g", label: "G", name: "Green", color: "bg-emerald-400", shortcut: "2" },
+  { id: "b", label: "B", name: "Blue", color: "bg-blue-400", shortcut: "3" },
+  { id: "a", label: "A", name: "Alpha", color: "bg-slate-300", shortcut: "4" },
+] as const;
+
+function ChannelsPanel() {
+  // Channel visibility is cosmetic for now; actual channel isolation is Phase 3+.
+  const [visible, setVisible] = useState<Record<string, boolean>>({
+    rgb: true,
+    r: true,
+    g: true,
+    b: true,
+    a: true,
+  });
+
+  return (
+    <div className="space-y-[var(--ui-gap-1)]">
+      {CHANNELS.map((ch) => (
+        <div
+          key={ch.id}
+          className={[
+            "flex items-center gap-2 rounded-[var(--ui-radius-sm)] border px-2 py-1.5 transition",
+            visible[ch.id]
+              ? "border-white/8 bg-white/[0.02]"
+              : "border-white/4 bg-transparent opacity-50",
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            title={visible[ch.id] ? "Hide channel" : "Show channel"}
+            className={[
+              "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
+              visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",
+            ].join(" ")}
+            onClick={() => setVisible((current) => ({ ...current, [ch.id]: !current[ch.id] }))}
+          >
+            {visible[ch.id] ? "O" : "-"}
+          </button>
+          <span className={`h-2.5 w-2.5 rounded-full ${ch.color}`} />
+          <span className="flex-1 text-[12px] font-medium text-slate-100">{ch.name}</span>
+          <span className="text-[11px] text-slate-500">{ch.shortcut}</span>
+        </div>
+      ))}
+      <p className="px-1 pt-1 text-[11px] text-slate-600">Channel isolation active in Phase 3+.</p>
+    </div>
+  );
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

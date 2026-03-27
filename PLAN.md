@@ -161,27 +161,27 @@
 
 ### Phase 2.4: Layers Panel UI
 
-- [ ] Tree view:
+- [x] Tree view:
   - [x] Nested rows for groups (collapsible with arrow toggle)
-  - [ ] Layer thumbnail (small composite preview, updated on change)
-  - [ ] Mask thumbnail next to layer thumbnail (if mask present)
+  - [x] Layer thumbnail (canvas-rendered RGBA preview; engine returns 32×32 via GetLayerThumbnails command, updated on ContentVersion change)
+  - [x] Mask thumbnail next to layer thumbnail (grayscale mask rendered to RGBA canvas, clickable to enter mask-edit mode)
   - [x] Layer name (double-click to rename inline)
-- [ ] Controls per layer row:
+- [x] Controls per layer row:
   - [x] Visibility eye icon (click to toggle, Alt+click to solo)
   - [x] Lock icon (click → cycle none/pixels/position/all)
-  - [ ] Blend mode dropdown
-  - [ ] Opacity slider/input (0–100%)
-  - [ ] Fill opacity slider/input (0–100%)
+  - [x] Blend mode dropdown (all 27 modes in grouped optgroups)
+  - [x] Opacity slider/input (0–100%)
+  - [x] Fill opacity slider/input (0–100%)
 - [x] Panel toolbar: New Layer, New Group, Add Mask, Delete Layer, Merge Down
-- [ ] Context menu (right-click on layer):
-  - [ ] Duplicate Layer, Delete Layer, Merge Down, Merge Visible, Flatten Image
-  - [ ] Group Layers, Ungroup
-  - [ ] Add Layer Mask (Reveal All / Hide All / From Selection)
-  - [ ] Add Clipping Mask / Release Clipping Mask
-  - [ ] Layer Properties (rename + color tag)
+- [x] Context menu (right-click on layer):
+  - [x] Duplicate Layer, Delete Layer, Merge Down, Merge Visible, Flatten Image
+  - [x] Group Layers, Ungroup
+  - [x] Add Layer Mask (Reveal All / Hide All / From Selection)
+  - [x] Add Clipping Mask / Release Clipping Mask
+  - [x] Layer Properties (rename + color tag — UI-only color labels, 8 colours)
 - [x] Drag-and-drop reordering within the tree
-- [ ] Multi-select (Shift/Ctrl+click) for bulk operations
-- [ ] Channels panel stub (RGB + Alpha channels, view only initially)
+- [x] Multi-select (Shift/Ctrl+click) for bulk operations
+- [x] Channels panel stub (RGB + Alpha channels with per-channel visibility toggles, view only)
 
 ### Phase 2.5: Internal Project Save/Load
 

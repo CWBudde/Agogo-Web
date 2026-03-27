@@ -19,6 +19,12 @@ jobs:
   go-test:
     uses: ./.github/workflows/test-go.yml
 
+  go-lint:
+    uses: ./.github/workflows/test-go-lint.yml
+
+  go-format:
+    uses: ./.github/workflows/test-go-format.yml
+
   build:
     uses: ./.github/workflows/build.yml
-    needs: [biome, typecheck, go-test]
+    needs: [biome, typecheck, go-test, go-lint, go-format]

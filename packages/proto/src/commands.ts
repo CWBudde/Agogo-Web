@@ -35,6 +35,8 @@ export enum CommandID {
   AddVectorMask = 0x0113,
   DeleteVectorMask = 0x0114,
   SetMaskEditMode = 0x0115,
+  GetLayerThumbnails = 0x0116,
+  FlattenImage = 0x0117,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
