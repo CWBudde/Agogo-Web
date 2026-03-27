@@ -479,8 +479,8 @@ func TestZoomAnchorKeepsAnchorStable(t *testing.T) {
 		t.Fatalf("zoom: %v", err)
 	}
 
-	wantCenterX := before.Viewport.CenterX / 2
-	wantCenterY := before.Viewport.CenterY / 2
+	wantCenterX := before.Viewport.CenterX * 0.5
+	wantCenterY := before.Viewport.CenterY * 0.5
 	if after.Viewport.CenterX != wantCenterX || after.Viewport.CenterY != wantCenterY {
 		t.Fatalf("center after anchored zoom = %.2f, %.2f, want %.2f, %.2f", after.Viewport.CenterX, after.Viewport.CenterY, wantCenterX, wantCenterY)
 	}
