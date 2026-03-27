@@ -25,6 +25,13 @@ export interface ThumbnailEntry {
   maskRGBA?: string;
 }
 
+export interface SelectionMeta {
+  active: boolean;
+  bounds?: DirtyRect;
+  pixelCount: number;
+  lastSelectionAvailable: boolean;
+}
+
 export interface UIMeta {
   activeLayerId: string | null;
   activeLayerName: string | null;
@@ -46,6 +53,7 @@ export interface UIMeta {
   contentVersion: number;
   /** Set when the user is actively editing a layer mask; empty/absent otherwise. */
   maskEditLayerId?: string;
+  selection: SelectionMeta;
 }
 
 export interface LayerNodeMeta {

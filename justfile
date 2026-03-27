@@ -14,10 +14,10 @@ wasm-build:
         -o ../../apps/editor-web/public/engine.wasm \
         ./cmd/engine
     GOROOT=$(go env GOROOT) && \
-        if [ -f "$$GOROOT/lib/wasm/wasm_exec.js" ]; then \
-            cp "$$GOROOT/lib/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
-        elif [ -f "$$GOROOT/misc/wasm/wasm_exec.js" ]; then \
-            cp "$$GOROOT/misc/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
+        if [ -f "$GOROOT/lib/wasm/wasm_exec.js" ]; then \
+            cp "$GOROOT/lib/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
+        elif [ -f "$GOROOT/misc/wasm/wasm_exec.js" ]; then \
+            cp "$GOROOT/misc/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
         else \
             echo "ERROR: wasm_exec.js not found in GOROOT" && exit 1; \
         fi

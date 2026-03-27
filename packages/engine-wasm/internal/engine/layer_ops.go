@@ -372,7 +372,13 @@ func (doc *Document) AddLayerMask(layerID string, mode AddLayerMaskMode) error {
 	case AddLayerMaskHideAll:
 		fill = 0
 	case AddLayerMaskFromSelection:
-		return fmt.Errorf("layer %q cannot create a mask from selection before selections are implemented", layer.Name())
+		selection := normalizeSelection(cloneSelection(doc.Selection))
+		if selection == nil {
+			return fmt.Errorf("layer %q cannot create a mask without an active selection", layer.Name())
+		}
+		layer.SetMask(newLayerMaskFromSelection(selection))
+		doc.touchModifiedAt()
+		return nil
 	default:
 		return fmt.Errorf("unsupported layer mask mode %q", mode)
 	}
