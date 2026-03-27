@@ -13,7 +13,14 @@ wasm-build:
         -ldflags="-s -w -X github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/buildinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         -o ../../apps/editor-web/public/engine.wasm \
         ./cmd/engine
-    cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js
+    GOROOT=$(go env GOROOT) && \
+        if [ -f "$$GOROOT/lib/wasm/wasm_exec.js" ]; then \
+            cp "$$GOROOT/lib/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
+        elif [ -f "$$GOROOT/misc/wasm/wasm_exec.js" ]; then \
+            cp "$$GOROOT/misc/wasm/wasm_exec.js" apps/editor-web/public/wasm_exec.js; \
+        else \
+            echo "ERROR: wasm_exec.js not found in GOROOT" && exit 1; \
+        fi
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 
