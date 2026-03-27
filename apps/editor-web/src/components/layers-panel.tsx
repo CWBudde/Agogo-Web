@@ -1112,7 +1112,8 @@ function ThumbnailCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const bytes = base64ToUint8ClampedArray(rgbaB64);
-    const imageData = new ImageData(bytes, size, size);
+    const imageData = ctx.createImageData(size, size);
+    imageData.data.set(bytes);
     ctx.putImageData(imageData, 0, 0);
   }, [rgbaB64, size]);
   return (
