@@ -1,0 +1,22 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+
+issues:
+  exclusions:
+    rules:
+      # Functions registered via js.FuncOf are called from JS, not Go — suppress false "unused" warnings.
+      - path: cmd/engine/main\.go
+        linters: [unused]

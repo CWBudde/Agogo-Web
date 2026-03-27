@@ -1,0 +1,26 @@
+# ── Node / Bun ───────────────────────────────────────────────────────────────
+node_modules/
+.bun/
+
+# ── Frontend build output ────────────────────────────────────────────────────
+apps/editor-web/dist/
+apps/editor-web/public/engine.wasm
+apps/editor-web/public/wasm_exec.js
+
+# ── Go build artifacts ────────────────────────────────────────────────────────
+packages/engine-wasm/coverage.out
+packages/engine-wasm/coverage.html
+
+# ── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# ── Env / Secrets ────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local

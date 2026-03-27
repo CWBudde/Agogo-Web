@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --background: 223 47% 4%;
+  --foreground: 210 40% 96%;
+  --panel: 222 39% 8%;
+  --panel-strong: 223 39% 12%;
+  --muted: 219 20% 19%;
+  --muted-foreground: 215 16% 63%;
+  --border: 217 21% 18%;
+  --ring: 197 92% 54%;
+  --accent: 197 92% 54%;
+  --accent-foreground: 223 47% 4%;
+  --success: 157 74% 47%;
+  --warning: 39 100% 62%;
+  --radius-panel: 1.25rem;
+  --radius-control: 0.85rem;
+  --shadow-elevated: 0 30px 80px rgba(1, 5, 15, 0.55);
+}
+
+.light {
+  color-scheme: light;
+  --background: 220 25% 97%;
+  --foreground: 224 42% 12%;
+  --panel: 0 0% 100%;
+  --panel-strong: 220 20% 98%;
+  --muted: 220 16% 92%;
+  --muted-foreground: 223 15% 40%;
+  --border: 218 15% 86%;
+  --ring: 197 92% 40%;
+  --accent: 197 92% 40%;
+  --accent-foreground: 0 0% 100%;
+  --shadow-elevated: 0 20px 60px rgba(18, 28, 49, 0.14);
+}
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-panel: hsl(var(--panel));
+  --color-panel-strong: hsl(var(--panel-strong));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --font-sans:
+    "Inter", "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono",
+    monospace;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  body {
+    @apply min-h-screen bg-background font-sans text-foreground;
+  }
+
+  button {
+    @apply select-none;
+  }
+}
+
+.editor-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)), hsl(var(--panel));
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: var(--shadow-elevated);
+  backdrop-filter: blur(18px);
+}
+
+.editor-checkerboard {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}

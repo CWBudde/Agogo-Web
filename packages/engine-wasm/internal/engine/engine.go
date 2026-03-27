@@ -1,0 +1,1005 @@
+// Package engine is the core of the Agogo image editor backend.
+// Phase 1 adds document, viewport, history, and a JSON command bridge.
+package engine
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unsafe"
+
+	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
+)
+
+const (
+	commandCreateDocument = 0x0001
+	commandCloseDocument  = 0x0002
+	commandZoomSet        = 0x0010
+	commandPanSet         = 0x0011
+	commandRotateViewSet  = 0x0012
+	commandResize         = 0x0013
+	commandFitToView      = 0x0014
+	commandPointerEvent   = 0x0015
+	commandJumpHistory    = 0x0016
+	commandBeginTxn       = 0xffe0
+	commandEndTxn         = 0xffe1
+	commandClearHistory   = 0xffe2
+	commandUndo           = 0xfff0
+	commandRedo           = 0xfff1
+)
+
+const (
+	defaultDocWidth       = 1920
+	defaultDocHeight      = 1080
+	defaultResolutionDPI  = 72
+	defaultHistoryMax     = 50
+	defaultDevicePixelRat = 1.0
+)
+
+type Background struct {
+	Kind  string   `json:"kind"`
+	Color [4]uint8 `json:"color,omitempty"`
+}
+
+type Document struct {
+	Width      int        `json:"width"`
+	Height     int        `json:"height"`
+	Resolution float64    `json:"resolution"`
+	ColorMode  string     `json:"colorMode"`
+	BitDepth   int        `json:"bitDepth"`
+	Background Background `json:"background"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	CreatedAt  string     `json:"createdAt"`
+	CreatedBy  string     `json:"createdBy"`
+	ModifiedAt string     `json:"modifiedAt"`
+}
+
+type ViewportState struct {
+	CenterX          float64 `json:"centerX"`
+	CenterY          float64 `json:"centerY"`
+	Zoom             float64 `json:"zoom"`
+	Rotation         float64 `json:"rotation"`
+	CanvasW          int     `json:"canvasW"`
+	CanvasH          int     `json:"canvasH"`
+	DevicePixelRatio float64 `json:"devicePixelRatio"`
+}
+
+type DirtyRect struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
+}
+
+type HistoryEntry struct {
+	ID          int64  `json:"id"`
+	Description string `json:"description"`
+	State       string `json:"state"`
+}
+
+type UIMeta struct {
+	ActiveLayerID       string         `json:"activeLayerId"`
+	CursorType          string         `json:"cursorType"`
+	StatusText          string         `json:"statusText"`
+	RulerOriginX        float64        `json:"rulerOriginX"`
+	RulerOriginY        float64        `json:"rulerOriginY"`
+	History             []HistoryEntry `json:"history"`
+	CanUndo             bool           `json:"canUndo"`
+	CanRedo             bool           `json:"canRedo"`
+	CurrentHistoryIndex int            `json:"currentHistoryIndex"`
+	ActiveDocumentID    string         `json:"activeDocumentId"`
+	ActiveDocumentName  string         `json:"activeDocumentName"`
+	DocumentWidth       int            `json:"documentWidth"`
+	DocumentHeight      int            `json:"documentHeight"`
+	DocumentBackground  string         `json:"documentBackground"`
+}
+
+type RenderResult struct {
+	FrameID     int64         `json:"frameId"`
+	Viewport    ViewportState `json:"viewport"`
+	DirtyRects  []DirtyRect   `json:"dirtyRects"`
+	PixelFormat string        `json:"pixelFormat"`
+	BufferPtr   int32         `json:"bufferPtr"`
+	BufferLen   int32         `json:"bufferLen"`
+	UIMeta      UIMeta        `json:"uiMeta"`
+}
+
+type EngineConfig struct {
+	DocumentWidth  int     `json:"documentWidth"`
+	DocumentHeight int     `json:"documentHeight"`
+	Background     string  `json:"background"`
+	Resolution     float64 `json:"resolution"`
+}
+
+type CreateDocumentPayload struct {
+	Name       string  `json:"name"`
+	Width      int     `json:"width"`
+	Height     int     `json:"height"`
+	Resolution float64 `json:"resolution"`
+	ColorMode  string  `json:"colorMode"`
+	BitDepth   int     `json:"bitDepth"`
+	Background string  `json:"background"`
+}
+
+type ZoomPayload struct {
+	Zoom      float64 `json:"zoom"`
+	HasAnchor bool    `json:"hasAnchor"`
+	AnchorX   float64 `json:"anchorX"`
+	AnchorY   float64 `json:"anchorY"`
+}
+
+type PanPayload struct {
+	CenterX float64 `json:"centerX"`
+	CenterY float64 `json:"centerY"`
+}
+
+type RotatePayload struct {
+	Rotation float64 `json:"rotation"`
+}
+
+type ResizePayload struct {
+	CanvasW          int     `json:"canvasW"`
+	CanvasH          int     `json:"canvasH"`
+	DevicePixelRatio float64 `json:"devicePixelRatio"`
+}
+
+type PointerEventPayload struct {
+	Phase     string  `json:"phase"`
+	PointerID int     `json:"pointerId"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Button    int     `json:"button"`
+	Buttons   int     `json:"buttons"`
+	PanMode   bool    `json:"panMode"`
+}
+
+type BeginTransactionPayload struct {
+	Description string `json:"description"`
+}
+
+type EndTransactionPayload struct {
+	Commit bool `json:"commit"`
+}
+
+type JumpHistoryPayload struct {
+	HistoryIndex int `json:"historyIndex"`
+}
+
+type pointerDragState struct {
+	PointerID int
+	StartX    float64
+	StartY    float64
+	CenterX   float64
+	CenterY   float64
+	Zoom      float64
+	Rotation  float64
+	Active    bool
+}
+
+type snapshot struct {
+	DocumentID string
+	Document   *Document
+	Viewport   ViewportState
+}
+
+type Command interface {
+	Apply(*instance) error
+	Undo(*instance) error
+	Description() string
+}
+
+type snapshotCommand struct {
+	description string
+	before      snapshot
+	after       snapshot
+	applyFn     func(*instance) (snapshot, error)
+}
+
+func (c *snapshotCommand) Apply(inst *instance) error {
+	if c.applyFn != nil {
+		before := inst.captureSnapshot()
+		after, err := c.applyFn(inst)
+		if err != nil {
+			return err
+		}
+		c.before = before
+		c.after = after
+		c.applyFn = nil
+		return nil
+	}
+	return inst.restoreSnapshot(c.after)
+}
+
+func (c *snapshotCommand) Undo(inst *instance) error {
+	return inst.restoreSnapshot(c.before)
+}
+
+func (c *snapshotCommand) Description() string {
+	return c.description
+}
+
+type HistoryStack struct {
+	undo     []Command
+	redo     []Command
+	maxDepth int
+	active   *groupedCommand
+}
+
+type groupedCommand struct {
+	description string
+	before      snapshot
+	after       snapshot
+}
+
+func (c *groupedCommand) Apply(inst *instance) error {
+	return inst.restoreSnapshot(c.after)
+}
+
+func (c *groupedCommand) Undo(inst *instance) error {
+	return inst.restoreSnapshot(c.before)
+}
+
+func (c *groupedCommand) Description() string {
+	return c.description
+}
+
+func newHistoryStack(maxDepth int) *HistoryStack {
+	return &HistoryStack{maxDepth: maxDepth}
+}
+
+func (h *HistoryStack) Execute(inst *instance, command Command) error {
+	if err := command.Apply(inst); err != nil {
+		return err
+	}
+	if h.active != nil {
+		h.active.after = inst.captureSnapshot()
+		return nil
+	}
+	h.push(command)
+	return nil
+}
+
+func (h *HistoryStack) BeginTransaction(inst *instance, description string) {
+	if h.active != nil {
+		return
+	}
+	state := inst.captureSnapshot()
+	h.active = &groupedCommand{
+		description: description,
+		before:      state,
+		after:       state,
+	}
+}
+
+func (h *HistoryStack) EndTransaction(commit bool) {
+	if h.active == nil {
+		return
+	}
+	active := h.active
+	h.active = nil
+	if !commit || snapshotsEqual(active.before, active.after) {
+		return
+	}
+	h.push(active)
+}
+
+func (h *HistoryStack) push(command Command) {
+	h.undo = append(h.undo, command)
+	if len(h.undo) > h.maxDepth {
+		h.undo = h.undo[len(h.undo)-h.maxDepth:]
+	}
+	h.redo = h.redo[:0]
+}
+
+func (h *HistoryStack) Undo(inst *instance) error {
+	if len(h.undo) == 0 {
+		return nil
+	}
+	command := h.undo[len(h.undo)-1]
+	h.undo = h.undo[:len(h.undo)-1]
+	if err := command.Undo(inst); err != nil {
+		return err
+	}
+	h.redo = append(h.redo, command)
+	return nil
+}
+
+func (h *HistoryStack) Redo(inst *instance) error {
+	if len(h.redo) == 0 {
+		return nil
+	}
+	command := h.redo[len(h.redo)-1]
+	h.redo = h.redo[:len(h.redo)-1]
+	if err := command.Apply(inst); err != nil {
+		return err
+	}
+	h.undo = append(h.undo, command)
+	return nil
+}
+
+func (h *HistoryStack) Entries() []HistoryEntry {
+	entries := make([]HistoryEntry, 0, len(h.undo)+len(h.redo))
+	for i, command := range h.undo {
+		state := "done"
+		if i == len(h.undo)-1 {
+			state = "current"
+		}
+		entries = append(entries, HistoryEntry{
+			ID:          int64(i + 1),
+			Description: command.Description(),
+			State:       state,
+		})
+	}
+	for i := len(h.redo) - 1; i >= 0; i-- {
+		command := h.redo[i]
+		entries = append(entries, HistoryEntry{
+			ID:          int64(len(entries) + 1),
+			Description: command.Description(),
+			State:       "undone",
+		})
+	}
+	return entries
+}
+
+func (h *HistoryStack) CurrentIndex() int {
+	return len(h.undo)
+}
+
+func (h *HistoryStack) CanUndo() bool { return len(h.undo) > 0 }
+func (h *HistoryStack) CanRedo() bool { return len(h.redo) > 0 }
+
+func (h *HistoryStack) Clear() {
+	h.undo = nil
+	h.redo = nil
+	h.active = nil
+}
+
+func (h *HistoryStack) JumpTo(inst *instance, historyIndex int) error {
+	total := len(h.undo) + len(h.redo)
+	if historyIndex < 0 {
+		historyIndex = 0
+	}
+	if historyIndex > total {
+		historyIndex = total
+	}
+
+	for len(h.undo) > historyIndex {
+		if err := h.Undo(inst); err != nil {
+			return err
+		}
+	}
+	for len(h.undo) < historyIndex {
+		if err := h.Redo(inst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type DocumentManager struct {
+	docs     map[string]*Document
+	order    []string
+	activeID string
+}
+
+func newDocumentManager() *DocumentManager {
+	return &DocumentManager{docs: make(map[string]*Document)}
+}
+
+func (m *DocumentManager) Create(doc *Document) {
+	m.docs[doc.ID] = cloneDocument(doc)
+	m.order = append(m.order, doc.ID)
+	m.activeID = doc.ID
+}
+
+func (m *DocumentManager) ReplaceActive(doc *Document) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	if m.activeID == "" {
+		m.Create(doc)
+		return nil
+	}
+	m.docs[m.activeID] = cloneDocument(doc)
+	return nil
+}
+
+func (m *DocumentManager) Active() *Document {
+	if m.activeID == "" {
+		return nil
+	}
+	doc := m.docs[m.activeID]
+	return cloneDocument(doc)
+}
+
+func (m *DocumentManager) ActiveID() string {
+	return m.activeID
+}
+
+func (m *DocumentManager) Switch(id string) error {
+	if _, ok := m.docs[id]; !ok {
+		return fmt.Errorf("document %q not found", id)
+	}
+	m.activeID = id
+	return nil
+}
+
+func (m *DocumentManager) CloseActive() error {
+	if m.activeID == "" {
+		return nil
+	}
+	delete(m.docs, m.activeID)
+	nextOrder := make([]string, 0, len(m.order))
+	for _, id := range m.order {
+		if id != m.activeID {
+			nextOrder = append(nextOrder, id)
+		}
+	}
+	m.order = nextOrder
+	if len(m.order) == 0 {
+		m.activeID = ""
+		return nil
+	}
+	m.activeID = m.order[len(m.order)-1]
+	return nil
+}
+
+type instance struct {
+	pixels   []byte
+	manager  *DocumentManager
+	viewport ViewportState
+	history  *HistoryStack
+	frameID  int64
+	pointer  pointerDragState
+}
+
+var (
+	mu        sync.Mutex
+	nextID    int32 = 1
+	nextDocID int64 = 1
+	instances       = make(map[int32]*instance)
+)
+
+// Init allocates a new engine instance and returns its handle.
+func Init(configJSON string) int32 {
+	config := EngineConfig{}
+	if configJSON != "" {
+		_ = json.Unmarshal([]byte(configJSON), &config)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	id := nextID
+	nextID++
+
+	inst := &instance{
+		manager: newDocumentManager(),
+		viewport: ViewportState{
+			Zoom:             1,
+			CanvasW:          defaultDocWidth,
+			CanvasH:          defaultDocHeight,
+			DevicePixelRatio: defaultDevicePixelRat,
+		},
+		history: newHistoryStack(defaultHistoryMax),
+	}
+
+	doc := inst.newDocument(CreateDocumentPayload{
+		Name:       "Untitled-1",
+		Width:      valueOrDefault(config.DocumentWidth, defaultDocWidth),
+		Height:     valueOrDefault(config.DocumentHeight, defaultDocHeight),
+		Resolution: floatValueOrDefault(config.Resolution, defaultResolutionDPI),
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: stringValueOrDefault(config.Background, "transparent"),
+	})
+	inst.manager.Create(doc)
+	inst.viewport.CenterX = float64(doc.Width) / 2
+	inst.viewport.CenterY = float64(doc.Height) / 2
+
+	instances[id] = inst
+	return id
+}
+
+// Free releases the engine instance identified by handle.
+func Free(handle int32) {
+	mu.Lock()
+	defer mu.Unlock()
+	delete(instances, handle)
+}
+
+// FreePointer is a no-op placeholder while the engine keeps ownership of its
+// render buffer inside Wasm linear memory.
+func FreePointer(_ int32) {}
+
+func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	switch commandID {
+	case commandCreateDocument:
+		var payload CreateDocumentPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: fmt.Sprintf("New document: %s", defaultDocumentName(payload.Name)),
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.newDocument(payload)
+				inst.manager.Create(doc)
+				inst.viewport.CenterX = float64(doc.Width) / 2
+				inst.viewport.CenterY = float64(doc.Height) / 2
+				inst.fitViewportToActiveDocument()
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandCloseDocument:
+		command := &snapshotCommand{
+			description: "Close document",
+			applyFn: func(inst *instance) (snapshot, error) {
+				if err := inst.manager.CloseActive(); err != nil {
+					return snapshot{}, err
+				}
+				if doc := inst.manager.Active(); doc != nil {
+					inst.viewport.CenterX = float64(doc.Width) / 2
+					inst.viewport.CenterY = float64(doc.Height) / 2
+					inst.fitViewportToActiveDocument()
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandZoomSet:
+		var payload ZoomPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: fmt.Sprintf("Zoom to %.0f%%", payload.Zoom*100),
+			applyFn: func(inst *instance) (snapshot, error) {
+				nextZoom := clampZoom(payload.Zoom)
+				if payload.HasAnchor {
+					inst.viewport.CenterX = payload.AnchorX - (payload.AnchorX-inst.viewport.CenterX)*(inst.viewport.Zoom/nextZoom)
+					inst.viewport.CenterY = payload.AnchorY - (payload.AnchorY-inst.viewport.CenterY)*(inst.viewport.Zoom/nextZoom)
+				}
+				inst.viewport.Zoom = nextZoom
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandPanSet:
+		var payload PanPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Pan viewport",
+			applyFn: func(inst *instance) (snapshot, error) {
+				inst.viewport.CenterX = payload.CenterX
+				inst.viewport.CenterY = payload.CenterY
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandRotateViewSet:
+		var payload RotatePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: fmt.Sprintf("Rotate view to %.0f°", payload.Rotation),
+			applyFn: func(inst *instance) (snapshot, error) {
+				inst.viewport.Rotation = normalizeRotation(payload.Rotation)
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandResize:
+		var payload ResizePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.viewport.CanvasW = maxInt(payload.CanvasW, 1)
+		inst.viewport.CanvasH = maxInt(payload.CanvasH, 1)
+		inst.viewport.DevicePixelRatio = floatValueOrDefault(payload.DevicePixelRatio, defaultDevicePixelRat)
+	case commandPointerEvent:
+		var payload PointerEventPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.handlePointerEvent(payload)
+	case commandBeginTxn:
+		var payload BeginTransactionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.history.BeginTransaction(inst, stringValueOrDefault(payload.Description, "Transaction"))
+	case commandEndTxn:
+		var payload EndTransactionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		commit := payload.Commit
+		if payloadJSON == "" {
+			commit = true
+		}
+		inst.history.EndTransaction(commit)
+	case commandJumpHistory:
+		var payload JumpHistoryPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		if err := inst.history.JumpTo(inst, payload.HistoryIndex); err != nil {
+			return RenderResult{}, err
+		}
+	case commandClearHistory:
+		inst.history.Clear()
+	case commandFitToView:
+		command := &snapshotCommand{
+			description: "Fit document on screen",
+			applyFn: func(inst *instance) (snapshot, error) {
+				inst.fitViewportToActiveDocument()
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandUndo:
+		if err := inst.history.Undo(inst); err != nil {
+			return RenderResult{}, err
+		}
+	case commandRedo:
+		if err := inst.history.Redo(inst); err != nil {
+			return RenderResult{}, err
+		}
+	default:
+		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
+	}
+
+	return inst.render(), nil
+}
+
+func RenderFrame(handle int32) (RenderResult, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	return inst.render(), nil
+}
+
+// GetBufferPtr returns the pointer to the pixel buffer inside Wasm linear memory.
+func GetBufferPtr(handle int32) int32 {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok || len(inst.pixels) == 0 {
+		return 0
+	}
+	return int32(uintptr(unsafe.Pointer(&inst.pixels[0]))) //nolint:unsafeptr
+}
+
+// GetBufferLen returns the byte length of the current pixel buffer.
+func GetBufferLen(handle int32) int32 {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return 0
+	}
+	return int32(len(inst.pixels))
+}
+
+func (inst *instance) render() RenderResult {
+	doc := inst.manager.Active()
+	if doc == nil {
+		inst.pixels = inst.pixels[:0]
+		return RenderResult{
+			FrameID:     inst.nextFrameID(),
+			Viewport:    inst.viewport,
+			DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
+			PixelFormat: "rgba8-premultiplied",
+			UIMeta: UIMeta{
+				CursorType:          "default",
+				StatusText:          "No active document",
+				History:             inst.history.Entries(),
+				CurrentHistoryIndex: inst.history.CurrentIndex(),
+				CanUndo:             inst.history.CanUndo(),
+				CanRedo:             inst.history.CanRedo(),
+			},
+		}
+	}
+
+	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels)
+	return RenderResult{
+		FrameID:     inst.nextFrameID(),
+		Viewport:    inst.viewport,
+		DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
+		PixelFormat: "rgba8-premultiplied",
+		BufferPtr:   int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+		BufferLen:   int32(len(inst.pixels)),
+		UIMeta: UIMeta{
+			ActiveLayerID:       "",
+			CursorType:          inst.cursorType(),
+			StatusText:          inst.statusText(doc),
+			RulerOriginX:        0,
+			RulerOriginY:        0,
+			History:             inst.history.Entries(),
+			CurrentHistoryIndex: inst.history.CurrentIndex(),
+			CanUndo:             inst.history.CanUndo(),
+			CanRedo:             inst.history.CanRedo(),
+			ActiveDocumentID:    doc.ID,
+			ActiveDocumentName:  doc.Name,
+			DocumentWidth:       doc.Width,
+			DocumentHeight:      doc.Height,
+			DocumentBackground:  doc.Background.Kind,
+		},
+	}
+}
+
+func (inst *instance) handlePointerEvent(event PointerEventPayload) {
+	switch event.Phase {
+	case "down":
+		if !event.PanMode {
+			inst.pointer = pointerDragState{}
+			return
+		}
+		inst.history.BeginTransaction(inst, "Pan viewport")
+		inst.pointer = pointerDragState{
+			PointerID: event.PointerID,
+			StartX:    event.X,
+			StartY:    event.Y,
+			CenterX:   inst.viewport.CenterX,
+			CenterY:   inst.viewport.CenterY,
+			Zoom:      clampZoom(inst.viewport.Zoom),
+			Rotation:  inst.viewport.Rotation,
+			Active:    true,
+		}
+	case "move":
+		if !inst.pointer.Active || inst.pointer.PointerID != event.PointerID {
+			return
+		}
+		deltaX := event.X - inst.pointer.StartX
+		deltaY := event.Y - inst.pointer.StartY
+		docDX, docDY := screenDeltaToDocument(deltaX, deltaY, inst.pointer.Zoom, inst.pointer.Rotation)
+		inst.viewport.CenterX = inst.pointer.CenterX - docDX
+		inst.viewport.CenterY = inst.pointer.CenterY - docDY
+	case "up":
+		if inst.pointer.PointerID == event.PointerID {
+			inst.pointer = pointerDragState{}
+			inst.history.EndTransaction(true)
+		}
+	}
+}
+
+func (inst *instance) cursorType() string {
+	if inst.pointer.Active {
+		return "grabbing"
+	}
+	return "default"
+}
+
+func (inst *instance) statusText(doc *Document) string {
+	return fmt.Sprintf("%s  %d x %d px  %.0f%%  %.0f°",
+		doc.Name,
+		doc.Width,
+		doc.Height,
+		inst.viewport.Zoom*100,
+		inst.viewport.Rotation,
+	)
+}
+
+func (inst *instance) nextFrameID() int64 {
+	inst.frameID++
+	return inst.frameID
+}
+
+func (inst *instance) captureSnapshot() snapshot {
+	return snapshot{
+		DocumentID: inst.manager.ActiveID(),
+		Document:   inst.manager.Active(),
+		Viewport:   inst.viewport,
+	}
+}
+
+func (inst *instance) restoreSnapshot(state snapshot) error {
+	inst.viewport = state.Viewport
+	inst.manager = newDocumentManager()
+	if state.Document == nil {
+		return nil
+	}
+	inst.manager.Create(state.Document)
+	if state.DocumentID != "" && inst.manager.activeID != state.DocumentID {
+		inst.manager.activeID = state.DocumentID
+	}
+	return nil
+}
+
+func (inst *instance) fitViewportToActiveDocument() {
+	doc := inst.manager.Active()
+	if doc == nil {
+		return
+	}
+	inst.viewport.CenterX = float64(doc.Width) / 2
+	inst.viewport.CenterY = float64(doc.Height) / 2
+
+	canvasW := maxInt(inst.viewport.CanvasW, 1)
+	canvasH := maxInt(inst.viewport.CanvasH, 1)
+	scaleX := float64(canvasW) * 0.84 / float64(maxInt(doc.Width, 1))
+	scaleY := float64(canvasH) * 0.84 / float64(maxInt(doc.Height, 1))
+	inst.viewport.Zoom = clampZoom(math.Min(scaleX, scaleY))
+}
+
+func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
+	width := valueOrDefault(payload.Width, defaultDocWidth)
+	height := valueOrDefault(payload.Height, defaultDocHeight)
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	return &Document{
+		Width:      width,
+		Height:     height,
+		Resolution: floatValueOrDefault(payload.Resolution, defaultResolutionDPI),
+		ColorMode:  stringValueOrDefault(payload.ColorMode, "rgb"),
+		BitDepth:   valueOrDefault(payload.BitDepth, 8),
+		Background: parseBackground(payload.Background),
+		ID:         fmt.Sprintf("doc-%04d", atomic.AddInt64(&nextDocID, 1)),
+		Name:       defaultDocumentName(payload.Name),
+		CreatedAt:  timestamp,
+		CreatedBy:  "agogo-web",
+		ModifiedAt: timestamp,
+	}
+}
+
+// RenderViewport renders an empty document view with pan, zoom, and rotation.
+func RenderViewport(doc *Document, vp *ViewportState, reuse []byte) []byte {
+	return aggrender.RenderViewport(
+		&aggrender.Document{
+			Width:      doc.Width,
+			Height:     doc.Height,
+			Background: doc.Background.Kind,
+		},
+		&aggrender.Viewport{
+			CenterX:  vp.CenterX,
+			CenterY:  vp.CenterY,
+			Zoom:     clampZoom(vp.Zoom),
+			Rotation: vp.Rotation,
+			CanvasW:  vp.CanvasW,
+			CanvasH:  vp.CanvasH,
+		},
+		reuse,
+	)
+}
+
+func cloneDocument(doc *Document) *Document {
+	if doc == nil {
+		return nil
+	}
+	copyDoc := *doc
+	return &copyDoc
+}
+
+func snapshotsEqual(a, b snapshot) bool {
+	if a.DocumentID != b.DocumentID {
+		return false
+	}
+	if a.Viewport != b.Viewport {
+		return false
+	}
+	if (a.Document == nil) != (b.Document == nil) {
+		return false
+	}
+	if a.Document == nil {
+		return true
+	}
+	return *a.Document == *b.Document
+}
+
+func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {
+	radians := rotation * math.Pi / 180
+	cosTheta := math.Cos(radians)
+	sinTheta := math.Sin(radians)
+	return (deltaX*cosTheta + deltaY*sinTheta) / zoom,
+		(-deltaX*sinTheta + deltaY*cosTheta) / zoom
+}
+
+func parseBackground(kind string) Background {
+	switch kind {
+	case "white":
+		return Background{Kind: "white", Color: [4]uint8{244, 246, 250, 255}}
+	case "color":
+		return Background{Kind: "color", Color: [4]uint8{236, 147, 92, 255}}
+	default:
+		return Background{Kind: "transparent"}
+	}
+}
+
+func defaultDocumentName(name string) string {
+	if name == "" {
+		return "Untitled"
+	}
+	return name
+}
+
+func decodePayload[T any](payloadJSON string, target *T) error {
+	if payloadJSON == "" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), target); err != nil {
+		return fmt.Errorf("decode payload: %w", err)
+	}
+	return nil
+}
+
+func clampZoom(zoom float64) float64 {
+	if zoom <= 0 {
+		return 1
+	}
+	if zoom < 0.05 {
+		return 0.05
+	}
+	if zoom > 32 {
+		return 32
+	}
+	return zoom
+}
+
+func normalizeRotation(rotation float64) float64 {
+	normalized := math.Mod(rotation, 360)
+	if normalized < 0 {
+		normalized += 360
+	}
+	return normalized
+}
+
+func valueOrDefault(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func floatValueOrDefault(value, fallback float64) float64 {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func stringValueOrDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
