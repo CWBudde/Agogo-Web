@@ -32,8 +32,8 @@ type EngineLoaderOptions = {
   config?: EngineConfig;
 };
 
-const DEFAULT_WASM_URL = "/engine.wasm";
-const DEFAULT_WASM_EXEC_URL = "/wasm_exec.js";
+const DEFAULT_WASM_URL = `${import.meta.env.BASE_URL}engine.wasm`;
+const DEFAULT_WASM_EXEC_URL = `${import.meta.env.BASE_URL}wasm_exec.js`;
 
 function ensureGoRuntime(wasmExecUrl: string) {
   if (window.Go) {
