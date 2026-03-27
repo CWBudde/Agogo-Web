@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 )
 
@@ -703,6 +704,145 @@ func TestApplyLayerMaskBakesAlpha(t *testing.T) {
 	}
 }
 
+func TestApplyLayerMaskSupportsTextAndVectorLayers(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	text := NewTextLayer("Text", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, "AB", []byte{
+		10, 20, 30, 255,
+		40, 50, 60, 255,
+	})
+	text.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 0}})
+
+	vector := NewVectorLayer("Vector", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, &Path{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 0}}}, []byte{
+		70, 80, 90, 255,
+		100, 110, 120, 255,
+	})
+	vector.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{0, 255}})
+	vector.SetParent(doc.LayerRoot)
+	text.SetParent(doc.LayerRoot)
+	doc.LayerRoot.SetChildren([]LayerNode{text, vector})
+
+	if err := doc.ApplyLayerMask(text.ID()); err != nil {
+		t.Fatalf("ApplyLayerMask(text): %v", err)
+	}
+	if text.Mask() != nil {
+		t.Fatal("text mask should be removed after apply")
+	}
+	if text.CachedRaster[3] != 255 || text.CachedRaster[7] != 0 {
+		t.Fatalf("text cached raster alpha = [%d %d], want [255 0]", text.CachedRaster[3], text.CachedRaster[7])
+	}
+
+	if err := doc.ApplyLayerMask(vector.ID()); err != nil {
+		t.Fatalf("ApplyLayerMask(vector): %v", err)
+	}
+	if vector.Mask() != nil {
+		t.Fatal("vector mask should be removed after apply")
+	}
+	if vector.CachedRaster[3] != 0 || vector.CachedRaster[7] != 255 {
+		t.Fatalf("vector cached raster alpha = [%d %d], want [0 255]", vector.CachedRaster[3], vector.CachedRaster[7])
+	}
+}
+
+func TestApplyLayerMaskRejectsUnsupportedTargetsAndInvalidRaster(t *testing.T) {
+	t.Run("group layer", func(t *testing.T) {
+		doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+		group := NewGroupLayer("Group")
+		group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 255}})
+		group.SetChildren([]LayerNode{NewPixelLayer("Child", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{1, 2, 3, 255, 4, 5, 6, 255})})
+		doc.LayerRoot.SetChildren([]LayerNode{group})
+
+		if err := doc.ApplyLayerMask(group.ID()); err == nil {
+			t.Fatal("expected ApplyLayerMask to reject group layers")
+		}
+	})
+
+	t.Run("adjustment layer", func(t *testing.T) {
+		doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+		adjustment := NewAdjustmentLayer("Curves", "curves", json.RawMessage(`{"points":[[0,0],[255,255]]}`))
+		adjustment.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 255}})
+		doc.LayerRoot.SetChildren([]LayerNode{adjustment})
+
+		if err := doc.ApplyLayerMask(adjustment.ID()); err == nil {
+			t.Fatal("expected ApplyLayerMask to reject adjustment layers")
+		}
+	})
+
+	t.Run("invalid raster length", func(t *testing.T) {
+		doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+		broken := NewPixelLayer("Broken", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{1, 2, 3, 255})
+		broken.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 255}})
+		doc.LayerRoot.SetChildren([]LayerNode{broken})
+
+		if err := doc.ApplyLayerMask(broken.ID()); err == nil {
+			t.Fatal("expected ApplyLayerMask to fail for malformed raster data")
+		}
+	})
+
+	t.Run("nil document", func(t *testing.T) {
+		var doc *Document
+		if err := doc.ApplyLayerMask("any"); err == nil {
+			t.Fatal("expected ApplyLayerMask to fail for a nil document")
+		}
+	})
+
+	t.Run("unknown layer", func(t *testing.T) {
+		doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+		if err := doc.ApplyLayerMask("missing"); err == nil {
+			t.Fatal("expected ApplyLayerMask to fail for an unknown layer")
+		}
+	})
+
+	t.Run("layer without mask", func(t *testing.T) {
+		doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+		plain := NewPixelLayer("Plain", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{1, 2, 3, 255, 4, 5, 6, 255})
+		doc.LayerRoot.SetChildren([]LayerNode{plain})
+
+		if err := doc.ApplyLayerMask(plain.ID()); err == nil {
+			t.Fatal("expected ApplyLayerMask to fail when the layer has no mask")
+		}
+	})
+}
+
+func TestApplyMaskToLayerRasterAndMaskAlphaHelpers(t *testing.T) {
+	t.Run("apply mask no-op inputs", func(t *testing.T) {
+		raster := []byte{1, 2, 3, 255}
+		if err := applyMaskToLayerRaster(LayerBounds{}, raster, &LayerMask{Enabled: true, Width: 1, Height: 1, Data: []byte{0}}); err != nil {
+			t.Fatalf("applyMaskToLayerRaster with empty bounds: %v", err)
+		}
+		if err := applyMaskToLayerRaster(LayerBounds{X: 0, Y: 0, W: 1, H: 1}, nil, &LayerMask{Enabled: true, Width: 1, Height: 1, Data: []byte{0}}); err != nil {
+			t.Fatalf("applyMaskToLayerRaster with empty raster: %v", err)
+		}
+		if err := applyMaskToLayerRaster(LayerBounds{X: 0, Y: 0, W: 1, H: 1}, raster, nil); err != nil {
+			t.Fatalf("applyMaskToLayerRaster with nil mask: %v", err)
+		}
+	})
+
+	t.Run("layerMaskDataAlphaAt branches", func(t *testing.T) {
+		if got := layerMaskDataAlphaAt(nil, 0, 0); got != 255 {
+			t.Fatalf("layerMaskDataAlphaAt(nil) = %d, want 255", got)
+		}
+		if got := layerMaskDataAlphaAt(&LayerMask{Enabled: true, Width: 0, Height: 1}, 0, 0); got != 255 {
+			t.Fatalf("layerMaskDataAlphaAt(zero width) = %d, want 255", got)
+		}
+		if got := layerMaskDataAlphaAt(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{123}}, 0, 0); got != 255 {
+			t.Fatalf("layerMaskDataAlphaAt(short data) = %d, want 255", got)
+		}
+
+		mask := &LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{77, 155}}
+		if got := layerMaskDataAlphaAt(mask, -1, 0); got != 0 {
+			t.Fatalf("layerMaskDataAlphaAt(negative x) = %d, want 0", got)
+		}
+		if got := layerMaskDataAlphaAt(mask, 2, 0); got != 0 {
+			t.Fatalf("layerMaskDataAlphaAt(out of bounds x) = %d, want 0", got)
+		}
+		if got := layerMaskDataAlphaAt(mask, 1, 1); got != 0 {
+			t.Fatalf("layerMaskDataAlphaAt(out of bounds y) = %d, want 0", got)
+		}
+		if got := layerMaskDataAlphaAt(mask, 1, 0); got != 155 {
+			t.Fatalf("layerMaskDataAlphaAt(valid) = %d, want 155", got)
+		}
+	})
+}
+
 func TestAddLayerMaskFromSelectionRequiresSelectionEngine(t *testing.T) {
 	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
 	layer := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{255, 0, 0, 255})
@@ -759,6 +899,82 @@ func TestClipToBelowRequiresBaseLayer(t *testing.T) {
 
 	if err := doc.SetLayerClipToBelow(layer.ID(), true); err == nil {
 		t.Fatal("expected clip-to-below to fail without a base layer")
+	}
+}
+
+func TestClippingBaseSurfaceForLayerAndClipHelpers(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	group := NewGroupLayer("Group")
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		0, 0, 255, 255,
+		0, 0, 255, 0,
+	})
+	clipped := NewPixelLayer("Clipped", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	})
+	group.SetChildren([]LayerNode{base, clipped})
+	doc.LayerRoot.SetChildren([]LayerNode{group})
+
+	if err := doc.SetLayerClipToBelow(clipped.ID(), true); err != nil {
+		t.Fatalf("SetLayerClipToBelow: %v", err)
+	}
+
+	expectedBaseSurface, err := doc.renderLayerToSurface(base)
+	if err != nil {
+		t.Fatalf("renderLayerToSurface(base): %v", err)
+	}
+	clipSurface, err := doc.clippingBaseSurfaceForLayer(clipped)
+	if err != nil {
+		t.Fatalf("clippingBaseSurfaceForLayer(clipped): %v", err)
+	}
+	if !bytes.Equal(clipSurface, expectedBaseSurface) {
+		t.Fatalf("clipping base surface = %v, want %v", clipSurface, expectedBaseSurface)
+	}
+
+	var nilDoc *Document
+	if got, err := nilDoc.clippingBaseSurfaceForLayer(clipped); err != nil || got != nil {
+		t.Fatalf("nil doc clipping base surface = %v, %v, want nil, nil", got, err)
+	}
+	if got, err := doc.clippingBaseSurfaceForLayer(base); err != nil || got != nil {
+		t.Fatalf("unclipped layer clipping base surface = %v, %v, want nil, nil", got, err)
+	}
+
+	externalClip := []byte{
+		0, 0, 0, 128,
+		0, 0, 0, 255,
+	}
+	combined := combineClipSurface(expectedBaseSurface, externalClip)
+	if bytes.Equal(combined, expectedBaseSurface) {
+		t.Fatal("combineClipSurface should create a clipped copy when both surfaces are present")
+	}
+	if combined[3] != 128 || combined[7] != 0 {
+		t.Fatalf("combined clip alpha = [%d %d], want [128 0]", combined[3], combined[7])
+	}
+	if expectedBaseSurface[3] != 255 || expectedBaseSurface[7] != 0 {
+		t.Fatalf("base surface should remain unchanged, got alpha [%d %d]", expectedBaseSurface[3], expectedBaseSurface[7])
+	}
+
+	surface := []byte{
+		9, 9, 9, 255,
+		9, 9, 9, 255,
+	}
+	applyClipSurfaceToSurface(surface, combined)
+	if surface[3] != 128 || surface[7] != 0 {
+		t.Fatalf("applyClipSurfaceToSurface alpha = [%d %d], want [128 0]", surface[3], surface[7])
+	}
+
+	unchanged := []byte{1, 2, 3, 255}
+	applyClipSurfaceToSurface(unchanged, []byte{1, 2, 3})
+	if unchanged[3] != 255 {
+		t.Fatalf("mismatched clip length should leave surface unchanged, got alpha %d", unchanged[3])
+	}
+
+	if got := combineClipSurface(nil, externalClip); !bytes.Equal(got, externalClip) {
+		t.Fatalf("combineClipSurface(nil, clip) = %v, want %v", got, externalClip)
+	}
+	if got := combineClipSurface(expectedBaseSurface, nil); !bytes.Equal(got, expectedBaseSurface) {
+		t.Fatalf("combineClipSurface(base, nil) = %v, want %v", got, expectedBaseSurface)
 	}
 }
 
