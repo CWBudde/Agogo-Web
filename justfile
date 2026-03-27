@@ -60,9 +60,10 @@ check-tidy:
 
 # ── Formatting ────────────────────────────────────────────────────────────────
 
-# Format all code using treefmt
+# Format all code using treefmt + Biome
 fmt:
     treefmt --allow-missing-formatter
+    bun run --cwd apps/editor-web lint:fix
 
 # Check if code is formatted correctly (CI-safe, no writes)
 check-formatted:
