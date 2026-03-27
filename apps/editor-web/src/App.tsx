@@ -326,13 +326,17 @@ export default function App() {
   }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
   const saveProject = () => {
-    const projectJSON = engine.exportProject();
-    if (!projectJSON) {
+    const base64Zip = engine.exportProject();
+    if (!base64Zip) {
       return;
     }
-
+    const binary = atob(base64Zip);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
     const fileName = `${render?.uiMeta.activeDocumentName ?? draft.name}.agp`;
-    const blob = new Blob([projectJSON], { type: "application/json" });
+    const blob = new Blob([bytes], { type: "application/zip" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -342,8 +346,21 @@ export default function App() {
   };
 
   const openProject = async (file: File) => {
-    const projectJSON = await file.text();
-    const imported = engine.importProject(projectJSON);
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let payload: string;
+    // PK magic bytes 0x50 0x4B = ZIP file
+    if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+      payload = btoa(binary);
+    } else {
+      // Legacy JSON — pass as plain text
+      payload = new TextDecoder().decode(bytes);
+    }
+    const imported = engine.importProject(payload);
     if (imported) {
       setDraft((current) => ({
         ...current,
