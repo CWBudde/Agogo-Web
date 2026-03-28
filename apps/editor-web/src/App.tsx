@@ -30,7 +30,7 @@ import { LayersPanel } from "@/components/layers-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -249,10 +249,20 @@ const menuItems: MenuPreviewMenu[] = [
   },
 ];
 
-const toolItems = [
+type EditorTool = ShortcutTool | "brush" | "eraser" | "type" | "shape";
+type MarqueeShape = "rect" | "ellipse";
+type LassoMode = "freehand" | "polygon";
+type WandMode = "magic" | "quick";
+
+const toolItems: {
+  id: EditorTool;
+  label: string;
+  Icon: typeof MoveToolIcon;
+}[] = [
   { id: "move", label: "Move", Icon: MoveToolIcon },
   { id: "marquee", label: "Marquee", Icon: MarqueeToolIcon },
   { id: "lasso", label: "Lasso", Icon: LassoToolIcon },
+  { id: "wand", label: "Wand", Icon: SelectionIcon },
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
@@ -327,7 +337,14 @@ export default function App() {
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const lastSavedVersionRef = useRef<number>(0);
-  const [activeTool, setActiveTool] = useState("brush");
+  const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
+  const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
+  const [lassoMode, setLassoMode] = useState<LassoMode>("freehand");
+  const [selectionAntiAlias, setSelectionAntiAlias] = useState(true);
+  const [selectionFeatherRadius, setSelectionFeatherRadius] = useState(0);
+  const [wandMode, setWandMode] = useState<WandMode>("magic");
+  const [wandTolerance, setWandTolerance] = useState(24);
+  const [wandSampleMerged, setWandSampleMerged] = useState(false);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
   const [openRecentOpen, setOpenRecentOpen] = useState(false);
@@ -388,6 +405,13 @@ export default function App() {
 
   const openProjectPicker = () => {
     projectInputRef.current?.click();
+  };
+
+  const activateTool = (tool: EditorTool) => {
+    setActiveTool(tool);
+    if (tool !== "hand") {
+      setIsPanMode(false);
+    }
   };
 
   const openNewDocumentDialog = () => {
@@ -606,6 +630,18 @@ export default function App() {
     onRedo() {
       engine.redo();
     },
+    onSelectAll() {
+      engine.selectAll();
+    },
+    onDeselect() {
+      engine.deselect();
+    },
+    onInvertSelection() {
+      engine.invertSelection();
+    },
+    onToolSelect(tool: ShortcutTool) {
+      activateTool(tool);
+    },
   });
 
   useEffect(() => {
@@ -639,6 +675,9 @@ export default function App() {
   const zoomPercent = render ? `${Math.round(render.viewport.zoom * 100)}%` : "0%";
   const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "Outside";
   const statusText = render?.uiMeta.statusText ?? "Waiting for engine";
+  const selectionSummary = render?.uiMeta.selection.active
+    ? `${render.uiMeta.selection.pixelCount} px selected`
+    : "No selection";
   const historyEntries = render?.uiMeta.history ?? [];
   const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
   const widthValue = formatDimension(
@@ -649,6 +688,95 @@ export default function App() {
     pixelsToUnit(draft.height, draft.resolution, documentUnit),
     documentUnit,
   );
+  const selectionToolOptions =
+    activeTool === "marquee" ? (
+      <>
+        <ToolOptionGroup label="Shape">
+          <ToolChoiceButton
+            active={marqueeShape === "rect"}
+            onClick={() => setMarqueeShape("rect")}
+          >
+            Rect
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={marqueeShape === "ellipse"}
+            onClick={() => setMarqueeShape("ellipse")}
+          >
+            Ellipse
+          </ToolChoiceButton>
+        </ToolOptionGroup>
+        <ToolNumberField
+          label="Feather"
+          min={0}
+          max={128}
+          step={1}
+          value={selectionFeatherRadius}
+          onChange={setSelectionFeatherRadius}
+        />
+        <ToolChoiceButton
+          active={selectionAntiAlias}
+          onClick={() => setSelectionAntiAlias((current) => !current)}
+        >
+          Anti-alias
+        </ToolChoiceButton>
+      </>
+    ) : activeTool === "lasso" ? (
+      <>
+        <ToolOptionGroup label="Mode">
+          <ToolChoiceButton
+            active={lassoMode === "freehand"}
+            onClick={() => setLassoMode("freehand")}
+          >
+            Freehand
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={lassoMode === "polygon"}
+            onClick={() => setLassoMode("polygon")}
+          >
+            Polygon
+          </ToolChoiceButton>
+        </ToolOptionGroup>
+        <ToolNumberField
+          label="Feather"
+          min={0}
+          max={128}
+          step={1}
+          value={selectionFeatherRadius}
+          onChange={setSelectionFeatherRadius}
+        />
+        <ToolChoiceButton
+          active={selectionAntiAlias}
+          onClick={() => setSelectionAntiAlias((current) => !current)}
+        >
+          Anti-alias
+        </ToolChoiceButton>
+      </>
+    ) : activeTool === "wand" ? (
+      <>
+        <ToolOptionGroup label="Mode">
+          <ToolChoiceButton active={wandMode === "magic"} onClick={() => setWandMode("magic")}>
+            Magic
+          </ToolChoiceButton>
+          <ToolChoiceButton active={wandMode === "quick"} onClick={() => setWandMode("quick")}>
+            Quick
+          </ToolChoiceButton>
+        </ToolOptionGroup>
+        <ToolNumberField
+          label="Tolerance"
+          min={0}
+          max={255}
+          step={1}
+          value={wandTolerance}
+          onChange={setWandTolerance}
+        />
+        <ToolChoiceButton
+          active={wandSampleMerged}
+          onClick={() => setWandSampleMerged((current) => !current)}
+        >
+          Sample merged
+        </ToolChoiceButton>
+      </>
+    ) : null;
 
   const activeToolLabel = isPanMode
     ? "Hand (temporary)"
@@ -791,9 +919,21 @@ export default function App() {
             <div className="flex items-center gap-1 text-[11px] text-slate-300">
               <MetricChip value={zoomPercent} />
               <MetricChip value={documentSize} />
+              <MetricChip value={selectionSummary} />
               <MetricChip value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`} />
             </div>
           </div>
+
+          {selectionToolOptions ? (
+            <div className="editor-chrome flex min-h-[38px] items-center justify-between gap-3 border-b border-border px-2 py-1.5">
+              <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5">
+                {selectionToolOptions}
+              </div>
+              <div className="hidden shrink-0 text-[11px] text-slate-400 xl:block">
+                Shift add, Alt subtract, Shift+Alt intersect
+              </div>
+            </div>
+          ) : null}
 
           <section
             className="grid min-h-0 flex-1"
@@ -816,12 +956,7 @@ export default function App() {
                         : "bg-transparent text-slate-400 hover:bg-white/6 hover:text-slate-100",
                     ].join(" ")}
                     title={tool.label}
-                    onClick={() => {
-                      setActiveTool(tool.id);
-                      if (tool.id !== "hand") {
-                        setIsPanMode(false);
-                      }
-                    }}
+                    onClick={() => activateTool(tool.id)}
                   >
                     <ToolIcon className="h-4 w-4" />
                   </button>
@@ -851,8 +986,18 @@ export default function App() {
                 onDrop={handleDrop}
               >
                 <EditorCanvas
+                  activeTool={activeTool}
                   isPanMode={isPanMode || activeTool === "hand"}
                   isZoomTool={activeTool === "zoom"}
+                  selectionOptions={{
+                    marqueeShape,
+                    lassoMode,
+                    antiAlias: selectionAntiAlias,
+                    featherRadius: selectionFeatherRadius,
+                    wandMode,
+                    wandTolerance,
+                    wandSampleMerged,
+                  }}
                   onCursorChange={setCursor}
                 />
               </section>
@@ -1300,6 +1445,73 @@ export default function App() {
 
 const fieldClassName =
   "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30";
+
+function ToolOptionGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </span>
+      <div className="flex items-center gap-1">{children}</div>
+    </div>
+  );
+}
+
+function ToolChoiceButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        "h-7 rounded-[var(--ui-radius-sm)] border px-2.5 text-[12px] transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/30",
+        active
+          ? "border-cyan-400/35 bg-cyan-400/14 text-slate-50"
+          : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20 hover:bg-black/30",
+      ].join(" ")}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolNumberField({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[12px] text-slate-300">
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <input
+        className="h-7 w-20 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-right text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
 
 function ChromeLabel({ label, children }: { label: string; children: ReactNode }) {
   return (

@@ -1,8 +1,11 @@
 import {
   CommandID,
   type CreateDocumentCommand,
+  type CreateSelectionCommand,
   type PointerEventCommand,
+  type QuickSelectCommand,
   type RenderResult,
+  type TransformSelectionCommand,
 } from "@agogo/proto";
 import {
   createContext,
@@ -119,6 +122,27 @@ export function EngineProvider({ children }: PropsWithChildren) {
       },
       createDocument(command: CreateDocumentCommand) {
         return run(CommandID.CreateDocument, command);
+      },
+      createSelection(command: CreateSelectionCommand) {
+        return run(CommandID.NewSelection, command);
+      },
+      selectAll() {
+        return run(CommandID.SelectAll);
+      },
+      deselect() {
+        return run(CommandID.Deselect);
+      },
+      reselect() {
+        return run(CommandID.Reselect);
+      },
+      invertSelection() {
+        return run(CommandID.InvertSelection);
+      },
+      quickSelect(command: QuickSelectCommand) {
+        return run(CommandID.QuickSelect, command);
+      },
+      transformSelection(command: TransformSelectionCommand) {
+        return run(CommandID.TransformSelection, command);
       },
       resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number) {
         return run(CommandID.Resize, { canvasW, canvasH, devicePixelRatio });

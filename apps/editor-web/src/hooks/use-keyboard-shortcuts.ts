@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
+export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom";
+
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
   onNewDocument(): void;
@@ -12,6 +14,10 @@ type KeyboardActions = {
   onFitToView(): void;
   onUndo(): void;
   onRedo(): void;
+  onSelectAll(): void;
+  onDeselect(): void;
+  onInvertSelection(): void;
+  onToolSelect(tool: ShortcutTool): void;
 };
 
 function isEditableTarget(target: EventTarget | null) {
@@ -50,6 +56,42 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+Shift+e":
           event.preventDefault();
           actions.onExportDocument();
+          return;
+        case "Mod+a":
+          event.preventDefault();
+          actions.onSelectAll();
+          return;
+        case "Mod+d":
+          event.preventDefault();
+          actions.onDeselect();
+          return;
+        case "Mod+Shift+i":
+          event.preventDefault();
+          actions.onInvertSelection();
+          return;
+        case "v":
+          event.preventDefault();
+          actions.onToolSelect("move");
+          return;
+        case "m":
+          event.preventDefault();
+          actions.onToolSelect("marquee");
+          return;
+        case "l":
+          event.preventDefault();
+          actions.onToolSelect("lasso");
+          return;
+        case "w":
+          event.preventDefault();
+          actions.onToolSelect("wand");
+          return;
+        case "h":
+          event.preventDefault();
+          actions.onToolSelect("hand");
+          return;
+        case "z":
+          event.preventDefault();
+          actions.onToolSelect("zoom");
           return;
         default:
           break;
