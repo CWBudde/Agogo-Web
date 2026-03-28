@@ -280,7 +280,7 @@ const menuItems: MenuPreviewMenu[] = [
 type EditorTool = ShortcutTool | "brush" | "eraser" | "type" | "shape";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
-type LassoMode = "freehand" | "polygon";
+type LassoMode = "freehand" | "polygon" | "magnetic";
 type WandMode = "magic" | "quick";
 
 const toolItems: {
@@ -883,6 +883,12 @@ export default function App() {
             onClick={() => setLassoMode("polygon")}
           >
             Polygon
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={lassoMode === "magnetic"}
+            onClick={() => setLassoMode("magnetic")}
+          >
+            Magnetic
           </ToolChoiceButton>
         </ToolOptionGroup>
         <ToolNumberField

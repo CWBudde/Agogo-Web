@@ -2,6 +2,7 @@ import type {
   CreateDocumentCommand,
   CreateSelectionCommand,
   MagicWandCommand,
+  MagneticLassoSuggestPathCommand,
   PickLayerAtPointCommand,
   PointerEventCommand,
   QuickSelectCommand,
@@ -43,6 +44,7 @@ export interface EngineContextValue {
   invertSelection(): RenderResult | null;
   magicWand(command: MagicWandCommand): RenderResult | null;
   quickSelect(command: QuickSelectCommand): RenderResult | null;
+  magneticLassoSuggestPath(command: MagneticLassoSuggestPathCommand): RenderResult | null;
   pickLayerAtPoint(command: PickLayerAtPointCommand): RenderResult | null;
   translateLayer(command: TranslateLayerCommand): RenderResult | null;
   transformSelection(command: TransformSelectionCommand): RenderResult | null;

@@ -34,7 +34,7 @@ type EditorCanvasProps = {
     marqueeRatioH: number;
     marqueeSizeW: number;
     marqueeSizeH: number;
-    lassoMode: "freehand" | "polygon";
+    lassoMode: "freehand" | "polygon" | "magnetic";
     antiAlias: boolean;
     featherRadius: number;
     wandMode: "magic" | "quick";
@@ -102,6 +102,22 @@ type PolygonDraft = {
   points: DocumentPoint[];
   hoverPoint: DocumentPoint | null;
   mode: "replace" | "add" | "subtract" | "intersect";
+};
+
+type MagneticLassoDraft = {
+  /** Anchor document-coordinate point (last confirmed fastening point). */
+  anchorPoint: DocumentPoint;
+  /** All confirmed path points in document coordinates (start → ... → last anchor). */
+  confirmedPoints: DocumentPoint[];
+  /** Engine-suggested path from anchor to cursor in document coordinates. */
+  suggestedPath: DocumentPoint[];
+  /** Start point used to detect closing proximity. */
+  startPoint: DocumentPoint;
+  /** Initial selection combine mode. */
+  mode: "replace" | "add" | "subtract" | "intersect";
+  /** Last cursor position used to throttle engine requests. */
+  lastSuggestX: number;
+  lastSuggestY: number;
 };
 
 type MoveDraft = {
@@ -242,6 +258,8 @@ export function EditorCanvas({
     null,
   );
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
+  const [magneticLassoDraft, setMagneticLassoDraft] =
+    useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
   const render = engine.render;
 
@@ -310,6 +328,9 @@ export function EditorCanvas({
     }
     if (activeTool !== "lasso" || selectionOptions.lassoMode !== "freehand") {
       setFreehandDraft(null);
+    }
+    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "magnetic") {
+      setMagneticLassoDraft(null);
     }
     if (activeTool !== "marquee") {
       setMarqueeDraft(null);
@@ -532,6 +553,25 @@ export function EditorCanvas({
     polygonDraft,
     selectionOptions.lassoMode,
   ]);
+
+  useEffect(() => {
+    if (
+      activeTool !== "lasso" ||
+      selectionOptions.lassoMode !== "magnetic" ||
+      !magneticLassoDraft
+    ) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMagneticLassoDraft(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTool, magneticLassoDraft, selectionOptions.lassoMode]);
 
   const marqueeStartCanvas = marqueeDraft
     ? documentPointToCanvas(marqueeDraft.start)
@@ -777,6 +817,80 @@ export function EditorCanvas({
           event.preventDefault();
           return;
         }
+        if (
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "magnetic" &&
+          event.button === 0
+        ) {
+          const mode = selectionModeFromModifiers(event.shiftKey, event.altKey);
+          if (!magneticLassoDraft) {
+            setMagneticLassoDraft({
+              anchorPoint: { x: docPoint.x, y: docPoint.y },
+              confirmedPoints: [{ x: docPoint.x, y: docPoint.y }],
+              suggestedPath: [],
+              startPoint: { x: docPoint.x, y: docPoint.y },
+              mode,
+              lastSuggestX: Math.floor(docPoint.x),
+              lastSuggestY: Math.floor(docPoint.y),
+            });
+          } else {
+            const startCanvas = documentPointToCanvas(
+              magneticLassoDraft.startPoint,
+            );
+            const currentCanvas = documentPointToCanvas({
+              x: docPoint.x,
+              y: docPoint.y,
+            });
+            const nearStart =
+              startCanvas &&
+              currentCanvas &&
+              Math.abs(currentCanvas.x - startCanvas.x) < 12 &&
+              Math.abs(currentCanvas.y - startCanvas.y) < 12;
+            const isDoubleClick = event.detail >= 2;
+
+            if (
+              (nearStart &&
+                magneticLassoDraft.confirmedPoints.length >= 3) ||
+              (isDoubleClick &&
+                magneticLassoDraft.confirmedPoints.length >= 3)
+            ) {
+              const allPoints = [
+                ...magneticLassoDraft.confirmedPoints,
+                ...magneticLassoDraft.suggestedPath.slice(1),
+              ];
+              if (allPoints.length >= 3) {
+                commitSelection("Magnetic lasso selection", () => {
+                  engine.createSelection({
+                    shape: "polygon",
+                    mode: magneticLassoDraft.mode,
+                    polygon: allPoints,
+                    antiAlias: selectionOptions.antiAlias,
+                  });
+                });
+              }
+              setMagneticLassoDraft(null);
+            } else {
+              const newConfirmed = [
+                ...magneticLassoDraft.confirmedPoints,
+                ...magneticLassoDraft.suggestedPath.slice(1),
+              ];
+              setMagneticLassoDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      anchorPoint: { x: docPoint.x, y: docPoint.y },
+                      confirmedPoints: newConfirmed,
+                      suggestedPath: [],
+                      lastSuggestX: Math.floor(docPoint.x),
+                      lastSuggestY: Math.floor(docPoint.y),
+                    }
+                  : current,
+              );
+            }
+          }
+          event.preventDefault();
+          return;
+        }
         if (activeTool === "wand" && event.button === 0) {
           if (selectionOptions.wandMode === "magic") {
             commitSelection("Magic wand selection", () => {
@@ -858,6 +972,40 @@ export function EditorCanvas({
                 }
               : current,
           );
+        }
+        if (
+          magneticLassoDraft &&
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "magnetic" &&
+          docPoint
+        ) {
+          const pixelX = Math.floor(docPoint.x);
+          const pixelY = Math.floor(docPoint.y);
+          if (
+            pixelX !== magneticLassoDraft.lastSuggestX ||
+            pixelY !== magneticLassoDraft.lastSuggestY
+          ) {
+            const result = engine.magneticLassoSuggestPath({
+              x1: Math.floor(magneticLassoDraft.anchorPoint.x),
+              y1: Math.floor(magneticLassoDraft.anchorPoint.y),
+              x2: pixelX,
+              y2: pixelY,
+              sampleMerged: selectionOptions.wandSampleMerged,
+            });
+            const suggestedPath =
+              result?.suggestedPath?.map((p) => ({ x: p.x, y: p.y })) ?? [];
+            setMagneticLassoDraft((current) =>
+              current
+                ? {
+                    ...current,
+                    suggestedPath,
+                    lastSuggestX: pixelX,
+                    lastSuggestY: pixelY,
+                  }
+                : current,
+            );
+          }
+          return;
         }
         if (
           quickSelectDraft &&
@@ -1111,7 +1259,10 @@ export function EditorCanvas({
         ref={canvasRef}
         className="absolute inset-0 h-full w-full bg-slate-950"
       />
-      {marqueeOverlay || freehandOverlay.length > 0 || polygonOverlay ? (
+      {marqueeOverlay ||
+      freehandOverlay.length > 0 ||
+      polygonOverlay ||
+      magneticLassoDraft ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
           viewBox={`0 0 ${size.width} ${size.height}`}
@@ -1193,6 +1344,56 @@ export function EditorCanvas({
               ))}
             </>
           ) : null}
+          {magneticLassoDraft
+            ? (() => {
+                const allDocPoints = [
+                  ...magneticLassoDraft.confirmedPoints,
+                  ...magneticLassoDraft.suggestedPath.slice(1),
+                ];
+                const allCanvasPoints = allDocPoints
+                  .map((p) => documentPointToCanvas(p))
+                  .filter(
+                    (p): p is { x: number; y: number } => p !== null,
+                  );
+                const anchorCanvas = documentPointToCanvas(
+                  magneticLassoDraft.anchorPoint,
+                );
+                const startCanvas = documentPointToCanvas(
+                  magneticLassoDraft.startPoint,
+                );
+                return (
+                  <>
+                    {allCanvasPoints.length >= 2 && (
+                      <polyline
+                        points={allCanvasPoints
+                          .map((p) => `${p.x},${p.y}`)
+                          .join(" ")}
+                        fill="none"
+                        stroke="rgba(56, 189, 248, 0.95)"
+                        strokeDasharray="7 5"
+                        strokeWidth="1.5"
+                      />
+                    )}
+                    {startCanvas && (
+                      <circle
+                        cx={startCanvas.x}
+                        cy={startCanvas.y}
+                        r={4}
+                        fill="rgba(248, 250, 252, 0.95)"
+                      />
+                    )}
+                    {anchorCanvas && (
+                      <circle
+                        cx={anchorCanvas.x}
+                        cy={anchorCanvas.y}
+                        r={3}
+                        fill="rgba(56, 189, 248, 0.95)"
+                      />
+                    )}
+                  </>
+                );
+              })()
+            : null}
         </svg>
       ) : null}
       {engine.status !== "ready" ? (

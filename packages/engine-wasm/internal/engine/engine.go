@@ -18,61 +18,62 @@ import (
 const thumbnailSize = 32
 
 const (
-	commandCreateDocument     = 0x0001
-	commandCloseDocument      = 0x0002
-	commandZoomSet            = 0x0010
-	commandPanSet             = 0x0011
-	commandRotateViewSet      = 0x0012
-	commandResize             = 0x0013
-	commandFitToView          = 0x0014
-	commandPointerEvent       = 0x0015
-	commandJumpHistory        = 0x0016
-	commandAddLayer           = 0x0100
-	commandDeleteLayer        = 0x0101
-	commandMoveLayer          = 0x0102
-	commandSetLayerVis        = 0x0103
-	commandSetLayerOp         = 0x0104
-	commandSetLayerBlend      = 0x0105
-	commandDuplicateLayer     = 0x0106
-	commandSetLayerLock       = 0x0107
-	commandFlattenLayer       = 0x0108
-	commandMergeDown          = 0x0109
-	commandMergeVisible       = 0x010a
-	commandAddLayerMask       = 0x010b
-	commandDeleteLayerMask    = 0x010c
-	commandApplyLayerMask     = 0x010d
-	commandInvertLayerMask    = 0x010e
-	commandSetMaskEnabled     = 0x010f
-	commandSetLayerClip       = 0x0110
-	commandSetActiveLayer     = 0x0111
-	commandSetLayerName       = 0x0112
-	commandAddVectorMask      = 0x0113
-	commandDeleteVectorMask   = 0x0114
-	commandSetMaskEditMode    = 0x0115
-	commandGetLayerThumbnails = 0x0116
-	commandFlattenImage       = 0x0117
-	commandOpenImageFile      = 0x0118
-	commandTranslateLayer     = 0x0119
-	commandPickLayerAtPoint   = 0x011a
-	commandNewSelection       = 0x0200
-	commandSelectAll          = 0x0201
-	commandDeselect           = 0x0202
-	commandReselect           = 0x0203
-	commandInvertSelection    = 0x0204
-	commandFeatherSelection   = 0x0205
-	commandExpandSelection    = 0x0206
-	commandContractSelection  = 0x0207
-	commandSmoothSelection    = 0x0208
-	commandBorderSelection    = 0x0209
-	commandTransformSelection = 0x020a
-	commandSelectColorRange   = 0x020b
-	commandQuickSelect        = 0x020c
-	commandMagicWand          = 0x020d
-	commandBeginTxn           = 0xffe0
-	commandEndTxn             = 0xffe1
-	commandClearHistory       = 0xffe2
-	commandUndo               = 0xfff0
-	commandRedo               = 0xfff1
+	commandCreateDocument           = 0x0001
+	commandCloseDocument            = 0x0002
+	commandZoomSet                  = 0x0010
+	commandPanSet                   = 0x0011
+	commandRotateViewSet            = 0x0012
+	commandResize                   = 0x0013
+	commandFitToView                = 0x0014
+	commandPointerEvent             = 0x0015
+	commandJumpHistory              = 0x0016
+	commandAddLayer                 = 0x0100
+	commandDeleteLayer              = 0x0101
+	commandMoveLayer                = 0x0102
+	commandSetLayerVis              = 0x0103
+	commandSetLayerOp               = 0x0104
+	commandSetLayerBlend            = 0x0105
+	commandDuplicateLayer           = 0x0106
+	commandSetLayerLock             = 0x0107
+	commandFlattenLayer             = 0x0108
+	commandMergeDown                = 0x0109
+	commandMergeVisible             = 0x010a
+	commandAddLayerMask             = 0x010b
+	commandDeleteLayerMask          = 0x010c
+	commandApplyLayerMask           = 0x010d
+	commandInvertLayerMask          = 0x010e
+	commandSetMaskEnabled           = 0x010f
+	commandSetLayerClip             = 0x0110
+	commandSetActiveLayer           = 0x0111
+	commandSetLayerName             = 0x0112
+	commandAddVectorMask            = 0x0113
+	commandDeleteVectorMask         = 0x0114
+	commandSetMaskEditMode          = 0x0115
+	commandGetLayerThumbnails       = 0x0116
+	commandFlattenImage             = 0x0117
+	commandOpenImageFile            = 0x0118
+	commandTranslateLayer           = 0x0119
+	commandPickLayerAtPoint         = 0x011a
+	commandNewSelection             = 0x0200
+	commandSelectAll                = 0x0201
+	commandDeselect                 = 0x0202
+	commandReselect                 = 0x0203
+	commandInvertSelection          = 0x0204
+	commandFeatherSelection         = 0x0205
+	commandExpandSelection          = 0x0206
+	commandContractSelection        = 0x0207
+	commandSmoothSelection          = 0x0208
+	commandBorderSelection          = 0x0209
+	commandTransformSelection       = 0x020a
+	commandSelectColorRange         = 0x020b
+	commandQuickSelect              = 0x020c
+	commandMagicWand                = 0x020d
+	commandMagneticLassoSuggestPath = 0x020e
+	commandBeginTxn                 = 0xffe0
+	commandEndTxn                   = 0xffe1
+	commandClearHistory             = 0xffe2
+	commandUndo                     = 0xfff0
+	commandRedo                     = 0xfff1
 )
 
 const (
@@ -174,6 +175,8 @@ type RenderResult struct {
 	UIMeta      UIMeta        `json:"uiMeta"`
 	// Thumbnails is non-nil only in the response to commandGetLayerThumbnails.
 	Thumbnails map[string]ThumbnailEntry `json:"thumbnails,omitempty"`
+	// SuggestedPath is set only in response to commandMagneticLassoSuggestPath.
+	SuggestedPath []SelectionPoint `json:"suggestedPath,omitempty"`
 }
 
 type EngineConfig struct {
@@ -619,6 +622,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 	if !ok {
 		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
 	}
+
+	var suggestedPath []SelectionPoint
 
 	switch commandID {
 	case commandCreateDocument:
@@ -1704,11 +1709,27 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.Redo(inst); err != nil {
 			return RenderResult{}, err
 		}
+	case commandMagneticLassoSuggestPath:
+		var payload MagneticLassoSuggestPathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		surface, err := doc.selectionSourceSurface(payload.LayerID, payload.SampleMerged)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		suggestedPath = suggestMagneticPath(surface, doc.Width, doc.Height, payload.X1, payload.Y1, payload.X2, payload.Y2)
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
 
-	return inst.render(), nil
+	result := inst.render()
+	result.SuggestedPath = suggestedPath
+	return result, nil
 }
 
 func RenderFrame(handle int32) (RenderResult, error) {

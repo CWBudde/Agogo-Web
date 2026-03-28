@@ -56,6 +56,7 @@ export enum CommandID {
   SelectColorRange = 0x020b,
   QuickSelect = 0x020c,
   MagicWand = 0x020d,
+  MagneticLassoSuggestPath = 0x020e,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -320,6 +321,15 @@ export interface MagicWandCommand {
   contiguous?: boolean;
   antiAlias?: boolean;
   mode?: SelectionCombineMode;
+}
+
+export interface MagneticLassoSuggestPathCommand {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  layerId?: string;
+  sampleMerged?: boolean;
 }
 
 export interface DeleteLayerMaskCommand {

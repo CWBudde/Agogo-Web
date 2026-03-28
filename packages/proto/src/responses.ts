@@ -91,4 +91,6 @@ export interface RenderResult {
 	uiMeta: UIMeta;
 	/** Present only in the response to GetLayerThumbnails. Maps layer ID → thumbnail RGBA data. */
 	thumbnails?: Record<string, ThumbnailEntry>;
+	/** Path points returned only by MagneticLassoSuggestPath command. In document coordinates. */
+	suggestedPath?: Array<{ x: number; y: number }>;
 }

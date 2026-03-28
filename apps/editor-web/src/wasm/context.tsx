@@ -3,6 +3,7 @@ import {
   type CreateDocumentCommand,
   type CreateSelectionCommand,
   type MagicWandCommand,
+  type MagneticLassoSuggestPathCommand,
   type PickLayerAtPointCommand,
   type PointerEventCommand,
   type QuickSelectCommand,
@@ -146,6 +147,9 @@ export function EngineProvider({ children }: PropsWithChildren) {
       },
       magicWand(command: MagicWandCommand) {
         return run(CommandID.MagicWand, command);
+      },
+      magneticLassoSuggestPath(command: MagneticLassoSuggestPathCommand) {
+        return run(CommandID.MagneticLassoSuggestPath, command);
       },
       quickSelect(command: QuickSelectCommand) {
         return run(CommandID.QuickSelect, command);

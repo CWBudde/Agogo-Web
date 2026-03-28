@@ -202,7 +202,7 @@
 - [x] **Lasso tools:**
   - [x] Free Lasso: freehand path while pointer held down, auto-close on release
   - [x] Polygon Lasso: click points, double-click or click start to close
-  - [ ] Magnetic Lasso (later: Phase 3.2b — edge-detection snap)
+  - [x] Magnetic Lasso: click anchor points, hover snaps path to edges (Dijkstra on Sobel gradient)
 - [x] **Magic Wand / Quick Selection:**
   - [x] Magic Wand: flood-fill selection by color similarity from click point
     - [x] Options: tolerance, anti-alias, contiguous, sample all layers
