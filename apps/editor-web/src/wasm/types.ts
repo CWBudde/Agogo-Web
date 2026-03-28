@@ -1,4 +1,11 @@
-import type { CreateDocumentCommand, PointerEventCommand, RenderResult } from "@agogo/proto";
+import type {
+  CreateDocumentCommand,
+  CreateSelectionCommand,
+  PointerEventCommand,
+  QuickSelectCommand,
+  RenderResult,
+  TransformSelectionCommand,
+} from "@agogo/proto";
 
 export interface EngineConfig {
   documentWidth?: number;
@@ -26,6 +33,13 @@ export interface EngineContextValue {
   ready: Promise<EngineHandle> | null;
   dispatchCommand(commandId: number, payload?: unknown): RenderResult | null;
   createDocument(command: CreateDocumentCommand): RenderResult | null;
+  createSelection(command: CreateSelectionCommand): RenderResult | null;
+  selectAll(): RenderResult | null;
+  deselect(): RenderResult | null;
+  reselect(): RenderResult | null;
+  invertSelection(): RenderResult | null;
+  quickSelect(command: QuickSelectCommand): RenderResult | null;
+  transformSelection(command: TransformSelectionCommand): RenderResult | null;
   resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number): RenderResult | null;
   setZoom(zoom: number, anchorX?: number, anchorY?: number): RenderResult | null;
   setPan(centerX: number, centerY: number): RenderResult | null;

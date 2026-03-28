@@ -169,25 +169,25 @@
 
 ### Phase 3.1: Selection Engine (Backend)
 
-- [ ] `Selection` type: 8-bit alpha mask in document-space (`W × H` bytes, 0=transparent, 255=fully selected)
-- [ ] Selection operations:
-  - [ ] `New(rect/ellipse/polygon)` — creates new selection
-  - [ ] `Add` (Shift modifier), `Subtract` (Alt modifier), `Intersect` (Shift+Alt)
-  - [ ] `SelectAll`, `Deselect`, `Reselect` (reloads last selection)
-  - [ ] `Invert` — flips mask
-- [ ] Selection modification commands:
-  - [ ] `Feather(radius float)` — Gaussian blur on mask
-  - [ ] `Expand(px int)`, `Contract(px int)` — morphological dilation/erosion
-  - [ ] `Smooth(radius int)` — median-like smoothing on mask edges
-  - [ ] `Border(width int)` — select only the border band
-  - [ ] `TransformSelection` — free-transform the selection shape itself (not content)
-- [ ] Marching ants overlay:
-  - [ ] Backend renders animated dashed line border of selection
-  - [ ] `RenderSelectionOverlay(selection, viewport) -> []byte` composited into viewport output
-  - [ ] Animation frame counter incremented per render call
-- [ ] Color Range selection:
-  - [ ] `SelectColorRange(doc, layer, targetColor, fuzziness) -> Selection`
-- [ ] Quick Selection (flood-fill with edge detection) — foundation for Phase 3.2
+- [x] `Selection` type: 8-bit alpha mask in document-space (`W × H` bytes, 0=transparent, 255=fully selected)
+- [x] Selection operations:
+  - [x] `New(rect/ellipse/polygon)` — creates new selection
+  - [x] `Add` (Shift modifier), `Subtract` (Alt modifier), `Intersect` (Shift+Alt)
+  - [x] `SelectAll`, `Deselect`, `Reselect` (reloads last selection)
+  - [x] `Invert` — flips mask
+- [x] Selection modification commands:
+  - [x] `Feather(radius float)` — Gaussian blur on mask
+  - [x] `Expand(px int)`, `Contract(px int)` — morphological dilation/erosion
+  - [x] `Smooth(radius int)` — median-like smoothing on mask edges
+  - [x] `Border(width int)` — select only the border band
+  - [x] `TransformSelection` — free-transform the selection shape itself (not content)
+- [x] Marching ants overlay:
+  - [x] Backend renders animated dashed line border of selection
+  - [x] `RenderSelectionOverlay(selection, viewport) -> []byte` composited into viewport output
+  - [x] Animation frame counter incremented per render call
+- [x] Color Range selection:
+  - [x] `SelectColorRange(doc, layer, targetColor, fuzziness) -> Selection`
+- [x] Quick Selection (flood-fill with edge detection) — foundation for Phase 3.2
 
 ### Phase 3.2: Selection Tools
 

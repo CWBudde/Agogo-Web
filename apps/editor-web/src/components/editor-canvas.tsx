@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CommandID } from "@agogo/proto";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEngine } from "@/wasm/context";
 
 type CursorPosition = {
@@ -7,8 +8,28 @@ type CursorPosition = {
 } | null;
 
 type EditorCanvasProps = {
+  activeTool:
+    | "move"
+    | "marquee"
+    | "lasso"
+    | "wand"
+    | "brush"
+    | "eraser"
+    | "type"
+    | "shape"
+    | "hand"
+    | "zoom";
   isPanMode: boolean;
   isZoomTool: boolean;
+  selectionOptions: {
+    marqueeShape: "rect" | "ellipse";
+    lassoMode: "freehand" | "polygon";
+    antiAlias: boolean;
+    featherRadius: number;
+    wandMode: "magic" | "quick";
+    wandTolerance: number;
+    wandSampleMerged: boolean;
+  };
   onCursorChange(position: CursorPosition): void;
 };
 
@@ -44,7 +65,64 @@ type PendingZoom = {
   anchorY: number | undefined;
 };
 
-export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCanvasProps) {
+type DocumentPoint = {
+  x: number;
+  y: number;
+};
+
+type MarqueeDraft = {
+  pointerId: number;
+  start: DocumentPoint;
+  current: DocumentPoint;
+  mode: "replace" | "add" | "subtract" | "intersect";
+};
+
+type FreehandDraft = {
+  pointerId: number;
+  points: DocumentPoint[];
+  mode: "replace" | "add" | "subtract" | "intersect";
+};
+
+type PolygonDraft = {
+  points: DocumentPoint[];
+  hoverPoint: DocumentPoint | null;
+  mode: "replace" | "add" | "subtract" | "intersect";
+};
+
+function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
+  if (shiftKey && altKey) {
+    return "intersect" as const;
+  }
+  if (shiftKey) {
+    return "add" as const;
+  }
+  if (altKey) {
+    return "subtract" as const;
+  }
+  return "replace" as const;
+}
+
+function distanceSquared(a: DocumentPoint, b: DocumentPoint) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+function buildOverlayPath(points: DocumentPoint[]) {
+  if (points.length === 0) {
+    return "";
+  }
+  const [first, ...rest] = points;
+  return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")} Z`;
+}
+
+export function EditorCanvas({
+  activeTool,
+  isPanMode,
+  isZoomTool,
+  selectionOptions,
+  onCursorChange,
+}: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const zoomDragRef = useRef<ZoomDragState>(null);
@@ -56,6 +134,9 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     devicePixelRatio: number;
   } | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
+  const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
+  const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(null);
+  const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
   const engine = useEngine();
   const render = engine.render;
 
@@ -115,6 +196,18 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "polygon") {
+      setPolygonDraft(null);
+    }
+    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "freehand") {
+      setFreehandDraft(null);
+    }
+    if (activeTool !== "marquee") {
+      setMarqueeDraft(null);
+    }
+  }, [activeTool, selectionOptions.lassoMode]);
 
   // Once React commits a new render, if no rAF is pending the pending zoom has
   // been fully processed and render.viewport.zoom is fresh — safe to clear.
@@ -218,16 +311,220 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
     };
   };
 
+  const documentPointToCanvas = (docPoint: DocumentPoint) => {
+    if (!render) {
+      return null;
+    }
+    const radians = (render.viewport.rotation * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const dx = docPoint.x - render.viewport.centerX;
+    const dy = docPoint.y - render.viewport.centerY;
+    return {
+      x: render.viewport.canvasW * 0.5 + (dx * cos - dy * sin) * render.viewport.zoom,
+      y: render.viewport.canvasH * 0.5 + (dx * sin + dy * cos) * render.viewport.zoom,
+    };
+  };
+
+  const applySelectionFeather = useCallback(() => {
+    if (selectionOptions.featherRadius > 0) {
+      engine.dispatchCommand(CommandID.FeatherSelection, {
+        radius: selectionOptions.featherRadius,
+      });
+    }
+  }, [engine, selectionOptions.featherRadius]);
+
+  const commitSelection = useCallback(
+    (description: string, applyCommand: () => void, options?: { feather?: boolean }) => {
+      engine.beginTransaction(description);
+      let committed = false;
+      try {
+        applyCommand();
+        if (options?.feather !== false) {
+          applySelectionFeather();
+        }
+        committed = true;
+      } finally {
+        engine.endTransaction(committed);
+      }
+    },
+    [applySelectionFeather, engine],
+  );
+
+  const finalizePolygonDraft = useCallback(
+    (draft: PolygonDraft) => {
+      if (draft.points.length < 3) {
+        return;
+      }
+      commitSelection("Create polygon selection", () => {
+        engine.createSelection({
+          shape: "polygon",
+          mode: draft.mode,
+          polygon: draft.points,
+          antiAlias: selectionOptions.antiAlias,
+        });
+      });
+      setPolygonDraft(null);
+    },
+    [commitSelection, engine, selectionOptions.antiAlias],
+  );
+
+  const finalizePolygonSelection = useCallback(() => {
+    if (!polygonDraft) {
+      return;
+    }
+    finalizePolygonDraft(polygonDraft);
+  }, [finalizePolygonDraft, polygonDraft]);
+
+  useEffect(() => {
+    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "polygon" || !polygonDraft) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPolygonDraft(null);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finalizePolygonSelection();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTool, finalizePolygonSelection, polygonDraft, selectionOptions.lassoMode]);
+
+  const marqueeStartCanvas = marqueeDraft ? documentPointToCanvas(marqueeDraft.start) : null;
+  const marqueeCurrentCanvas = marqueeDraft ? documentPointToCanvas(marqueeDraft.current) : null;
+  const marqueeOverlay =
+    marqueeStartCanvas && marqueeCurrentCanvas
+      ? {
+          start: marqueeStartCanvas,
+          current: marqueeCurrentCanvas,
+        }
+      : null;
+
+  const freehandOverlay = freehandDraft
+    ? freehandDraft.points
+        .map((point) => documentPointToCanvas(point))
+        .filter((point): point is DocumentPoint => point !== null)
+    : [];
+
+  const polygonOverlay = polygonDraft
+    ? {
+        points: polygonDraft.points
+          .map((point) => documentPointToCanvas(point))
+          .filter((point): point is DocumentPoint => point !== null),
+        hoverPoint: polygonDraft.hoverPoint ? documentPointToCanvas(polygonDraft.hoverPoint) : null,
+      }
+    : null;
+
   return (
     <div
       ref={hostRef}
       className="relative h-full min-h-[32rem] overflow-hidden rounded-[var(--ui-radius-md)] border border-white/8 bg-[#111419]"
+      role="application"
+      aria-label="Editor canvas"
+      onContextMenu={(event) => {
+        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon" && polygonDraft) {
+          event.preventDefault();
+          finalizePolygonSelection();
+        }
+      }}
       onPointerDown={(event) => {
         if (!render) {
           return;
         }
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
         if (!docPoint) {
+          return;
+        }
+        if (activeTool === "marquee" && event.button === 0) {
+          setMarqueeDraft({
+            pointerId: event.pointerId,
+            start: { x: docPoint.x, y: docPoint.y },
+            current: { x: docPoint.x, y: docPoint.y },
+            mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+          });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
+        if (
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "freehand" &&
+          event.button === 0
+        ) {
+          setFreehandDraft({
+            pointerId: event.pointerId,
+            points: [{ x: docPoint.x, y: docPoint.y }],
+            mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+          });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
+        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
+          if (event.button === 2 && polygonDraft) {
+            event.preventDefault();
+            finalizePolygonSelection();
+            return;
+          }
+          if (event.button !== 0) {
+            return;
+          }
+          const nextPoint = { x: docPoint.x, y: docPoint.y };
+          setPolygonDraft((current) => {
+            if (!current) {
+              return {
+                points: [nextPoint],
+                hoverPoint: nextPoint,
+                mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+              };
+            }
+            if (
+              current.points.length >= 3 &&
+              distanceSquared(current.points[0], nextPoint) <= 100
+            ) {
+              queueMicrotask(() => finalizePolygonDraft(current));
+              return current;
+            }
+            const points = [...current.points, nextPoint];
+            if (event.detail >= 2 && points.length >= 3) {
+              queueMicrotask(() =>
+                finalizePolygonDraft({
+                  ...current,
+                  points,
+                  hoverPoint: nextPoint,
+                }),
+              );
+            }
+            return {
+              ...current,
+              points,
+              hoverPoint: nextPoint,
+            };
+          });
+          event.preventDefault();
+          return;
+        }
+        if (activeTool === "wand" && event.button === 0) {
+          commitSelection(
+            selectionOptions.wandMode === "quick" ? "Quick select" : "Magic wand selection",
+            () => {
+              engine.quickSelect({
+                x: docPoint.x,
+                y: docPoint.y,
+                tolerance: selectionOptions.wandTolerance,
+                edgeSensitivity: selectionOptions.wandMode === "quick" ? 0.9 : 0.2,
+                sampleMerged: selectionOptions.wandSampleMerged,
+                mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+              });
+            },
+          );
+          event.preventDefault();
           return;
         }
         if (isZoomTool && !isPanMode) {
@@ -260,6 +557,45 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
       }}
       onPointerMove={(event) => {
         updateCursor(event.clientX, event.clientY);
+        const docPoint = clientPointToDocument(event.clientX, event.clientY);
+        if (polygonDraft && activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
+          setPolygonDraft((current) =>
+            current && docPoint
+              ? {
+                  ...current,
+                  hoverPoint: { x: docPoint.x, y: docPoint.y },
+                }
+              : current,
+          );
+        }
+        if (marqueeDraft && marqueeDraft.pointerId === event.pointerId && docPoint) {
+          setMarqueeDraft((current) =>
+            current
+              ? {
+                  ...current,
+                  current: { x: docPoint.x, y: docPoint.y },
+                }
+              : current,
+          );
+          return;
+        }
+        if (freehandDraft && freehandDraft.pointerId === event.pointerId && docPoint) {
+          setFreehandDraft((current) => {
+            if (!current) {
+              return current;
+            }
+            const lastPoint = current.points[current.points.length - 1];
+            const nextPoint = { x: docPoint.x, y: docPoint.y };
+            if (distanceSquared(lastPoint, nextPoint) < 4) {
+              return current;
+            }
+            return {
+              ...current,
+              points: [...current.points, nextPoint],
+            };
+          });
+          return;
+        }
         const zoomDrag = zoomDragRef.current;
         if (zoomDrag && zoomDrag.pointerId === event.pointerId) {
           const deltaX = event.clientX - zoomDrag.startX;
@@ -289,6 +625,45 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
         });
       }}
       onPointerUp={(event) => {
+        if (marqueeDraft && marqueeDraft.pointerId === event.pointerId) {
+          const point = clientPointToDocument(event.clientX, event.clientY);
+          const endPoint = point ? { x: point.x, y: point.y } : marqueeDraft.current;
+          commitSelection("Create selection", () => {
+            engine.createSelection({
+              shape: selectionOptions.marqueeShape,
+              mode: marqueeDraft.mode,
+              rect: {
+                x: Math.min(marqueeDraft.start.x, endPoint.x),
+                y: Math.min(marqueeDraft.start.y, endPoint.y),
+                w: Math.max(1, Math.abs(endPoint.x - marqueeDraft.start.x)),
+                h: Math.max(1, Math.abs(endPoint.y - marqueeDraft.start.y)),
+              },
+              antiAlias: selectionOptions.antiAlias,
+            });
+          });
+          setMarqueeDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
+        if (freehandDraft && freehandDraft.pointerId === event.pointerId) {
+          const point = clientPointToDocument(event.clientX, event.clientY);
+          const points = point
+            ? [...freehandDraft.points, { x: point.x, y: point.y }]
+            : freehandDraft.points;
+          if (points.length >= 3) {
+            commitSelection("Create lasso selection", () => {
+              engine.createSelection({
+                shape: "polygon",
+                mode: freehandDraft.mode,
+                polygon: points,
+                antiAlias: selectionOptions.antiAlias,
+              });
+            });
+          }
+          setFreehandDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         const zoomDrag = zoomDragRef.current;
         if (zoomDrag && zoomDrag.pointerId === event.pointerId) {
           if (!zoomDrag.moved) {
@@ -352,6 +727,74 @@ export function EditorCanvas({ isPanMode, isZoomTool, onCursorChange }: EditorCa
       }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />
+      {marqueeOverlay || freehandOverlay.length > 0 || polygonOverlay ? (
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox={`0 0 ${size.width} ${size.height}`}
+          aria-hidden="true"
+        >
+          <title>Selection preview overlay</title>
+          {marqueeOverlay ? (
+            selectionOptions.marqueeShape === "ellipse" ? (
+              <ellipse
+                cx={(marqueeOverlay.start.x + marqueeOverlay.current.x) * 0.5}
+                cy={(marqueeOverlay.start.y + marqueeOverlay.current.y) * 0.5}
+                rx={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x) * 0.5}
+                ry={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y) * 0.5}
+                fill="rgba(244, 114, 182, 0.12)"
+                stroke="rgba(244, 114, 182, 0.95)"
+                strokeDasharray="8 6"
+                strokeWidth="1.5"
+              />
+            ) : (
+              <rect
+                x={Math.min(marqueeOverlay.start.x, marqueeOverlay.current.x)}
+                y={Math.min(marqueeOverlay.start.y, marqueeOverlay.current.y)}
+                width={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x)}
+                height={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y)}
+                fill="rgba(244, 114, 182, 0.12)"
+                stroke="rgba(244, 114, 182, 0.95)"
+                strokeDasharray="8 6"
+                strokeWidth="1.5"
+              />
+            )
+          ) : null}
+          {freehandOverlay.length >= 2 ? (
+            <path
+              d={buildOverlayPath(freehandOverlay)}
+              fill="rgba(56, 189, 248, 0.12)"
+              stroke="rgba(56, 189, 248, 0.95)"
+              strokeDasharray="7 5"
+              strokeWidth="1.5"
+            />
+          ) : null}
+          {polygonOverlay && polygonOverlay.points.length > 0 ? (
+            <>
+              <polyline
+                points={[
+                  ...polygonOverlay.points,
+                  ...(polygonOverlay.hoverPoint ? [polygonOverlay.hoverPoint] : []),
+                ]
+                  .map((point) => `${point.x},${point.y}`)
+                  .join(" ")}
+                fill="rgba(56, 189, 248, 0.1)"
+                stroke="rgba(56, 189, 248, 0.95)"
+                strokeDasharray="7 5"
+                strokeWidth="1.5"
+              />
+              {polygonOverlay.points.map((point, index) => (
+                <circle
+                  key={`${point.x}-${point.y}-${polygonOverlay.points[index - 1]?.x ?? "start"}-${polygonOverlay.points[index - 1]?.y ?? "start"}`}
+                  cx={point.x}
+                  cy={point.y}
+                  r={index === 0 ? 4 : 3}
+                  fill={index === 0 ? "rgba(248, 250, 252, 0.95)" : "rgba(56, 189, 248, 0.95)"}
+                />
+              ))}
+            </>
+          ) : null}
+        </svg>
+      ) : null}
       {engine.status !== "ready" ? (
         <div className="editor-backdrop absolute inset-0 flex items-center justify-center p-6">
           <div className="editor-popup max-w-lg rounded-[var(--ui-radius-lg)] p-5 text-center">
