@@ -3,7 +3,38 @@ package engine
 import (
 	"container/heap"
 	"math"
+
+	agglib "github.com/MeKo-Christian/agg_go"
 )
+
+// ---------------------------------------------------------------------------
+// PixelReader adapter for the engine's flat RGBA surface format.
+//
+// surfaceReader wraps a flat []byte pixel buffer and implements
+// agglib.PixelReader[[4]byte], making it usable with agglib.SobelGradient
+// (and any future analysis algorithm) without going through a raw-byte
+// convenience wrapper.  This is the Go equivalent of constructing a
+// pixfmt_alpha_blend_rgba over a rendering_buffer in C++ AGG.
+// ---------------------------------------------------------------------------
+
+type surfaceReader struct {
+	pixels []byte
+	w, h   int
+}
+
+func (s *surfaceReader) Width() int  { return s.w }
+func (s *surfaceReader) Height() int { return s.h }
+
+func (s *surfaceReader) Pixel(x, y int) [4]byte {
+	i := (y*s.w + x) * 4
+	return [4]byte{s.pixels[i], s.pixels[i+1], s.pixels[i+2], s.pixels[i+3]}
+}
+
+// surfaceLuminance converts a [4]byte RGBA pixel to BT.709 luminance in [0,1].
+// Matches the weights used by agglib.LuminanceRGBA8Linear.
+func surfaceLuminance(p [4]byte) float64 {
+	return (float64(p[0])*0.2126 + float64(p[1])*0.7152 + float64(p[2])*0.0722) / 255.0
+}
 
 // MagneticLassoSuggestPathPayload is the JSON payload for commandMagneticLassoSuggestPath.
 type MagneticLassoSuggestPathPayload struct {
@@ -28,32 +59,19 @@ func (h mlHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 func (h *mlHeap) Push(x any)        { *h = append(*h, x.(mlItem)) }
 func (h *mlHeap) Pop() any          { old := *h; n := len(old); x := old[n-1]; *h = old[:n-1]; return x }
 
-// edgeCostAt returns the traversal cost at (x,y): low at high-gradient edges.
-// Sobel max magnitude for 8-bit input ≈ 1442; we normalise to [0,1].
-func edgeCostAt(surface []byte, width, height, x, y int) float64 {
-	var gx, gy float64
-	for ky := -1; ky <= 1; ky++ {
-		for kx := -1; kx <= 1; kx++ {
-			nx := clampInt(x+kx, 0, width-1)
-			ny := clampInt(y+ky, 0, height-1)
-			idx := (ny*width + nx) * 4
-			lum := float64(surface[idx])*0.299 + float64(surface[idx+1])*0.587 + float64(surface[idx+2])*0.114
-			// Sobel X: [-1,0,1],[-2,0,2],[-1,0,1]  Y: [-1,-2,-1],[0,0,0],[1,2,1]
-			sobelXW := [3][3]float64{{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}}
-			sobelYW := [3][3]float64{{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}}
-			gx += lum * sobelXW[ky+1][kx+1]
-			gy += lum * sobelYW[ky+1][kx+1]
-		}
-	}
-	mag := math.Sqrt(gx*gx+gy*gy) / 1442.0
-	if mag > 1.0 {
-		mag = 1.0
-	}
-	return 1.0 - mag + 0.001
+// edgeCostFromGrad converts a pre-computed Sobel gradient magnitude to a
+// Dijkstra traversal cost: near-zero at strong edges, near-1 at flat areas.
+// The +0.001 floor prevents zero-cost paths through perfectly flat regions.
+func edgeCostFromGrad(mag float32) float64 {
+	return 1.0 - float64(mag) + 0.001
 }
 
 // suggestMagneticPath returns a path from (x1,y1)→(x2,y2) that follows
-// high-contrast edges via Dijkstra within a padded bounding box.
+// high-contrast edges via Dijkstra on a Sobel gradient map.
+//
+// The gradient map is computed once for the padded bounding box using
+// agglib.SobelGradient, then reused across all Dijkstra iterations.
+// The raw pixel path is simplified with agglib.SimplifyPolyline (RDP, ε=1.5px).
 func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []SelectionPoint {
 	x1 = clampInt(x1, 0, width-1)
 	y1 = clampInt(y1, 0, height-1)
@@ -70,6 +88,19 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 	maxY := clampInt(maxInt(y1, y2)+pad, 0, height-1)
 	boxW := maxX - minX + 1
 	boxH := maxY - minY + 1
+
+	// Extract the bounding-box sub-image for gradient computation.
+	subPixels := make([]byte, boxW*boxH*4)
+	for y := range boxH {
+		for x := range boxW {
+			srcIdx := ((y+minY)*width + (x+minX)) * 4
+			dstIdx := (y*boxW + x) * 4
+			copy(subPixels[dstIdx:dstIdx+4], surface[srcIdx:srcIdx+4])
+		}
+	}
+
+	// Compute Sobel gradient map once; reused in O(1) per Dijkstra edge.
+	grad := agglib.SobelGradient(&surfaceReader{subPixels, boxW, boxH}, surfaceLuminance)
 
 	lx1, ly1 := x1-minX, y1-minY
 	lx2, ly2 := x2-minX, y2-minY
@@ -89,16 +120,11 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 
 	goalIdx := ly2*boxW + lx2
 
-	// 8-connected directions: [dx, dy, step-cost-multiplier]
+	// 8-connected directions: [dx, dy, step-length multiplier]
 	dirs := [8][3]float64{
-		{-1, 0, 1},
-		{1, 0, 1},
-		{0, -1, 1},
-		{0, 1, 1},
-		{-1, -1, math.Sqrt2},
-		{1, -1, math.Sqrt2},
-		{-1, 1, math.Sqrt2},
-		{1, 1, math.Sqrt2},
+		{-1, 0, 1}, {1, 0, 1}, {0, -1, 1}, {0, 1, 1},
+		{-1, -1, math.Sqrt2}, {1, -1, math.Sqrt2},
+		{-1, 1, math.Sqrt2}, {1, 1, math.Sqrt2},
 	}
 
 	for pq.Len() > 0 {
@@ -107,17 +133,17 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 			break
 		}
 		if curr.dist > dist[curr.idx] {
-			continue
+			continue // stale entry
 		}
 		cx, cy := curr.idx%boxW, curr.idx/boxW
-		baseCost := edgeCostAt(surface, width, height, cx+minX, cy+minY)
+		baseCost := edgeCostFromGrad(grad[cy*boxW+cx])
 		for _, d := range dirs {
 			nx, ny := cx+int(d[0]), cy+int(d[1])
 			if nx < 0 || nx >= boxW || ny < 0 || ny >= boxH {
 				continue
 			}
 			nIdx := ny*boxW + nx
-			nCost := edgeCostAt(surface, width, height, nx+minX, ny+minY)
+			nCost := edgeCostFromGrad(grad[nIdx])
 			newDist := dist[curr.idx] + (baseCost+nCost)*0.5*d[2]
 			if newDist < dist[nIdx] {
 				dist[nIdx] = newDist
@@ -127,44 +153,33 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 		}
 	}
 
-	// Trace back from goal to start.
+	// Unreachable goal — return straight line as fallback.
 	if dist[goalIdx] == inf {
 		return []SelectionPoint{{X: float64(x1), Y: float64(y1)}, {X: float64(x2), Y: float64(y2)}}
 	}
-	var path []SelectionPoint
+
+	// Trace back from goal to start.
+	var rawPath []SelectionPoint
 	for idx := goalIdx; idx != -1; idx = prev[idx] {
-		path = append(path, SelectionPoint{X: float64(idx%boxW + minX), Y: float64(idx/boxW + minY)})
+		rawPath = append(rawPath, SelectionPoint{
+			X: float64(idx%boxW + minX),
+			Y: float64(idx/boxW + minY),
+		})
 	}
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
+	for i, j := 0, len(rawPath)-1; i < j; i, j = i+1, j-1 {
+		rawPath[i], rawPath[j] = rawPath[j], rawPath[i]
 	}
-	return mlSimplifyPath(path, 1.5)
-}
 
-func mlSimplifyPath(pts []SelectionPoint, epsilon float64) []SelectionPoint {
-	if len(pts) <= 2 {
-		return pts
+	// Convert to agg.Point, simplify with Ramer–Douglas–Peucker (ε = 1.5 px),
+	// then convert back to SelectionPoint.
+	aggPts := make([]agglib.Point, len(rawPath))
+	for i, p := range rawPath {
+		aggPts[i] = agglib.Point{X: p.X, Y: p.Y}
 	}
-	a, b := pts[0], pts[len(pts)-1]
-	maxDist, maxIdx := 0.0, 0
-	for i := 1; i < len(pts)-1; i++ {
-		if d := mlPointLineDist(pts[i], a, b); d > maxDist {
-			maxDist, maxIdx = d, i
-		}
+	simplified := agglib.SimplifyPolyline(aggPts, 1.5)
+	result := make([]SelectionPoint, len(simplified))
+	for i, p := range simplified {
+		result[i] = SelectionPoint{X: p.X, Y: p.Y}
 	}
-	if maxDist > epsilon {
-		l := mlSimplifyPath(pts[:maxIdx+1], epsilon)
-		r := mlSimplifyPath(pts[maxIdx:], epsilon)
-		return append(l[:len(l)-1], r...)
-	}
-	return []SelectionPoint{a, b}
-}
-
-func mlPointLineDist(p, a, b SelectionPoint) float64 {
-	dx, dy := b.X-a.X, b.Y-a.Y
-	if dx == 0 && dy == 0 {
-		return math.Hypot(p.X-a.X, p.Y-a.Y)
-	}
-	t := ((p.X-a.X)*dx + (p.Y-a.Y)*dy) / (dx*dx + dy*dy)
-	return math.Hypot(p.X-a.X-t*dx, p.Y-a.Y-t*dy)
+	return result
 }
