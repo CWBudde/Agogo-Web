@@ -1235,6 +1235,41 @@ func TestFlattenLayerTreeAndScaleHelpers(t *testing.T) {
 	}
 }
 
+func TestTranslateLayerRecursesIntoGroupsAndHonorsPositionLock(t *testing.T) {
+	doc := &Document{
+		Width:      16,
+		Height:     16,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Translate Test",
+	}
+	root := doc.ensureLayerRoot()
+	group := NewGroupLayer("Group")
+	pixel := NewPixelLayer("Pixel", LayerBounds{X: 2, Y: 3, W: 1, H: 1}, []byte{255, 0, 0, 255})
+	text := NewTextLayer("Text", LayerBounds{X: 6, Y: 7, W: 1, H: 1}, "A", []byte{0, 0, 0, 255})
+	group.SetChildren([]LayerNode{pixel, text})
+	if err := doc.AddLayer(group, root.ID(), -1); err != nil {
+		t.Fatalf("AddLayer(group): %v", err)
+	}
+
+	if err := doc.TranslateLayer(group.ID(), 4, -2); err != nil {
+		t.Fatalf("TranslateLayer(group): %v", err)
+	}
+	if pixel.Bounds.X != 6 || pixel.Bounds.Y != 1 {
+		t.Fatalf("pixel bounds = %+v, want {X:6 Y:1 W:1 H:1}", pixel.Bounds)
+	}
+	if text.Bounds.X != 10 || text.Bounds.Y != 5 {
+		t.Fatalf("text bounds = %+v, want {X:10 Y:5 W:1 H:1}", text.Bounds)
+	}
+
+	pixel.SetLockMode(LayerLockPosition)
+	if err := doc.TranslateLayer(pixel.ID(), 1, 0); err == nil {
+		t.Fatal("TranslateLayer on a position-locked layer should fail")
+	}
+}
+
 func findLayerMetaByID(layers []LayerNodeMeta, targetID string) (LayerNodeMeta, bool) {
 	for _, layer := range layers {
 		if layer.ID == targetID {

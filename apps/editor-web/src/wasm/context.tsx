@@ -2,10 +2,12 @@ import {
   CommandID,
   type CreateDocumentCommand,
   type CreateSelectionCommand,
+  type PickLayerAtPointCommand,
   type PointerEventCommand,
   type QuickSelectCommand,
   type RenderResult,
   type TransformSelectionCommand,
+  type TranslateLayerCommand,
 } from "@agogo/proto";
 import {
   createContext,
@@ -140,6 +142,12 @@ export function EngineProvider({ children }: PropsWithChildren) {
       },
       quickSelect(command: QuickSelectCommand) {
         return run(CommandID.QuickSelect, command);
+      },
+      pickLayerAtPoint(command: PickLayerAtPointCommand) {
+        return run(CommandID.PickLayerAtPoint, command);
+      },
+      translateLayer(command: TranslateLayerCommand) {
+        return run(CommandID.TranslateLayer, command);
       },
       transformSelection(command: TransformSelectionCommand) {
         return run(CommandID.TransformSelection, command);

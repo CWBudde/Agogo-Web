@@ -1,4 +1,9 @@
-import { CommandID, type CreateDocumentCommand, type ThumbnailEntry } from "@agogo/proto";
+import {
+  CommandID,
+  type CreateDocumentCommand,
+  type LayerNodeMeta,
+  type ThumbnailEntry,
+} from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
 import {
@@ -641,6 +646,16 @@ export default function App() {
     },
     onToolSelect(tool: ShortcutTool) {
       activateTool(tool);
+    },
+    onNudgeLayer(dx: number, dy: number) {
+      if (!render?.uiMeta.activeLayerId) {
+        return;
+      }
+      const activeLayer = findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId);
+      if (!activeLayer || activeLayer.lockMode === "position" || activeLayer.lockMode === "all") {
+        return;
+      }
+      engine.translateLayer({ dx, dy });
     },
   });
 
@@ -1511,6 +1526,19 @@ function ToolNumberField({
       />
     </label>
   );
+}
+
+function findLayerMetaInTree(layers: LayerNodeMeta[], targetID: string): LayerNodeMeta | null {
+  for (const layer of layers) {
+    if (layer.id === targetID) {
+      return layer;
+    }
+    const child = findLayerMetaInTree(layer.children ?? [], targetID);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
 }
 
 function ChromeLabel({ label, children }: { label: string; children: ReactNode }) {

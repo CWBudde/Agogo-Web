@@ -460,6 +460,99 @@ func TestPointerEventPanUpdatesViewportCenter(t *testing.T) {
 	}
 }
 
+func TestPickLayerAtPointAndTranslateLayer(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Move Tool",
+		Width:      8,
+		Height:     8,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	base, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 1, Y: 1, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add base layer: %v", err)
+	}
+	baseID := base.UIMeta.ActiveLayerID
+
+	top, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Top",
+		Bounds:    LayerBounds{X: 1, Y: 1, W: 1, H: 1},
+		Pixels:    []byte{0, 255, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add top layer: %v", err)
+	}
+	topID := top.UIMeta.ActiveLayerID
+	historyBeforePick := len(top.UIMeta.History)
+
+	picked, err := DispatchCommand(h, commandPickLayerAtPoint, mustJSON(t, PickLayerAtPointPayload{X: 1, Y: 1}))
+	if err != nil {
+		t.Fatalf("pick layer at point: %v", err)
+	}
+	if picked.UIMeta.ActiveLayerID != topID {
+		t.Fatalf("picked active layer = %q, want %q", picked.UIMeta.ActiveLayerID, topID)
+	}
+	if len(picked.UIMeta.History) != historyBeforePick {
+		t.Fatal("pick layer at point should not add a history entry")
+	}
+
+	if _, err := DispatchCommand(h, commandBeginTxn, mustJSON(t, BeginTransactionPayload{Description: "Move layer"})); err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandTranslateLayer, mustJSON(t, TranslateLayerPayload{DX: 2, DY: 1})); err != nil {
+		t.Fatalf("translate layer: %v", err)
+	}
+	committed, err := DispatchCommand(h, commandEndTxn, mustJSON(t, EndTransactionPayload{Commit: true}))
+	if err != nil {
+		t.Fatalf("end transaction: %v", err)
+	}
+	if committed.UIMeta.ActiveLayerID != topID {
+		t.Fatalf("active layer after move = %q, want %q", committed.UIMeta.ActiveLayerID, topID)
+	}
+
+	doc := instances[h].manager.Active()
+	surface := doc.renderCompositeSurface()
+	if r, g, b, a := pixelAt(surface, doc.Width, 1, 1); [4]byte{r, g, b, a} != [4]byte{255, 0, 0, 255} {
+		t.Fatalf("pixel at old top position = [%d %d %d %d], want [255 0 0 255]", r, g, b, a)
+	}
+	if r, g, b, a := pixelAt(surface, doc.Width, 3, 2); [4]byte{r, g, b, a} != [4]byte{0, 255, 0, 255} {
+		t.Fatalf("pixel at moved top position = [%d %d %d %d], want [0 255 0 255]", r, g, b, a)
+	}
+	if doc.ActiveLayerID != topID {
+		t.Fatalf("doc active layer = %q, want %q", doc.ActiveLayerID, topID)
+	}
+
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo move: %v", err)
+	}
+	if undone.UIMeta.ActiveLayerID != topID {
+		t.Fatalf("active layer after undo = %q, want %q", undone.UIMeta.ActiveLayerID, topID)
+	}
+	doc = instances[h].manager.Active()
+	surface = doc.renderCompositeSurface()
+	if r, g, b, a := pixelAt(surface, doc.Width, 1, 1); [4]byte{r, g, b, a} != [4]byte{0, 255, 0, 255} {
+		t.Fatalf("pixel after undo = [%d %d %d %d], want [0 255 0 255]", r, g, b, a)
+	}
+	if _, _, _, ok := findLayerByID(doc.ensureLayerRoot(), baseID); !ok {
+		t.Fatalf("base layer %q missing after move workflow", baseID)
+	}
+}
+
 func TestZoomAnchorKeepsAnchorStable(t *testing.T) {
 	h := Init("")
 	defer Free(h)

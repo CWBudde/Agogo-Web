@@ -18,6 +18,7 @@ type KeyboardActions = {
   onDeselect(): void;
   onInvertSelection(): void;
   onToolSelect(tool: ShortcutTool): void;
+  onNudgeLayer(dx: number, dy: number): void;
 };
 
 function isEditableTarget(target: EventTarget | null) {
@@ -92,6 +93,22 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "z":
           event.preventDefault();
           actions.onToolSelect("zoom");
+          return;
+        case "ArrowLeft":
+          event.preventDefault();
+          actions.onNudgeLayer(event.shiftKey ? -10 : -1, 0);
+          return;
+        case "ArrowRight":
+          event.preventDefault();
+          actions.onNudgeLayer(event.shiftKey ? 10 : 1, 0);
+          return;
+        case "ArrowUp":
+          event.preventDefault();
+          actions.onNudgeLayer(0, event.shiftKey ? -10 : -1);
+          return;
+        case "ArrowDown":
+          event.preventDefault();
+          actions.onNudgeLayer(0, event.shiftKey ? 10 : 1);
           return;
         default:
           break;

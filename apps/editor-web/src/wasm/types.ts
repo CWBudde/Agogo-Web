@@ -1,10 +1,12 @@
 import type {
   CreateDocumentCommand,
   CreateSelectionCommand,
+  PickLayerAtPointCommand,
   PointerEventCommand,
   QuickSelectCommand,
   RenderResult,
   TransformSelectionCommand,
+  TranslateLayerCommand,
 } from "@agogo/proto";
 
 export interface EngineConfig {
@@ -39,6 +41,8 @@ export interface EngineContextValue {
   reselect(): RenderResult | null;
   invertSelection(): RenderResult | null;
   quickSelect(command: QuickSelectCommand): RenderResult | null;
+  pickLayerAtPoint(command: PickLayerAtPointCommand): RenderResult | null;
+  translateLayer(command: TranslateLayerCommand): RenderResult | null;
   transformSelection(command: TransformSelectionCommand): RenderResult | null;
   resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number): RenderResult | null;
   setZoom(zoom: number, anchorX?: number, anchorY?: number): RenderResult | null;

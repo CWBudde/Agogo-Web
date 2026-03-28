@@ -89,6 +89,15 @@ type PolygonDraft = {
   mode: "replace" | "add" | "subtract" | "intersect";
 };
 
+type MoveDraft = {
+  pointerId: number;
+  layerId: string;
+  start: DocumentPoint;
+  appliedDX: number;
+  appliedDY: number;
+  moved: boolean;
+};
+
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
   if (shiftKey && altKey) {
     return "intersect" as const;
@@ -116,6 +125,31 @@ function buildOverlayPath(points: DocumentPoint[]) {
   return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")} Z`;
 }
 
+function findLayerMetaByID(
+  layers: Array<{ id: string; lockMode: string; children?: unknown[] }>,
+  targetID: string,
+): { id: string; lockMode: string; children?: unknown[] } | null {
+  for (const layer of layers) {
+    if (layer.id === targetID) {
+      return layer;
+    }
+    if (Array.isArray(layer.children)) {
+      const child = findLayerMetaByID(
+        layer.children as Array<{
+          id: string;
+          lockMode: string;
+          children?: unknown[];
+        }>,
+        targetID,
+      );
+      if (child) {
+        return child;
+      }
+    }
+  }
+  return null;
+}
+
 export function EditorCanvas({
   activeTool,
   isPanMode,
@@ -134,6 +168,7 @@ export function EditorCanvas({
     devicePixelRatio: number;
   } | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
+  const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(null);
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
@@ -206,6 +241,9 @@ export function EditorCanvas({
     }
     if (activeTool !== "marquee") {
       setMarqueeDraft(null);
+    }
+    if (activeTool !== "move") {
+      setMoveDraft(null);
     }
   }, [activeTool, selectionOptions.lassoMode]);
 
@@ -452,6 +490,30 @@ export function EditorCanvas({
           event.preventDefault();
           return;
         }
+        if (activeTool === "move" && event.button === 0 && !isPanMode) {
+          const picked = engine.pickLayerAtPoint({
+            x: Math.floor(docPoint.x),
+            y: Math.floor(docPoint.y),
+          });
+          const layerId = picked?.uiMeta.activeLayerId ?? "";
+          const pickedLayer = picked ? findLayerMetaByID(picked.uiMeta.layers, layerId) : null;
+          if (!layerId || pickedLayer?.lockMode === "position" || pickedLayer?.lockMode === "all") {
+            event.preventDefault();
+            return;
+          }
+          engine.beginTransaction("Move layer");
+          setMoveDraft({
+            pointerId: event.pointerId,
+            layerId,
+            start: { x: docPoint.x, y: docPoint.y },
+            appliedDX: 0,
+            appliedDY: 0,
+            moved: false,
+          });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
         if (
           activeTool === "lasso" &&
           selectionOptions.lassoMode === "freehand" &&
@@ -568,6 +630,30 @@ export function EditorCanvas({
               : current,
           );
         }
+        if (moveDraft && moveDraft.pointerId === event.pointerId && docPoint) {
+          const totalDX = Math.round(docPoint.x - moveDraft.start.x);
+          const totalDY = Math.round(docPoint.y - moveDraft.start.y);
+          const stepDX = totalDX - moveDraft.appliedDX;
+          const stepDY = totalDY - moveDraft.appliedDY;
+          if (stepDX !== 0 || stepDY !== 0) {
+            engine.translateLayer({
+              layerId: moveDraft.layerId,
+              dx: stepDX,
+              dy: stepDY,
+            });
+            setMoveDraft((current) =>
+              current
+                ? {
+                    ...current,
+                    appliedDX: totalDX,
+                    appliedDY: totalDY,
+                    moved: true,
+                  }
+                : current,
+            );
+          }
+          return;
+        }
         if (marqueeDraft && marqueeDraft.pointerId === event.pointerId && docPoint) {
           setMarqueeDraft((current) =>
             current
@@ -625,6 +711,12 @@ export function EditorCanvas({
         });
       }}
       onPointerUp={(event) => {
+        if (moveDraft && moveDraft.pointerId === event.pointerId) {
+          engine.endTransaction(moveDraft.moved);
+          setMoveDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         if (marqueeDraft && marqueeDraft.pointerId === event.pointerId) {
           const point = clientPointToDocument(event.clientX, event.clientY);
           const endPoint = point ? { x: point.x, y: point.y } : marqueeDraft.current;

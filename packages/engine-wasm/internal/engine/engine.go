@@ -52,6 +52,8 @@ const (
 	commandGetLayerThumbnails = 0x0116
 	commandFlattenImage       = 0x0117
 	commandOpenImageFile      = 0x0118
+	commandTranslateLayer     = 0x0119
+	commandPickLayerAtPoint   = 0x011a
 	commandNewSelection       = 0x0200
 	commandSelectAll          = 0x0201
 	commandDeselect           = 0x0202
@@ -1281,6 +1283,45 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			},
 		}
 		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandTranslateLayer:
+		var payload TranslateLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Move layer",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.TranslateLayer(payload.LayerID, payload.DX, payload.DY); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandPickLayerAtPoint:
+		var payload PickLayerAtPointPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		if _, err := doc.PickLayerAtPoint(payload.X, payload.Y); err != nil {
+			return RenderResult{}, err
+		}
+		if err := inst.manager.ReplaceActive(doc); err != nil {
 			return RenderResult{}, err
 		}
 	case commandNewSelection:

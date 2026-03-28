@@ -125,6 +125,17 @@ type SetLayerNamePayload struct {
 	Name    string `json:"name"`
 }
 
+type TranslateLayerPayload struct {
+	LayerID string `json:"layerId"`
+	DX      int    `json:"dx"`
+	DY      int    `json:"dy"`
+}
+
+type PickLayerAtPointPayload struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
 type AddVectorMaskPayload struct {
 	LayerID string `json:"layerId"`
 }
@@ -352,6 +363,50 @@ func (doc *Document) SetLayerName(layerID, name string) error {
 	layer.SetName(name)
 	doc.touchModifiedAt()
 	return nil
+}
+
+func (doc *Document) TranslateLayer(layerID string, dx, dy int) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	if dx == 0 && dy == 0 {
+		return nil
+	}
+	if layerID == "" {
+		layerID = doc.ActiveLayerID
+	}
+	if layerID == "" {
+		return fmt.Errorf("no active layer")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if isLayerPositionLocked(layer) {
+		return fmt.Errorf("layer %q position is locked", layer.Name())
+	}
+	if err := translateLayerNode(layer, dx, dy); err != nil {
+		return err
+	}
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) PickLayerAtPoint(x, y int) (LayerNode, error) {
+	if doc == nil {
+		return nil, fmt.Errorf("document is required")
+	}
+	if x < 0 || x >= doc.Width || y < 0 || y >= doc.Height {
+		doc.ActiveLayerID = ""
+		return nil, nil
+	}
+	layer := topmostLayerAtPoint(doc, doc.ensureLayerRoot().Children(), x, y)
+	if layer == nil {
+		doc.ActiveLayerID = ""
+		return nil, nil
+	}
+	doc.ActiveLayerID = layer.ID()
+	return layer, nil
 }
 
 func (doc *Document) AddLayerMask(layerID string, mode AddLayerMaskMode) error {
@@ -1295,4 +1350,75 @@ func containsLayerID(layer LayerNode, targetID string) bool {
 		}
 	}
 	return false
+}
+
+func isLayerPositionLocked(layer LayerNode) bool {
+	if layer == nil {
+		return false
+	}
+	switch layer.LockMode() {
+	case LayerLockPosition, LayerLockAll:
+		return true
+	default:
+		return false
+	}
+}
+
+func translateLayerNode(layer LayerNode, dx, dy int) error {
+	switch typed := layer.(type) {
+	case *PixelLayer:
+		typed.Bounds.X += dx
+		typed.Bounds.Y += dy
+		return nil
+	case *TextLayer:
+		typed.Bounds.X += dx
+		typed.Bounds.Y += dy
+		return nil
+	case *VectorLayer:
+		typed.Bounds.X += dx
+		typed.Bounds.Y += dy
+		return nil
+	case *GroupLayer:
+		for _, child := range typed.Children() {
+			if err := translateLayerNode(child, dx, dy); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *AdjustmentLayer:
+		return fmt.Errorf("adjustment layer %q cannot be moved", typed.Name())
+	default:
+		return fmt.Errorf("unsupported layer type %T", layer)
+	}
+}
+
+func topmostLayerAtPoint(doc *Document, layers []LayerNode, x, y int) LayerNode {
+	for index := len(layers) - 1; index >= 0; index-- {
+		layer := layers[index]
+		if layer == nil || !layer.Visible() {
+			continue
+		}
+		if group, ok := layer.(*GroupLayer); ok {
+			if hit := topmostLayerAtPoint(doc, group.Children(), x, y); hit != nil {
+				return hit
+			}
+			continue
+		}
+		if layerHasVisibleAlphaAt(doc, layer, x, y) {
+			return layer
+		}
+	}
+	return nil
+}
+
+func layerHasVisibleAlphaAt(doc *Document, layer LayerNode, x, y int) bool {
+	if doc == nil || layer == nil || x < 0 || x >= doc.Width || y < 0 || y >= doc.Height {
+		return false
+	}
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil || len(surface) == 0 {
+		return false
+	}
+	index := (y*doc.Width + x) * 4
+	return index >= 0 && index+3 < len(surface) && surface[index+3] > 0
 }
