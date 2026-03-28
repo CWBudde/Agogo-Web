@@ -400,16 +400,16 @@ func (doc *Document) MagicWand(x, y int, tolerance float64, layerID string, samp
 	}
 	var next *Selection
 	if contiguous {
-		next = quickSelect(surface, doc.Width, doc.Height, x, y, tolerance, tolerance)
+		next = magicWandFloodFill(surface, doc.Width, doc.Height, x, y, tolerance)
 	} else {
 		next = selectColorRange(surface, doc.Width, doc.Height, targetColor, tolerance)
 	}
-	if antiAlias {
-		next = normalizeSelection(&Selection{
+	if antiAlias && next != nil {
+		next = &Selection{
 			Width:  next.Width,
 			Height: next.Height,
-			Mask:   smoothMask(next.Mask, next.Width, next.Height, 1),
-		})
+			Mask:   antiAliasSelectionMask(next.Mask, next.Width, next.Height),
+		}
 	}
 	doc.Selection = combineSelection(doc.Selection, next, mode)
 	return nil
@@ -871,12 +871,12 @@ func quickSelect(surface []byte, width, height, seedX, seedY int, tolerance, edg
 		edgeThreshold = colorThreshold
 	}
 	visited := make([]bool, width*height)
-	queue := []int{seedY*width + seedX}
-	visited[seedY*width+seedX] = true
-	directions := [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
+	seed := seedY*width + seedX
+	queue := []int{seed}
+	visited[seed] = true
+	directions := [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
+	for head := 0; head < len(queue); head++ {
+		current := queue[head]
 		currentX := current % width
 		currentY := current / width
 		currentIndex := current * 4
@@ -911,6 +911,99 @@ func quickSelect(surface []byte, width, height, seedX, seedY int, tolerance, edg
 		}
 	}
 	return selection
+}
+
+// magicWandFloodFill selects all 4-connected pixels within tolerance of the
+// seed color. Unlike quickSelect, it performs no edge detection — every visited
+// pixel is accepted or rejected based solely on its distance to the seed color.
+func magicWandFloodFill(surface []byte, width, height, seedX, seedY int, tolerance float64) *Selection {
+	selection := newSelection(width, height)
+	if len(surface) < width*height*4 || seedX < 0 || seedX >= width || seedY < 0 || seedY >= height {
+		return selection
+	}
+	seedIndex := (seedY*width + seedX) * 4
+	seedColor := [4]uint8{surface[seedIndex], surface[seedIndex+1], surface[seedIndex+2], surface[seedIndex+3]}
+	if seedColor[3] == 0 {
+		return selection
+	}
+	colorThreshold := clampFloat(tolerance, 0, 442)
+	visited := make([]bool, width*height)
+	seed := seedY*width + seedX
+	queue := []int{seed}
+	visited[seed] = true
+	selection.Mask[seed] = 255
+	directions := [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
+	for head := 0; head < len(queue); head++ {
+		current := queue[head]
+		currentX := current % width
+		currentY := current / width
+		for _, dir := range directions {
+			nextX := currentX + dir[0]
+			nextY := currentY + dir[1]
+			if nextX < 0 || nextX >= width || nextY < 0 || nextY >= height {
+				continue
+			}
+			next := nextY*width + nextX
+			if visited[next] {
+				continue
+			}
+			visited[next] = true
+			nextIndex := next * 4
+			nextColor := [4]uint8{surface[nextIndex], surface[nextIndex+1], surface[nextIndex+2], surface[nextIndex+3]}
+			if nextColor[3] == 0 || colorDistance(nextColor[:], seedColor) > colorThreshold {
+				continue
+			}
+			selection.Mask[next] = 255
+			queue = append(queue, next)
+		}
+	}
+	return selection
+}
+
+// antiAliasSelectionMask softens only the boundary pixels of a hard selection
+// mask. Interior pixels (all selected 4-connected neighbours) are left at 255.
+// Exterior pixels (no selected neighbours) stay at 0. Only boundary pixels —
+// those selected but adjacent to at least one unselected pixel — are replaced
+// with a coverage value computed from their 8-connected neighbourhood.
+func antiAliasSelectionMask(mask []byte, width, height int) []byte {
+	result := append([]byte(nil), mask...)
+	for y := range height {
+		for x := range width {
+			idx := y*width + x
+			if mask[idx] == 0 {
+				continue
+			}
+			isBoundary := (x > 0 && mask[idx-1] == 0) ||
+				(x < width-1 && mask[idx+1] == 0) ||
+				(y > 0 && mask[idx-width] == 0) ||
+				(y < height-1 && mask[idx+width] == 0)
+			if !isBoundary {
+				continue
+			}
+			selected := 0
+			total := 0
+			for dy := -1; dy <= 1; dy++ {
+				ny := y + dy
+				if ny < 0 || ny >= height {
+					continue
+				}
+				for dx := -1; dx <= 1; dx++ {
+					nx := x + dx
+					if nx < 0 || nx >= width {
+						continue
+					}
+					total++
+					if mask[ny*width+nx] != 0 {
+						selected++
+					}
+				}
+			}
+			if total > 0 {
+				result[idx] = uint8(selected * 255 / total)
+			}
+		}
+	}
+	return result
 }
 
 func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, selection *Selection, animationFrame int64) []byte {

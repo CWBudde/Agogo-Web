@@ -365,15 +365,28 @@ func TestMagicWandAntiAliasSoftensEdge(t *testing.T) {
 	}
 	softDoc := instances[h].manager.Active()
 	softMask := softDoc.Selection.Mask
+	// Hard-edge: both red pixels fully selected, blue pixel not selected.
+	if hardMask[0] != 255 {
+		t.Fatalf("hard-edge mask pixel[0] = %d, want 255", hardMask[0])
+	}
+	if hardMask[1] != 255 {
+		t.Fatalf("hard-edge mask pixel[1] = %d, want 255", hardMask[1])
+	}
 	if hardMask[2] != 0 {
-		t.Fatalf("hard-edge mask boundary alpha = %d, want 0", hardMask[2])
+		t.Fatalf("hard-edge mask pixel[2] (blue) = %d, want 0", hardMask[2])
 	}
-	if softMask[2] == 0 || softMask[2] == 255 {
-		t.Fatalf("anti-aliased mask boundary alpha = %d, want value between 1 and 254", softMask[2])
+	// Anti-alias: interior pixel[0] stays fully selected, boundary pixel[1]
+	// is softened, exterior pixel[2] must NOT bleed outward.
+	if softMask[0] != 255 {
+		t.Fatalf("anti-aliased interior pixel[0] = %d, want 255", softMask[0])
 	}
-	if soft.UIMeta.Selection.PixelCount <= hard.UIMeta.Selection.PixelCount {
-		t.Fatalf("anti-aliased magic wand pixelCount = %d, want more than %d", soft.UIMeta.Selection.PixelCount, hard.UIMeta.Selection.PixelCount)
+	if softMask[1] == 0 || softMask[1] == 255 {
+		t.Fatalf("anti-aliased boundary pixel[1] = %d, want value between 1 and 254", softMask[1])
 	}
+	if softMask[2] != 0 {
+		t.Fatalf("anti-aliased exterior pixel[2] = %d, want 0 (no outward bleed)", softMask[2])
+	}
+	_ = soft
 }
 
 func rgbaPixelAt(pixels []byte, width, x, y int) [4]byte {
