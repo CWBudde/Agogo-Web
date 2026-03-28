@@ -96,6 +96,17 @@ type QuickSelectPayload struct {
 	Mode            SelectionCombineMode `json:"mode"`
 }
 
+type MagicWandPayload struct {
+	X            int                  `json:"x"`
+	Y            int                  `json:"y"`
+	Tolerance    float64              `json:"tolerance"`
+	LayerID      string               `json:"layerId"`
+	SampleMerged bool                 `json:"sampleMerged"`
+	Contiguous   bool                 `json:"contiguous"`
+	AntiAlias    bool                 `json:"antiAlias"`
+	Mode         SelectionCombineMode `json:"mode"`
+}
+
 func cloneSelection(selection *Selection) *Selection {
 	if selection == nil {
 		return nil
@@ -370,6 +381,40 @@ func (doc *Document) QuickSelect(x, y int, tolerance, edgeSensitivity float64, l
 	return nil
 }
 
+func (doc *Document) MagicWand(x, y int, tolerance float64, layerID string, sampleMerged, contiguous, antiAlias bool, mode SelectionCombineMode) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	surface, err := doc.selectionSourceSurface(layerID, sampleMerged)
+	if err != nil {
+		return err
+	}
+	if x < 0 || x >= doc.Width || y < 0 || y >= doc.Height {
+		doc.Selection = combineSelection(doc.Selection, newSelection(doc.Width, doc.Height), mode)
+		return nil
+	}
+	targetColor, ok := sampleSurfaceColor(surface, doc.Width, doc.Height, x, y)
+	if !ok {
+		doc.Selection = combineSelection(doc.Selection, newSelection(doc.Width, doc.Height), mode)
+		return nil
+	}
+	var next *Selection
+	if contiguous {
+		next = quickSelect(surface, doc.Width, doc.Height, x, y, tolerance, tolerance)
+	} else {
+		next = selectColorRange(surface, doc.Width, doc.Height, targetColor, tolerance)
+	}
+	if antiAlias {
+		next = normalizeSelection(&Selection{
+			Width:  next.Width,
+			Height: next.Height,
+			Mask:   smoothMask(next.Mask, next.Width, next.Height, 1),
+		})
+	}
+	doc.Selection = combineSelection(doc.Selection, next, mode)
+	return nil
+}
+
 func (doc *Document) selectionSourceSurface(layerID string, sampleMerged bool) ([]byte, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("document is required")
@@ -388,6 +433,17 @@ func (doc *Document) selectionSourceSurface(layerID string, sampleMerged bool) (
 		return nil, fmt.Errorf("layer %q not found", layerID)
 	}
 	return doc.renderLayerToSurface(layer)
+}
+
+func sampleSurfaceColor(surface []byte, width, height, x, y int) ([4]uint8, bool) {
+	if x < 0 || x >= width || y < 0 || y >= height || len(surface) < width*height*4 {
+		return [4]uint8{}, false
+	}
+	index := (y*width + x) * 4
+	if index < 0 || index+3 >= len(surface) {
+		return [4]uint8{}, false
+	}
+	return [4]uint8{surface[index], surface[index+1], surface[index+2], surface[index+3]}, true
 }
 
 func newRectSelection(width, height int, rect LayerBounds) *Selection {

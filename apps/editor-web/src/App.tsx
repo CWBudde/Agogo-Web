@@ -35,7 +35,10 @@ import { LayersPanel } from "@/components/layers-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  type ShortcutTool,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -127,11 +130,19 @@ const menuItems: MenuPreviewMenu[] = [
     sections: [
       {
         title: "Adjustments",
-        items: [{ label: "Levels..." }, { label: "Curves..." }, { label: "Hue/Saturation..." }],
+        items: [
+          { label: "Levels..." },
+          { label: "Curves..." },
+          { label: "Hue/Saturation..." },
+        ],
       },
       {
         title: "Geometry",
-        items: [{ label: "Image Size..." }, { label: "Canvas Size..." }, { label: "Trim" }],
+        items: [
+          { label: "Image Size..." },
+          { label: "Canvas Size..." },
+          { label: "Trim" },
+        ],
       },
     ],
   },
@@ -210,7 +221,11 @@ const menuItems: MenuPreviewMenu[] = [
       },
       {
         title: "Overlays",
-        items: [{ label: "Pixel Grid" }, { label: "Rulers" }, { label: "Guides", tone: "muted" }],
+        items: [
+          { label: "Pixel Grid" },
+          { label: "Rulers" },
+          { label: "Guides", tone: "muted" },
+        ],
       },
     ],
   },
@@ -221,11 +236,19 @@ const menuItems: MenuPreviewMenu[] = [
     sections: [
       {
         title: "Panels",
-        items: [{ label: "Layers", tone: "accent" }, { label: "Navigator" }, { label: "History" }],
+        items: [
+          { label: "Layers", tone: "accent" },
+          { label: "Navigator" },
+          { label: "History" },
+        ],
       },
       {
         title: "Workspace",
-        items: [{ label: "Essentials" }, { label: "Painting" }, { label: "Reset Workspace" }],
+        items: [
+          { label: "Essentials" },
+          { label: "Painting" },
+          { label: "Reset Workspace" },
+        ],
       },
     ],
   },
@@ -349,19 +372,23 @@ export default function App() {
   const [selectionFeatherRadius, setSelectionFeatherRadius] = useState(0);
   const [wandMode, setWandMode] = useState<WandMode>("magic");
   const [wandTolerance, setWandTolerance] = useState(24);
+  const [wandContiguous, setWandContiguous] = useState(true);
   const [wandSampleMerged, setWandSampleMerged] = useState(false);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
   const [openRecentOpen, setOpenRecentOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
+  const [draft, setDraft] =
+    useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
-  const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
+  const [layerThumbnails, setLayerThumbnails] = useState<
+    Record<string, ThumbnailEntry>
+  >({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
@@ -379,10 +406,17 @@ export default function App() {
   }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
   useEffect(() => {
-    if (!engine.handle || contentVersion === undefined || contentVersion === 0) {
+    if (
+      !engine.handle ||
+      contentVersion === undefined ||
+      contentVersion === 0
+    ) {
       return;
     }
-    if (contentVersion - lastSavedVersionRef.current < AUTOSAVE_EVERY_N_VERSIONS) {
+    if (
+      contentVersion - lastSavedVersionRef.current <
+      AUTOSAVE_EVERY_N_VERSIONS
+    ) {
       return;
     }
     const base64Zip = engine.exportProject();
@@ -461,7 +495,8 @@ export default function App() {
         name: imported.uiMeta.activeDocumentName || current.name,
         width: imported.uiMeta.documentWidth || current.width,
         height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
+        background: imported.uiMeta
+          .documentBackground as CreateDocumentCommand["background"],
       }));
     }
   };
@@ -510,7 +545,8 @@ export default function App() {
         name: imported.uiMeta.activeDocumentName || current.name,
         width: imported.uiMeta.documentWidth || current.width,
         height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
+        background: imported.uiMeta
+          .documentBackground as CreateDocumentCommand["background"],
       }));
     }
     localStorage.removeItem(AUTOSAVE_KEY);
@@ -651,8 +687,15 @@ export default function App() {
       if (!render?.uiMeta.activeLayerId) {
         return;
       }
-      const activeLayer = findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId);
-      if (!activeLayer || activeLayer.lockMode === "position" || activeLayer.lockMode === "all") {
+      const activeLayer = findLayerMetaInTree(
+        render.uiMeta.layers,
+        render.uiMeta.activeLayerId,
+      );
+      if (
+        !activeLayer ||
+        activeLayer.lockMode === "position" ||
+        activeLayer.lockMode === "all"
+      ) {
         return;
       }
       engine.translateLayer({ dx, dy });
@@ -687,7 +730,9 @@ export default function App() {
   const documentSize = render
     ? `${render.uiMeta.documentWidth} x ${render.uiMeta.documentHeight}`
     : "No document";
-  const zoomPercent = render ? `${Math.round(render.viewport.zoom * 100)}%` : "0%";
+  const zoomPercent = render
+    ? `${Math.round(render.viewport.zoom * 100)}%`
+    : "0%";
   const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "Outside";
   const statusText = render?.uiMeta.statusText ?? "Waiting for engine";
   const selectionSummary = render?.uiMeta.selection.active
@@ -769,10 +814,16 @@ export default function App() {
     ) : activeTool === "wand" ? (
       <>
         <ToolOptionGroup label="Mode">
-          <ToolChoiceButton active={wandMode === "magic"} onClick={() => setWandMode("magic")}>
+          <ToolChoiceButton
+            active={wandMode === "magic"}
+            onClick={() => setWandMode("magic")}
+          >
             Magic
           </ToolChoiceButton>
-          <ToolChoiceButton active={wandMode === "quick"} onClick={() => setWandMode("quick")}>
+          <ToolChoiceButton
+            active={wandMode === "quick"}
+            onClick={() => setWandMode("quick")}
+          >
             Quick
           </ToolChoiceButton>
         </ToolOptionGroup>
@@ -784,11 +835,25 @@ export default function App() {
           value={wandTolerance}
           onChange={setWandTolerance}
         />
+        {wandMode === "magic" ? (
+          <ToolChoiceButton
+            active={wandContiguous}
+            onClick={() => setWandContiguous((current) => !current)}
+          >
+            Contiguous
+          </ToolChoiceButton>
+        ) : null}
+        <ToolChoiceButton
+          active={selectionAntiAlias}
+          onClick={() => setSelectionAntiAlias((current) => !current)}
+        >
+          Anti-alias
+        </ToolChoiceButton>
         <ToolChoiceButton
           active={wandSampleMerged}
           onClick={() => setWandSampleMerged((current) => !current)}
         >
-          Sample merged
+          Sample all layers
         </ToolChoiceButton>
       </>
     ) : null;
@@ -843,12 +908,16 @@ export default function App() {
                         type="button"
                         className={[
                           "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
-                          isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
+                          isOpen
+                            ? "text-white"
+                            : "text-slate-400 hover:text-slate-100",
                         ].join(" ")}
                         aria-expanded={isOpen}
                         aria-haspopup="menu"
                         onClick={() =>
-                          setOpenMenu((current) => (current === menu.label ? null : menu.label))
+                          setOpenMenu((current) =>
+                            current === menu.label ? null : menu.label,
+                          )
                         }
                         onPointerEnter={() => {
                           if (openMenu) {
@@ -885,7 +954,11 @@ export default function App() {
                 <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
                 New
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => engine.fitToView()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => engine.fitToView()}
+              >
                 <FitScreenIcon className="mr-1.5 h-3.5 w-3.5" />
                 Fit
               </Button>
@@ -898,7 +971,11 @@ export default function App() {
                 <UndoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Undo
               </Button>
-              <Button size="sm" onClick={() => engine.redo()} disabled={!render?.uiMeta.canRedo}>
+              <Button
+                size="sm"
+                onClick={() => engine.redo()}
+                disabled={!render?.uiMeta.canRedo}
+              >
                 <RedoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Redo
               </Button>
@@ -935,7 +1012,9 @@ export default function App() {
               <MetricChip value={zoomPercent} />
               <MetricChip value={documentSize} />
               <MetricChip value={selectionSummary} />
-              <MetricChip value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`} />
+              <MetricChip
+                value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
+              />
             </div>
           </div>
 
@@ -958,7 +1037,8 @@ export default function App() {
           >
             <aside className="editor-chrome editor-toolrail flex min-h-[36rem] flex-col items-center gap-[var(--ui-gap-1)] border-r border-border px-[var(--ui-gap-1)] py-[var(--ui-gap-2)]">
               {toolItems.map((tool) => {
-                const active = (isPanMode && tool.id === "hand") || activeTool === tool.id;
+                const active =
+                  (isPanMode && tool.id === "hand") || activeTool === tool.id;
                 const ToolIcon = tool.Icon;
                 return (
                   <button
@@ -989,7 +1069,8 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span>
-                    Canvas {render?.viewport.canvasW ?? 0} x {render?.viewport.canvasH ?? 0}
+                    Canvas {render?.viewport.canvasW ?? 0} x{" "}
+                    {render?.viewport.canvasH ?? 0}
                   </span>
                 </div>
               </div>
@@ -1011,6 +1092,7 @@ export default function App() {
                     featherRadius: selectionFeatherRadius,
                     wandMode,
                     wandTolerance,
+                    wandContiguous,
                     wandSampleMerged,
                   }}
                   onCursorChange={setCursor}
@@ -1029,7 +1111,13 @@ export default function App() {
                   const startWidth = panelWidth;
                   const handleMove = (moveEvent: PointerEvent) => {
                     setPanelWidth(
-                      Math.min(420, Math.max(280, startWidth - (moveEvent.clientX - startX))),
+                      Math.min(
+                        420,
+                        Math.max(
+                          280,
+                          startWidth - (moveEvent.clientX - startX),
+                        ),
+                      ),
                     );
                   };
                   const handleUp = () => {
@@ -1101,13 +1189,19 @@ export default function App() {
                     <DockSection title={dockTitle(activeAuxPanel)}>
                       {activeAuxPanel === "properties" ? (
                         <div className="space-y-[var(--ui-gap-3)]">
-                          <PropertyGridRow label="Document" value={documentSize} />
+                          <PropertyGridRow
+                            label="Document"
+                            value={documentSize}
+                          />
                           <PropertyGridRow label="Zoom" value={zoomPercent} />
                           <PropertyGridRow
                             label="Rotation"
                             value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
                           />
-                          <PropertyGridRow label="DPI" value={draft.resolution.toString()} />
+                          <PropertyGridRow
+                            label="DPI"
+                            value={draft.resolution.toString()}
+                          />
                           <CompactRange
                             id="rotate-view-range"
                             label="Rotate View"
@@ -1173,7 +1267,9 @@ export default function App() {
                             min={5}
                             max={3200}
                             step={5}
-                            value={Math.round((render?.viewport.zoom ?? 1) * 100)}
+                            value={Math.round(
+                              (render?.viewport.zoom ?? 1) * 100,
+                            )}
                             onChange={(value) => engine.setZoom(value / 100)}
                           />
                         </div>
@@ -1182,14 +1278,21 @@ export default function App() {
                       {activeAuxPanel === "channels" ? <ChannelsPanel /> : null}
                     </DockSection>
 
-                    <DockSection title="Layers" className="border-t border-border">
+                    <DockSection
+                      title="Layers"
+                      className="border-t border-border"
+                    >
                       <LayersPanel
                         engine={engine}
                         layers={render?.uiMeta.layers ?? []}
                         activeLayerId={render?.uiMeta.activeLayerId ?? null}
                         maskEditLayerId={render?.uiMeta.maskEditLayerId ?? null}
-                        documentWidth={render?.uiMeta.documentWidth ?? draft.width}
-                        documentHeight={render?.uiMeta.documentHeight ?? draft.height}
+                        documentWidth={
+                          render?.uiMeta.documentWidth ?? draft.width
+                        }
+                        documentHeight={
+                          render?.uiMeta.documentHeight ?? draft.height
+                        }
                         thumbnails={layerThumbnails}
                       />
                     </DockSection>
@@ -1211,7 +1314,9 @@ export default function App() {
               <span>{statusText}</span>
               <Separator orientation="vertical" className="h-3 bg-white/8" />
               <span>
-                {engine.status === "ready" ? `Engine #${engine.handle?.handle}` : engine.status}
+                {engine.status === "ready"
+                  ? `Engine #${engine.handle?.handle}`
+                  : engine.status}
               </span>
             </div>
           </footer>
@@ -1239,7 +1344,9 @@ export default function App() {
                   }))
                 }
               >
-                <div className="text-[12px] font-medium text-slate-100">{preset.label}</div>
+                <div className="text-[12px] font-medium text-slate-100">
+                  {preset.label}
+                </div>
                 <div className="mt-1 text-[11px] text-slate-400">
                   {preset.width} x {preset.height} · {preset.resolution} DPI
                 </div>
@@ -1267,7 +1374,8 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    background: event.target.value as CreateDocumentCommand["background"],
+                    background: event.target
+                      .value as CreateDocumentCommand["background"],
                   }))
                 }
               >
@@ -1280,7 +1388,9 @@ export default function App() {
               <select
                 className={fieldClassName}
                 value={documentUnit}
-                onChange={(event) => setDocumentUnit(event.target.value as DocumentUnit)}
+                onChange={(event) =>
+                  setDocumentUnit(event.target.value as DocumentUnit)
+                }
               >
                 <option value="px">Pixels</option>
                 <option value="in">Inches</option>
@@ -1301,7 +1411,11 @@ export default function App() {
                     width: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
+                        unitToPixels(
+                          Number(event.target.value),
+                          current.resolution,
+                          documentUnit,
+                        ),
                       ),
                     ),
                   }))
@@ -1321,7 +1435,11 @@ export default function App() {
                     height: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
+                        unitToPixels(
+                          Number(event.target.value),
+                          current.resolution,
+                          documentUnit,
+                        ),
                       ),
                     ),
                   }))
@@ -1365,7 +1483,8 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    colorMode: event.target.value as CreateDocumentCommand["colorMode"],
+                    colorMode: event.target
+                      .value as CreateDocumentCommand["colorMode"],
                   }))
                 }
               >
@@ -1377,7 +1496,11 @@ export default function App() {
         </div>
 
         <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setNewDocumentOpen(false)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setNewDocumentOpen(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -1400,8 +1523,8 @@ export default function App() {
       >
         <div className="space-y-3 text-[13px] text-slate-300">
           <p>
-            Recent document tracking needs a persistent file-access layer. That is not wired into
-            the web shell yet.
+            Recent document tracking needs a persistent file-access layer. That
+            is not wired into the web shell yet.
           </p>
           <p className="text-slate-400">
             Use Open to pick an .agp archive or legacy JSON project from disk.
@@ -1409,7 +1532,11 @@ export default function App() {
         </div>
 
         <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setOpenRecentOpen(false)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setOpenRecentOpen(false)}
+          >
             Close
           </Button>
           <Button
@@ -1432,15 +1559,22 @@ export default function App() {
       >
         <div className="space-y-3 text-[13px] text-slate-300">
           <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">Project Archive (.agp)</div>
+            <div className="text-[12px] font-medium text-slate-100">
+              Project Archive (.agp)
+            </div>
             <div className="mt-1 text-[12px] text-slate-400">
-              Saves the current document state, layer tree, and history as {activeDocumentName}.agp.
+              Saves the current document state, layer tree, and history as{" "}
+              {activeDocumentName}.agp.
             </div>
           </div>
         </div>
 
         <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(false)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExportDialogOpen(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -1461,7 +1595,13 @@ export default function App() {
 const fieldClassName =
   "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30";
 
-function ToolOptionGroup({ label, children }: { label: string; children: ReactNode }) {
+function ToolOptionGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex items-center gap-2">
       <span className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -1514,7 +1654,9 @@ function ToolNumberField({
 }) {
   return (
     <label className="flex items-center gap-2 text-[12px] text-slate-300">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </span>
       <input
         className="h-7 w-20 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-right text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
         type="number"
@@ -1528,7 +1670,10 @@ function ToolNumberField({
   );
 }
 
-function findLayerMetaInTree(layers: LayerNodeMeta[], targetID: string): LayerNodeMeta | null {
+function findLayerMetaInTree(
+  layers: LayerNodeMeta[],
+  targetID: string,
+): LayerNodeMeta | null {
   for (const layer of layers) {
     if (layer.id === targetID) {
       return layer;
@@ -1541,10 +1686,18 @@ function findLayerMetaInTree(layers: LayerNodeMeta[], targetID: string): LayerNo
   return null;
 }
 
-function ChromeLabel({ label, children }: { label: string; children: ReactNode }) {
+function ChromeLabel({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex min-w-0 items-center gap-1 text-[11px]">
-      <span className="uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <span className="uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </span>
       <span className="truncate text-slate-200">{children}</span>
     </div>
   );
@@ -1552,7 +1705,9 @@ function ChromeLabel({ label, children }: { label: string; children: ReactNode }
 
 function MetricChip({ value }: { value: string }) {
   return (
-    <span className="rounded-[1px] border border-white/8 bg-panel-soft px-1.5 py-1">{value}</span>
+    <span className="rounded-[1px] border border-white/8 bg-panel-soft px-1.5 py-1">
+      {value}
+    </span>
   );
 }
 
@@ -1587,7 +1742,9 @@ function MenuPreviewPanel({
               item={item}
               disabled={disabled}
               onClick={
-                item.actionId ? () => onAction(item.actionId as FileMenuActionId) : undefined
+                item.actionId
+                  ? () => onAction(item.actionId as FileMenuActionId)
+                  : undefined
               }
             />
           );
@@ -1643,7 +1800,9 @@ function MenuPreviewAction({
         </span>
       </span>
       {item.shortcut ? (
-        <span className="ml-4 shrink-0 text-[11px] text-slate-500">{item.shortcut}</span>
+        <span className="ml-4 shrink-0 text-[11px] text-slate-500">
+          {item.shortcut}
+        </span>
       ) : null}
     </button>
   );
@@ -1658,7 +1817,11 @@ function iconForMenuItem(label: string) {
   if (lower.includes("open")) {
     return OpenFolderIcon;
   }
-  if (lower.includes("save") || lower.includes("export") || lower.includes("assets")) {
+  if (
+    lower.includes("save") ||
+    lower.includes("export") ||
+    lower.includes("assets")
+  ) {
     return SaveIcon;
   }
   if (lower.includes("undo")) {
@@ -1676,10 +1839,18 @@ function iconForMenuItem(label: string) {
   if (lower.includes("paste")) {
     return ClipboardIcon;
   }
-  if (lower.includes("layer") || lower.includes("rasterize") || lower.includes("merge")) {
+  if (
+    lower.includes("layer") ||
+    lower.includes("rasterize") ||
+    lower.includes("merge")
+  ) {
     return LayersIcon;
   }
-  if (lower.includes("select") || lower.includes("feather") || lower.includes("inverse")) {
+  if (
+    lower.includes("select") ||
+    lower.includes("feather") ||
+    lower.includes("inverse")
+  ) {
     return SelectionIcon;
   }
   if (
@@ -1726,7 +1897,9 @@ function DockSection({
       <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
         <h2 className="text-[12px] font-medium text-slate-100">{title}</h2>
       </div>
-      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">{children}</div>
+      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">
+        {children}
+      </div>
     </section>
   );
 }
@@ -1841,7 +2014,9 @@ function ChannelsPanel() {
             title={visible[ch.id] ? "Hide channel" : "Show channel"}
             className={[
               "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
-              visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",
+              visible[ch.id]
+                ? "bg-emerald-400/12 text-emerald-100"
+                : "bg-black/20 text-slate-500",
             ].join(" ")}
             onClick={() =>
               setVisible((current) => ({
@@ -1853,11 +2028,15 @@ function ChannelsPanel() {
             {visible[ch.id] ? "O" : "-"}
           </button>
           <span className={`h-2.5 w-2.5 rounded-full ${ch.color}`} />
-          <span className="flex-1 text-[12px] font-medium text-slate-100">{ch.name}</span>
+          <span className="flex-1 text-[12px] font-medium text-slate-100">
+            {ch.name}
+          </span>
           <span className="text-[11px] text-slate-500">{ch.shortcut}</span>
         </div>
       ))}
-      <p className="px-1 pt-1 text-[11px] text-slate-600">Channel isolation active in Phase 3+.</p>
+      <p className="px-1 pt-1 text-[11px] text-slate-600">
+        Channel isolation active in Phase 3+.
+      </p>
     </div>
   );
 }
@@ -1866,7 +2045,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: label wraps its control via children (implicit label pattern)
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </span>
       {children}
     </label>
   );

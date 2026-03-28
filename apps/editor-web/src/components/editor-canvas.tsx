@@ -1,5 +1,11 @@
 import { CommandID } from "@agogo/proto";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useEngine } from "@/wasm/context";
 
 type CursorPosition = {
@@ -28,6 +34,7 @@ type EditorCanvasProps = {
     featherRadius: number;
     wandMode: "magic" | "quick";
     wandTolerance: number;
+    wandContiguous: boolean;
     wandSampleMerged: boolean;
   };
   onCursorChange(position: CursorPosition): void;
@@ -170,7 +177,9 @@ export function EditorCanvas({
   const [size, setSize] = useState({ width: 1, height: 1 });
   const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
-  const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(null);
+  const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
+    null,
+  );
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
   const engine = useEngine();
   const render = engine.render;
@@ -192,7 +201,9 @@ export function EditorCanvas({
       const devicePixelRatio = window.devicePixelRatio || 1;
       const next = fitCanvasToElement(canvas, host, devicePixelRatio);
       setSize((current) =>
-        current.width === next.width && current.height === next.height ? current : next,
+        current.width === next.width && current.height === next.height
+          ? current
+          : next,
       );
 
       if (!engine.handle) {
@@ -272,7 +283,11 @@ export function EditorCanvas({
     const bytes = engine.handle.readPixels(render);
     const pixelCopy = new Uint8ClampedArray(bytes.length);
     pixelCopy.set(bytes);
-    const imageData = new ImageData(pixelCopy, render.viewport.canvasW, render.viewport.canvasH);
+    const imageData = new ImageData(
+      pixelCopy,
+      render.viewport.canvasW,
+      render.viewport.canvasH,
+    );
     context.putImageData(imageData, 0, 0);
     engine.handle.free(render.bufferPtr);
   }, [engine.handle, render]);
@@ -312,8 +327,10 @@ export function EditorCanvas({
     const radians = (render.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
-    const docX = render.viewport.centerX + (dx * cos + dy * sin) / render.viewport.zoom;
-    const docY = render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom;
+    const docX =
+      render.viewport.centerX + (dx * cos + dy * sin) / render.viewport.zoom;
+    const docY =
+      render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom;
 
     if (
       docX >= 0 &&
@@ -343,7 +360,8 @@ export function EditorCanvas({
     const sin = Math.sin(radians);
     return {
       x: render.viewport.centerX + (dx * cos + dy * sin) / render.viewport.zoom,
-      y: render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom,
+      y:
+        render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom,
       canvasX: point.x,
       canvasY: point.y,
     };
@@ -359,8 +377,12 @@ export function EditorCanvas({
     const dx = docPoint.x - render.viewport.centerX;
     const dy = docPoint.y - render.viewport.centerY;
     return {
-      x: render.viewport.canvasW * 0.5 + (dx * cos - dy * sin) * render.viewport.zoom,
-      y: render.viewport.canvasH * 0.5 + (dx * sin + dy * cos) * render.viewport.zoom,
+      x:
+        render.viewport.canvasW * 0.5 +
+        (dx * cos - dy * sin) * render.viewport.zoom,
+      y:
+        render.viewport.canvasH * 0.5 +
+        (dx * sin + dy * cos) * render.viewport.zoom,
     };
   };
 
@@ -373,7 +395,11 @@ export function EditorCanvas({
   }, [engine, selectionOptions.featherRadius]);
 
   const commitSelection = useCallback(
-    (description: string, applyCommand: () => void, options?: { feather?: boolean }) => {
+    (
+      description: string,
+      applyCommand: () => void,
+      options?: { feather?: boolean },
+    ) => {
       engine.beginTransaction(description);
       let committed = false;
       try {
@@ -415,7 +441,11 @@ export function EditorCanvas({
   }, [finalizePolygonDraft, polygonDraft]);
 
   useEffect(() => {
-    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "polygon" || !polygonDraft) {
+    if (
+      activeTool !== "lasso" ||
+      selectionOptions.lassoMode !== "polygon" ||
+      !polygonDraft
+    ) {
       return;
     }
 
@@ -432,10 +462,19 @@ export function EditorCanvas({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTool, finalizePolygonSelection, polygonDraft, selectionOptions.lassoMode]);
+  }, [
+    activeTool,
+    finalizePolygonSelection,
+    polygonDraft,
+    selectionOptions.lassoMode,
+  ]);
 
-  const marqueeStartCanvas = marqueeDraft ? documentPointToCanvas(marqueeDraft.start) : null;
-  const marqueeCurrentCanvas = marqueeDraft ? documentPointToCanvas(marqueeDraft.current) : null;
+  const marqueeStartCanvas = marqueeDraft
+    ? documentPointToCanvas(marqueeDraft.start)
+    : null;
+  const marqueeCurrentCanvas = marqueeDraft
+    ? documentPointToCanvas(marqueeDraft.current)
+    : null;
   const marqueeOverlay =
     marqueeStartCanvas && marqueeCurrentCanvas
       ? {
@@ -455,7 +494,9 @@ export function EditorCanvas({
         points: polygonDraft.points
           .map((point) => documentPointToCanvas(point))
           .filter((point): point is DocumentPoint => point !== null),
-        hoverPoint: polygonDraft.hoverPoint ? documentPointToCanvas(polygonDraft.hoverPoint) : null,
+        hoverPoint: polygonDraft.hoverPoint
+          ? documentPointToCanvas(polygonDraft.hoverPoint)
+          : null,
       }
     : null;
 
@@ -466,7 +507,11 @@ export function EditorCanvas({
       role="application"
       aria-label="Editor canvas"
       onContextMenu={(event) => {
-        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon" && polygonDraft) {
+        if (
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "polygon" &&
+          polygonDraft
+        ) {
           event.preventDefault();
           finalizePolygonSelection();
         }
@@ -496,8 +541,14 @@ export function EditorCanvas({
             y: Math.floor(docPoint.y),
           });
           const layerId = picked?.uiMeta.activeLayerId ?? "";
-          const pickedLayer = picked ? findLayerMetaByID(picked.uiMeta.layers, layerId) : null;
-          if (!layerId || pickedLayer?.lockMode === "position" || pickedLayer?.lockMode === "all") {
+          const pickedLayer = picked
+            ? findLayerMetaByID(picked.uiMeta.layers, layerId)
+            : null;
+          if (
+            !layerId ||
+            pickedLayer?.lockMode === "position" ||
+            pickedLayer?.lockMode === "all"
+          ) {
             event.preventDefault();
             return;
           }
@@ -528,7 +579,10 @@ export function EditorCanvas({
           event.preventDefault();
           return;
         }
-        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
+        if (
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "polygon"
+        ) {
           if (event.button === 2 && polygonDraft) {
             event.preventDefault();
             finalizePolygonSelection();
@@ -574,13 +628,30 @@ export function EditorCanvas({
         }
         if (activeTool === "wand" && event.button === 0) {
           commitSelection(
-            selectionOptions.wandMode === "quick" ? "Quick select" : "Magic wand selection",
+            selectionOptions.wandMode === "quick"
+              ? "Quick select"
+              : "Magic wand selection",
             () => {
+              if (selectionOptions.wandMode === "magic") {
+                engine.magicWand({
+                  x: Math.floor(docPoint.x),
+                  y: Math.floor(docPoint.y),
+                  tolerance: selectionOptions.wandTolerance,
+                  contiguous: selectionOptions.wandContiguous,
+                  antiAlias: selectionOptions.antiAlias,
+                  sampleMerged: selectionOptions.wandSampleMerged,
+                  mode: selectionModeFromModifiers(
+                    event.shiftKey,
+                    event.altKey,
+                  ),
+                });
+                return;
+              }
               engine.quickSelect({
-                x: docPoint.x,
-                y: docPoint.y,
+                x: Math.floor(docPoint.x),
+                y: Math.floor(docPoint.y),
                 tolerance: selectionOptions.wandTolerance,
-                edgeSensitivity: selectionOptions.wandMode === "quick" ? 0.9 : 0.2,
+                edgeSensitivity: 0.9,
                 sampleMerged: selectionOptions.wandSampleMerged,
                 mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
               });
@@ -620,7 +691,11 @@ export function EditorCanvas({
       onPointerMove={(event) => {
         updateCursor(event.clientX, event.clientY);
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
-        if (polygonDraft && activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
+        if (
+          polygonDraft &&
+          activeTool === "lasso" &&
+          selectionOptions.lassoMode === "polygon"
+        ) {
           setPolygonDraft((current) =>
             current && docPoint
               ? {
@@ -654,7 +729,11 @@ export function EditorCanvas({
           }
           return;
         }
-        if (marqueeDraft && marqueeDraft.pointerId === event.pointerId && docPoint) {
+        if (
+          marqueeDraft &&
+          marqueeDraft.pointerId === event.pointerId &&
+          docPoint
+        ) {
           setMarqueeDraft((current) =>
             current
               ? {
@@ -665,7 +744,11 @@ export function EditorCanvas({
           );
           return;
         }
-        if (freehandDraft && freehandDraft.pointerId === event.pointerId && docPoint) {
+        if (
+          freehandDraft &&
+          freehandDraft.pointerId === event.pointerId &&
+          docPoint
+        ) {
           setFreehandDraft((current) => {
             if (!current) {
               return current;
@@ -719,7 +802,9 @@ export function EditorCanvas({
         }
         if (marqueeDraft && marqueeDraft.pointerId === event.pointerId) {
           const point = clientPointToDocument(event.clientX, event.clientY);
-          const endPoint = point ? { x: point.x, y: point.y } : marqueeDraft.current;
+          const endPoint = point
+            ? { x: point.x, y: point.y }
+            : marqueeDraft.current;
           commitSelection("Create selection", () => {
             engine.createSelection({
               shape: selectionOptions.marqueeShape,
@@ -760,7 +845,11 @@ export function EditorCanvas({
         if (zoomDrag && zoomDrag.pointerId === event.pointerId) {
           if (!zoomDrag.moved) {
             const step = zoomDrag.zoomOut ? 1 / 1.25 : 1.25;
-            engine.setZoom(zoomDrag.startZoom * step, zoomDrag.anchorX, zoomDrag.anchorY);
+            engine.setZoom(
+              zoomDrag.startZoom * step,
+              zoomDrag.anchorX,
+              zoomDrag.anchorY,
+            );
           }
           engine.endTransaction(true);
           zoomDragRef.current = null;
@@ -793,7 +882,8 @@ export function EditorCanvas({
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
         // Read from pending ref first — avoids stale React state when events
         // arrive faster than React can re-render.
-        const currentZoom = pendingZoomRef.current?.zoom ?? render.viewport.zoom;
+        const currentZoom =
+          pendingZoomRef.current?.zoom ?? render.viewport.zoom;
         pendingZoomRef.current = {
           zoom: currentZoom * direction,
           anchorX: docPoint?.x,
@@ -818,7 +908,10 @@ export function EditorCanvas({
         }
       }}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full bg-slate-950"
+      />
       {marqueeOverlay || freehandOverlay.length > 0 || polygonOverlay ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -831,8 +924,14 @@ export function EditorCanvas({
               <ellipse
                 cx={(marqueeOverlay.start.x + marqueeOverlay.current.x) * 0.5}
                 cy={(marqueeOverlay.start.y + marqueeOverlay.current.y) * 0.5}
-                rx={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x) * 0.5}
-                ry={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y) * 0.5}
+                rx={
+                  Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x) *
+                  0.5
+                }
+                ry={
+                  Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y) *
+                  0.5
+                }
                 fill="rgba(244, 114, 182, 0.12)"
                 stroke="rgba(244, 114, 182, 0.95)"
                 strokeDasharray="8 6"
@@ -842,8 +941,12 @@ export function EditorCanvas({
               <rect
                 x={Math.min(marqueeOverlay.start.x, marqueeOverlay.current.x)}
                 y={Math.min(marqueeOverlay.start.y, marqueeOverlay.current.y)}
-                width={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x)}
-                height={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y)}
+                width={Math.abs(
+                  marqueeOverlay.current.x - marqueeOverlay.start.x,
+                )}
+                height={Math.abs(
+                  marqueeOverlay.current.y - marqueeOverlay.start.y,
+                )}
                 fill="rgba(244, 114, 182, 0.12)"
                 stroke="rgba(244, 114, 182, 0.95)"
                 strokeDasharray="8 6"
@@ -865,7 +968,9 @@ export function EditorCanvas({
               <polyline
                 points={[
                   ...polygonOverlay.points,
-                  ...(polygonOverlay.hoverPoint ? [polygonOverlay.hoverPoint] : []),
+                  ...(polygonOverlay.hoverPoint
+                    ? [polygonOverlay.hoverPoint]
+                    : []),
                 ]
                   .map((point) => `${point.x},${point.y}`)
                   .join(" ")}
@@ -880,7 +985,11 @@ export function EditorCanvas({
                   cx={point.x}
                   cy={point.y}
                   r={index === 0 ? 4 : 3}
-                  fill={index === 0 ? "rgba(248, 250, 252, 0.95)" : "rgba(56, 189, 248, 0.95)"}
+                  fill={
+                    index === 0
+                      ? "rgba(248, 250, 252, 0.95)"
+                      : "rgba(56, 189, 248, 0.95)"
+                  }
                 />
               ))}
             </>
@@ -890,9 +999,13 @@ export function EditorCanvas({
       {engine.status !== "ready" ? (
         <div className="editor-backdrop absolute inset-0 flex items-center justify-center p-6">
           <div className="editor-popup max-w-lg rounded-[var(--ui-radius-lg)] p-5 text-center">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Wasm bridge</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">
+              Wasm bridge
+            </p>
             <h2 className="mt-2 text-lg font-semibold text-slate-100">
-              {engine.status === "loading" ? "Loading engine" : "Engine not connected"}
+              {engine.status === "loading"
+                ? "Loading engine"
+                : "Engine not connected"}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">
               {engine.status === "error"

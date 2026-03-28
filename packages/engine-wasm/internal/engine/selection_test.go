@@ -242,6 +242,140 @@ func TestRenderSelectionOverlayMarches(t *testing.T) {
 	}
 }
 
+func TestMagicWandGlobalAndContiguousModes(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:   "Magic Wand",
+		Width:  5,
+		Height: 1,
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Colors",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 5, H: 1},
+		Pixels: []byte{
+			255, 0, 0, 255,
+			255, 0, 0, 255,
+			0, 255, 0, 255,
+			255, 0, 0, 255,
+			255, 0, 0, 255,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
+	global, err := DispatchCommand(h, commandMagicWand, mustJSON(t, MagicWandPayload{
+		X:          0,
+		Y:          0,
+		Tolerance:  1,
+		LayerID:    layerID,
+		Contiguous: false,
+	}))
+	if err != nil {
+		t.Fatalf("magic wand global: %v", err)
+	}
+	if global.UIMeta.Selection.PixelCount != 4 {
+		t.Fatalf("magic wand global pixelCount = %d, want 4", global.UIMeta.Selection.PixelCount)
+	}
+
+	if _, err := DispatchCommand(h, commandDeselect, ""); err != nil {
+		t.Fatalf("deselect: %v", err)
+	}
+
+	contiguous, err := DispatchCommand(h, commandMagicWand, mustJSON(t, MagicWandPayload{
+		X:          0,
+		Y:          0,
+		Tolerance:  1,
+		LayerID:    layerID,
+		Contiguous: true,
+	}))
+	if err != nil {
+		t.Fatalf("magic wand contiguous: %v", err)
+	}
+	if contiguous.UIMeta.Selection.PixelCount != 2 {
+		t.Fatalf("magic wand contiguous pixelCount = %d, want 2", contiguous.UIMeta.Selection.PixelCount)
+	}
+}
+
+func TestMagicWandAntiAliasSoftensEdge(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:   "Magic Wand AA",
+		Width:  3,
+		Height: 1,
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Hard Edge",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 3, H: 1},
+		Pixels: []byte{
+			255, 0, 0, 255,
+			255, 0, 0, 255,
+			0, 0, 255, 255,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
+	hard, err := DispatchCommand(h, commandMagicWand, mustJSON(t, MagicWandPayload{
+		X:          0,
+		Y:          0,
+		Tolerance:  1,
+		LayerID:    layerID,
+		Contiguous: true,
+		AntiAlias:  false,
+	}))
+	if err != nil {
+		t.Fatalf("magic wand hard edge: %v", err)
+	}
+	if hard.UIMeta.Selection.Bounds == nil {
+		t.Fatal("hard-edge magic wand should produce bounds")
+	}
+	hardDoc := instances[h].manager.Active()
+	hardMask := append([]byte(nil), hardDoc.Selection.Mask...)
+
+	if _, err := DispatchCommand(h, commandDeselect, ""); err != nil {
+		t.Fatalf("deselect: %v", err)
+	}
+
+	soft, err := DispatchCommand(h, commandMagicWand, mustJSON(t, MagicWandPayload{
+		X:          0,
+		Y:          0,
+		Tolerance:  1,
+		LayerID:    layerID,
+		Contiguous: true,
+		AntiAlias:  true,
+	}))
+	if err != nil {
+		t.Fatalf("magic wand anti-aliased: %v", err)
+	}
+	softDoc := instances[h].manager.Active()
+	softMask := softDoc.Selection.Mask
+	if hardMask[2] != 0 {
+		t.Fatalf("hard-edge mask boundary alpha = %d, want 0", hardMask[2])
+	}
+	if softMask[2] == 0 || softMask[2] == 255 {
+		t.Fatalf("anti-aliased mask boundary alpha = %d, want value between 1 and 254", softMask[2])
+	}
+	if soft.UIMeta.Selection.PixelCount <= hard.UIMeta.Selection.PixelCount {
+		t.Fatalf("anti-aliased magic wand pixelCount = %d, want more than %d", soft.UIMeta.Selection.PixelCount, hard.UIMeta.Selection.PixelCount)
+	}
+}
+
 func rgbaPixelAt(pixels []byte, width, x, y int) [4]byte {
 	index := (y*width + x) * 4
 	return [4]byte{pixels[index], pixels[index+1], pixels[index+2], pixels[index+3]}

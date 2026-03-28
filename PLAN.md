@@ -204,8 +204,8 @@
   - [x] Polygon Lasso: click points, double-click or click start to close
   - [ ] Magnetic Lasso (later: Phase 3.2b — edge-detection snap)
 - [ ] **Magic Wand / Quick Selection:**
-  - [ ] Magic Wand: flood-fill selection by color similarity from click point
-    - [ ] Options: tolerance, anti-alias, contiguous, sample all layers
+  - [x] Magic Wand: flood-fill selection by color similarity from click point
+    - [x] Options: tolerance, anti-alias, contiguous, sample all layers
   - [ ] Quick Selection: paint-to-expand selection with edge detection
 - [ ] **Move Tool:**
   - [x] Move active layer (or selection content) with pointer drag

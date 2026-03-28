@@ -67,6 +67,7 @@ const (
 	commandTransformSelection = 0x020a
 	commandSelectColorRange   = 0x020b
 	commandQuickSelect        = 0x020c
+	commandMagicWand          = 0x020d
 	commandBeginTxn           = 0xffe0
 	commandEndTxn             = 0xffe1
 	commandClearHistory       = 0xffe2
@@ -1609,6 +1610,30 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, fmt.Errorf("no active document")
 				}
 				if err := doc.QuickSelect(payload.X, payload.Y, payload.Tolerance, payload.EdgeSensitivity, payload.LayerID, payload.SampleMerged, payload.Mode); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandMagicWand:
+		var payload MagicWandPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Magic wand selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.MagicWand(payload.X, payload.Y, payload.Tolerance, payload.LayerID, payload.SampleMerged, payload.Contiguous, payload.AntiAlias, payload.Mode); err != nil {
 					return snapshot{}, err
 				}
 				if err := inst.manager.ReplaceActive(doc); err != nil {

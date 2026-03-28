@@ -55,6 +55,7 @@ export enum CommandID {
   TransformSelection = 0x020a,
   SelectColorRange = 0x020b,
   QuickSelect = 0x020c,
+  MagicWand = 0x020d,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -307,6 +308,17 @@ export interface QuickSelectCommand {
   edgeSensitivity?: number;
   layerId?: string;
   sampleMerged?: boolean;
+  mode?: SelectionCombineMode;
+}
+
+export interface MagicWandCommand {
+  x: number;
+  y: number;
+  tolerance: number;
+  layerId?: string;
+  sampleMerged?: boolean;
+  contiguous?: boolean;
+  antiAlias?: boolean;
   mode?: SelectionCombineMode;
 }
 
