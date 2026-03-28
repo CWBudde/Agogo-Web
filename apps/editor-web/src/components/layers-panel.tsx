@@ -108,6 +108,8 @@ type LayersPanelProps = {
   documentWidth: number;
   documentHeight: number;
   thumbnails: Record<string, ThumbnailEntry>;
+  selectedLayerIds: string[];
+  onSelectedLayerIdsChange: (ids: string[]) => void;
 };
 
 export function LayersPanel({
@@ -118,13 +120,14 @@ export function LayersPanel({
   documentWidth,
   documentHeight,
   thumbnails,
+  selectedLayerIds,
+  onSelectedLayerIdsChange,
 }: LayersPanelProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
-  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [lastSelectedLayerId, setLastSelectedLayerId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<LayerContextMenuState>(null);
   const [colorTags, setColorTags] = useState<Record<string, ColorTagId>>({});
@@ -170,15 +173,15 @@ export function LayersPanel({
     const additiveSelection = Boolean(event?.ctrlKey || event?.metaKey);
     if (event?.shiftKey && lastSelectedLayerId) {
       const rangeSelection = getLayerSelectionRange(displayOrder, lastSelectedLayerId, layerId);
-      setSelectedLayerIds(rangeSelection.length > 0 ? rangeSelection : [layerId]);
+      onSelectedLayerIdsChange(rangeSelection.length > 0 ? rangeSelection : [layerId]);
     } else if (additiveSelection) {
-      setSelectedLayerIds((current) =>
-        current.includes(layerId)
-          ? current.filter((candidate) => candidate !== layerId)
-          : [...current, layerId],
+      onSelectedLayerIdsChange(
+        selectedLayerIds.includes(layerId)
+          ? selectedLayerIds.filter((candidate) => candidate !== layerId)
+          : [...selectedLayerIds, layerId],
       );
     } else {
-      setSelectedLayerIds([layerId]);
+      onSelectedLayerIdsChange([layerId]);
     }
     setLastSelectedLayerId(layerId);
     engine.dispatchCommand(CommandID.SetActiveLayer, { layerId });
@@ -202,7 +205,7 @@ export function LayersPanel({
     for (const layerId of orderedIds.reverse()) {
       engine.dispatchCommand(CommandID.DeleteLayer, { layerId });
     }
-    setSelectedLayerIds([]);
+    onSelectedLayerIdsChange([]);
     setLastSelectedLayerId(null);
   };
 
@@ -291,7 +294,7 @@ export function LayersPanel({
         index,
       });
     });
-    setSelectedLayerIds([groupId]);
+    onSelectedLayerIdsChange([groupId]);
     setLastSelectedLayerId(groupId);
   };
 
@@ -318,13 +321,13 @@ export function LayersPanel({
       });
     });
     engine.dispatchCommand(CommandID.DeleteLayer, { layerId: group.id });
-    setSelectedLayerIds(childIds);
+    onSelectedLayerIdsChange(childIds);
     setLastSelectedLayerId(childIds.at(-1) ?? null);
   };
 
   const openContextMenu = (layer: LayerNodeMeta, x: number, y: number) => {
     if (!selectedIdSet.has(layer.id)) {
-      setSelectedLayerIds([layer.id]);
+      onSelectedLayerIdsChange([layer.id]);
       setLastSelectedLayerId(layer.id);
       engine.dispatchCommand(CommandID.SetActiveLayer, { layerId: layer.id });
     }

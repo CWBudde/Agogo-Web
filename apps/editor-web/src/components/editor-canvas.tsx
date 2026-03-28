@@ -28,7 +28,12 @@ type EditorCanvasProps = {
   isPanMode: boolean;
   isZoomTool: boolean;
   selectionOptions: {
-    marqueeShape: "rect" | "ellipse";
+    marqueeShape: "rect" | "ellipse" | "row" | "col";
+    marqueeStyle: "normal" | "fixed-ratio" | "fixed-size";
+    marqueeRatioW: number;
+    marqueeRatioH: number;
+    marqueeSizeW: number;
+    marqueeSizeH: number;
     lassoMode: "freehand" | "polygon";
     antiAlias: boolean;
     featherRadius: number;
@@ -37,6 +42,8 @@ type EditorCanvasProps = {
     wandContiguous: boolean;
     wandSampleMerged: boolean;
   };
+  moveAutoSelectGroup: boolean;
+  selectedLayerIds: string[];
   onCursorChange(position: CursorPosition): void;
 };
 
@@ -82,6 +89,7 @@ type MarqueeDraft = {
   start: DocumentPoint;
   current: DocumentPoint;
   mode: "replace" | "add" | "subtract" | "intersect";
+  constrain: boolean;
 };
 
 type FreehandDraft = {
@@ -98,11 +106,19 @@ type PolygonDraft = {
 
 type MoveDraft = {
   pointerId: number;
-  layerId: string;
+  layerIds: string[];
   start: DocumentPoint;
   appliedDX: number;
   appliedDY: number;
   moved: boolean;
+};
+
+type QuickSelectDraft = {
+  pointerId: number;
+  lastX: number;
+  lastY: number;
+  /** Mode to use for each drag step after the initial click. */
+  dragMode: "add" | "subtract";
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -132,21 +148,62 @@ function buildOverlayPath(points: DocumentPoint[]) {
   return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")} Z`;
 }
 
+function constrainedMarqueeEnd(
+  start: DocumentPoint,
+  current: DocumentPoint,
+  constrain: boolean,
+  marqueeStyle: "normal" | "fixed-ratio" | "fixed-size",
+  marqueeRatioW: number,
+  marqueeRatioH: number,
+): DocumentPoint {
+  const rawW = current.x - start.x;
+  const rawH = current.y - start.y;
+  if (constrain) {
+    const side = Math.min(Math.abs(rawW), Math.abs(rawH));
+    return {
+      x: start.x + (rawW >= 0 ? side : -side),
+      y: start.y + (rawH >= 0 ? side : -side),
+    };
+  }
+  if (marqueeStyle === "fixed-ratio") {
+    const ratio = marqueeRatioW / Math.max(marqueeRatioH, 0.001);
+    const absW = Math.abs(rawW);
+    const absH = Math.abs(rawH);
+    if (absW / ratio > absH) {
+      const side = absH * ratio;
+      return {
+        x: start.x + (rawW >= 0 ? side : -side),
+        y: current.y,
+      };
+    }
+    const side = absW / ratio;
+    return {
+      x: current.x,
+      y: start.y + (rawH >= 0 ? side : -side),
+    };
+  }
+  return current;
+}
+
+type LayerMetaSlim = {
+  id: string;
+  lockMode: string;
+  layerType?: string;
+  parentId?: string;
+  children?: unknown[];
+};
+
 function findLayerMetaByID(
-  layers: Array<{ id: string; lockMode: string; children?: unknown[] }>,
+  layers: Array<LayerMetaSlim>,
   targetID: string,
-): { id: string; lockMode: string; children?: unknown[] } | null {
+): LayerMetaSlim | null {
   for (const layer of layers) {
     if (layer.id === targetID) {
       return layer;
     }
     if (Array.isArray(layer.children)) {
       const child = findLayerMetaByID(
-        layer.children as Array<{
-          id: string;
-          lockMode: string;
-          children?: unknown[];
-        }>,
+        layer.children as Array<LayerMetaSlim>,
         targetID,
       );
       if (child) {
@@ -162,6 +219,8 @@ export function EditorCanvas({
   isPanMode,
   isZoomTool,
   selectionOptions,
+  moveAutoSelectGroup,
+  selectedLayerIds,
   onCursorChange,
 }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -176,6 +235,8 @@ export function EditorCanvas({
   } | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
   const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
+  const [quickSelectDraft, setQuickSelectDraft] =
+    useState<QuickSelectDraft | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
     null,
@@ -253,10 +314,13 @@ export function EditorCanvas({
     if (activeTool !== "marquee") {
       setMarqueeDraft(null);
     }
+    if (activeTool !== "wand" || selectionOptions.wandMode !== "quick") {
+      setQuickSelectDraft(null);
+    }
     if (activeTool !== "move") {
       setMoveDraft(null);
     }
-  }, [activeTool, selectionOptions.lassoMode]);
+  }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
   // Once React commits a new render, if no rAF is pending the pending zoom has
   // been fully processed and render.viewport.zoom is fresh — safe to clear.
@@ -472,8 +536,18 @@ export function EditorCanvas({
   const marqueeStartCanvas = marqueeDraft
     ? documentPointToCanvas(marqueeDraft.start)
     : null;
-  const marqueeCurrentCanvas = marqueeDraft
-    ? documentPointToCanvas(marqueeDraft.current)
+  const marqueeConstrainedCurrent = marqueeDraft
+    ? constrainedMarqueeEnd(
+        marqueeDraft.start,
+        marqueeDraft.current,
+        marqueeDraft.constrain,
+        selectionOptions.marqueeStyle,
+        selectionOptions.marqueeRatioW,
+        selectionOptions.marqueeRatioH,
+      )
+    : null;
+  const marqueeCurrentCanvas = marqueeConstrainedCurrent
+    ? documentPointToCanvas(marqueeConstrainedCurrent)
     : null;
   const marqueeOverlay =
     marqueeStartCanvas && marqueeCurrentCanvas
@@ -525,11 +599,71 @@ export function EditorCanvas({
           return;
         }
         if (activeTool === "marquee" && event.button === 0) {
+          const marqueeMode = selectionModeFromModifiers(
+            event.shiftKey,
+            event.altKey,
+          );
+          if (selectionOptions.marqueeShape === "row") {
+            commitSelection("Create row selection", () => {
+              engine.createSelection({
+                shape: "rect",
+                mode: marqueeMode,
+                rect: {
+                  x: 0,
+                  y: Math.floor(docPoint.y),
+                  w: render.uiMeta.documentWidth,
+                  h: 1,
+                },
+                antiAlias: false,
+              });
+            });
+            event.preventDefault();
+            return;
+          }
+          if (selectionOptions.marqueeShape === "col") {
+            commitSelection("Create column selection", () => {
+              engine.createSelection({
+                shape: "rect",
+                mode: marqueeMode,
+                rect: {
+                  x: Math.floor(docPoint.x),
+                  y: 0,
+                  w: 1,
+                  h: render.uiMeta.documentHeight,
+                },
+                antiAlias: false,
+              });
+            });
+            event.preventDefault();
+            return;
+          }
+          if (selectionOptions.marqueeStyle === "fixed-size") {
+            commitSelection("Create fixed size selection", () => {
+              engine.createSelection({
+                shape: selectionOptions.marqueeShape as "rect" | "ellipse",
+                mode: marqueeMode,
+                rect: {
+                  x: Math.floor(
+                    docPoint.x - selectionOptions.marqueeSizeW / 2,
+                  ),
+                  y: Math.floor(
+                    docPoint.y - selectionOptions.marqueeSizeH / 2,
+                  ),
+                  w: selectionOptions.marqueeSizeW,
+                  h: selectionOptions.marqueeSizeH,
+                },
+                antiAlias: selectionOptions.antiAlias,
+              });
+            });
+            event.preventDefault();
+            return;
+          }
           setMarqueeDraft({
             pointerId: event.pointerId,
             start: { x: docPoint.x, y: docPoint.y },
             current: { x: docPoint.x, y: docPoint.y },
-            mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+            mode: marqueeMode,
+            constrain: event.shiftKey,
           });
           event.currentTarget.setPointerCapture(event.pointerId);
           event.preventDefault();
@@ -552,10 +686,27 @@ export function EditorCanvas({
             event.preventDefault();
             return;
           }
+
+          // Auto-select group: if enabled and the picked layer has a parent group, select that instead.
+          let effectiveLayerId = layerId;
+          if (moveAutoSelectGroup && picked && pickedLayer?.parentId) {
+            const parentMeta = findLayerMetaByID(picked.uiMeta.layers, pickedLayer.parentId);
+            if (parentMeta?.layerType === "group") {
+              effectiveLayerId = parentMeta.id;
+              engine.dispatchCommand(CommandID.SetActiveLayer, { layerId: effectiveLayerId });
+            }
+          }
+
+          // Move all selected layers if the picked layer is already in the selection.
+          const layersToMove =
+            selectedLayerIds.includes(effectiveLayerId) && selectedLayerIds.length > 1
+              ? selectedLayerIds
+              : [effectiveLayerId];
+
           engine.beginTransaction("Move layer");
           setMoveDraft({
             pointerId: event.pointerId,
-            layerId,
+            layerIds: layersToMove,
             start: { x: docPoint.x, y: docPoint.y },
             appliedDX: 0,
             appliedDY: 0,
@@ -627,36 +778,39 @@ export function EditorCanvas({
           return;
         }
         if (activeTool === "wand" && event.button === 0) {
-          commitSelection(
-            selectionOptions.wandMode === "quick"
-              ? "Quick select"
-              : "Magic wand selection",
-            () => {
-              if (selectionOptions.wandMode === "magic") {
-                engine.magicWand({
-                  x: Math.floor(docPoint.x),
-                  y: Math.floor(docPoint.y),
-                  tolerance: selectionOptions.wandTolerance,
-                  contiguous: selectionOptions.wandContiguous,
-                  antiAlias: selectionOptions.antiAlias,
-                  sampleMerged: selectionOptions.wandSampleMerged,
-                  mode: selectionModeFromModifiers(
-                    event.shiftKey,
-                    event.altKey,
-                  ),
-                });
-                return;
-              }
-              engine.quickSelect({
+          if (selectionOptions.wandMode === "magic") {
+            commitSelection("Magic wand selection", () => {
+              engine.magicWand({
                 x: Math.floor(docPoint.x),
                 y: Math.floor(docPoint.y),
                 tolerance: selectionOptions.wandTolerance,
-                edgeSensitivity: 0.9,
+                contiguous: selectionOptions.wandContiguous,
+                antiAlias: selectionOptions.antiAlias,
                 sampleMerged: selectionOptions.wandSampleMerged,
                 mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
               });
-            },
-          );
+            });
+          } else {
+            // Quick Select: open a transaction for the whole drag gesture.
+            const pixelX = Math.floor(docPoint.x);
+            const pixelY = Math.floor(docPoint.y);
+            engine.beginTransaction("Quick Selection");
+            engine.quickSelect({
+              x: pixelX,
+              y: pixelY,
+              tolerance: selectionOptions.wandTolerance,
+              edgeSensitivity: 0.9,
+              sampleMerged: selectionOptions.wandSampleMerged,
+              mode: selectionModeFromModifiers(event.shiftKey, event.altKey),
+            });
+            setQuickSelectDraft({
+              pointerId: event.pointerId,
+              lastX: pixelX,
+              lastY: pixelY,
+              dragMode: event.altKey ? "subtract" : "add",
+            });
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }
           event.preventDefault();
           return;
         }
@@ -705,17 +859,44 @@ export function EditorCanvas({
               : current,
           );
         }
+        if (
+          quickSelectDraft &&
+          quickSelectDraft.pointerId === event.pointerId &&
+          docPoint
+        ) {
+          const pixelX = Math.floor(docPoint.x);
+          const pixelY = Math.floor(docPoint.y);
+          if (
+            pixelX !== quickSelectDraft.lastX ||
+            pixelY !== quickSelectDraft.lastY
+          ) {
+            engine.quickSelect({
+              x: pixelX,
+              y: pixelY,
+              tolerance: selectionOptions.wandTolerance,
+              edgeSensitivity: 0.9,
+              sampleMerged: selectionOptions.wandSampleMerged,
+              mode: quickSelectDraft.dragMode,
+            });
+            setQuickSelectDraft((current) =>
+              current ? { ...current, lastX: pixelX, lastY: pixelY } : current,
+            );
+          }
+          return;
+        }
         if (moveDraft && moveDraft.pointerId === event.pointerId && docPoint) {
           const totalDX = Math.round(docPoint.x - moveDraft.start.x);
           const totalDY = Math.round(docPoint.y - moveDraft.start.y);
           const stepDX = totalDX - moveDraft.appliedDX;
           const stepDY = totalDY - moveDraft.appliedDY;
           if (stepDX !== 0 || stepDY !== 0) {
-            engine.translateLayer({
-              layerId: moveDraft.layerId,
-              dx: stepDX,
-              dy: stepDY,
-            });
+            for (const id of moveDraft.layerIds) {
+              engine.translateLayer({
+                layerId: id,
+                dx: stepDX,
+                dy: stepDY,
+              });
+            }
             setMoveDraft((current) =>
               current
                 ? {
@@ -739,6 +920,7 @@ export function EditorCanvas({
               ? {
                   ...current,
                   current: { x: docPoint.x, y: docPoint.y },
+                  constrain: event.shiftKey,
                 }
               : current,
           );
@@ -794,6 +976,12 @@ export function EditorCanvas({
         });
       }}
       onPointerUp={(event) => {
+        if (quickSelectDraft && quickSelectDraft.pointerId === event.pointerId) {
+          engine.endTransaction(true);
+          setQuickSelectDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         if (moveDraft && moveDraft.pointerId === event.pointerId) {
           engine.endTransaction(moveDraft.moved);
           setMoveDraft(null);
@@ -802,19 +990,30 @@ export function EditorCanvas({
         }
         if (marqueeDraft && marqueeDraft.pointerId === event.pointerId) {
           const point = clientPointToDocument(event.clientX, event.clientY);
-          const endPoint = point
+          const rawEndPoint = point
             ? { x: point.x, y: point.y }
             : marqueeDraft.current;
+          const constrainedEnd = constrainedMarqueeEnd(
+            marqueeDraft.start,
+            rawEndPoint,
+            marqueeDraft.constrain,
+            selectionOptions.marqueeStyle,
+            selectionOptions.marqueeRatioW,
+            selectionOptions.marqueeRatioH,
+          );
+          const w = constrainedEnd.x - marqueeDraft.start.x;
+          const h = constrainedEnd.y - marqueeDraft.start.y;
+          const rect = {
+            x: Math.min(marqueeDraft.start.x, marqueeDraft.start.x + w),
+            y: Math.min(marqueeDraft.start.y, marqueeDraft.start.y + h),
+            w: Math.max(1, Math.abs(w)),
+            h: Math.max(1, Math.abs(h)),
+          };
           commitSelection("Create selection", () => {
             engine.createSelection({
-              shape: selectionOptions.marqueeShape,
+              shape: selectionOptions.marqueeShape as "rect" | "ellipse",
               mode: marqueeDraft.mode,
-              rect: {
-                x: Math.min(marqueeDraft.start.x, endPoint.x),
-                y: Math.min(marqueeDraft.start.y, endPoint.y),
-                w: Math.max(1, Math.abs(endPoint.x - marqueeDraft.start.x)),
-                h: Math.max(1, Math.abs(endPoint.y - marqueeDraft.start.y)),
-              },
+              rect,
               antiAlias: selectionOptions.antiAlias,
             });
           });
