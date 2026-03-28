@@ -169,6 +169,8 @@ just build
 | `just ci` | Run formatting checks, tests, linting, tidy verification, and production build |
 | `just clean` | Remove generated build artifacts |
 
+Frontend note: `bun run lint` is lint-only. Formatting is intentionally separate so you can run it in a focused pass via `just fmt` or `bun run --cwd apps/editor-web format`.
+
 ## Workspace Guide
 
 ### Frontend

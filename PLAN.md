@@ -192,24 +192,26 @@
 ### Phase 3.2: Selection Tools
 
 - [ ] **Marquee tools:**
-  - [ ] Rectangular Marquee: click-drag bounding box
-  - [ ] Elliptical Marquee: click-drag with AA edge
+  - [x] Rectangular Marquee: click-drag bounding box
+  - [x] Elliptical Marquee: click-drag with AA edge
   - [ ] Single Row / Single Column Marquee (1px-height/width)
-  - [ ] Modifier keys: Shift=add, Alt=subtract, Shift+Alt=intersect, Shift during drag=constrain to square/circle
-  - [ ] Options bar: feather radius, anti-alias toggle, style (normal/fixed ratio/fixed size)
+  - [x] Modifier keys: Shift=add, Alt=subtract, Shift+Alt=intersect
+  - [ ] Shift during drag=constrain to square/circle
+  - [x] Options bar: feather radius, anti-alias toggle
+  - [ ] Options bar: style (normal/fixed ratio/fixed size)
 - [ ] **Lasso tools:**
-  - [ ] Free Lasso: freehand path while pointer held down, auto-close on release
-  - [ ] Polygon Lasso: click points, double-click or click start to close
+  - [x] Free Lasso: freehand path while pointer held down, auto-close on release
+  - [x] Polygon Lasso: click points, double-click or click start to close
   - [ ] Magnetic Lasso (later: Phase 3.2b — edge-detection snap)
 - [ ] **Magic Wand / Quick Selection:**
   - [ ] Magic Wand: flood-fill selection by color similarity from click point
     - [ ] Options: tolerance, anti-alias, contiguous, sample all layers
   - [ ] Quick Selection: paint-to-expand selection with edge detection
 - [ ] **Move Tool:**
-  - [ ] Move active layer (or selection content) with pointer drag
-  - [ ] Auto-select layer: click picks topmost non-transparent layer under cursor
+  - [x] Move active layer (or selection content) with pointer drag
+  - [x] Auto-select layer: click picks topmost non-transparent layer under cursor
   - [ ] Auto-select group: option to select group vs individual layer
-  - [ ] Arrow keys: nudge by 1px (Shift = 10px)
+  - [x] Arrow keys: nudge by 1px (Shift = 10px)
   - [ ] Drag multiple selected layers simultaneously
 
 ### Phase 3.3: Transform System
