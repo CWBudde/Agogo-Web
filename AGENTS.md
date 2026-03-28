@@ -37,8 +37,9 @@ just clean              # Remove all build artifacts
 Frontend-only commands (from `apps/editor-web/`):
 ```bash
 bun run dev             # Vite dev server
-bun run lint            # Biome check
-bun run lint:fix        # Biome check --write
+bun run lint            # Biome lint only (no formatter drift checks)
+bun run lint:fix        # Biome lint --write
+bun run format          # Biome formatter --write
 bun run typecheck       # tsc --noEmit
 ```
 
@@ -109,7 +110,6 @@ The project uses **lefthook** to run `biome`, `typecheck`, and `go-vet` in paral
 
 | Hook | Failure symptom | Fix |
 | ---- | --------------- | --- |
-| `biome` | "Formatter would have printed…" | `just fmt`, then re-stage |
 | `biome` | Lint rule violations | `just lint-fix`, fix remaining issues manually, then re-stage |
 | `typecheck` | TypeScript type errors | Fix the TS errors, then re-stage |
 | `go-vet` | Go vet warnings | Fix the Go issues, then re-stage |
@@ -117,11 +117,12 @@ The project uses **lefthook** to run `biome`, `typecheck`, and `go-vet` in paral
 **General workflow when a commit is blocked:**
 
 ```bash
-just fmt          # auto-format everything (biome + gofumpt + gci + shfmt)
 just lint-fix     # auto-fix lint issues
 git add -u        # re-stage the fixed files
 git commit -m "your message"
 ```
+
+Run `just fmt` separately when you want a focused formatting pass, for example at the end of a phase.
 
 Never use `--no-verify` to bypass hooks — the same checks run in CI and will fail there.
 
