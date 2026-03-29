@@ -1,6 +1,7 @@
 import {
   CommandID,
   type CreateDocumentCommand,
+  type InterpolMode,
   type LayerNodeMeta,
   type ThumbnailEntry,
 } from "@agogo/proto";
@@ -43,19 +44,25 @@ import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
 
-type FileMenuActionId =
+type MenuActionId =
   | "new-document"
   | "open-project"
   | "open-recent"
   | "save-project"
   | "export-project"
-  | "generate-assets";
+  | "generate-assets"
+  | "transform-free"
+  | "transform-flip-h"
+  | "transform-flip-v"
+  | "transform-rotate-cw"
+  | "transform-rotate-ccw"
+  | "transform-rotate-180";
 
 type MenuPreviewItem = {
   label: string;
   shortcut?: string;
   tone?: MenuPreviewTone;
-  actionId?: FileMenuActionId;
+  actionId?: MenuActionId;
   disabled?: boolean;
 };
 
@@ -120,6 +127,17 @@ const menuItems: MenuPreviewMenu[] = [
           { label: "Cut", shortcut: "Ctrl+X" },
           { label: "Copy", shortcut: "Ctrl+C" },
           { label: "Paste", shortcut: "Ctrl+V" },
+        ],
+      },
+      {
+        title: "Transform",
+        items: [
+          { label: "Free Transform", shortcut: "Ctrl+T", tone: "accent", actionId: "transform-free" as const },
+          { label: "Flip Horizontal", actionId: "transform-flip-h" as const },
+          { label: "Flip Vertical", actionId: "transform-flip-v" as const },
+          { label: "Rotate 90° CW", actionId: "transform-rotate-cw" as const },
+          { label: "Rotate 90° CCW", actionId: "transform-rotate-ccw" as const },
+          { label: "Rotate 180°", actionId: "transform-rotate-180" as const },
         ],
       },
     ],
@@ -277,7 +295,7 @@ const menuItems: MenuPreviewMenu[] = [
   },
 ];
 
-type EditorTool = ShortcutTool | "brush" | "eraser" | "type" | "shape";
+type EditorTool = ShortcutTool | "brush" | "eraser" | "type" | "shape" | "transform";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
 type LassoMode = "freehand" | "polygon" | "magnetic";
@@ -296,6 +314,7 @@ const toolItems: {
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
   { id: "shape", label: "Shape", Icon: ShapeToolIcon },
+  { id: "transform", label: "Transform", Icon: SlidersIcon },
   { id: "hand", label: "Hand", Icon: HandToolIcon },
   { id: "zoom", label: "Zoom", Icon: ZoomToolIcon },
 ];
@@ -591,12 +610,20 @@ export default function App() {
     }
   };
 
-  const isFileMenuActionDisabled = (actionId: FileMenuActionId) => {
+  const isMenuActionDisabled = (actionId: MenuActionId) => {
     switch (actionId) {
       case "save-project":
       case "export-project":
       case "generate-assets":
         return !render || actionId === "generate-assets";
+      case "transform-free":
+        return !render;
+      case "transform-flip-h":
+      case "transform-flip-v":
+      case "transform-rotate-cw":
+      case "transform-rotate-ccw":
+      case "transform-rotate-180":
+        return !render?.uiMeta.activeLayerId;
       default:
         return false;
     }
@@ -609,11 +636,11 @@ export default function App() {
     if (!item.actionId) {
       return true;
     }
-    return isFileMenuActionDisabled(item.actionId);
+    return isMenuActionDisabled(item.actionId);
   };
 
-  const handleFileMenuAction = (actionId: FileMenuActionId) => {
-    if (isFileMenuActionDisabled(actionId)) {
+  const handleMenuAction = (actionId: MenuActionId) => {
+    if (isMenuActionDisabled(actionId)) {
       return;
     }
 
@@ -634,6 +661,25 @@ export default function App() {
         break;
       case "export-project":
         setExportDialogOpen(true);
+        break;
+      case "transform-free":
+        setActiveTool("transform");
+        engine.dispatchCommand(CommandID.BeginFreeTransform, {});
+        break;
+      case "transform-flip-h":
+        engine.dispatchCommand(CommandID.FlipLayerH, {});
+        break;
+      case "transform-flip-v":
+        engine.dispatchCommand(CommandID.FlipLayerV, {});
+        break;
+      case "transform-rotate-cw":
+        engine.dispatchCommand(CommandID.RotateLayer90CW, {});
+        break;
+      case "transform-rotate-ccw":
+        engine.dispatchCommand(CommandID.RotateLayer90CCW, {});
+        break;
+      case "transform-rotate-180":
+        engine.dispatchCommand(CommandID.RotateLayer180, {});
         break;
       default:
         break;
@@ -690,6 +736,10 @@ export default function App() {
     },
     onToolSelect(tool: ShortcutTool) {
       activateTool(tool);
+    },
+    onBeginTransform() {
+      setActiveTool("transform");
+      engine.dispatchCommand(CommandID.BeginFreeTransform, {});
     },
     onNudgeLayer(dx: number, dy: number) {
       if (!render?.uiMeta.activeLayerId) {
@@ -951,6 +1001,64 @@ export default function App() {
           Sample all layers
         </ToolChoiceButton>
       </>
+    ) : activeTool === "transform" ? (
+      render?.uiMeta.freeTransform?.active ? (
+        <>
+          <span className="text-[11px] text-slate-300">
+            X: {Math.round(render.uiMeta.freeTransform.tx)}
+          </span>
+            <span className="text-[11px] text-slate-300">
+              Y: {Math.round(render.uiMeta.freeTransform.ty)}
+            </span>
+            <span className="text-[11px] text-slate-300">
+              W: {(render.uiMeta.freeTransform.scaleX * 100).toFixed(1)}%
+            </span>
+            <span className="text-[11px] text-slate-300">
+              H: {(render.uiMeta.freeTransform.scaleY * 100).toFixed(1)}%
+            </span>
+            <span className="text-[11px] text-slate-300">
+              R: {render.uiMeta.freeTransform.rotation.toFixed(1)}°
+            </span>
+            <ToolOptionGroup label="Interp">
+              {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
+                <ToolChoiceButton
+                  key={mode}
+                  active={render.uiMeta.freeTransform?.interpolation === mode}
+                  onClick={() => {
+                    const ft = render.uiMeta.freeTransform;
+                    if (!ft) return;
+                    engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                      a: ft.a, b: ft.b, c: ft.c, d: ft.d,
+                      tx: ft.tx, ty: ft.ty,
+                      pivotX: ft.pivotX, pivotY: ft.pivotY,
+                      interpolation: mode,
+                    });
+                  }}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </ToolChoiceButton>
+              ))}
+            </ToolOptionGroup>
+            <button
+              type="button"
+              className="rounded border border-green-600/50 bg-green-600/20 px-2 py-0.5 text-[11px] text-green-300 hover:bg-green-600/30 focus-visible:outline-none"
+              onClick={() => engine.dispatchCommand(CommandID.CommitFreeTransform, {})}
+            >
+              ✓ Commit
+            </button>
+            <button
+              type="button"
+              className="rounded border border-red-600/50 bg-red-600/20 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-600/30 focus-visible:outline-none"
+              onClick={() => engine.dispatchCommand(CommandID.CancelFreeTransform, {})}
+            >
+              ✗ Cancel
+            </button>
+          </>
+      ) : (
+        <span className="text-[11px] text-slate-400">
+          Click a layer to begin free transform · Enter to commit · Esc to cancel
+        </span>
+      )
     ) : null;
 
   const activeToolLabel = isPanMode
@@ -1027,7 +1135,7 @@ export default function App() {
                         <MenuPreviewPanel
                           menu={menu}
                           isItemDisabled={isMenuItemDisabled}
-                          onAction={handleFileMenuAction}
+                          onAction={handleMenuAction}
                         />
                       ) : null}
                     </div>
@@ -1822,7 +1930,7 @@ function MenuPreviewPanel({
 }: {
   menu: MenuPreviewMenu;
   isItemDisabled(item: MenuPreviewItem): boolean;
-  onAction(actionId: FileMenuActionId): void;
+  onAction(actionId: MenuActionId): void;
 }) {
   const items = menu.sections.flatMap((section) => section.items);
 
@@ -1847,7 +1955,7 @@ function MenuPreviewPanel({
               disabled={disabled}
               onClick={
                 item.actionId
-                  ? () => onAction(item.actionId as FileMenuActionId)
+                  ? () => onAction(item.actionId as MenuActionId)
                   : undefined
               }
             />
