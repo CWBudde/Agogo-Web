@@ -1,4 +1,4 @@
-import { CommandID, type FreeTransformMeta } from "@agogo/proto";
+import { CommandID, type FreeTransformMeta, type InterpolMode } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -148,6 +148,14 @@ type TransformDragKind =
   | "scale-r"
   | "scale-b"
   | "scale-l"
+  | "skew-t"
+  | "skew-r"
+  | "skew-b"
+  | "skew-l"
+  | "distort-tl"
+  | "distort-tr"
+  | "distort-br"
+  | "distort-bl"
   | "rotate";
 
 type TransformDraft = {
@@ -167,6 +175,8 @@ type TransformDraft = {
   fixedY: number;
   // For rotation: angle from pivot to pointer at drag start (radians)
   startAngle: number;
+  /** Corners at drag start (TL, TR, BR, BL in doc space). Used for distort. */
+  startCorners: [[number, number], [number, number], [number, number], [number, number]];
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -1133,16 +1143,32 @@ export function EditorCanvas({
               event.clientY,
             );
             if (canvasPoint) {
-              const kind = transformHitTest(
+              let kind = transformHitTest(
                 ft,
                 documentPointToCanvas,
                 canvasPoint.x,
                 canvasPoint.y,
               );
+              // Ctrl+drag on edge handles → skew; on corners → distort.
+              if (kind && event.ctrlKey) {
+                const ctrlRemap: Partial<Record<TransformDragKind, TransformDragKind>> = {
+                  "scale-t": "skew-t",
+                  "scale-b": "skew-b",
+                  "scale-l": "skew-l",
+                  "scale-r": "skew-r",
+                  "scale-tl": "distort-tl",
+                  "scale-tr": "distort-tr",
+                  "scale-br": "distort-br",
+                  "scale-bl": "distort-bl",
+                };
+                kind = ctrlRemap[kind] ?? kind;
+              }
               if (kind) {
-                // For "move", fixedX/fixedY hold the initial mouse doc position.
+                // For "move", "skew-*", and "distort-*", fixedX/fixedY hold the initial mouse doc position.
+                const isSkew = kind === "skew-t" || kind === "skew-b" || kind === "skew-l" || kind === "skew-r";
+                const isDistort = kind === "distort-tl" || kind === "distort-tr" || kind === "distort-br" || kind === "distort-bl";
                 const [fixedX, fixedY] =
-                  kind === "move"
+                  kind === "move" || isSkew || isDistort
                     ? [docPoint.x, docPoint.y]
                     : oppositeCorner(ft, kind);
                 const startAngle = Math.atan2(
@@ -1163,6 +1189,7 @@ export function EditorCanvas({
                   fixedX,
                   fixedY,
                   startAngle,
+                  startCorners: ft.corners,
                 });
                 event.currentTarget.setPointerCapture(event.pointerId);
                 event.preventDefault();
@@ -1320,6 +1347,71 @@ export function EditorCanvas({
             const relY = td.startTY - td.startPivotY;
             newTX = cos * relX - sin * relY + td.startPivotX;
             newTY = sin * relX + cos * relY + td.startPivotY;
+          } else if (
+            td.kind === "skew-t" ||
+            td.kind === "skew-b" ||
+            td.kind === "skew-l" ||
+            td.kind === "skew-r"
+          ) {
+            // Skew: Ctrl+drag edge midpoint.
+            // fixedX/fixedY = initial mouse doc position (= edge midpoint at drag start).
+            // dx/dy = how far the edge has been dragged from its start position.
+            const dx = docPoint.x - td.fixedX;
+            const dy = docPoint.y - td.fixedY;
+            const origW = ft.origW;
+            const origH = ft.origH;
+            if (td.kind === "skew-t") {
+              // Top edge moves → TL and TR shift by (dx,dy); BL/BR fixed.
+              // TX, TY shift with TL. A, B (X-basis) unchanged. C, D (Y-basis) adjust.
+              newTX = td.startTX + dx;
+              newTY = td.startTY + dy;
+              // C_new = (BL_x - TX_new) / origH = (startBL_x - (startTX + dx)) / origH
+              //       = startC - dx / origH
+              newC = td.startC - dx / origH;
+              newD = td.startD - dy / origH;
+            } else if (td.kind === "skew-b") {
+              // Bottom edge moves → BL and BR shift by (dx,dy); TL/TR fixed.
+              // TX, TY unchanged. A, B unchanged. C, D adjust.
+              // C_new = (BL_new_x - TX) / origH = (startBL_x + dx - startTX) / origH
+              //       = startC + dx / origH
+              newC = td.startC + dx / origH;
+              newD = td.startD + dy / origH;
+            } else if (td.kind === "skew-l") {
+              // Left edge moves → TL and BL shift by (dx,dy); TR/BR fixed.
+              // TX, TY shift with TL. C, D (Y-basis) unchanged. A, B adjust.
+              newTX = td.startTX + dx;
+              newTY = td.startTY + dy;
+              // A_new = (TR_x - TX_new) / origW = (startTR_x - (startTX + dx)) / origW
+              //       = startA - dx / origW
+              newA = td.startA - dx / origW;
+              newB = td.startB - dy / origW;
+            } else {
+              // skew-r: Right edge moves → TR and BR shift by (dx,dy); TL/BL fixed.
+              // TX, TY unchanged. C, D unchanged. A, B adjust.
+              // A_new = (TR_new_x - TX) / origW = (startTR_x + dx - startTX) / origW
+              //       = startA + dx / origW
+              newA = td.startA + dx / origW;
+              newB = td.startB + dy / origW;
+            }
+          } else if (
+            td.kind === "distort-tl" ||
+            td.kind === "distort-tr" ||
+            td.kind === "distort-br" ||
+            td.kind === "distort-bl"
+          ) {
+            // Distort: Ctrl+drag corner. Move the dragged corner to mouse; others fixed.
+            const cornerIndex = { "distort-tl": 0, "distort-tr": 1, "distort-br": 2, "distort-bl": 3 }[td.kind];
+            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as
+              [[number, number], [number, number], [number, number], [number, number]];
+            corners[cornerIndex] = [docPoint.x, docPoint.y];
+            engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
+              tx: td.startTX, ty: td.startTY,
+              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              interpolation: ft.interpolation as InterpolMode,
+              corners,
+            });
+            return;
           } else {
             // Scale from fixed corner.
             const origW = ft.origW;

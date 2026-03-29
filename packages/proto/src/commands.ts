@@ -417,6 +417,8 @@ export interface UpdateFreeTransformCommand {
   pivotX: number;
   pivotY: number;
   interpolation?: InterpolMode;
+  /** When present, switches to homography/distort mode. Order: TL, TR, BR, BL. */
+  corners?: [[number, number], [number, number], [number, number], [number, number]];
 }
 
 export interface DiscreteTransformCommand {

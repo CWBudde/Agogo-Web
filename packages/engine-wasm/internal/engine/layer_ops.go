@@ -148,15 +148,18 @@ type BeginFreeTransformPayload struct {
 //	docX = A*lx + C*ly + TX
 //	docY = B*lx + D*ly + TY
 type UpdateFreeTransformPayload struct {
-	A             float64 `json:"a"`
-	B             float64 `json:"b"`
-	C             float64 `json:"c"`
-	D             float64 `json:"d"`
-	TX            float64 `json:"tx"`
-	TY            float64 `json:"ty"`
-	PivotX        float64 `json:"pivotX"`
-	PivotY        float64 `json:"pivotY"`
-	Interpolation string  `json:"interpolation"`
+	A             float64        `json:"a"`
+	B             float64        `json:"b"`
+	C             float64        `json:"c"`
+	D             float64        `json:"d"`
+	TX            float64        `json:"tx"`
+	TY            float64        `json:"ty"`
+	PivotX        float64        `json:"pivotX"`
+	PivotY        float64        `json:"pivotY"`
+	Interpolation string         `json:"interpolation"`
+	// Corners, when non-nil, switches to homography/distort mode.
+	// Order: TL, TR, BR, BL in doc space.
+	Corners       *[4][2]float64 `json:"corners,omitempty"`
 }
 
 // DiscreteTransformPayload carries an optional layer ID for discrete (immediate)

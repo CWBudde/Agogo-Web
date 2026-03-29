@@ -2,6 +2,8 @@ package engine
 
 import (
 	"math"
+
+	agglib "github.com/MeKo-Christian/agg_go"
 )
 
 // InterpolMode selects the resampling quality used when committing a free
@@ -36,6 +38,10 @@ type FreeTransformState struct {
 	TX, TY         float64
 	PivotX, PivotY float64 // pivot in doc space; initially layer centre
 	Interpolation  InterpolMode
+	// DistortCorners is set when the user drags a corner in Ctrl+distort mode.
+	// When non-nil, AGG's perspective span pipeline warps the source pixels to
+	// these four doc-space corners (TL, TR, BR, BL) instead of the affine matrix.
+	DistortCorners *[4][2]float64
 }
 
 // FreeTransformMeta is serialised into UIMeta so the frontend can render
@@ -79,6 +85,9 @@ func (s *FreeTransformState) transformPoint(lx, ly float64) (dx, dy float64) {
 // transformedCorners returns the four corners of the original bounding box
 // after the current transform (doc space, TL / TR / BR / BL).
 func (s *FreeTransformState) transformedCorners() [4][2]float64 {
+	if s.DistortCorners != nil {
+		return *s.DistortCorners
+	}
 	w := float64(s.OriginalBounds.W)
 	h := float64(s.OriginalBounds.H)
 	tl := [2]float64{s.TX, s.TY}
@@ -274,8 +283,13 @@ func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
 }
 
 // applyPixelTransform creates new pixel data by applying the affine transform
-// stored in s. The new layer bounds (in document space) are returned alongside
-// the pixel buffer. interp selects the resampling quality.
+// (or perspective warp when DistortCorners is set) stored in s. The new layer
+// bounds (in document space) are returned alongside the pixel buffer. interp
+// selects the resampling quality.
+//
+// For affine transforms the existing per-pixel inverse-mapping loop is used.
+// For distort mode (DistortCorners != nil) the AGG perspective span pipeline is
+// used via TransformImageQuadSimple, which gives correct bilinear filtering.
 func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels []byte, newBounds LayerBounds) {
 	origW := s.OriginalBounds.W
 	origH := s.OriginalBounds.H
@@ -283,13 +297,7 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		return s.OriginalPixels, s.OriginalBounds
 	}
 
-	det := s.det()
-	if math.Abs(det) < 1e-10 {
-		// Degenerate transform — return blank pixels at the original size.
-		return make([]byte, origW*origH*4), s.OriginalBounds
-	}
-
-	// Compute output bounds.
+	// Compute output bounds from the (potentially distorted) corners.
 	minX, minY, maxX, maxY := s.transformedAABB()
 	outX := int(math.Floor(minX))
 	outY := int(math.Floor(minY))
@@ -298,7 +306,6 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 	if outW <= 0 || outH <= 0 {
 		return make([]byte, origW*origH*4), s.OriginalBounds
 	}
-	// Guard against unreasonably large output.
 	const maxTransformDim = 32768
 	if outW > maxTransformDim || outH > maxTransformDim {
 		outW = minInt(outW, maxTransformDim)
@@ -306,28 +313,60 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 	}
 
 	newPixels = make([]byte, outW*outH*4)
-	for oy := range outH {
-		for ox := range outW {
-			docX := float64(outX+ox) + 0.5
-			docY := float64(outY+oy) + 0.5
-			lx, ly, ok := s.inverseTransformPoint(docX, docY)
-			if !ok {
-				continue
+
+	if s.DistortCorners != nil {
+		// --- Perspective warp via AGG ---
+		// Express the four destination corners relative to the output tile origin
+		// so that they map into [0, outW) × [0, outH) canvas space.
+		corners := *s.DistortCorners
+		quad := [8]float64{
+			corners[0][0] - float64(outX), corners[0][1] - float64(outY), // TL
+			corners[1][0] - float64(outX), corners[1][1] - float64(outY), // TR
+			corners[2][0] - float64(outX), corners[2][1] - float64(outY), // BR
+			corners[3][0] - float64(outX), corners[3][1] - float64(outY), // BL
+		}
+
+		renderer := agglib.NewAgg2D()
+		renderer.Attach(newPixels, outW, outH, outW*4)
+		renderer.ResetTransformations()
+
+		// Set image filter matching the requested interpolation mode.
+		switch interp {
+		case InterpolNearest:
+			renderer.ImageFilter(agglib.NoFilter)
+		default:
+			renderer.ImageFilter(agglib.Bilinear)
+		}
+
+		srcImg := agglib.NewImage(s.OriginalPixels, origW, origH, origW*4)
+		_ = renderer.TransformImageQuadSimple(srcImg, quad)
+
+	} else {
+		// --- Affine warp via per-pixel inverse mapping ---
+		if math.Abs(s.det()) < 1e-10 {
+			return newPixels, LayerBounds{X: outX, Y: outY, W: outW, H: outH}
+		}
+		for oy := range outH {
+			for ox := range outW {
+				docX := float64(outX+ox) + 0.5
+				docY := float64(outY+oy) + 0.5
+				lx, ly, ok := s.inverseTransformPoint(docX, docY)
+				if !ok {
+					continue
+				}
+				if lx < -1 || ly < -1 || lx > float64(origW)+1 || ly > float64(origH)+1 {
+					continue
+				}
+				px := sampleOriginal(s.OriginalPixels, origW, origH, lx, ly, interp)
+				if px[3] == 0 {
+					continue
+				}
+				i := (oy*outW + ox) * 4
+				newPixels[i] = px[0]
+				newPixels[i+1] = px[1]
+				newPixels[i+2] = px[2]
+				newPixels[i+3] = px[3]
 			}
-			// Only sample inside the original bounds (with a small margin for
-			// filter kernels at the edge).
-			if lx < -1 || ly < -1 || lx > float64(origW)+1 || ly > float64(origH)+1 {
-				continue
-			}
-			px := sampleOriginal(s.OriginalPixels, origW, origH, lx, ly, interp)
-			if px[3] == 0 {
-				continue
-			}
-			i := (oy*outW + ox) * 4
-			newPixels[i] = px[0]
-			newPixels[i+1] = px[1]
-			newPixels[i+2] = px[2]
-			newPixels[i+3] = px[3]
 		}
 	}
 
