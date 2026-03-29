@@ -222,7 +222,7 @@
     - [x] 8 scale handles (corners + edge midpoints)
     - [x] Rotation handle (above top-center)
     - [x] Center pivot point (draggable)
-    - [ ] Reference point grid (Photoshop-style)
+    - [x] Reference point grid (Photoshop-style) — 3×3 grid in options bar; clicking a cell moves the pivot to that corner/midpoint/centre of the bounding box
   - [x] Operations:
     - [x] **Scale:** drag corner/edge handles (uniform scale; Shift=constrain proportions not yet implemented)
     - [x] **Rotate:** drag outside bounding box (Shift=snap to 15° not yet implemented)
