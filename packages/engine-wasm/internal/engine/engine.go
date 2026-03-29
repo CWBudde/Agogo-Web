@@ -1765,11 +1765,11 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			OriginalPixels: append([]byte(nil), pl.Pixels...),
 			OriginalBounds: pl.Bounds,
 			A:              1, B: 0, C: 0, D: 1,
-			TX:             float64(pl.Bounds.X),
-			TY:             float64(pl.Bounds.Y),
-			PivotX:         float64(pl.Bounds.X) + float64(pl.Bounds.W)*0.5,
-			PivotY:         float64(pl.Bounds.Y) + float64(pl.Bounds.H)*0.5,
-			Interpolation:  InterpolBilinear,
+			TX:            float64(pl.Bounds.X),
+			TY:            float64(pl.Bounds.Y),
+			PivotX:        float64(pl.Bounds.X) + float64(pl.Bounds.W)*0.5,
+			PivotY:        float64(pl.Bounds.Y) + float64(pl.Bounds.H)*0.5,
+			Interpolation: InterpolBilinear,
 		}
 
 	case commandUpdateFreeTransform:
@@ -1883,8 +1883,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, err
 		}
 		kind := map[int32]string{
-			commandFlipLayerH:    "flipH",
-			commandFlipLayerV:    "flipV",
+			commandFlipLayerH:       "flipH",
+			commandFlipLayerV:       "flipV",
 			commandRotateLayer90CW:  "rotate90cw",
 			commandRotateLayer90CCW: "rotate90ccw",
 			commandRotateLayer180:   "rotate180",

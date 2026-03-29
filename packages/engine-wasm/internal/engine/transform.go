@@ -41,26 +41,26 @@ type FreeTransformState struct {
 // FreeTransformMeta is serialised into UIMeta so the frontend can render
 // handle overlays and numeric option-bar fields.
 type FreeTransformMeta struct {
-	Active        bool          `json:"active"`
-	LayerID       string        `json:"layerId,omitempty"`
-	OrigX         float64       `json:"origX"`
-	OrigY         float64       `json:"origY"`
-	OrigW         float64       `json:"origW"`
-	OrigH         float64       `json:"origH"`
-	A             float64       `json:"a"`
-	B             float64       `json:"b"`
-	C             float64       `json:"c"`
-	D             float64       `json:"d"`
-	TX            float64       `json:"tx"`
-	TY            float64       `json:"ty"`
-	PivotX        float64       `json:"pivotX"`
-	PivotY        float64       `json:"pivotY"`
-	Interpolation string        `json:"interpolation"`
+	Active        bool    `json:"active"`
+	LayerID       string  `json:"layerId,omitempty"`
+	OrigX         float64 `json:"origX"`
+	OrigY         float64 `json:"origY"`
+	OrigW         float64 `json:"origW"`
+	OrigH         float64 `json:"origH"`
+	A             float64 `json:"a"`
+	B             float64 `json:"b"`
+	C             float64 `json:"c"`
+	D             float64 `json:"d"`
+	TX            float64 `json:"tx"`
+	TY            float64 `json:"ty"`
+	PivotX        float64 `json:"pivotX"`
+	PivotY        float64 `json:"pivotY"`
+	Interpolation string  `json:"interpolation"`
 	// Corners are the four corners of the source bounding box after the current
 	// transform in document space. Order: TL, TR, BR, BL.
 	Corners [4][2]float64 `json:"corners"`
 	// Decomposed parameters for the options bar.
-	ScaleX   float64 `json:"scaleX"`   // percentage (100 = original size)
+	ScaleX   float64 `json:"scaleX"` // percentage (100 = original size)
 	ScaleY   float64 `json:"scaleY"`
 	Rotation float64 `json:"rotation"` // degrees
 	SkewX    float64 `json:"skewX"`    // degrees
@@ -245,7 +245,7 @@ func sampleBilinear(pixels []byte, w, h int, lx, ly float64) [4]byte {
 // catmullRomKernel evaluates the Catmull-Rom kernel for parameter t and four
 // control samples p0..p3.
 func catmullRomKernel(t, p0, p1, p2, p3 float64) float64 {
-	return 0.5 * ((2*p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t*t + (-p0+3*p1-3*p2+p3)*t*t*t)
+	return 0.5 * ((2 * p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t*t + (-p0+3*p1-3*p2+p3)*t*t*t)
 }
 
 func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
@@ -361,7 +361,7 @@ func flipPixelsV(pixels []byte, w, h int) []byte {
 	for y := range h {
 		for x := range w {
 			src := (y*w + x) * 4
-			dst := ((h - 1 - y)*w + x) * 4
+			dst := ((h-1-y)*w + x) * 4
 			out[dst] = pixels[src]
 			out[dst+1] = pixels[src+1]
 			out[dst+2] = pixels[src+2]

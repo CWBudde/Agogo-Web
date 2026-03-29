@@ -93,7 +93,7 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 	subPixels := make([]byte, boxW*boxH*4)
 	for y := range boxH {
 		for x := range boxW {
-			srcIdx := ((y+minY)*width + (x+minX)) * 4
+			srcIdx := ((y+minY)*width + (x + minX)) * 4
 			dstIdx := (y*boxW + x) * 4
 			copy(subPixels[dstIdx:dstIdx+4], surface[srcIdx:srcIdx+4])
 		}
@@ -122,9 +122,14 @@ func suggestMagneticPath(surface []byte, width, height, x1, y1, x2, y2 int) []Se
 
 	// 8-connected directions: [dx, dy, step-length multiplier]
 	dirs := [8][3]float64{
-		{-1, 0, 1}, {1, 0, 1}, {0, -1, 1}, {0, 1, 1},
-		{-1, -1, math.Sqrt2}, {1, -1, math.Sqrt2},
-		{-1, 1, math.Sqrt2}, {1, 1, math.Sqrt2},
+		{-1, 0, 1},
+		{1, 0, 1},
+		{0, -1, 1},
+		{0, 1, 1},
+		{-1, -1, math.Sqrt2},
+		{1, -1, math.Sqrt2},
+		{-1, 1, math.Sqrt2},
+		{1, 1, math.Sqrt2},
 	}
 
 	for pq.Len() > 0 {
