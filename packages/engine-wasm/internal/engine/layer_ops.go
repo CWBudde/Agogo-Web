@@ -136,6 +136,35 @@ type PickLayerAtPointPayload struct {
 	Y int `json:"y"`
 }
 
+// BeginFreeTransformPayload starts free transform on a layer (or the active
+// layer when LayerID is empty).
+type BeginFreeTransformPayload struct {
+	LayerID string `json:"layerId,omitempty"`
+}
+
+// UpdateFreeTransformPayload sets the live transform matrix.
+// The affine matrix maps layer-local pixel coordinates to document space:
+//
+//	docX = A*lx + C*ly + TX
+//	docY = B*lx + D*ly + TY
+type UpdateFreeTransformPayload struct {
+	A             float64 `json:"a"`
+	B             float64 `json:"b"`
+	C             float64 `json:"c"`
+	D             float64 `json:"d"`
+	TX            float64 `json:"tx"`
+	TY            float64 `json:"ty"`
+	PivotX        float64 `json:"pivotX"`
+	PivotY        float64 `json:"pivotY"`
+	Interpolation string  `json:"interpolation"`
+}
+
+// DiscreteTransformPayload carries an optional layer ID for discrete (immediate)
+// transforms such as flip and rotate.
+type DiscreteTransformPayload struct {
+	LayerID string `json:"layerId,omitempty"`
+}
+
 type AddVectorMaskPayload struct {
 	LayerID string `json:"layerId"`
 }
@@ -1320,6 +1349,38 @@ func replaceChild(parent *GroupLayer, index int, layer LayerNode) {
 	children := parent.Children()
 	children[index] = layer
 	parent.SetChildren(children)
+}
+
+// findLayer is a Document-scoped shortcut that returns the LayerNode with the
+// given ID, or nil when not found.
+func (doc *Document) findLayer(layerID string) LayerNode {
+	if layerID == "" {
+		return nil
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return nil
+	}
+	return layer
+}
+
+// kindDescription returns a human-readable history description for discrete
+// transform kinds.
+func kindDescription(kind string) string {
+	switch kind {
+	case "flipH":
+		return "Flip Horizontal"
+	case "flipV":
+		return "Flip Vertical"
+	case "rotate90cw":
+		return "Rotate 90° CW"
+	case "rotate90ccw":
+		return "Rotate 90° CCW"
+	case "rotate180":
+		return "Rotate 180°"
+	default:
+		return "Transform"
+	}
 }
 
 func findLayerByID(group *GroupLayer, layerID string) (LayerNode, *GroupLayer, int, bool) {

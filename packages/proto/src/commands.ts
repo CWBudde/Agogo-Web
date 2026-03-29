@@ -58,6 +58,17 @@ export enum CommandID {
   MagicWand = 0x020d,
   MagneticLassoSuggestPath = 0x020e,
 
+  // Phase 3.3: Free Transform
+  BeginFreeTransform = 0x0300,
+  UpdateFreeTransform = 0x0301,
+  CommitFreeTransform = 0x0302,
+  CancelFreeTransform = 0x0303,
+  FlipLayerH = 0x0304,
+  FlipLayerV = 0x0305,
+  RotateLayer90CW = 0x0306,
+  RotateLayer90CCW = 0x0307,
+  RotateLayer180 = 0x0308,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -385,4 +396,54 @@ export interface DeleteVectorMaskCommand {
 export interface SetMaskEditModeCommand {
   layerId: string;
   editing: boolean;
+}
+
+// Phase 3.3 – Free Transform
+
+export type InterpolMode = "nearest" | "bilinear" | "bicubic";
+
+export interface BeginFreeTransformCommand {
+  layerId?: string;
+}
+
+/** Affine matrix: docX = a*lx + c*ly + tx,  docY = b*lx + d*ly + ty */
+export interface UpdateFreeTransformCommand {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  tx: number;
+  ty: number;
+  pivotX: number;
+  pivotY: number;
+  interpolation?: InterpolMode;
+}
+
+export interface DiscreteTransformCommand {
+  layerId?: string;
+}
+
+export interface FreeTransformMeta {
+  active: boolean;
+  layerId?: string;
+  origX: number;
+  origY: number;
+  origW: number;
+  origH: number;
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  tx: number;
+  ty: number;
+  pivotX: number;
+  pivotY: number;
+  interpolation: InterpolMode;
+  /** Corners of source bbox after transform in doc space: TL, TR, BR, BL */
+  corners: [[number, number], [number, number], [number, number], [number, number]];
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+  skewX: number;
+  skewY: number;
 }

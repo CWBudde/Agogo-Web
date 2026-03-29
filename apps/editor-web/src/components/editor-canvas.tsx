@@ -1,4 +1,4 @@
-import { CommandID } from "@agogo/proto";
+import { CommandID, type FreeTransformMeta } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -24,7 +24,8 @@ type EditorCanvasProps = {
     | "type"
     | "shape"
     | "hand"
-    | "zoom";
+    | "zoom"
+    | "transform";
   isPanMode: boolean;
   isZoomTool: boolean;
   selectionOptions: {
@@ -137,6 +138,37 @@ type QuickSelectDraft = {
   dragMode: "add" | "subtract";
 };
 
+type TransformDragKind =
+  | "move"
+  | "scale-tl"
+  | "scale-tr"
+  | "scale-br"
+  | "scale-bl"
+  | "scale-t"
+  | "scale-r"
+  | "scale-b"
+  | "scale-l"
+  | "rotate";
+
+type TransformDraft = {
+  pointerId: number;
+  kind: TransformDragKind;
+  // Snapshot of the affine matrix at drag start
+  startA: number;
+  startB: number;
+  startC: number;
+  startD: number;
+  startTX: number;
+  startTY: number;
+  startPivotX: number;
+  startPivotY: number;
+  // For scale: the fixed corner in doc space (corner that stays put)
+  fixedX: number;
+  fixedY: number;
+  // For rotation: angle from pivot to pointer at drag start (radians)
+  startAngle: number;
+};
+
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
   if (shiftKey && altKey) {
     return "intersect" as const;
@@ -209,6 +241,148 @@ type LayerMetaSlim = {
   children?: unknown[];
 };
 
+// --------------------------------------------------------------------------
+// Transform helpers
+// --------------------------------------------------------------------------
+
+const TRANSFORM_HANDLE_HIT_RADIUS = 12; // canvas pixels
+
+/** Returns which transform handle the canvas point is near, or null. */
+function transformHitTest(
+  ft: FreeTransformMeta,
+  docToCanvas: (d: DocumentPoint) => { x: number; y: number } | null,
+  canvasX: number,
+  canvasY: number,
+): TransformDragKind | null {
+  const corners = ft.corners;
+  // 8 handles: TL, top-mid, TR, right-mid, BR, bottom-mid, BL, left-mid
+  const handles: [TransformDragKind, [number, number]][] = [
+    ["scale-tl", corners[0]],
+    [
+      "scale-t",
+      [
+        (corners[0][0] + corners[1][0]) * 0.5,
+        (corners[0][1] + corners[1][1]) * 0.5,
+      ],
+    ],
+    ["scale-tr", corners[1]],
+    [
+      "scale-r",
+      [
+        (corners[1][0] + corners[2][0]) * 0.5,
+        (corners[1][1] + corners[2][1]) * 0.5,
+      ],
+    ],
+    ["scale-br", corners[2]],
+    [
+      "scale-b",
+      [
+        (corners[2][0] + corners[3][0]) * 0.5,
+        (corners[2][1] + corners[3][1]) * 0.5,
+      ],
+    ],
+    ["scale-bl", corners[3]],
+    [
+      "scale-l",
+      [
+        (corners[3][0] + corners[0][0]) * 0.5,
+        (corners[3][1] + corners[0][1]) * 0.5,
+      ],
+    ],
+  ];
+
+  // Check rotation handle first (above top-mid).
+  const topMidDoc = handles[1][1];
+  const topEdgeDX = corners[1][0] - corners[0][0];
+  const topEdgeDY = corners[1][1] - corners[0][1];
+  const topEdgeLen = Math.hypot(topEdgeDX, topEdgeDY);
+  if (topEdgeLen > 0.1) {
+    const perpX = -topEdgeDY / topEdgeLen;
+    const perpY = topEdgeDX / topEdgeLen;
+    const rot = docToCanvas({
+      x: topMidDoc[0] + perpX * 24,
+      y: topMidDoc[1] + perpY * 24,
+    });
+    if (rot) {
+      const dx = canvasX - rot.x;
+      const dy = canvasY - rot.y;
+      if (dx * dx + dy * dy <= TRANSFORM_HANDLE_HIT_RADIUS ** 2) {
+        return "rotate";
+      }
+    }
+  }
+
+  // Check scale handles.
+  for (const [kind, docPos] of handles) {
+    const cp = docToCanvas({ x: docPos[0], y: docPos[1] });
+    if (!cp) continue;
+    const dx = canvasX - cp.x;
+    const dy = canvasY - cp.y;
+    if (dx * dx + dy * dy <= TRANSFORM_HANDLE_HIT_RADIUS ** 2) {
+      return kind;
+    }
+  }
+
+  // Check if inside bounding box → move.
+  // Use point-in-quadrilateral test (cross-product winding).
+  const pts = corners.map((c) => docToCanvas({ x: c[0], y: c[1] }));
+  if (pts.every((p): p is { x: number; y: number } => p !== null)) {
+    if (pointInQuad(pts, canvasX, canvasY)) {
+      return "move";
+    }
+  }
+
+  return null;
+}
+
+function pointInQuad(
+  pts: { x: number; y: number }[],
+  px: number,
+  py: number,
+): boolean {
+  let inside = false;
+  const n = pts.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = pts[i].x;
+    const yi = pts[i].y;
+    const xj = pts[j].x;
+    const yj = pts[j].y;
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Returns the opposite corner (fixed point) in doc space for a scale drag. */
+function oppositeCorner(
+  ft: FreeTransformMeta,
+  kind: TransformDragKind,
+): [number, number] {
+  const c = ft.corners;
+  switch (kind) {
+    case "scale-tl":
+      return c[2]; // BR
+    case "scale-tr":
+      return c[3]; // BL
+    case "scale-br":
+      return c[0]; // TL
+    case "scale-bl":
+      return c[1]; // TR
+    // For edge handles, return the midpoint of the opposite edge.
+    case "scale-t":
+      return [(c[2][0] + c[3][0]) * 0.5, (c[2][1] + c[3][1]) * 0.5];
+    case "scale-b":
+      return [(c[0][0] + c[1][0]) * 0.5, (c[0][1] + c[1][1]) * 0.5];
+    case "scale-l":
+      return [(c[1][0] + c[2][0]) * 0.5, (c[1][1] + c[2][1]) * 0.5];
+    case "scale-r":
+      return [(c[3][0] + c[0][0]) * 0.5, (c[3][1] + c[0][1]) * 0.5];
+    default:
+      return [ft.origX + ft.origW / 2, ft.origY + ft.origH / 2];
+  }
+}
+
 function findLayerMetaByID(
   layers: Array<LayerMetaSlim>,
   targetID: string,
@@ -253,6 +427,8 @@ export function EditorCanvas({
   const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
   const [quickSelectDraft, setQuickSelectDraft] =
     useState<QuickSelectDraft | null>(null);
+  const [transformDraft, setTransformDraft] =
+    useState<TransformDraft | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
     null,
@@ -340,6 +516,9 @@ export function EditorCanvas({
     }
     if (activeTool !== "move") {
       setMoveDraft(null);
+    }
+    if (activeTool !== "transform") {
+      setTransformDraft(null);
     }
   }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
@@ -572,6 +751,24 @@ export function EditorCanvas({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTool, magneticLassoDraft, selectionOptions.lassoMode]);
+
+  // Transform commit/cancel keyboard shortcuts.
+  useEffect(() => {
+    if (activeTool !== "transform" || !render?.uiMeta.freeTransform?.active) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        engine.dispatchCommand(CommandID.CommitFreeTransform);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        engine.dispatchCommand(CommandID.CancelFreeTransform);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTool, engine, render?.uiMeta.freeTransform?.active]);
 
   const marqueeStartCanvas = marqueeDraft
     ? documentPointToCanvas(marqueeDraft.start)
@@ -928,6 +1125,57 @@ export function EditorCanvas({
           event.preventDefault();
           return;
         }
+        if (activeTool === "transform" && event.button === 0) {
+          const ft = render.uiMeta.freeTransform;
+          if (ft?.active) {
+            const canvasPoint = canvasPointFromClient(
+              event.clientX,
+              event.clientY,
+            );
+            if (canvasPoint) {
+              const kind = transformHitTest(
+                ft,
+                documentPointToCanvas,
+                canvasPoint.x,
+                canvasPoint.y,
+              );
+              if (kind) {
+                // For "move", fixedX/fixedY hold the initial mouse doc position.
+                const [fixedX, fixedY] =
+                  kind === "move"
+                    ? [docPoint.x, docPoint.y]
+                    : oppositeCorner(ft, kind);
+                const startAngle = Math.atan2(
+                  docPoint.y - ft.pivotY,
+                  docPoint.x - ft.pivotX,
+                );
+                setTransformDraft({
+                  pointerId: event.pointerId,
+                  kind,
+                  startA: ft.a,
+                  startB: ft.b,
+                  startC: ft.c,
+                  startD: ft.d,
+                  startTX: ft.tx,
+                  startTY: ft.ty,
+                  startPivotX: ft.pivotX,
+                  startPivotY: ft.pivotY,
+                  fixedX,
+                  fixedY,
+                  startAngle,
+                });
+                event.currentTarget.setPointerCapture(event.pointerId);
+                event.preventDefault();
+                return;
+              }
+            }
+          } else {
+            // No transform active yet — begin one on the active layer.
+            engine.dispatchCommand(CommandID.BeginFreeTransform);
+            event.preventDefault();
+            return;
+          }
+        }
         if (isZoomTool && !isPanMode) {
           engine.beginTransaction("Zoom viewport");
           zoomDragRef.current = {
@@ -1032,6 +1280,106 @@ export function EditorCanvas({
           }
           return;
         }
+        if (
+          transformDraft &&
+          transformDraft.pointerId === event.pointerId &&
+          docPoint
+        ) {
+          const td = transformDraft;
+          const ft = render?.uiMeta.freeTransform;
+          if (!ft?.active) {
+            return;
+          }
+          let newA = td.startA;
+          let newB = td.startB;
+          let newC = td.startC;
+          let newD = td.startD;
+          let newTX = td.startTX;
+          let newTY = td.startTY;
+
+          if (td.kind === "move") {
+            // The pivot stays fixed; we just translate the whole transform.
+            // The drag started at the pivot so: delta = current mouse - pivot.
+            // We track via startAngle field which holds the original mouse position here.
+            // Instead use fixedX/fixedY which holds the initial mouse doc position.
+            newTX = td.startTX + (docPoint.x - td.fixedX);
+            newTY = td.startTY + (docPoint.y - td.fixedY);
+          } else if (td.kind === "rotate") {
+            const currentAngle = Math.atan2(
+              docPoint.y - td.startPivotY,
+              docPoint.x - td.startPivotX,
+            );
+            const da = currentAngle - td.startAngle;
+            const cos = Math.cos(da);
+            const sin = Math.sin(da);
+            newA = cos * td.startA - sin * td.startB;
+            newB = sin * td.startA + cos * td.startB;
+            newC = cos * td.startC - sin * td.startD;
+            newD = sin * td.startC + cos * td.startD;
+            const relX = td.startTX - td.startPivotX;
+            const relY = td.startTY - td.startPivotY;
+            newTX = cos * relX - sin * relY + td.startPivotX;
+            newTY = sin * relX + cos * relY + td.startPivotY;
+          } else {
+            // Scale from fixed corner.
+            const origW = ft.origW;
+            const origH = ft.origH;
+            // Original dragged corner doc position.
+            let origDragX: number;
+            let origDragY: number;
+            switch (td.kind) {
+              case "scale-tl":
+                origDragX = td.startTX;
+                origDragY = td.startTY;
+                break;
+              case "scale-tr":
+                origDragX = td.startA * origW + td.startTX;
+                origDragY = td.startB * origW + td.startTY;
+                break;
+              case "scale-br":
+                origDragX = td.startA * origW + td.startC * origH + td.startTX;
+                origDragY = td.startB * origW + td.startD * origH + td.startTY;
+                break;
+              case "scale-bl":
+                origDragX = td.startC * origH + td.startTX;
+                origDragY = td.startD * origH + td.startTY;
+                break;
+              default:
+                origDragX =
+                  (td.fixedX + td.startA * origW + td.startTX) * 0.5;
+                origDragY =
+                  (td.fixedY + td.startB * origW + td.startTY) * 0.5;
+            }
+            const d0 = Math.hypot(
+              origDragX - td.fixedX,
+              origDragY - td.fixedY,
+            );
+            const d1 = Math.hypot(
+              docPoint.x - td.fixedX,
+              docPoint.y - td.fixedY,
+            );
+            const scale = d0 > 0.01 ? d1 / d0 : 1;
+            newA = td.startA * scale;
+            newB = td.startB * scale;
+            newC = td.startC * scale;
+            newD = td.startD * scale;
+            newTX = scale * (td.startTX - td.fixedX) + td.fixedX;
+            newTY = scale * (td.startTY - td.fixedY) + td.fixedY;
+          }
+
+          engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+            a: newA,
+            b: newB,
+            c: newC,
+            d: newD,
+            tx: newTX,
+            ty: newTY,
+            pivotX: td.startPivotX,
+            pivotY: td.startPivotY,
+            interpolation: ft.interpolation,
+          });
+          return;
+        }
         if (moveDraft && moveDraft.pointerId === event.pointerId && docPoint) {
           const totalDX = Math.round(docPoint.x - moveDraft.start.x);
           const totalDY = Math.round(docPoint.y - moveDraft.start.y);
@@ -1124,6 +1472,11 @@ export function EditorCanvas({
         });
       }}
       onPointerUp={(event) => {
+        if (transformDraft && transformDraft.pointerId === event.pointerId) {
+          setTransformDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         if (quickSelectDraft && quickSelectDraft.pointerId === event.pointerId) {
           engine.endTransaction(true);
           setQuickSelectDraft(null);
