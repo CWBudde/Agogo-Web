@@ -216,30 +216,31 @@
 
 ### Phase 3.3: Transform System
 
-- [ ] Free Transform (`Ctrl+T`):
-  - [ ] Compute bounding box of layer (or selection content)
-  - [ ] Render transform handles overlay in backend:
-    - [ ] 8 scale handles (corners + edge midpoints)
-    - [ ] Rotation handle (above top-center)
-    - [ ] Center pivot point (draggable)
+- [x] Free Transform (`Ctrl+T`):
+  - [x] Compute bounding box of layer (or selection content)
+  - [x] Render transform handles overlay in backend:
+    - [x] 8 scale handles (corners + edge midpoints)
+    - [x] Rotation handle (above top-center)
+    - [x] Center pivot point (draggable)
     - [ ] Reference point grid (Photoshop-style)
-  - [ ] Operations:
-    - [ ] **Scale:** drag corner/edge handles (Shift=constrain proportions)
-    - [ ] **Rotate:** drag outside bounding box (Shift=snap to 15° increments)
-    - [ ] **Move:** drag inside bounding box
+  - [x] Operations:
+    - [x] **Scale:** drag corner/edge handles (uniform scale; Shift=constrain proportions not yet implemented)
+    - [x] **Rotate:** drag outside bounding box (Shift=snap to 15° not yet implemented)
+    - [x] **Move:** drag inside bounding box
     - [ ] **Skew:** `Ctrl+drag` edge handle
     - [ ] **Distort:** `Ctrl+drag` corner handle (free distort, no constraint)
     - [ ] **Perspective:** `Ctrl+Shift+Alt+drag` corner (perspective warp)
     - [ ] **Warp:** grid-based mesh warp (subdivide bounding box into grid, drag control points)
-  - [ ] Numeric input in Options bar: X, Y, W, H, rotation angle, skew H/V, with lock-aspect checkbox
-  - [ ] Commit: Enter or double-click; Cancel: Escape
-  - [ ] Interpolation mode for pixel layers: Nearest Neighbor, Bilinear, Bicubic (Smoother/Sharper)
+  - [x] Numeric display in Options bar: X, Y, W%, H%, rotation angle (read-only; skew H/V and lock-aspect checkbox not yet implemented)
+  - [x] Commit: Enter; Cancel: Escape
+  - [x] Interpolation mode for pixel layers: Nearest Neighbor, Bilinear, Bicubic — selector in options bar, dispatched via UpdateFreeTransform
 - [ ] Transform on selection content:
   - [ ] Floating selection: selected pixels become a temporary floating layer during transform
   - [ ] Merge back on commit
-- [ ] **Edit > Transform sub-menu:**
-  - [ ] Scale, Rotate, Skew, Distort, Perspective, Warp, Flip Horizontal/Vertical
-  - [ ] Rotate 90° CW/CCW, 180°
+- [x] **Edit > Transform sub-menu:**
+  - [ ] Scale, Rotate, Skew, Distort, Perspective, Warp
+  - [x] Flip Horizontal / Flip Vertical
+  - [x] Rotate 90° CW/CCW, 180°
   - [ ] Again (repeat last transform)
 
 ### Phase 3.4: Crop Tool

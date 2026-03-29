@@ -18,6 +18,7 @@ type KeyboardActions = {
   onDeselect(): void;
   onInvertSelection(): void;
   onToolSelect(tool: ShortcutTool): void;
+  onBeginTransform(): void;
   onNudgeLayer(dx: number, dy: number): void;
 };
 
@@ -93,6 +94,10 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "z":
           event.preventDefault();
           actions.onToolSelect("zoom");
+          return;
+        case "Mod+t":
+          event.preventDefault();
+          actions.onBeginTransform();
           return;
         case "ArrowLeft":
           event.preventDefault();
