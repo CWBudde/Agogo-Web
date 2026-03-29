@@ -69,6 +69,13 @@ export enum CommandID {
   RotateLayer90CCW = 0x0307,
   RotateLayer180 = 0x0308,
 
+  // Phase 3.4: Crop
+  BeginCrop = 0x0320,
+  UpdateCrop = 0x0321,
+  CommitCrop = 0x0322,
+  CancelCrop = 0x0323,
+  ResizeCanvas = 0x0324,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -419,6 +426,8 @@ export interface UpdateFreeTransformCommand {
   interpolation?: InterpolMode;
   /** When present, switches to homography/distort mode. Order: TL, TR, BR, BL. */
   corners?: [[number, number], [number, number], [number, number], [number, number]];
+  /** When present, switches to mesh-warp mode. 4×4 grid [row][col] in doc space. */
+  warpGrid?: [[number, number], [number, number], [number, number], [number, number]][];
 }
 
 export interface DiscreteTransformCommand {
@@ -443,9 +452,33 @@ export interface FreeTransformMeta {
   interpolation: InterpolMode;
   /** Corners of source bbox after transform in doc space: TL, TR, BR, BL */
   corners: [[number, number], [number, number], [number, number], [number, number]];
+  /** Present in mesh-warp mode: 4×4 control-point grid [row][col] in doc space. */
+  warpGrid?: [[number, number], [number, number], [number, number], [number, number]][];
   scaleX: number;
   scaleY: number;
   rotation: number;
   skewX: number;
   skewY: number;
+}
+
+// Phase 3.4 - Crop
+export interface UpdateCropCommand {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ResizeCanvasCommand {
+  width: number;
+  height: number;
+  anchor: "top-left" | "top-center" | "top-right" | "middle-left" | "center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+}
+
+export interface CropMeta {
+  active: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }

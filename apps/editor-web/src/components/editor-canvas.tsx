@@ -160,6 +160,7 @@ type TransformDragKind =
   | "perspective-tr"
   | "perspective-br"
   | "perspective-bl"
+  | `warp-${0 | 1 | 2 | 3}-${0 | 1 | 2 | 3}`
   | "rotate";
 
 type TransformDraft = {
@@ -181,6 +182,8 @@ type TransformDraft = {
   startAngle: number;
   /** Corners at drag start (TL, TR, BR, BL in doc space). Used for distort. */
   startCorners: [[number, number], [number, number], [number, number], [number, number]];
+  /** Warp grid at drag start. Present only in warp mode. */
+  startWarpGrid?: [[number, number], [number, number], [number, number], [number, number]][];
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -261,13 +264,36 @@ type LayerMetaSlim = {
 
 const TRANSFORM_HANDLE_HIT_RADIUS = 12; // canvas pixels
 
-/** Returns which transform handle the canvas point is near, or null. */
 function transformHitTest(
   ft: FreeTransformMeta,
   docToCanvas: (d: DocumentPoint) => { x: number; y: number } | null,
   canvasX: number,
   canvasY: number,
 ): TransformDragKind | null {
+  // Warp mode: hit-test against 4×4 control-point grid.
+  if (ft.warpGrid) {
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        const pt = ft.warpGrid[row][col];
+        const cp = docToCanvas({ x: pt[0], y: pt[1] });
+        if (!cp) continue;
+        const dx = canvasX - cp.x;
+        const dy = canvasY - cp.y;
+        if (dx * dx + dy * dy <= TRANSFORM_HANDLE_HIT_RADIUS ** 2) {
+          return `warp-${row as 0 | 1 | 2 | 3}-${col as 0 | 1 | 2 | 3}`;
+        }
+      }
+    }
+    // Inside warp bbox → move.
+    const outerPts = [ft.warpGrid[0][0], ft.warpGrid[0][3], ft.warpGrid[3][3], ft.warpGrid[3][0]].map(
+      (p) => docToCanvas({ x: p[0], y: p[1] }),
+    );
+    if (outerPts.every((p): p is { x: number; y: number } => p !== null)) {
+      if (pointInQuad(outerPts, canvasX, canvasY)) return "move";
+    }
+    return null;
+  }
+
   const corners = ft.corners;
   // 8 handles: TL, top-mid, TR, right-mid, BR, bottom-mid, BL, left-mid
   const handles: [TransformDragKind, [number, number]][] = [
@@ -1180,12 +1206,13 @@ export function EditorCanvas({
                 }
               }
               if (kind) {
-                // For "move", "skew-*", "distort-*", and "perspective-*", fixedX/fixedY hold the initial mouse doc position.
+                // For "move", "skew-*", "distort-*", "perspective-*", and "warp-*", fixedX/fixedY hold the initial mouse doc position.
                 const isSkew = kind === "skew-t" || kind === "skew-b" || kind === "skew-l" || kind === "skew-r";
                 const isDistort = kind === "distort-tl" || kind === "distort-tr" || kind === "distort-br" || kind === "distort-bl";
                 const isPersp = kind === "perspective-tl" || kind === "perspective-tr" || kind === "perspective-br" || kind === "perspective-bl";
+                const isWarp = kind.startsWith("warp-");
                 const [fixedX, fixedY] =
-                  kind === "move" || isSkew || isDistort || isPersp
+                  kind === "move" || isSkew || isDistort || isPersp || isWarp
                     ? [docPoint.x, docPoint.y]
                     : oppositeCorner(ft, kind);
                 const startAngle = Math.atan2(
@@ -1207,6 +1234,7 @@ export function EditorCanvas({
                   fixedY,
                   startAngle,
                   startCorners: ft.corners,
+                  startWarpGrid: ft.warpGrid ? [...ft.warpGrid] : undefined,
                 });
                 event.currentTarget.setPointerCapture(event.pointerId);
                 event.preventDefault();
@@ -1469,6 +1497,26 @@ export function EditorCanvas({
               pivotX: td.startPivotX, pivotY: td.startPivotY,
               interpolation: ft.interpolation as InterpolMode,
               corners,
+            });
+            return;
+          } else if (td.kind.startsWith("warp-") && td.startWarpGrid) {
+            // Warp: move single control point; rest stays fixed.
+            const [, rowStr, colStr] = td.kind.split("-");
+            const row = Number(rowStr);
+            const col = Number(colStr);
+            const dx = docPoint.x - td.fixedX;
+            const dy = docPoint.y - td.fixedY;
+            // Deep-copy the grid.
+            const warpGrid = td.startWarpGrid.map((r) =>
+              r.map((p) => [p[0], p[1]] as [number, number]) as [[number, number], [number, number], [number, number], [number, number]],
+            ) as [[number, number], [number, number], [number, number], [number, number]][];
+            warpGrid[row][col] = [td.startWarpGrid[row][col][0] + dx, td.startWarpGrid[row][col][1] + dy];
+            engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
+              tx: td.startTX, ty: td.startTY,
+              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              interpolation: ft.interpolation as InterpolMode,
+              warpGrid,
             });
             return;
           } else {

@@ -1,6 +1,7 @@
 import {
   CommandID,
   type CreateDocumentCommand,
+  type FreeTransformMeta,
   type InterpolMode,
   type LayerNodeMeta,
   type ThumbnailEntry,
@@ -1057,6 +1058,33 @@ export default function App() {
               </ToolChoiceButton>
             ))}
           </ToolOptionGroup>
+          <ToolChoiceButton
+            active={!!render?.uiMeta.freeTransform?.warpGrid}
+            onClick={() => {
+              const ft = render?.uiMeta.freeTransform;
+              if (!ft) return;
+              if (ft.warpGrid) {
+                // Exit warp mode → back to affine.
+                engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                  a: ft.a, b: ft.b, c: ft.c, d: ft.d,
+                  tx: ft.tx, ty: ft.ty,
+                  pivotX: ft.pivotX, pivotY: ft.pivotY,
+                  interpolation: ft.interpolation as InterpolMode,
+                });
+              } else {
+                // Enter warp mode: initialize grid from corners.
+                engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                  a: ft.a, b: ft.b, c: ft.c, d: ft.d,
+                  tx: ft.tx, ty: ft.ty,
+                  pivotX: ft.pivotX, pivotY: ft.pivotY,
+                  interpolation: ft.interpolation as InterpolMode,
+                  warpGrid: buildWarpGrid(ft),
+                });
+              }
+            }}
+          >
+            Warp
+          </ToolChoiceButton>
           <button
             type="button"
             className="rounded border border-green-600/50 bg-green-600/20 px-2 py-0.5 text-[11px] text-green-300 hover:bg-green-600/30 focus-visible:outline-none"
@@ -1835,6 +1863,26 @@ type FreeTransformCorners = [
   [number, number],
   [number, number],
 ];
+
+/** Build a 4×4 warp control-point grid by bilinear interpolation of the transform corners. */
+function buildWarpGrid(
+  ft: FreeTransformMeta,
+): [[number, number], [number, number], [number, number], [number, number]][] {
+  const [tl, tr, br, bl] = ft.corners;
+  const grid: [[number, number], [number, number], [number, number], [number, number]][] = [];
+  for (let row = 0; row < 4; row++) {
+    const t = row / 3;
+    const rowArr: [number, number][] = [];
+    for (let col = 0; col < 4; col++) {
+      const s = col / 3;
+      const x = (1 - t) * ((1 - s) * tl[0] + s * tr[0]) + t * ((1 - s) * bl[0] + s * br[0]);
+      const y = (1 - t) * ((1 - s) * tl[1] + s * tr[1]) + t * ((1 - s) * bl[1] + s * br[1]);
+      rowArr.push([x, y]);
+    }
+    grid.push(rowArr as [[number, number], [number, number], [number, number], [number, number]]);
+  }
+  return grid;
+}
 
 /** Compute the pivot doc-space position for a given 3×3 grid cell.
  *  corners: [TL, TR, BR, BL] in document space (from FreeTransformMeta). */
