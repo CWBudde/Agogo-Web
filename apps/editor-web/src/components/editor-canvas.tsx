@@ -156,6 +156,10 @@ type TransformDragKind =
   | "distort-tr"
   | "distort-br"
   | "distort-bl"
+  | "perspective-tl"
+  | "perspective-tr"
+  | "perspective-br"
+  | "perspective-bl"
   | "rotate";
 
 type TransformDraft = {
@@ -1149,26 +1153,39 @@ export function EditorCanvas({
                 canvasPoint.x,
                 canvasPoint.y,
               );
-              // Ctrl+drag on edge handles → skew; on corners → distort.
+              // Modifier+drag on handles → skew / distort / perspective.
               if (kind && event.ctrlKey) {
-                const ctrlRemap: Partial<Record<TransformDragKind, TransformDragKind>> = {
-                  "scale-t": "skew-t",
-                  "scale-b": "skew-b",
-                  "scale-l": "skew-l",
-                  "scale-r": "skew-r",
-                  "scale-tl": "distort-tl",
-                  "scale-tr": "distort-tr",
-                  "scale-br": "distort-br",
-                  "scale-bl": "distort-bl",
-                };
-                kind = ctrlRemap[kind] ?? kind;
+                if (event.shiftKey && event.altKey) {
+                  // Ctrl+Shift+Alt+drag corner → perspective (symmetric trapezoid).
+                  const perspRemap: Partial<Record<TransformDragKind, TransformDragKind>> = {
+                    "scale-tl": "perspective-tl",
+                    "scale-tr": "perspective-tr",
+                    "scale-br": "perspective-br",
+                    "scale-bl": "perspective-bl",
+                  };
+                  kind = perspRemap[kind] ?? kind;
+                } else {
+                  // Ctrl+drag edge → skew; Ctrl+drag corner → distort.
+                  const ctrlRemap: Partial<Record<TransformDragKind, TransformDragKind>> = {
+                    "scale-t": "skew-t",
+                    "scale-b": "skew-b",
+                    "scale-l": "skew-l",
+                    "scale-r": "skew-r",
+                    "scale-tl": "distort-tl",
+                    "scale-tr": "distort-tr",
+                    "scale-br": "distort-br",
+                    "scale-bl": "distort-bl",
+                  };
+                  kind = ctrlRemap[kind] ?? kind;
+                }
               }
               if (kind) {
-                // For "move", "skew-*", and "distort-*", fixedX/fixedY hold the initial mouse doc position.
+                // For "move", "skew-*", "distort-*", and "perspective-*", fixedX/fixedY hold the initial mouse doc position.
                 const isSkew = kind === "skew-t" || kind === "skew-b" || kind === "skew-l" || kind === "skew-r";
                 const isDistort = kind === "distort-tl" || kind === "distort-tr" || kind === "distort-br" || kind === "distort-bl";
+                const isPersp = kind === "perspective-tl" || kind === "perspective-tr" || kind === "perspective-br" || kind === "perspective-bl";
                 const [fixedX, fixedY] =
-                  kind === "move" || isSkew || isDistort
+                  kind === "move" || isSkew || isDistort || isPersp
                     ? [docPoint.x, docPoint.y]
                     : oppositeCorner(ft, kind);
                 const startAngle = Math.atan2(
@@ -1404,6 +1421,48 @@ export function EditorCanvas({
             const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as
               [[number, number], [number, number], [number, number], [number, number]];
             corners[cornerIndex] = [docPoint.x, docPoint.y];
+            engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
+              tx: td.startTX, ty: td.startTY,
+              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              interpolation: ft.interpolation as InterpolMode,
+              corners,
+            });
+            return;
+          } else if (
+            td.kind === "perspective-tl" ||
+            td.kind === "perspective-tr" ||
+            td.kind === "perspective-br" ||
+            td.kind === "perspective-bl"
+          ) {
+            // Perspective: Ctrl+Shift+Alt+drag corner.
+            // Moving a corner also mirrors its horizontal neighbour on the same edge,
+            // keeping the opposite edge stationary. This produces a trapezoid that
+            // converges to a single vanishing point — the Photoshop "Perspective" mode.
+            //
+            // Mirror pairs (same horizontal edge):
+            //   TL (0) ↔ TR (1)   — top edge
+            //   BL (3) ↔ BR (2)   — bottom edge
+            const mirrorIndex: Record<string, number> = {
+              "perspective-tl": 1,
+              "perspective-tr": 0,
+              "perspective-br": 3,
+              "perspective-bl": 2,
+            };
+            const dragIndex = { "perspective-tl": 0, "perspective-tr": 1, "perspective-br": 2, "perspective-bl": 3 }[td.kind];
+            const mIdx = mirrorIndex[td.kind];
+            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as
+              [[number, number], [number, number], [number, number], [number, number]];
+
+            // Delta from drag start to current mouse position.
+            const dx = docPoint.x - td.fixedX;
+            const dy = docPoint.y - td.fixedY;
+
+            // Move the dragged corner.
+            corners[dragIndex] = [td.startCorners[dragIndex][0] + dx, td.startCorners[dragIndex][1] + dy];
+            // Mirror: negate X delta, same Y delta.
+            corners[mIdx] = [td.startCorners[mIdx][0] - dx, td.startCorners[mIdx][1] + dy];
+
             engine.dispatchCommand(CommandID.UpdateFreeTransform, {
               a: td.startA, b: td.startB, c: td.startC, d: td.startD,
               tx: td.startTX, ty: td.startTY,

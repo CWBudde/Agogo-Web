@@ -227,9 +227,9 @@
     - [x] **Scale:** drag corner/edge handles (uniform scale; Shift=constrain proportions not yet implemented)
     - [x] **Rotate:** drag outside bounding box (Shift=snap to 15° not yet implemented)
     - [x] **Move:** drag inside bounding box
-    - [ ] **Skew:** `Ctrl+drag` edge handle
-    - [ ] **Distort:** `Ctrl+drag` corner handle (free distort, no constraint)
-    - [ ] **Perspective:** `Ctrl+Shift+Alt+drag` corner (perspective warp)
+    - [x] **Skew:** `Ctrl+drag` edge handle — shifts the dragged edge by delta, recomputes A/B/C/D from updated corner positions
+    - [x] **Distort:** `Ctrl+drag` corner handle (free distort, no constraint) — uses AGG perspective span pipeline
+    - [x] **Perspective:** `Ctrl+Shift+Alt+drag` corner — symmetric trapezoid (same AGG quad pipeline)
     - [ ] **Warp:** grid-based mesh warp (subdivide bounding box into grid, drag control points)
   - [x] Numeric display in Options bar: X, Y, W%, H%, rotation angle (read-only; skew H/V and lock-aspect checkbox not yet implemented)
   - [x] Commit: Enter; Cancel: Escape
