@@ -42,6 +42,11 @@ type FreeTransformState struct {
 	// When non-nil, AGG's perspective span pipeline warps the source pixels to
 	// these four doc-space corners (TL, TR, BR, BL) instead of the affine matrix.
 	DistortCorners *[4][2]float64
+	// WarpGrid is set when the user enters mesh-warp mode.
+	// It holds a 4×4 grid of doc-space control points (rows top-to-bottom,
+	// columns left-to-right). Each 3×3 cell is rendered as a separate
+	// perspective-corrected patch via AGG's TransformImageQuad.
+	WarpGrid *[4][4][2]float64
 }
 
 // FreeTransformMeta is serialised into UIMeta so the frontend can render
@@ -65,6 +70,10 @@ type FreeTransformMeta struct {
 	// Corners are the four corners of the source bounding box after the current
 	// transform in document space. Order: TL, TR, BR, BL.
 	Corners [4][2]float64 `json:"corners"`
+	// WarpGrid is populated when the transform is in mesh-warp mode.
+	// It mirrors FreeTransformState.WarpGrid so the frontend can hit-test
+	// and render the grid control points.
+	WarpGrid *[4][4][2]float64 `json:"warpGrid,omitempty"`
 	// Decomposed parameters for the options bar.
 	ScaleX   float64 `json:"scaleX"` // percentage (100 = original size)
 	ScaleY   float64 `json:"scaleY"`
@@ -82,9 +91,14 @@ func (s *FreeTransformState) transformPoint(lx, ly float64) (dx, dy float64) {
 	return s.A*lx + s.C*ly + s.TX, s.B*lx + s.D*ly + s.TY
 }
 
-// transformedCorners returns the four corners of the original bounding box
-// after the current transform (doc space, TL / TR / BR / BL).
+// transformedCorners returns the four outer corners of the current transform
+// in document space (TL, TR, BR, BL).
+// In warp mode these are the four corner control points of the mesh.
 func (s *FreeTransformState) transformedCorners() [4][2]float64 {
+	if s.WarpGrid != nil {
+		g := *s.WarpGrid
+		return [4][2]float64{g[0][0], g[0][3], g[3][3], g[3][0]}
+	}
 	if s.DistortCorners != nil {
 		return *s.DistortCorners
 	}
@@ -100,27 +114,38 @@ func (s *FreeTransformState) transformedCorners() [4][2]float64 {
 	return [4][2]float64{tl, tr, br, bl}
 }
 
-// transformedAABB returns the axis-aligned bounding box of the transformed
-// source rectangle in document space.
+// transformedAABB returns the axis-aligned bounding box that covers the full
+// current transform in document space.  In warp mode it covers all 16 control
+// points; otherwise it covers the four outer corners.
 func (s *FreeTransformState) transformedAABB() (minX, minY, maxX, maxY float64) {
-	corners := s.transformedCorners()
 	minX = math.Inf(1)
 	minY = math.Inf(1)
 	maxX = math.Inf(-1)
 	maxY = math.Inf(-1)
-	for _, c := range corners {
-		if c[0] < minX {
-			minX = c[0]
+	update := func(x, y float64) {
+		if x < minX {
+			minX = x
 		}
-		if c[0] > maxX {
-			maxX = c[0]
+		if x > maxX {
+			maxX = x
 		}
-		if c[1] < minY {
-			minY = c[1]
+		if y < minY {
+			minY = y
 		}
-		if c[1] > maxY {
-			maxY = c[1]
+		if y > maxY {
+			maxY = y
 		}
+	}
+	if s.WarpGrid != nil {
+		for _, row := range *s.WarpGrid {
+			for _, pt := range row {
+				update(pt[0], pt[1])
+			}
+		}
+		return
+	}
+	for _, c := range s.transformedCorners() {
+		update(c[0], c[1])
 	}
 	return
 }
@@ -190,6 +215,7 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 		PivotY:        s.PivotY,
 		Interpolation: string(s.Interpolation),
 		Corners:       corners,
+		WarpGrid:      s.WarpGrid,
 		ScaleX:        scaleXPct,
 		ScaleY:        scaleYPct,
 		Rotation:      rotation,
@@ -314,32 +340,59 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 
 	newPixels = make([]byte, outW*outH*4)
 
-	if s.DistortCorners != nil {
-		// --- Perspective warp via AGG ---
-		// Express the four destination corners relative to the output tile origin
-		// so that they map into [0, outW) × [0, outH) canvas space.
-		corners := *s.DistortCorners
-		quad := [8]float64{
-			corners[0][0] - float64(outX), corners[0][1] - float64(outY), // TL
-			corners[1][0] - float64(outX), corners[1][1] - float64(outY), // TR
-			corners[2][0] - float64(outX), corners[2][1] - float64(outY), // BR
-			corners[3][0] - float64(outX), corners[3][1] - float64(outY), // BL
-		}
-
+	// aggRenderer creates an AGG canvas targeting newPixels with the appropriate filter.
+	newAGGRenderer := func() (*agglib.Agg2D, *agglib.Image) {
 		renderer := agglib.NewAgg2D()
 		renderer.Attach(newPixels, outW, outH, outW*4)
 		renderer.ResetTransformations()
-
-		// Set image filter matching the requested interpolation mode.
 		switch interp {
 		case InterpolNearest:
 			renderer.ImageFilter(agglib.NoFilter)
 		default:
 			renderer.ImageFilter(agglib.Bilinear)
 		}
-
 		srcImg := agglib.NewImage(s.OriginalPixels, origW, origH, origW*4)
-		_ = renderer.TransformImageQuadSimple(srcImg, quad)
+		return renderer, srcImg
+	}
+
+	// tileQuad converts four doc-space points into a tile-relative [8]float64 quad.
+	tileQuad := func(pts [4][2]float64) [8]float64 {
+		return [8]float64{
+			pts[0][0] - float64(outX), pts[0][1] - float64(outY),
+			pts[1][0] - float64(outX), pts[1][1] - float64(outY),
+			pts[2][0] - float64(outX), pts[2][1] - float64(outY),
+			pts[3][0] - float64(outX), pts[3][1] - float64(outY),
+		}
+	}
+
+	if s.WarpGrid != nil {
+		// --- Mesh warp via AGG: render each 3×3 cell as a perspective patch ---
+		renderer, srcImg := newAGGRenderer()
+		g := *s.WarpGrid
+		const cells = 3 // 4×4 control points → 3×3 cells
+		for row := range cells {
+			for col := range cells {
+				// Source sub-rectangle for this cell (integer pixel coords).
+				srcX1 := col * origW / cells
+				srcY1 := row * origH / cells
+				srcX2 := (col + 1) * origW / cells
+				srcY2 := (row + 1) * origH / cells
+				// Destination quad from the four surrounding control points.
+				quad := tileQuad([4][2]float64{
+					g[row][col],     // TL
+					g[row][col+1],   // TR
+					g[row+1][col+1], // BR
+					g[row+1][col],   // BL
+				})
+				_ = renderer.TransformImageQuad(srcImg, srcX1, srcY1, srcX2, srcY2, quad)
+			}
+		}
+
+	} else if s.DistortCorners != nil {
+		// --- Perspective warp via AGG ---
+		renderer, srcImg := newAGGRenderer()
+		quad := tileQuad(*s.DistortCorners)
+		_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
 
 	} else {
 		// --- Affine warp via per-pixel inverse mapping ---
@@ -577,6 +630,41 @@ func RenderTransformHandlesOverlay(state *FreeTransformState, vp *ViewportState,
 		}
 	}
 
+	// ---------------------------------------------------------------------------
+	// Warp mesh overlay
+	// ---------------------------------------------------------------------------
+	if state.WarpGrid != nil {
+		g := *state.WarpGrid
+		// Draw all horizontal and vertical grid segments.
+		for r := range 4 {
+			for c := range 4 {
+				cx, cy := docToCanvas(g[r][c][0], g[r][c][1])
+				// Horizontal: connect to right neighbour.
+				if c < 3 {
+					rx, ry := docToCanvas(g[r][c+1][0], g[r][c+1][1])
+					drawLine(cx, cy, rx, ry, transformBoxColor)
+				}
+				// Vertical: connect to bottom neighbour.
+				if r < 3 {
+					bx, by := docToCanvas(g[r+1][c][0], g[r+1][c][1])
+					drawLine(cx, cy, bx, by, transformBoxColor)
+				}
+			}
+		}
+		// Draw handles at all 16 control points.
+		for r := range 4 {
+			for c := range 4 {
+				hcx, hcy := docToCanvas(g[r][c][0], g[r][c][1])
+				drawHandle(hcx, hcy)
+			}
+		}
+		return reuse
+	}
+
+	// ---------------------------------------------------------------------------
+	// Standard free-transform overlay
+	// ---------------------------------------------------------------------------
+
 	// Bounding box corners in canvas space.
 	corners := state.transformedCorners()
 	var sx, sy [4]int
@@ -608,14 +696,12 @@ func RenderTransformHandlesOverlay(state *FreeTransformState, vp *ViewportState,
 
 	// Rotation handle: above the top-centre edge midpoint.
 	topMidDoc := handleDocs[1]
-	// Offset in the direction perpendicular to the top edge, outward.
 	topEdgeDX := corners[1][0] - corners[0][0]
 	topEdgeDY := corners[1][1] - corners[0][1]
 	topEdgeLen := math.Hypot(topEdgeDX, topEdgeDY)
-	const rotHandleOffset = 24.0 / 1.0 // canvas pixels; divide by zoom for doc offset
+	const rotHandleOffset = 24.0 / 1.0
 	var rotDocOffX, rotDocOffY float64
 	if topEdgeLen > 1e-6 && zoom > 1e-6 {
-		// Perpendicular to top edge, pointing outward (upward in source space).
 		perpX := -topEdgeDY / topEdgeLen
 		perpY := topEdgeDX / topEdgeLen
 		docOff := rotHandleOffset / zoom
@@ -624,7 +710,6 @@ func RenderTransformHandlesOverlay(state *FreeTransformState, vp *ViewportState,
 	}
 	rotHandleDoc := [2]float64{topMidDoc[0] + rotDocOffX, topMidDoc[1] + rotDocOffY}
 	rcx, rcy := docToCanvas(rotHandleDoc[0], rotHandleDoc[1])
-	// Draw rotation handle as a small circle.
 	const rotR = 5
 	for dy := -rotR; dy <= rotR; dy++ {
 		for dx := -rotR; dx <= rotR; dx++ {
@@ -636,7 +721,6 @@ func RenderTransformHandlesOverlay(state *FreeTransformState, vp *ViewportState,
 			}
 		}
 	}
-	// Stem from top-mid handle to rotation handle.
 	tmcx, tmcy := docToCanvas(topMidDoc[0], topMidDoc[1])
 	drawLine(tmcx, tmcy, rcx, rcy, transformBoxColor)
 

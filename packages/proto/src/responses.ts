@@ -58,6 +58,8 @@ export interface UIMeta {
 	selection: SelectionMeta;
 	/** Present when free transform is active. */
 	freeTransform?: FreeTransformMeta;
+	/** Present when crop tool is active. */
+	crop?: import("./commands.js").CropMeta;
 }
 
 export interface LayerNodeMeta {

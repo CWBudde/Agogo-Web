@@ -1800,11 +1800,16 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if payload.Interpolation != "" {
 			inst.freeTransform.Interpolation = InterpolMode(payload.Interpolation)
 		}
-		// Handle distort mode: store corners; agg handles the warp.
-		if payload.Corners != nil {
+		// Handle distort/warp mode (mutually exclusive with affine).
+		if payload.WarpGrid != nil {
+			inst.freeTransform.WarpGrid = payload.WarpGrid
+			inst.freeTransform.DistortCorners = nil
+		} else if payload.Corners != nil {
 			inst.freeTransform.DistortCorners = payload.Corners
+			inst.freeTransform.WarpGrid = nil
 		} else {
 			inst.freeTransform.DistortCorners = nil
+			inst.freeTransform.WarpGrid = nil
 		}
 		// Apply preview (bilinear always for responsiveness).
 		previewPixels, previewBounds := applyPixelTransform(inst.freeTransform, InterpolBilinear)

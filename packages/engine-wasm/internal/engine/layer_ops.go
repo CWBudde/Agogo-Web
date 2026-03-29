@@ -159,7 +159,10 @@ type UpdateFreeTransformPayload struct {
 	Interpolation string         `json:"interpolation"`
 	// Corners, when non-nil, switches to homography/distort mode.
 	// Order: TL, TR, BR, BL in doc space.
-	Corners       *[4][2]float64 `json:"corners,omitempty"`
+	Corners  *[4][2]float64    `json:"corners,omitempty"`
+	// WarpGrid, when non-nil, switches to mesh-warp mode.
+	// 4×4 grid of control points in doc space; row-major [row][col][x,y].
+	WarpGrid *[4][4][2]float64 `json:"warpGrid,omitempty"`
 }
 
 // DiscreteTransformPayload carries an optional layer ID for discrete (immediate)
