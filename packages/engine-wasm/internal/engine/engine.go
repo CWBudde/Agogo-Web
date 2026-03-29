@@ -69,6 +69,15 @@ const (
 	commandQuickSelect              = 0x020c
 	commandMagicWand                = 0x020d
 	commandMagneticLassoSuggestPath = 0x020e
+	commandBeginFreeTransform       = 0x0300
+	commandUpdateFreeTransform      = 0x0301
+	commandCommitFreeTransform      = 0x0302
+	commandCancelFreeTransform      = 0x0303
+	commandFlipLayerH               = 0x0304
+	commandFlipLayerV               = 0x0305
+	commandRotateLayer90CW          = 0x0306
+	commandRotateLayer90CCW         = 0x0307
+	commandRotateLayer180           = 0x0308
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -161,8 +170,9 @@ type UIMeta struct {
 	ContentVersion int64 `json:"contentVersion"`
 	// MaskEditLayerID is set when the user is actively editing a layer mask.
 	// The UI uses this to show the mask-edit border indicator.
-	MaskEditLayerID string        `json:"maskEditLayerId,omitempty"`
-	Selection       SelectionMeta `json:"selection"`
+	MaskEditLayerID string             `json:"maskEditLayerId,omitempty"`
+	Selection       SelectionMeta      `json:"selection"`
+	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
 }
 
 type RenderResult struct {
@@ -532,6 +542,9 @@ type instance struct {
 	// maskEditLayerID tracks which layer's mask is currently being edited.
 	// This is UI state only — not included in history snapshots.
 	maskEditLayerID string
+	// freeTransform holds the live state while free transform is active.
+	// It is UI-only state not included in history snapshots.
+	freeTransform *FreeTransformState
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -1723,6 +1736,188 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, err
 		}
 		suggestedPath = suggestMagneticPath(surface, doc.Width, doc.Height, payload.X1, payload.Y1, payload.X2, payload.Y2)
+
+	// Phase 3.3 – Free Transform
+	case commandBeginFreeTransform:
+		var payload BeginFreeTransformPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		layerID := payload.LayerID
+		if layerID == "" {
+			layerID = doc.ActiveLayerID
+		}
+		layer := doc.findLayer(layerID)
+		if layer == nil {
+			return RenderResult{}, fmt.Errorf("layer %q not found", layerID)
+		}
+		pl, ok := layer.(*PixelLayer)
+		if !ok {
+			return RenderResult{}, fmt.Errorf("free transform only supported on pixel layers")
+		}
+		inst.freeTransform = &FreeTransformState{
+			Active:         true,
+			LayerID:        layerID,
+			OriginalPixels: append([]byte(nil), pl.Pixels...),
+			OriginalBounds: pl.Bounds,
+			A:              1, B: 0, C: 0, D: 1,
+			TX:             float64(pl.Bounds.X),
+			TY:             float64(pl.Bounds.Y),
+			PivotX:         float64(pl.Bounds.X) + float64(pl.Bounds.W)*0.5,
+			PivotY:         float64(pl.Bounds.Y) + float64(pl.Bounds.H)*0.5,
+			Interpolation:  InterpolBilinear,
+		}
+
+	case commandUpdateFreeTransform:
+		var payload UpdateFreeTransformPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		if inst.freeTransform == nil || !inst.freeTransform.Active {
+			return RenderResult{}, fmt.Errorf("no active free transform")
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		layer := doc.findLayer(inst.freeTransform.LayerID)
+		pl, ok := layer.(*PixelLayer)
+		if !ok || pl == nil {
+			return RenderResult{}, fmt.Errorf("transform layer not found or wrong type")
+		}
+		inst.freeTransform.A = payload.A
+		inst.freeTransform.B = payload.B
+		inst.freeTransform.C = payload.C
+		inst.freeTransform.D = payload.D
+		inst.freeTransform.TX = payload.TX
+		inst.freeTransform.TY = payload.TY
+		inst.freeTransform.PivotX = payload.PivotX
+		inst.freeTransform.PivotY = payload.PivotY
+		if payload.Interpolation != "" {
+			inst.freeTransform.Interpolation = InterpolMode(payload.Interpolation)
+		}
+		// Apply preview (bilinear always for responsiveness).
+		previewPixels, previewBounds := applyPixelTransform(inst.freeTransform, InterpolBilinear)
+		pl.Pixels = previewPixels
+		pl.Bounds = previewBounds
+		doc.ContentVersion++
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return RenderResult{}, err
+		}
+		inst.cachedDocContentVersion = -1 // force composite rebuild
+
+	case commandCommitFreeTransform:
+		if inst.freeTransform == nil || !inst.freeTransform.Active {
+			return RenderResult{}, fmt.Errorf("no active free transform")
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		layer := doc.findLayer(inst.freeTransform.LayerID)
+		pl, ok := layer.(*PixelLayer)
+		if !ok || pl == nil {
+			return RenderResult{}, fmt.Errorf("transform layer not found or wrong type")
+		}
+		// Restore original pixels and apply with final interpolation.
+		finalPixels, finalBounds := applyPixelTransform(inst.freeTransform, inst.freeTransform.Interpolation)
+		// Wrap the commit in a history transaction.
+		ft := inst.freeTransform
+		command := &snapshotCommand{
+			description: "Free Transform",
+			applyFn: func(inst *instance) (snapshot, error) {
+				d := inst.manager.Active()
+				if d == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				l := d.findLayer(ft.LayerID)
+				p, ok := l.(*PixelLayer)
+				if !ok || p == nil {
+					return snapshot{}, fmt.Errorf("layer not found")
+				}
+				p.Pixels = finalPixels
+				p.Bounds = finalBounds
+				d.ContentVersion++
+				if err := inst.manager.ReplaceActive(d); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+		inst.freeTransform = nil
+		inst.cachedDocContentVersion = -1
+
+	case commandCancelFreeTransform:
+		if inst.freeTransform == nil || !inst.freeTransform.Active {
+			inst.freeTransform = nil
+			break
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		layer := doc.findLayer(inst.freeTransform.LayerID)
+		if pl, ok := layer.(*PixelLayer); ok && pl != nil {
+			pl.Pixels = inst.freeTransform.OriginalPixels
+			pl.Bounds = inst.freeTransform.OriginalBounds
+			doc.ContentVersion++
+			if err := inst.manager.ReplaceActive(doc); err != nil {
+				return RenderResult{}, err
+			}
+		}
+		inst.freeTransform = nil
+		inst.cachedDocContentVersion = -1
+
+	// Phase 3.3 – Discrete transforms (flip / rotate)
+	case commandFlipLayerH, commandFlipLayerV,
+		commandRotateLayer90CW, commandRotateLayer90CCW, commandRotateLayer180:
+		var payload DiscreteTransformPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		kind := map[int32]string{
+			commandFlipLayerH:    "flipH",
+			commandFlipLayerV:    "flipV",
+			commandRotateLayer90CW:  "rotate90cw",
+			commandRotateLayer90CCW: "rotate90ccw",
+			commandRotateLayer180:   "rotate180",
+		}[commandID]
+		command := &snapshotCommand{
+			description: kindDescription(kind),
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				layerID := payload.LayerID
+				if layerID == "" {
+					layerID = doc.ActiveLayerID
+				}
+				l := doc.findLayer(layerID)
+				pl, ok := l.(*PixelLayer)
+				if !ok || pl == nil {
+					return snapshot{}, fmt.Errorf("layer %q is not a pixel layer", layerID)
+				}
+				applyDiscreteTransformToLayer(pl, kind)
+				doc.ContentVersion++
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+		inst.cachedDocContentVersion = -1
+
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
@@ -1823,6 +2018,7 @@ func (inst *instance) render() RenderResult {
 
 	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels, inst.compositeSurface(doc))
 	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
+	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
 	return RenderResult{
 		FrameID:     frameID,
 		Viewport:    inst.viewport,
@@ -1850,6 +2046,7 @@ func (inst *instance) render() RenderResult {
 			ContentVersion:      doc.ContentVersion,
 			MaskEditLayerID:     inst.maskEditLayerID,
 			Selection:           doc.selectionMeta(),
+			FreeTransform:       inst.freeTransform.meta(),
 		},
 	}
 }

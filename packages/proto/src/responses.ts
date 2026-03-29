@@ -1,6 +1,8 @@
 // RenderResult — returned by the engine after each command dispatch.
 // bufferPtr and bufferLen reference a region inside the Wasm linear memory.
 
+import type { FreeTransformMeta } from "./commands.js";
+
 export interface DirtyRect {
 	x: number;
 	y: number;
@@ -54,6 +56,8 @@ export interface UIMeta {
 	/** Set when the user is actively editing a layer mask; empty/absent otherwise. */
 	maskEditLayerId?: string;
 	selection: SelectionMeta;
+	/** Present when free transform is active. */
+	freeTransform?: FreeTransformMeta;
 }
 
 export interface LayerNodeMeta {
