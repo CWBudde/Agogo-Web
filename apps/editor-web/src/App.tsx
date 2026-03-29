@@ -400,6 +400,7 @@ export default function App() {
   const [wandContiguous, setWandContiguous] = useState(true);
   const [wandSampleMerged, setWandSampleMerged] = useState(false);
   const [moveAutoSelectGroup, setMoveAutoSelectGroup] = useState(false);
+  const [transformRefPoint, setTransformRefPoint] = useState<[number, number]>([1, 1]);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
@@ -664,6 +665,7 @@ export default function App() {
         break;
       case "transform-free":
         setActiveTool("transform");
+        setTransformRefPoint([1, 1]);
         engine.dispatchCommand(CommandID.BeginFreeTransform, {});
         break;
       case "transform-flip-h":
@@ -739,6 +741,7 @@ export default function App() {
     },
     onBeginTransform() {
       setActiveTool("transform");
+      setTransformRefPoint([1, 1]);
       engine.dispatchCommand(CommandID.BeginFreeTransform, {});
     },
     onNudgeLayer(dx: number, dy: number) {
@@ -1004,56 +1007,71 @@ export default function App() {
     ) : activeTool === "transform" ? (
       render?.uiMeta.freeTransform?.active ? (
         <>
+          <TransformRefGrid
+            active={transformRefPoint}
+            onChange={(row, col) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const [px, py] = refPointToPivot(ft.corners, row, col);
+              setTransformRefPoint([row, col]);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                a: ft.a, b: ft.b, c: ft.c, d: ft.d,
+                tx: ft.tx, ty: ft.ty,
+                pivotX: px, pivotY: py,
+                interpolation: ft.interpolation as InterpolMode,
+              });
+            }}
+          />
           <span className="text-[11px] text-slate-300">
             X: {Math.round(render.uiMeta.freeTransform.tx)}
           </span>
-            <span className="text-[11px] text-slate-300">
-              Y: {Math.round(render.uiMeta.freeTransform.ty)}
-            </span>
-            <span className="text-[11px] text-slate-300">
-              W: {(render.uiMeta.freeTransform.scaleX * 100).toFixed(1)}%
-            </span>
-            <span className="text-[11px] text-slate-300">
-              H: {(render.uiMeta.freeTransform.scaleY * 100).toFixed(1)}%
-            </span>
-            <span className="text-[11px] text-slate-300">
-              R: {render.uiMeta.freeTransform.rotation.toFixed(1)}°
-            </span>
-            <ToolOptionGroup label="Interp">
-              {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
-                <ToolChoiceButton
-                  key={mode}
-                  active={render.uiMeta.freeTransform?.interpolation === mode}
-                  onClick={() => {
-                    const ft = render.uiMeta.freeTransform;
-                    if (!ft) return;
-                    engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                      a: ft.a, b: ft.b, c: ft.c, d: ft.d,
-                      tx: ft.tx, ty: ft.ty,
-                      pivotX: ft.pivotX, pivotY: ft.pivotY,
-                      interpolation: mode,
-                    });
-                  }}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </ToolChoiceButton>
-              ))}
-            </ToolOptionGroup>
-            <button
-              type="button"
-              className="rounded border border-green-600/50 bg-green-600/20 px-2 py-0.5 text-[11px] text-green-300 hover:bg-green-600/30 focus-visible:outline-none"
-              onClick={() => engine.dispatchCommand(CommandID.CommitFreeTransform, {})}
-            >
-              ✓ Commit
-            </button>
-            <button
-              type="button"
-              className="rounded border border-red-600/50 bg-red-600/20 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-600/30 focus-visible:outline-none"
-              onClick={() => engine.dispatchCommand(CommandID.CancelFreeTransform, {})}
-            >
-              ✗ Cancel
-            </button>
-          </>
+          <span className="text-[11px] text-slate-300">
+            Y: {Math.round(render.uiMeta.freeTransform.ty)}
+          </span>
+          <span className="text-[11px] text-slate-300">
+            W: {(render.uiMeta.freeTransform.scaleX * 100).toFixed(1)}%
+          </span>
+          <span className="text-[11px] text-slate-300">
+            H: {(render.uiMeta.freeTransform.scaleY * 100).toFixed(1)}%
+          </span>
+          <span className="text-[11px] text-slate-300">
+            R: {render.uiMeta.freeTransform.rotation.toFixed(1)}°
+          </span>
+          <ToolOptionGroup label="Interp">
+            {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
+              <ToolChoiceButton
+                key={mode}
+                active={render.uiMeta.freeTransform?.interpolation === mode}
+                onClick={() => {
+                  const ft = render.uiMeta.freeTransform;
+                  if (!ft) return;
+                  engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                    a: ft.a, b: ft.b, c: ft.c, d: ft.d,
+                    tx: ft.tx, ty: ft.ty,
+                    pivotX: ft.pivotX, pivotY: ft.pivotY,
+                    interpolation: mode,
+                  });
+                }}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </ToolChoiceButton>
+            ))}
+          </ToolOptionGroup>
+          <button
+            type="button"
+            className="rounded border border-green-600/50 bg-green-600/20 px-2 py-0.5 text-[11px] text-green-300 hover:bg-green-600/30 focus-visible:outline-none"
+            onClick={() => engine.dispatchCommand(CommandID.CommitFreeTransform, {})}
+          >
+            ✓ Commit
+          </button>
+          <button
+            type="button"
+            className="rounded border border-red-600/50 bg-red-600/20 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-600/30 focus-visible:outline-none"
+            onClick={() => engine.dispatchCommand(CommandID.CancelFreeTransform, {})}
+          >
+            ✗ Cancel
+          </button>
+        </>
       ) : (
         <span className="text-[11px] text-slate-400">
           Click a layer to begin free transform · Enter to commit · Esc to cancel
