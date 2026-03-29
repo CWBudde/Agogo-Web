@@ -1825,6 +1825,75 @@ export default function App() {
 const fieldClassName =
   "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30";
 
+// ---------------------------------------------------------------------------
+// Free-transform reference-point grid
+// ---------------------------------------------------------------------------
+
+type FreeTransformCorners = [
+  [number, number],
+  [number, number],
+  [number, number],
+  [number, number],
+];
+
+/** Compute the pivot doc-space position for a given 3×3 grid cell.
+ *  corners: [TL, TR, BR, BL] in document space (from FreeTransformMeta). */
+function refPointToPivot(
+  corners: FreeTransformCorners,
+  row: number,
+  col: number,
+): [number, number] {
+  const t = col / 2; // 0 = left, 0.5 = centre, 1 = right
+  const s = row / 2; // 0 = top,  0.5 = middle, 1 = bottom
+  const [tl, tr, br, bl] = corners;
+  const topX = tl[0] + t * (tr[0] - tl[0]);
+  const topY = tl[1] + t * (tr[1] - tl[1]);
+  const botX = bl[0] + t * (br[0] - bl[0]);
+  const botY = bl[1] + t * (br[1] - bl[1]);
+  return [topX + s * (botX - topX), topY + s * (botY - topY)];
+}
+
+const REF_POINT_LABELS = [
+  ["Top Left", "Top Center", "Top Right"],
+  ["Middle Left", "Center", "Middle Right"],
+  ["Bottom Left", "Bottom Center", "Bottom Right"],
+];
+
+function TransformRefGrid({
+  active,
+  onChange,
+}: {
+  active: [number, number];
+  onChange(row: number, col: number): void;
+}) {
+  return (
+    <div
+      className="grid grid-cols-3 gap-[2px] rounded-[2px] border border-white/20 p-[3px]"
+      title="Reference point — sets the pivot for the transform"
+    >
+      {([0, 1, 2] as const).flatMap((row) =>
+        ([0, 1, 2] as const).map((col) => {
+          const isActive = active[0] === row && active[1] === col;
+          return (
+            <button
+              key={`${row}-${col}`}
+              type="button"
+              title={REF_POINT_LABELS[row][col]}
+              className={[
+                "h-[7px] w-[7px] rounded-[1px] focus-visible:outline-none",
+                isActive
+                  ? "bg-cyan-400"
+                  : "bg-slate-500 hover:bg-slate-300",
+              ].join(" ")}
+              onClick={() => onChange(row, col)}
+            />
+          );
+        }),
+      )}
+    </div>
+  );
+}
+
 function ToolOptionGroup({
   label,
   children,
