@@ -97,7 +97,7 @@ func TestPaintDab_HardBrush_CenterPixelFilled(t *testing.T) {
 		Color:    [4]uint8{255, 0, 0, 255},
 	}
 
-	PaintDab(layer, 10.0, 10.0, params)
+	PaintDab(layer, 10.0, 10.0, params, 0, 1)
 
 	idx := (10*20 + 10) * 4
 	if layer.Pixels[idx] < 200 {
@@ -119,7 +119,7 @@ func TestPaintDab_SoftBrush_EdgePixelPartialAlpha(t *testing.T) {
 		Color:    [4]uint8{0, 0, 255, 255},
 	}
 
-	PaintDab(layer, 20.0, 20.0, params)
+	PaintDab(layer, 20.0, 20.0, params, 0, 1)
 
 	// Center should have blue
 	centerIdx := (20*40 + 20) * 4
@@ -145,7 +145,7 @@ func TestPaintDab_FlowReducesOpacity(t *testing.T) {
 		Color:    [4]uint8{255, 0, 0, 255},
 	}
 
-	PaintDab(layer, 10.0, 10.0, params)
+	PaintDab(layer, 10.0, 10.0, params, 0, 1)
 
 	centerIdx := (10*20 + 10) * 4
 	alpha := layer.Pixels[centerIdx+3]
@@ -257,7 +257,74 @@ func TestPaintDab_BlendModeDoesNotPanic(t *testing.T) {
 		Color:     [4]uint8{255, 0, 0, 255},
 		BlendMode: "multiply",
 	}
-	PaintDab(layer, 10.0, 10.0, params) // must not panic
+	PaintDab(layer, 10.0, 10.0, params, 0, 1) // must not panic
+}
+
+func TestApplyTilt_NoTilt(t *testing.T) {
+	az, sq := applyTilt(0, 0)
+	if az != 0 || sq != 1 {
+		t.Errorf("no tilt: got azimuth=%.4f squish=%.4f, want 0 1", az, sq)
+	}
+}
+
+func TestApplyTilt_VerticalPen(t *testing.T) {
+	// tiltMag → 0 means pen is perfectly upright → squish ≈ sin(90°) = 1
+	az, sq := applyTilt(0, 1) // nearly upright
+	if math.Abs(sq-math.Sin(89*math.Pi/180)) > 0.01 {
+		t.Errorf("near-upright squish = %.4f, want ≈ sin(89°)=%.4f", sq, math.Sin(89*math.Pi/180))
+	}
+	_ = az
+}
+
+func TestApplyTilt_HorizontalPen_MinSquish(t *testing.T) {
+	// tiltMag = 90 → altitude = 0° → squish = sin(0°) = 0 → clamp to minSquish
+	az, sq := applyTilt(90, 0)
+	if sq > 0.1 {
+		t.Errorf("flat pen squish = %.4f, want minSquish (0.05)", sq)
+	}
+	if math.Abs(az) > 0.001 {
+		t.Errorf("flat pen leaning along X: azimuth = %.4f, want ≈0", az)
+	}
+}
+
+func TestApplyTilt_AzimuthDirection(t *testing.T) {
+	// tiltY > 0 only → stylus leans toward +Y → azimuth = π/2
+	az, _ := applyTilt(0, 45)
+	if math.Abs(az-math.Pi/2) > 0.01 {
+		t.Errorf("tiltY=45: azimuth = %.4f, want π/2=%.4f", az, math.Pi/2)
+	}
+}
+
+func TestPaintDab_TiltedDabIsElliptical(t *testing.T) {
+	// A tilted (squish<1) dab must paint fewer pixels than an untilted one because
+	// the ellipse minor axis is squished. Sample column coverage at the dab centre row.
+	const sz = 60
+	bounds := LayerBounds{X: 0, Y: 0, W: sz, H: sz}
+
+	// Untilted round dab.
+	round := NewPixelLayer("round", bounds, make([]byte, sz*sz*4))
+	PaintDab(round, float64(sz/2), float64(sz/2), BrushParams{Size: 40, Hardness: 1, Flow: 1, Color: [4]uint8{255, 0, 0, 255}}, 0, 1)
+
+	// Maximally squished dab (squish = minSquish ≈ 0.05, azimuth = 0 → major axis along X).
+	squished := NewPixelLayer("squished", bounds, make([]byte, sz*sz*4))
+	PaintDab(squished, float64(sz/2), float64(sz/2), BrushParams{Size: 40, Hardness: 1, Flow: 1, Color: [4]uint8{255, 0, 0, 255}}, 0, 0.05)
+
+	// Count painted pixels in both layers.
+	countPainted := func(l *PixelLayer) int {
+		n := 0
+		for i := 3; i < len(l.Pixels); i += 4 {
+			if l.Pixels[i] > 0 {
+				n++
+			}
+		}
+		return n
+	}
+
+	roundN := countPainted(round)
+	squishedN := countPainted(squished)
+	if squishedN >= roundN {
+		t.Errorf("tilted dab painted %d px, round dab painted %d px — expected fewer for squished", squishedN, roundN)
+	}
 }
 
 func TestPaintDab_WetEdges_TransparentCentre(t *testing.T) {
@@ -274,7 +341,7 @@ func TestPaintDab_WetEdges_TransparentCentre(t *testing.T) {
 		WetEdges: true,
 	}
 	cx, cy := float64(sz/2), float64(sz/2)
-	PaintDab(layer, cx, cy, params)
+	PaintDab(layer, cx, cy, params, 0, 1)
 
 	// Centre pixel must be mostly transparent.
 	centreIdx := (sz/2*sz + sz/2) * 4

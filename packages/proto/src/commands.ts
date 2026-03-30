@@ -512,6 +512,8 @@ export interface BeginPaintStrokeCommand {
   x: number;
   y: number;
   pressure?: number; // 0.0–1.0, defaults to 0.5
+  tiltX?: number;   // stylus tilt, degrees −90…+90
+  tiltY?: number;   // stylus tilt, degrees −90…+90
   brush: BrushParams;
 }
 
@@ -519,4 +521,6 @@ export interface ContinuePaintStrokeCommand {
   x: number;
   y: number;
   pressure?: number;
+  tiltX?: number;   // stylus tilt, degrees −90…+90
+  tiltY?: number;   // stylus tilt, degrees −90…+90
 }

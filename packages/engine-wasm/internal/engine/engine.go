@@ -258,6 +258,8 @@ type BeginPaintStrokePayload struct {
 	X        float64     `json:"x"`
 	Y        float64     `json:"y"`
 	Pressure float64     `json:"pressure"`
+	TiltX    float64     `json:"tiltX"` // PointerEvent.tiltX degrees (−90…+90); 0 = upright
+	TiltY    float64     `json:"tiltY"` // PointerEvent.tiltY degrees (−90…+90); 0 = upright
 	Brush    BrushParams `json:"brush"`
 }
 
@@ -265,6 +267,8 @@ type ContinuePaintStrokePayload struct {
 	X        float64 `json:"x"`
 	Y        float64 `json:"y"`
 	Pressure float64 `json:"pressure"`
+	TiltX    float64 `json:"tiltX"` // PointerEvent.tiltX degrees (−90…+90); 0 = upright
+	TiltY    float64 `json:"tiltY"` // PointerEvent.tiltY degrees (−90…+90); 0 = upright
 }
 
 type BeginTransactionPayload struct {
@@ -2372,9 +2376,10 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		pressure = 0.5
 	}
 	effective := applyPressure(p.Brush, pressure)
+	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
-		PaintDab(layer, dab[0], dab[1], effective)
+		PaintDab(layer, dab[0], dab[1], effective, azimuth, squish)
 		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
 	}
 	doc.ContentVersion++
@@ -2397,9 +2402,10 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 		pressure = 0.5
 	}
 	effective := applyPressure(inst.paintStroke.params, pressure)
+	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
-		PaintDab(layer, dab[0], dab[1], effective)
+		PaintDab(layer, dab[0], dab[1], effective, azimuth, squish)
 		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
 	}
 	if len(dabs) > 0 {
