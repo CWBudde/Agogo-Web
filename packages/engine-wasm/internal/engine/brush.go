@@ -10,13 +10,15 @@ import (
 
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size      float64  `json:"size"`                // Diameter in document pixels
-	Hardness  float64  `json:"hardness"`            // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow      float64  `json:"flow"`                // Per-dab alpha multiplier, 0–1
-	Color     [4]uint8 `json:"color"`               // RGBA paint color
-	BlendMode string   `json:"blendMode,omitempty"` // AGG blend mode string, e.g. "multiply", "screen"
-	WetEdges  bool     `json:"wetEdges,omitempty"`  // Accumulate paint at stroke edges (watercolour effect)
-	Scatter   float64  `json:"scatter,omitempty"`   // Max random dab offset as a fraction of brush diameter (0 = none)
+	Size         float64  `json:"size"`                   // Diameter in document pixels
+	Hardness     float64  `json:"hardness"`               // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow         float64  `json:"flow"`                   // Per-dab alpha multiplier, 0–1
+	Color        [4]uint8 `json:"color"`                  // RGBA paint color
+	BlendMode    string   `json:"blendMode,omitempty"`    // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges     bool     `json:"wetEdges,omitempty"`     // Accumulate paint at stroke edges (watercolour effect)
+	Scatter      float64  `json:"scatter,omitempty"`      // Max random dab offset as a fraction of brush diameter (0 = none)
+	Stabilizer   int      `json:"stabilizer,omitempty"`   // Moving-average lag: number of past input points to average (0 = off)
+	SampleMerged bool     `json:"sampleMerged,omitempty"` // Sample composite (all layers) rather than active layer when reading pixels
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -251,6 +253,47 @@ func walkLayers(root *GroupLayer, fn func(LayerNode) bool) {
 			walkLayers(g, fn)
 		}
 	}
+}
+
+// stabilizerState implements a moving-average input smoother.
+// The last Lag raw pointer positions are averaged before being fed to the
+// spline interpolator; this removes jitter / hand-tremor at the cost of
+// introducing a positional lag proportional to Lag.
+//
+// When len(buf)==0 (Lag=0) the input passes through unchanged.
+type stabilizerState struct {
+	buf  [][2]float64
+	head int
+	n    int
+}
+
+// newStabilizer allocates a stabilizerState with the given ring-buffer capacity.
+// lag ≤ 0 returns a zero-value state that is a no-op.
+func newStabilizer(lag int) stabilizerState {
+	if lag <= 0 {
+		return stabilizerState{}
+	}
+	return stabilizerState{buf: make([][2]float64, lag)}
+}
+
+// Push records a raw point and returns the smoothed position (mean of the
+// buffer's valid entries). The first Push always returns the input unchanged
+// so the stroke starts at the exact cursor position.
+func (s *stabilizerState) Push(x, y float64) (float64, float64) {
+	if len(s.buf) == 0 {
+		return x, y
+	}
+	s.buf[s.head] = [2]float64{x, y}
+	s.head = (s.head + 1) % len(s.buf)
+	if s.n < len(s.buf) {
+		s.n++
+	}
+	var sx, sy float64
+	for i := range s.n {
+		sx += s.buf[i][0]
+		sy += s.buf[i][1]
+	}
+	return sx / float64(s.n), sy / float64(s.n)
 }
 
 // brushStrokeState tracks an in-progress paint stroke for dab spacing.

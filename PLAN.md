@@ -297,9 +297,9 @@
   - [x] Pressure sensitivity: size and flow mapped from `PointerEvent.pressure` (0–1)
   - [x] Tilt sensitivity: direction mapping from `tiltX/tiltY` (Phase 4.1b)
   - [x] Jitter/scatter: random offset per dab (Phase 4.1b)
-- [ ] Stabilizer: weighted average of last N input points before finalizing position (configurable lag)
+- [x] Stabilizer: weighted average of last N input points before finalizing position (configurable lag)
 - [x] Blend modes for brush: all standard modes (paint directly with blend mode, not just Normal)
-- [ ] Sample merged option: eyedropper mode during painting
+- [x] Sample merged option: eyedropper mode during painting (SampleMergedColor command returns composite RGBA at document-space point)
 
 ### Phase 4.2: Paint Tools
 
