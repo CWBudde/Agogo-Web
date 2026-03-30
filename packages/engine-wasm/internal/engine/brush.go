@@ -9,10 +9,10 @@ import (
 
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size     float64  // Diameter in document pixels
-	Hardness float64  // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow     float64  // Per-dab alpha multiplier, 0–1
-	Color    [4]uint8 // RGBA paint color
+	Size     float64  `json:"size"`     // Diameter in document pixels
+	Hardness float64  `json:"hardness"` // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow     float64  `json:"flow"`     // Per-dab alpha multiplier, 0–1
+	Color    [4]uint8 `json:"color"`    // RGBA paint color
 }
 
 // PaintDab renders a single brush dab centred at (cx, cy) in document space

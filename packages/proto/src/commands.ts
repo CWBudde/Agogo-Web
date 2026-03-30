@@ -502,7 +502,6 @@ export interface SetColorCommand {
 export interface BrushParams {
   size: number;       // diameter in document pixels
   hardness: number;   // 0.0–1.0
-  opacity: number;    // 0.0–1.0
   flow: number;       // 0.0–1.0
   color: [number, number, number, number]; // RGBA 0-255
 }
