@@ -12,7 +12,6 @@ func TestPaintDab_HardBrush_CenterPixelFilled(t *testing.T) {
 	params := BrushParams{
 		Size:     10.0,
 		Hardness: 1.0,
-		Opacity:  1.0,
 		Flow:     1.0,
 		Color:    [4]uint8{255, 0, 0, 255},
 	}
@@ -35,7 +34,6 @@ func TestPaintDab_SoftBrush_EdgePixelPartialAlpha(t *testing.T) {
 	params := BrushParams{
 		Size:     20.0,
 		Hardness: 0.0,
-		Opacity:  1.0,
 		Flow:     1.0,
 		Color:    [4]uint8{0, 0, 255, 255},
 	}
@@ -62,7 +60,6 @@ func TestPaintDab_FlowReducesOpacity(t *testing.T) {
 	params := BrushParams{
 		Size:     10.0,
 		Hardness: 1.0,
-		Opacity:  1.0,
 		Flow:     0.5,
 		Color:    [4]uint8{255, 0, 0, 255},
 	}
