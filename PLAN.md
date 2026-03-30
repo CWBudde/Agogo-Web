@@ -285,16 +285,16 @@
 
 ### Phase 4.1: Brush Engine (Backend)
 
-- [ ] Dab rasterization via AGG:
-  - [ ] Circular dab with configurable `size`, `hardness` (soft/hard edge via AGG AA rendering)
+- [x] Dab rasterization via AGG:
+  - [x] Circular dab with configurable `size`, `hardness` (soft/hard edge via AGG radial gradient)
   - [ ] Subpixel placement (AGG affine transform for fractional-pixel positioning)
-  - [ ] Alpha compositing of dab onto layer buffer with `flow` (per-dab alpha) and `opacity` (cumulative stroke cap)
-- [ ] Stroke generation:
-  - [ ] Dab spacing as percentage of brush size (e.g. 25% = default)
+  - [x] Alpha compositing of dab onto layer buffer with `flow` (per-dab alpha)
+- [x] Stroke generation:
+  - [x] Dab spacing as percentage of brush size (25% default, evenly spaced with carry-over)
   - [ ] Interpolate dab positions along pointer path (catmull-rom for smoothness)
   - [ ] Wet edges mode (accumulate at edges)
-- [ ] Brush dynamics:
-  - [ ] Pressure sensitivity: size, opacity, flow mapped from `PointerEvent.pressure` (0–1)
+- [x] Brush dynamics:
+  - [x] Pressure sensitivity: size and flow mapped from `PointerEvent.pressure` (0–1)
   - [ ] Tilt sensitivity: direction mapping from `tiltX/tiltY` (Phase 4.1b)
   - [ ] Jitter/scatter: random offset per dab (Phase 4.1b)
 - [ ] Stabilizer: weighted average of last N input points before finalizing position (configurable lag)
@@ -303,9 +303,9 @@
 
 ### Phase 4.2: Paint Tools
 
-- [ ] **Brush Tool (B):**
-  - [ ] Uses full brush engine (size, hardness, flow, opacity, spacing, dynamics)
-  - [ ] Paints with foreground color
+- [x] **Brush Tool (B):**
+  - [x] Uses full brush engine (size, hardness, flow, spacing, pressure dynamics)
+  - [x] Paints with foreground color
   - [ ] Shortcut: `[`/`]` resize, `Shift+[`/`]` hardness
 - [ ] **Pencil Tool:**
   - [ ] Hard-edge dabs only (no anti-aliasing), `hardness` locked to 100%
@@ -357,6 +357,8 @@
   - [ ] Search/filter by name
   - [ ] Import `.abr` brush preset files (later)
 - [ ] **Color Picker (foreground/background):**
+  - [x] Foreground/background color state in engine (SetForegroundColor / SetBackgroundColor commands)
+  - [x] Foreground/background swatches in toolrail (minimal — click to reset to black/white)
   - [ ] Click foreground or background swatch opens picker
   - [ ] HSB wheel + SB field (or rectangular HSB box)
   - [ ] Hex input, RGB sliders, HSB sliders, LAB sliders (later)
