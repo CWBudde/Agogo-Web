@@ -11,7 +11,6 @@ import (
 type BrushParams struct {
 	Size     float64  // Diameter in document pixels
 	Hardness float64  // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Opacity  float64  // Stroke cumulative opacity cap (tracked externally per stroke)
 	Flow     float64  // Per-dab alpha multiplier, 0–1
 	Color    [4]uint8 // RGBA paint color
 }
@@ -34,7 +33,7 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 	if radius < 0.5 {
 		radius = 0.5
 	}
-	flow := clampF(p.Flow, 0, 1)
+	flow := clampFloat(p.Flow, 0, 1)
 
 	renderer := agglib.NewAgg2D()
 	renderer.Attach(layer.Pixels, w, h, w*4)
@@ -62,16 +61,6 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 	c2 := agglib.NewColor(p.Color[0], p.Color[1], p.Color[2], 0)
 	renderer.FillRadialGradient(lx, ly, radius, c1, c2, 1.0)
 	renderer.DrawPath(agglib.FillOnly)
-}
-
-func clampF(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 // brushStrokeState tracks an in-progress paint stroke for dab spacing.
@@ -110,7 +99,11 @@ func (s *brushStrokeState) AddPoint(x, y, spacing, size float64) [][2]float64 {
 
 	var positions [][2]float64
 	for s.travelled >= interval {
-		t := (dist - (s.travelled - interval)) / dist
+		segOffset := dist - (s.travelled - interval)
+		if segOffset < 0 {
+			segOffset = 0
+		}
+		t := segOffset / dist
 		positions = append(positions, [2]float64{
 			s.lastX + dx*t,
 			s.lastY + dy*t,
