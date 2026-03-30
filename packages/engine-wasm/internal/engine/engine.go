@@ -83,6 +83,9 @@ const (
 	commandCommitCrop               = 0x0322
 	commandCancelCrop               = 0x0323
 	commandResizeCanvas             = 0x0324
+	commandBeginPaintStroke         = 0x0400
+	commandContinuePaintStroke      = 0x0401
+	commandEndPaintStroke           = 0x0402
 	commandSetForegroundColor       = 0x0410
 	commandSetBackgroundColor       = 0x0411
 	commandBeginTxn                 = 0xffe0
@@ -251,6 +254,19 @@ type SetColorPayload struct {
 	Color [4]uint8 `json:"color"` // [R, G, B, A]
 }
 
+type BeginPaintStrokePayload struct {
+	X        float64     `json:"x"`
+	Y        float64     `json:"y"`
+	Pressure float64     `json:"pressure"`
+	Brush    BrushParams `json:"brush"`
+}
+
+type ContinuePaintStrokePayload struct {
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Pressure float64 `json:"pressure"`
+}
+
 type BeginTransactionPayload struct {
 	Description string `json:"description"`
 }
@@ -261,6 +277,17 @@ type EndTransactionPayload struct {
 
 type JumpHistoryPayload struct {
 	HistoryIndex int `json:"historyIndex"`
+}
+
+// activePaintStroke holds per-stroke state while painting is in progress.
+type activePaintStroke struct {
+	layerID      string
+	params       BrushParams
+	strokeState  brushStrokeState
+	beforePixels []byte // snapshot of layer pixels before stroke started (for undo)
+	dirtyMin     [2]int // min corner of painted dirty rect (layer-local)
+	dirtyMax     [2]int // max corner of painted dirty rect (layer-local)
+	hasDirty     bool
 }
 
 type pointerDragState struct {
@@ -564,6 +591,8 @@ type instance struct {
 	foregroundColor [4]uint8 // RGBA
 	// backgroundColor is the active background color.
 	backgroundColor [4]uint8 // RGBA
+	// paintStroke is non-nil while a brush stroke is in progress.
+	paintStroke *activePaintStroke
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -2049,6 +2078,23 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		}
 		inst.cachedDocContentVersion = -1
 
+	case commandBeginPaintStroke:
+		var payload BeginPaintStrokePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.handleBeginPaintStroke(payload)
+
+	case commandContinuePaintStroke:
+		var payload ContinuePaintStrokePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.handleContinuePaintStroke(payload)
+
+	case commandEndPaintStroke:
+		inst.handleEndPaintStroke()
+
 	case commandSetForegroundColor:
 		var payload SetColorPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -2289,6 +2335,105 @@ func (inst *instance) fitViewportToActiveDocument() {
 	scaleX := float64(canvasW) * 0.84 / float64(maxInt(doc.Width, 1))
 	scaleY := float64(canvasH) * 0.84 / float64(maxInt(doc.Height, 1))
 	inst.viewport.Zoom = clampZoom(math.Min(scaleX, scaleY))
+}
+
+func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
+	doc := inst.manager.Active()
+	if doc == nil {
+		return
+	}
+	layer := findPixelLayer(doc, doc.ActiveLayerID)
+	if layer == nil {
+		return
+	}
+	// Snapshot pixels before the stroke for undo.
+	before := make([]byte, len(layer.Pixels))
+	copy(before, layer.Pixels)
+
+	inst.paintStroke = &activePaintStroke{
+		layerID:      layer.ID(),
+		params:       p.Brush,
+		beforePixels: before,
+	}
+
+	pressure := p.Pressure
+	if pressure == 0 {
+		pressure = 0.5
+	}
+	effective := applyPressure(p.Brush, pressure)
+	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, p.Brush.Size)
+	for _, dab := range dabs {
+		PaintDab(layer, dab[0], dab[1], effective)
+		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
+	}
+	doc.ContentVersion++
+}
+
+func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
+	if inst.paintStroke == nil {
+		return
+	}
+	doc := inst.manager.Active()
+	if doc == nil {
+		return
+	}
+	layer := findPixelLayer(doc, inst.paintStroke.layerID)
+	if layer == nil {
+		return
+	}
+	pressure := p.Pressure
+	if pressure == 0 {
+		pressure = 0.5
+	}
+	effective := applyPressure(inst.paintStroke.params, pressure)
+	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, inst.paintStroke.params.Size)
+	for _, dab := range dabs {
+		PaintDab(layer, dab[0], dab[1], effective)
+		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
+	}
+	if len(dabs) > 0 {
+		doc.ContentVersion++
+	}
+}
+
+func (inst *instance) handleEndPaintStroke() {
+	if inst.paintStroke == nil {
+		return
+	}
+	doc := inst.manager.Active()
+	stroke := inst.paintStroke
+	inst.paintStroke = nil
+
+	if doc == nil || !stroke.hasDirty {
+		return
+	}
+	layer := findPixelLayer(doc, stroke.layerID)
+	if layer == nil {
+		return
+	}
+
+	rect := DirtyRect{
+		X: stroke.dirtyMin[0], Y: stroke.dirtyMin[1],
+		W: stroke.dirtyMax[0] - stroke.dirtyMin[0],
+		H: stroke.dirtyMax[1] - stroke.dirtyMin[1],
+	}
+	delta, err := NewPixelDelta(stroke.beforePixels, layer.Pixels, layer.Bounds.W, layer.Bounds.H, rect)
+	if err != nil {
+		return
+	}
+	layerID := stroke.layerID
+	cmd := &pixelDeltaCommand{
+		description: "Brush stroke",
+		target: func(inst *instance) []byte {
+			l := findPixelLayer(inst.manager.Active(), layerID)
+			if l == nil {
+				return nil
+			}
+			return l.Pixels
+		},
+		delta: delta,
+	}
+	inst.history.push(cmd)
 }
 
 func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
