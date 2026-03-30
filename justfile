@@ -44,21 +44,22 @@ fe-typecheck:
 # ── Go / Engine ───────────────────────────────────────────────────────────────
 
 # Run Go unit tests on host (no Wasm target needed)
+# cmd/engine is excluded: its files are js+wasm only and can't be compiled on the host.
 test-go:
-    cd packages/engine-wasm && go test ./...
+    cd packages/engine-wasm && go test $(go list ./... | grep -v 'cmd/engine')
 
 # Run Go tests with race detector
 test-go-race:
-    cd packages/engine-wasm && go test -race ./...
+    cd packages/engine-wasm && go test -race $(go list ./... | grep -v 'cmd/engine')
 
 # Run Go tests with coverage report
 test-go-coverage:
-    cd packages/engine-wasm && go test -v -coverprofile=coverage.out ./...
+    cd packages/engine-wasm && go test -v -coverprofile=coverage.out $(go list ./... | grep -v 'cmd/engine')
     cd packages/engine-wasm && go tool cover -html=coverage.out -o coverage.html
 
 # Update golden test snapshots
 update-golden:
-    cd packages/engine-wasm && UPDATE_GOLDEN=1 go test ./...
+    cd packages/engine-wasm && UPDATE_GOLDEN=1 go test $(go list ./... | grep -v 'cmd/engine')
 
 # Ensure go.mod is tidy
 check-tidy:
