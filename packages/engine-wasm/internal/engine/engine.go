@@ -83,6 +83,8 @@ const (
 	commandCommitCrop               = 0x0322
 	commandCancelCrop               = 0x0323
 	commandResizeCanvas             = 0x0324
+	commandSetForegroundColor       = 0x0410
+	commandSetBackgroundColor       = 0x0411
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -242,6 +244,11 @@ type PointerEventPayload struct {
 	Button    int     `json:"button"`
 	Buttons   int     `json:"buttons"`
 	PanMode   bool    `json:"panMode"`
+	Pressure  float64 `json:"pressure"` // 0.0–1.0; 0.5 if device has no pressure
+}
+
+type SetColorPayload struct {
+	Color [4]uint8 `json:"color"` // [R, G, B, A]
 }
 
 type BeginTransactionPayload struct {
@@ -553,6 +560,10 @@ type instance struct {
 	freeTransform *FreeTransformState
 	// crop holds the live state while the crop tool is active.
 	crop *CropState
+	// ForegroundColor is the active foreground (paint) color.
+	ForegroundColor [4]uint8 // RGBA
+	// BackgroundColor is the active background color.
+	BackgroundColor [4]uint8 // RGBA
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -604,7 +615,9 @@ func Init(configJSON string) int32 {
 			CanvasH:          defaultDocHeight,
 			DevicePixelRatio: defaultDevicePixelRat,
 		},
-		history: newHistoryStack(defaultHistoryMax),
+		history:         newHistoryStack(defaultHistoryMax),
+		ForegroundColor: [4]uint8{0, 0, 0, 255},
+		BackgroundColor: [4]uint8{255, 255, 255, 255},
 	}
 
 	doc := inst.newDocument(CreateDocumentPayload{
@@ -2035,6 +2048,20 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, err
 		}
 		inst.cachedDocContentVersion = -1
+
+	case commandSetForegroundColor:
+		var payload SetColorPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.ForegroundColor = payload.Color
+
+	case commandSetBackgroundColor:
+		var payload SetColorPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.BackgroundColor = payload.Color
 
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
