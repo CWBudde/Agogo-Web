@@ -1371,7 +1371,6 @@ export function EditorCanvas({
             brush: {
               size: brushSize,
               hardness: brushHardness,
-              opacity: 1.0,
               flow: brushFlow,
               color: foregroundColor,
             },

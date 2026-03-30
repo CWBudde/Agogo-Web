@@ -498,6 +498,13 @@ export default function App() {
     } satisfies SetColorCommand);
   }, [engine.handle, engine.dispatchCommand, foregroundColor]);
 
+  useEffect(() => {
+    if (!engine.handle) return;
+    engine.dispatchCommand(CommandID.SetBackgroundColor, {
+      color: backgroundColor,
+    } satisfies SetColorCommand);
+  }, [engine.handle, engine.dispatchCommand, backgroundColor]);
+
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

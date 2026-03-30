@@ -2372,7 +2372,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		pressure = 0.5
 	}
 	effective := applyPressure(p.Brush, pressure)
-	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, p.Brush.Size)
+	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
 		PaintDab(layer, dab[0], dab[1], effective)
 		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
@@ -2397,7 +2397,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 		pressure = 0.5
 	}
 	effective := applyPressure(inst.paintStroke.params, pressure)
-	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, inst.paintStroke.params.Size)
+	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
 		PaintDab(layer, dab[0], dab[1], effective)
 		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
