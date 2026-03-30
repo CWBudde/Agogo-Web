@@ -17,13 +17,49 @@ type BrushParams struct {
 	WetEdges  bool     `json:"wetEdges,omitempty"`  // Accumulate paint at stroke edges (watercolour effect)
 }
 
+// applyTilt derives the dab rotation angle and minor-axis squish factor from
+// stylus tilt (PointerEvent.tiltX/Y, each in degrees –90…+90).
+//
+//   - azimuth: counter-clockwise angle from +X in radians — the direction the
+//     stylus leans toward, which becomes the major axis of the elliptical dab.
+//   - squish: Y-scale factor in dab-local space [minSquish, 1.0]; 1.0 = circular
+//     (pen upright), → 0 as the pen approaches horizontal.
+//
+// Returns (0, 1) when both tilt components are zero (no-op path).
+func applyTilt(tiltX, tiltY float64) (azimuth, squish float64) {
+	if tiltX == 0 && tiltY == 0 {
+		return 0, 1
+	}
+	// Azimuth: direction the stylus leans in the document plane.
+	azimuth = math.Atan2(tiltY, tiltX)
+
+	// Altitude: angular distance from horizontal (0 = flat, 90 = vertical).
+	// tiltMag is degrees from vertical, so altitude = 90 − tiltMag degrees.
+	tiltMag := math.Sqrt(tiltX*tiltX + tiltY*tiltY)
+	altitudeDeg := 90 - tiltMag
+	if altitudeDeg < 0 {
+		altitudeDeg = 0
+	}
+	// squish = sin(altitude): 1.0 at 90° (upright), 0 at 0° (horizontal).
+	squish = math.Sin(altitudeDeg * math.Pi / 180)
+	const minSquish = 0.05 // prevent degenerate zero-width dabs
+	if squish < minSquish {
+		squish = minSquish
+	}
+	return azimuth, squish
+}
+
 // PaintDab renders a single brush dab centred at (cx, cy) in document space
 // onto the given PixelLayer. The layer buffer is modified in place.
 // cx/cy are in document coordinates; the layer's Bounds offset is subtracted.
-// Sub-pixel placement is achieved via an AGG affine translate transform so the
-// shape and gradient are specified at the origin and moved to the exact
-// fractional-pixel position.
-func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
+//
+// azimuth is the CCW rotation angle in radians for the dab (0 = no rotation).
+// squish  is the minor-axis Y scale [minSquish, 1.0] (1.0 = circular).
+// Pass azimuth=0, squish=1.0 for untilted dabs.
+//
+// The transform applied is: Scale(1,squish) → Rotate(azimuth) → Translate(lx,ly)
+// so the dab elongates along the azimuth direction (the stylus lean).
+func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish float64) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 {
@@ -49,8 +85,18 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 		renderer.BlendMode(agglib.StringToBlendMode(p.BlendMode))
 	}
 
-	// Sub-pixel placement: translate the rendering origin to the exact
-	// fractional-pixel dab centre; shape and gradient are defined at (0, 0).
+	// Build the dab transform (AGG uses pre-multiplication, so call order is
+	// the reverse of the logical order):
+	//   logical: Scale(1,squish) → Rotate(azimuth) → Translate(lx,ly)
+	//   call order: Scale first, then Rotate, then Translate
+	// This squishes the dab along its local Y axis, rotates it to the tilt
+	// direction, then positions it at the fractional-pixel centre.
+	if squish < 1.0 {
+		renderer.Scale(1, squish)
+	}
+	if azimuth != 0 {
+		renderer.Rotate(azimuth)
+	}
 	renderer.Translate(lx, ly)
 
 	renderer.ResetPath()
