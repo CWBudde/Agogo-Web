@@ -245,19 +245,19 @@
 
 ### Phase 3.4: Crop Tool
 
-- [ ] Crop overlay rendered in backend:
-  - [ ] Darkened area outside crop box
-  - [ ] Rule-of-thirds grid overlay inside crop box (optional, configurable)
-  - [ ] 8 resize handles on crop box
-- [ ] Operations:
-  - [ ] Resize crop box (drag handles)
-  - [ ] Move crop box (drag inside)
+- [x] Crop overlay rendered in backend:
+  - [x] Darkened area outside crop box
+  - [x] Rule-of-thirds grid overlay inside crop box
+  - [x] 8 resize handles on crop box
+- [x] Operations:
+  - [x] Resize crop box (drag handles)
+  - [x] Move crop box (drag inside)
   - [ ] Rotate crop box (drag outside — rotates the canvas, not just view)
   - [ ] Constrain aspect ratio (lock icon in options bar, or W:H input)
-- [ ] Options bar: width/height inputs, resolution, straighten (horizon correction), overlay type, delete cropped pixels vs hide
-- [ ] Commit (Enter) / Cancel (Escape)
+- [ ] Options bar: width/height inputs ✓, resolution, straighten (horizon correction), overlay type, delete cropped pixels vs hide
+- [x] Commit (Enter) / Cancel (Escape)
 - [ ] Content-Aware Fill for crop expansion (later/optional, Phase 7+)
-- [ ] **Image > Canvas Size:** resize canvas independently of content, with anchor grid
+- [x] **Image > Canvas Size:** resize canvas independently of content, with anchor grid
 
 ### Phase 3.5: Selection & Transform UI
 
