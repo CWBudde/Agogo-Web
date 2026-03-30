@@ -1089,11 +1089,23 @@ func TestCanvasSize(t *testing.T) {
 	h := Init("")
 	defer Free(h)
 
+	// Add a pixel layer so we can verify it shifts after canvas resize.
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		Name:      "Layer 1",
+		LayerType: LayerTypePixel,
+		Bounds:    LayerBounds{X: 0, Y: 0, W: instances[h].manager.Active().Width, H: instances[h].manager.Active().Height},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+
 	doc := instances[h].manager.Active()
 	oldW, oldH := doc.Width, doc.Height
 
 	// Resize from center
 	payload := ResizeCanvasPayload{Width: oldW + 20, Height: oldH + 40, Anchor: "center"}
+	_ = layerID // layer is now the active layer; bounds will be checked below
 	result, err := DispatchCommand(h, commandResizeCanvas, mustJSON(t, payload))
 	if err != nil {
 		t.Fatalf("resize canvas: %v", err)
