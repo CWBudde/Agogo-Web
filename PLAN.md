@@ -287,18 +287,18 @@
 
 - [x] Dab rasterization via AGG:
   - [x] Circular dab with configurable `size`, `hardness` (soft/hard edge via AGG radial gradient)
-  - [ ] Subpixel placement (AGG affine transform for fractional-pixel positioning)
+  - [x] Subpixel placement (AGG affine transform for fractional-pixel positioning)
   - [x] Alpha compositing of dab onto layer buffer with `flow` (per-dab alpha)
 - [x] Stroke generation:
   - [x] Dab spacing as percentage of brush size (25% default, evenly spaced with carry-over)
-  - [ ] Interpolate dab positions along pointer path (catmull-rom for smoothness)
+  - [x] Interpolate dab positions along pointer path (catmull-rom for smoothness)
   - [ ] Wet edges mode (accumulate at edges)
 - [x] Brush dynamics:
   - [x] Pressure sensitivity: size and flow mapped from `PointerEvent.pressure` (0–1)
   - [ ] Tilt sensitivity: direction mapping from `tiltX/tiltY` (Phase 4.1b)
   - [ ] Jitter/scatter: random offset per dab (Phase 4.1b)
 - [ ] Stabilizer: weighted average of last N input points before finalizing position (configurable lag)
-- [ ] Blend modes for brush: all standard modes (paint directly with blend mode, not just Normal)
+- [x] Blend modes for brush: all standard modes (paint directly with blend mode, not just Normal)
 - [ ] Sample merged option: eyedropper mode during painting
 
 ### Phase 4.2: Paint Tools
