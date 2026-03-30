@@ -292,7 +292,7 @@
 - [x] Stroke generation:
   - [x] Dab spacing as percentage of brush size (25% default, evenly spaced with carry-over)
   - [x] Interpolate dab positions along pointer path (catmull-rom for smoothness)
-  - [ ] Wet edges mode (accumulate at edges)
+  - [x] Wet edges mode (accumulate at edges)
 - [x] Brush dynamics:
   - [x] Pressure sensitivity: size and flow mapped from `PointerEvent.pressure` (0–1)
   - [ ] Tilt sensitivity: direction mapping from `tiltX/tiltY` (Phase 4.1b)

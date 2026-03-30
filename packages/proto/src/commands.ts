@@ -505,6 +505,7 @@ export interface BrushParams {
   flow: number;       // 0.0–1.0
   color: [number, number, number, number]; // RGBA 0-255
   blendMode?: string; // AGG blend mode, e.g. "multiply", "screen", "overlay" (omit for normal)
+  wetEdges?: boolean; // accumulate paint at stroke edges (watercolour effect)
 }
 
 export interface BeginPaintStrokeCommand {

@@ -14,6 +14,7 @@ type BrushParams struct {
 	Flow      float64  `json:"flow"`                // Per-dab alpha multiplier, 0–1
 	Color     [4]uint8 `json:"color"`               // RGBA paint color
 	BlendMode string   `json:"blendMode,omitempty"` // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges  bool     `json:"wetEdges,omitempty"`  // Accumulate paint at stroke edges (watercolour effect)
 }
 
 // PaintDab renders a single brush dab centred at (cx, cy) in document space
@@ -55,10 +56,37 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 	renderer.ResetPath()
 	renderer.AddEllipse(0, 0, radius, radius, agglib.CCW)
 
+	r, g, b, a := p.Color[0], p.Color[1], p.Color[2], p.Color[3]
+
+	if p.WetEdges {
+		// Wet edges: paint accumulates at the stroke boundary (watercolour effect).
+		// The alpha profile rises from transparent at the centre to a peak near the
+		// edge, then falls back to transparent at the boundary:
+		//   pos 0.0  → alpha 0       (transparent centre)
+		//   pos 0.55 → alpha ~30%    (slight build-up begins)
+		//   pos 0.75 → alpha 100%×flow (peak ring)
+		//   pos 1.0  → alpha 0       (AA fade at boundary)
+		// Hardness shifts the peak inward: a hard brush has a sharper, wider ring.
+		peak := 0.75 - p.Hardness*0.25 // softer → peak closer to edge (0.75); harder → 0.50
+		peakAlpha := uint8(float64(a) * flow)
+		transparent := agglib.NewColor(r, g, b, 0)
+		semiRing := agglib.NewColor(r, g, b, uint8(float64(peakAlpha)*0.3))
+		opaqueRing := agglib.NewColor(r, g, b, peakAlpha)
+		stops := []agglib.GradientStop{
+			{Position: 0.0, Color: transparent},
+			{Position: peak * 0.73, Color: semiRing},
+			{Position: peak, Color: opaqueRing},
+			{Position: 1.0, Color: transparent},
+		}
+		renderer.FillRadialGradientStops(0, 0, radius, stops)
+		renderer.DrawPath(agglib.FillOnly)
+		return
+	}
+
 	if p.Hardness >= 1.0 {
 		// Hard edge: solid fill; AGG provides sub-pixel AA at the ellipse boundary.
-		alpha := uint8(float64(p.Color[3]) * flow)
-		c := agglib.NewColor(p.Color[0], p.Color[1], p.Color[2], alpha)
+		alpha := uint8(float64(a) * flow)
+		c := agglib.NewColor(r, g, b, alpha)
 		renderer.FillColor(c)
 		renderer.DrawPath(agglib.FillOnly)
 		return
@@ -66,9 +94,9 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 
 	// Soft edge: radial gradient from opaque centre to transparent edge.
 	// Shape defined at origin; transform carries the centre to (lx, ly).
-	centerAlpha := uint8(float64(p.Color[3]) * flow)
-	c1 := agglib.NewColor(p.Color[0], p.Color[1], p.Color[2], centerAlpha)
-	c2 := agglib.NewColor(p.Color[0], p.Color[1], p.Color[2], 0)
+	centerAlpha := uint8(float64(a) * flow)
+	c1 := agglib.NewColor(r, g, b, centerAlpha)
+	c2 := agglib.NewColor(r, g, b, 0)
 	renderer.FillRadialGradient(0, 0, radius, c1, c2, 1.0)
 	renderer.DrawPath(agglib.FillOnly)
 }
