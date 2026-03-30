@@ -3,6 +3,7 @@ package engine
 
 import (
 	"math"
+	"math/rand"
 
 	agglib "github.com/MeKo-Christian/agg_go"
 )
@@ -15,6 +16,7 @@ type BrushParams struct {
 	Color     [4]uint8 `json:"color"`               // RGBA paint color
 	BlendMode string   `json:"blendMode,omitempty"` // AGG blend mode string, e.g. "multiply", "screen"
 	WetEdges  bool     `json:"wetEdges,omitempty"`  // Accumulate paint at stroke edges (watercolour effect)
+	Scatter   float64  `json:"scatter,omitempty"`   // Max random dab offset as a fraction of brush diameter (0 = none)
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -47,6 +49,22 @@ func applyTilt(tiltX, tiltY float64) (azimuth, squish float64) {
 		squish = minSquish
 	}
 	return azimuth, squish
+}
+
+// applyScatter returns (cx, cy) offset by a random displacement whose maximum
+// radius equals p.Scatter * p.Size (full diameter). When p.Scatter is 0 the
+// position is returned unchanged.
+//
+// The displacement is drawn from a uniform distribution over the disc
+// (random angle, radius = sqrt(u)*maxR to keep area density uniform).
+func applyScatter(cx, cy float64, p BrushParams) (float64, float64) {
+	if p.Scatter <= 0 {
+		return cx, cy
+	}
+	maxR := p.Scatter * p.Size
+	angle := rand.Float64() * 2 * math.Pi
+	r := math.Sqrt(rand.Float64()) * maxR
+	return cx + math.Cos(angle)*r, cy + math.Sin(angle)*r
 }
 
 // PaintDab renders a single brush dab centred at (cx, cy) in document space
