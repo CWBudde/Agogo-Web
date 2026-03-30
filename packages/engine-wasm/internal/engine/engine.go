@@ -560,10 +560,10 @@ type instance struct {
 	freeTransform *FreeTransformState
 	// crop holds the live state while the crop tool is active.
 	crop *CropState
-	// ForegroundColor is the active foreground (paint) color.
-	ForegroundColor [4]uint8 // RGBA
-	// BackgroundColor is the active background color.
-	BackgroundColor [4]uint8 // RGBA
+	// foregroundColor is the active foreground (paint) color.
+	foregroundColor [4]uint8 // RGBA
+	// backgroundColor is the active background color.
+	backgroundColor [4]uint8 // RGBA
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -616,8 +616,8 @@ func Init(configJSON string) int32 {
 			DevicePixelRatio: defaultDevicePixelRat,
 		},
 		history:         newHistoryStack(defaultHistoryMax),
-		ForegroundColor: [4]uint8{0, 0, 0, 255},
-		BackgroundColor: [4]uint8{255, 255, 255, 255},
+		foregroundColor: [4]uint8{0, 0, 0, 255},
+		backgroundColor: [4]uint8{255, 255, 255, 255},
 	}
 
 	doc := inst.newDocument(CreateDocumentPayload{
@@ -2054,14 +2054,14 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := decodePayload(payloadJSON, &payload); err != nil {
 			return RenderResult{}, err
 		}
-		inst.ForegroundColor = payload.Color
+		inst.foregroundColor = payload.Color
 
 	case commandSetBackgroundColor:
 		var payload SetColorPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
 			return RenderResult{}, err
 		}
-		inst.BackgroundColor = payload.Color
+		inst.backgroundColor = payload.Color
 
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
