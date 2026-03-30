@@ -357,3 +357,48 @@ func TestPaintDab_WetEdges_TransparentCentre(t *testing.T) {
 			layer.Pixels[ringIdx+3], layer.Pixels[centreIdx+3])
 	}
 }
+
+func TestApplyScatter_ZeroIsIdentity(t *testing.T) {
+	p := BrushParams{Size: 40, Scatter: 0}
+	for range 20 {
+		ox, oy := applyScatter(100, 200, p)
+		if ox != 100 || oy != 200 {
+			t.Fatalf("scatter=0: got (%.2f, %.2f), want (100, 200)", ox, oy)
+		}
+	}
+}
+
+func TestApplyScatter_OffsetWithinRadius(t *testing.T) {
+	p := BrushParams{Size: 40, Scatter: 1.0} // maxR = 40
+	for range 500 {
+		ox, oy := applyScatter(0, 0, p)
+		dist := math.Sqrt(ox*ox + oy*oy)
+		if dist > p.Size*p.Scatter+1e-9 {
+			t.Fatalf("scatter offset dist=%.4f exceeds maxR=%.4f", dist, p.Size*p.Scatter)
+		}
+	}
+}
+
+func TestApplyScatter_CoversDisc(t *testing.T) {
+	// With scatter=1 and many samples, expect offsets in all four quadrants.
+	p := BrushParams{Size: 40, Scatter: 1.0}
+	q := [4]int{}
+	for range 1000 {
+		ox, oy := applyScatter(0, 0, p)
+		switch {
+		case ox >= 0 && oy >= 0:
+			q[0]++
+		case ox < 0 && oy >= 0:
+			q[1]++
+		case ox < 0 && oy < 0:
+			q[2]++
+		default:
+			q[3]++
+		}
+	}
+	for i, cnt := range q {
+		if cnt < 50 {
+			t.Errorf("quadrant %d has only %d samples out of 1000 — scatter not covering disc", i, cnt)
+		}
+	}
+}

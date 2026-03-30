@@ -2379,8 +2379,9 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
-		PaintDab(layer, dab[0], dab[1], effective, azimuth, squish)
-		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
+		dx, dy := applyScatter(dab[0], dab[1], effective)
+		PaintDab(layer, dx, dy, effective, azimuth, squish)
+		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
 	doc.ContentVersion++
 }
@@ -2405,8 +2406,9 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
 	for _, dab := range dabs {
-		PaintDab(layer, dab[0], dab[1], effective, azimuth, squish)
-		inst.paintStroke.expandDirty(layer, dab[0], dab[1], effective.Size)
+		dx, dy := applyScatter(dab[0], dab[1], effective)
+		PaintDab(layer, dx, dy, effective, azimuth, squish)
+		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
 	if len(dabs) > 0 {
 		doc.ContentVersion++
