@@ -1779,6 +1779,9 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			PivotY:        float64(pl.Bounds.Y) + float64(pl.Bounds.H)*0.5,
 			Interpolation: InterpolBilinear,
 		}
+		if payload.Mode == "warp" {
+			inst.freeTransform.WarpGrid = initWarpGridFromBounds(pl.Bounds)
+		}
 
 	case commandUpdateFreeTransform:
 		var payload UpdateFreeTransformPayload

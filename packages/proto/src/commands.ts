@@ -411,6 +411,8 @@ export type InterpolMode = "nearest" | "bilinear" | "bicubic";
 
 export interface BeginFreeTransformCommand {
   layerId?: string;
+  /** When "warp", initialises a 4×4 control-point mesh immediately. */
+  mode?: "warp";
 }
 
 /** Affine matrix: docX = a*lx + c*ly + tx,  docY = b*lx + d*ly + ty */
