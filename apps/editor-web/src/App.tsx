@@ -55,6 +55,12 @@ type MenuActionId =
   | "generate-assets"
   | "canvas-size"
   | "transform-free"
+  | "transform-scale"
+  | "transform-rotate"
+  | "transform-skew"
+  | "transform-distort"
+  | "transform-perspective"
+  | "transform-warp"
   | "transform-flip-h"
   | "transform-flip-v"
   | "transform-rotate-cw"
@@ -136,11 +142,17 @@ const menuItems: MenuPreviewMenu[] = [
         title: "Transform",
         items: [
           { label: "Free Transform", shortcut: "Ctrl+T", tone: "accent", actionId: "transform-free" as const },
+          { label: "Scale",          actionId: "transform-scale"       as const },
+          { label: "Rotate",         actionId: "transform-rotate"      as const },
+          { label: "Skew",           actionId: "transform-skew"        as const },
+          { label: "Distort",        actionId: "transform-distort"     as const },
+          { label: "Perspective",    actionId: "transform-perspective" as const },
+          { label: "Warp",           actionId: "transform-warp"        as const },
           { label: "Flip Horizontal", actionId: "transform-flip-h" as const },
-          { label: "Flip Vertical", actionId: "transform-flip-v" as const },
-          { label: "Rotate 90° CW", actionId: "transform-rotate-cw" as const },
-          { label: "Rotate 90° CCW", actionId: "transform-rotate-ccw" as const },
-          { label: "Rotate 180°", actionId: "transform-rotate-180" as const },
+          { label: "Flip Vertical",   actionId: "transform-flip-v" as const },
+          { label: "Rotate 90° CW",   actionId: "transform-rotate-cw" as const },
+          { label: "Rotate 90° CCW",  actionId: "transform-rotate-ccw" as const },
+          { label: "Rotate 180°",     actionId: "transform-rotate-180" as const },
         ],
       },
     ],
@@ -649,7 +661,14 @@ export default function App() {
       case "generate-assets":
       case "canvas-size":
         return !render || actionId === "generate-assets";
-      case "transform-free":        return !render;
+      case "transform-free":
+      case "transform-scale":
+      case "transform-rotate":
+      case "transform-skew":
+      case "transform-distort":
+      case "transform-perspective":
+      case "transform-warp":
+        return !render?.uiMeta.activeLayerId;
       case "transform-flip-h":
       case "transform-flip-v":
       case "transform-rotate-cw":
@@ -703,9 +722,19 @@ export default function App() {
         setCanvasSizeOpen(true);
         break;
       case "transform-free":
+      case "transform-scale":
+      case "transform-rotate":
+      case "transform-skew":
+      case "transform-distort":
+      case "transform-perspective":
         setActiveTool("transform");
         setTransformRefPoint([1, 1]);
         engine.dispatchCommand(CommandID.BeginFreeTransform, {});
+        break;
+      case "transform-warp":
+        setActiveTool("transform");
+        setTransformRefPoint([1, 1]);
+        engine.dispatchCommand(CommandID.BeginFreeTransform, { mode: "warp" });
         break;
       case "transform-flip-h":
         engine.dispatchCommand(CommandID.FlipLayerH, {});

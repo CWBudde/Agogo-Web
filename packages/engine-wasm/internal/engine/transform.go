@@ -86,6 +86,25 @@ type FreeTransformMeta struct {
 // Transform helpers
 // ---------------------------------------------------------------------------
 
+// initWarpGridFromBounds builds a 4×4 warp control-point grid by uniform
+// bilinear interpolation of the layer bounds in document space.
+func initWarpGridFromBounds(b LayerBounds) *[4][4][2]float64 {
+	x0 := float64(b.X)
+	y0 := float64(b.Y)
+	w := float64(b.W)
+	h := float64(b.H)
+	var g [4][4][2]float64
+	for row := 0; row < 4; row++ {
+		for col := 0; col < 4; col++ {
+			g[row][col] = [2]float64{
+				x0 + w*float64(col)/3,
+				y0 + h*float64(row)/3,
+			}
+		}
+	}
+	return &g
+}
+
 // transformPoint maps a layer-local point through the affine matrix.
 func (s *FreeTransformState) transformPoint(lx, ly float64) (dx, dy float64) {
 	return s.A*lx + s.C*ly + s.TX, s.B*lx + s.D*ly + s.TY

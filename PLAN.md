@@ -238,7 +238,7 @@
   - [ ] Floating selection: selected pixels become a temporary floating layer during transform
   - [ ] Merge back on commit
 - [x] **Edit > Transform sub-menu:**
-  - [ ] Scale, Rotate, Skew, Distort, Perspective, Warp
+  - [x] Scale, Rotate, Skew, Distort, Perspective, Warp — each begins free transform (Warp also initialises the 4×4 mesh via BeginFreeTransformPayload.Mode="warp")
   - [x] Flip Horizontal / Flip Vertical
   - [x] Rotate 90° CW/CCW, 180°
   - [ ] Again (repeat last transform)

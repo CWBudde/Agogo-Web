@@ -138,8 +138,12 @@ type PickLayerAtPointPayload struct {
 
 // BeginFreeTransformPayload starts free transform on a layer (or the active
 // layer when LayerID is empty).
+// Mode, when non-empty, selects the initial transform sub-mode:
+//   - "warp" – initialise a 4×4 control-point mesh from the layer corners.
+//   - anything else (or empty) – normal affine free transform.
 type BeginFreeTransformPayload struct {
 	LayerID string `json:"layerId,omitempty"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 // UpdateFreeTransformPayload sets the live transform matrix.
