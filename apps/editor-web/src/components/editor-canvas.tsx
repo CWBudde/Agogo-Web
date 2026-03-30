@@ -1,4 +1,4 @@
-import { CommandID, type FreeTransformMeta, type InterpolMode } from "@agogo/proto";
+import { CommandID, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FreeTransformMeta, type InterpolMode } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -47,6 +47,10 @@ type EditorCanvasProps = {
   moveAutoSelectGroup: boolean;
   selectedLayerIds: string[];
   onCursorChange(position: CursorPosition): void;
+  brushSize: number;
+  brushHardness: number;
+  brushFlow: number;
+  foregroundColor: [number, number, number, number];
 };
 
 type ZoomDragState = {
@@ -512,12 +516,17 @@ export function EditorCanvas({
   moveAutoSelectGroup,
   selectedLayerIds,
   onCursorChange,
+  brushSize,
+  brushHardness,
+  brushFlow,
+  foregroundColor,
 }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const zoomDragRef = useRef<ZoomDragState>(null);
   const pendingZoomRef = useRef<PendingZoom | null>(null);
   const zoomRafRef = useRef<number | null>(null);
+  const brushActiveRef = useRef(false);
   const lastViewportRef = useRef<{
     width: number;
     height: number;
@@ -1350,6 +1359,25 @@ export function EditorCanvas({
             }
           }
         }
+        if (activeTool === "brush" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          brushActiveRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.BeginPaintStroke, {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+            brush: {
+              size: brushSize,
+              hardness: brushHardness,
+              opacity: 1.0,
+              flow: brushFlow,
+              color: foregroundColor,
+            },
+          } satisfies BeginPaintStrokeCommand);
+          return;
+        }
         if (isZoomTool && !isPanMode) {
           engine.beginTransaction("Zoom viewport");
           zoomDragRef.current = {
@@ -1820,6 +1848,16 @@ export function EditorCanvas({
           });
           return;
         }
+        if (activeTool === "brush" && brushActiveRef.current) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          engine.dispatchCommand(CommandID.ContinuePaintStroke, {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+          } satisfies ContinuePaintStrokeCommand);
+          return;
+        }
         const zoomDrag = zoomDragRef.current;
         if (zoomDrag && zoomDrag.pointerId === event.pointerId) {
           const deltaX = event.clientX - zoomDrag.startX;
@@ -1857,6 +1895,11 @@ export function EditorCanvas({
         if (cropDraft && cropDraft.pointerId === event.pointerId) {
           setCropDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
+        if (activeTool === "brush" && brushActiveRef.current) {
+          brushActiveRef.current = false;
+          engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;
         }
         if (quickSelectDraft && quickSelectDraft.pointerId === event.pointerId) {
