@@ -63,6 +63,94 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams) {
 	renderer.DrawPath(agglib.FillOnly)
 }
 
+// applyPressure scales brush Size and Flow by the pointer pressure value (0–1).
+// At pressure=1.0 the brush is full size; at pressure=0.0 it is 50% size.
+func applyPressure(p BrushParams, pressure float64) BrushParams {
+	if pressure <= 0 {
+		pressure = 0.5
+	}
+	p.Size = p.Size * (0.5 + 0.5*pressure)
+	p.Flow = clampFloat(p.Flow*pressure, 0, 1)
+	return p
+}
+
+// expandDirty grows the stroke's dirty bounding box to include the dab at (cx, cy).
+// cx/cy are in document space.
+func (s *activePaintStroke) expandDirty(layer *PixelLayer, cx, cy, size float64) {
+	r := int(math.Ceil(size*0.5)) + 2 // +2 for AA fringe
+	lx := int(cx) - layer.Bounds.X - r
+	ly := int(cy) - layer.Bounds.Y - r
+	rx := int(cx) - layer.Bounds.X + r
+	ry := int(cy) - layer.Bounds.Y + r
+
+	if lx < 0 {
+		lx = 0
+	}
+	if ly < 0 {
+		ly = 0
+	}
+	if rx > layer.Bounds.W {
+		rx = layer.Bounds.W
+	}
+	if ry > layer.Bounds.H {
+		ry = layer.Bounds.H
+	}
+
+	if !s.hasDirty {
+		s.dirtyMin = [2]int{lx, ly}
+		s.dirtyMax = [2]int{rx, ry}
+		s.hasDirty = true
+		return
+	}
+	if lx < s.dirtyMin[0] {
+		s.dirtyMin[0] = lx
+	}
+	if ly < s.dirtyMin[1] {
+		s.dirtyMin[1] = ly
+	}
+	if rx > s.dirtyMax[0] {
+		s.dirtyMax[0] = rx
+	}
+	if ry > s.dirtyMax[1] {
+		s.dirtyMax[1] = ry
+	}
+}
+
+// findPixelLayer searches the document's layer tree for a PixelLayer with the given ID.
+// Returns nil if not found or if the matching layer is not a PixelLayer.
+func findPixelLayer(doc *Document, layerID string) *PixelLayer {
+	if doc == nil || layerID == "" {
+		return nil
+	}
+	var found *PixelLayer
+	walkLayers(doc.LayerRoot, func(n LayerNode) bool {
+		if n.ID() == layerID {
+			if pl, ok := n.(*PixelLayer); ok {
+				found = pl
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// walkLayers calls fn for each LayerNode in the tree (depth-first, children-first).
+// If fn returns false the walk stops early.
+func walkLayers(root *GroupLayer, fn func(LayerNode) bool) {
+	if root == nil {
+		return
+	}
+	for _, child := range root.Children() {
+		if !fn(child) {
+			return
+		}
+		if g, ok := child.(*GroupLayer); ok {
+			walkLayers(g, fn)
+		}
+	}
+}
+
 // brushStrokeState tracks an in-progress paint stroke for dab spacing.
 type brushStrokeState struct {
 	lastX     float64
