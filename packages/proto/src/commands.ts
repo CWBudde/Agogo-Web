@@ -82,6 +82,7 @@ export enum CommandID {
   EndPaintStroke = 0x0402,
   SetForegroundColor = 0x0410,
   SetBackgroundColor = 0x0411,
+  SampleMergedColor = 0x0412,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -504,9 +505,11 @@ export interface BrushParams {
   hardness: number;   // 0.0–1.0
   flow: number;       // 0.0–1.0
   color: [number, number, number, number]; // RGBA 0-255
-  blendMode?: string; // AGG blend mode, e.g. "multiply", "screen", "overlay" (omit for normal)
-  wetEdges?: boolean; // accumulate paint at stroke edges (watercolour effect)
-  scatter?: number;   // max random dab offset as fraction of diameter, 0 = none
+  blendMode?: string;    // AGG blend mode, e.g. "multiply", "screen", "overlay" (omit for normal)
+  wetEdges?: boolean;    // accumulate paint at stroke edges (watercolour effect)
+  scatter?: number;      // max random dab offset as fraction of diameter, 0 = none
+  stabilizer?: number;   // moving-average lag: number of past input points to average (0 = off)
+  sampleMerged?: boolean; // read from composite (all layers) rather than active layer
 }
 
 export interface BeginPaintStrokeCommand {
@@ -524,4 +527,11 @@ export interface ContinuePaintStrokeCommand {
   pressure?: number;
   tiltX?: number;   // stylus tilt, degrees −90…+90
   tiltY?: number;   // stylus tilt, degrees −90…+90
+}
+
+/** Sample the RGBA color of the composite image at a document-space point.
+ *  The result is returned in RenderResult.sampledColor. */
+export interface SampleMergedColorCommand {
+  x: number;
+  y: number;
 }

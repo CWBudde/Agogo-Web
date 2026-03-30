@@ -99,4 +99,6 @@ export interface RenderResult {
 	thumbnails?: Record<string, ThumbnailEntry>;
 	/** Path points returned only by MagneticLassoSuggestPath command. In document coordinates. */
 	suggestedPath?: Array<{ x: number; y: number }>;
+	/** RGBA color returned only by SampleMergedColor command. */
+	sampledColor?: [number, number, number, number];
 }

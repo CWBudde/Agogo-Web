@@ -358,6 +358,61 @@ func TestPaintDab_WetEdges_TransparentCentre(t *testing.T) {
 	}
 }
 
+// ── Stabilizer ────────────────────────────────────────────────────────────────
+
+func TestStabilizer_ZeroLag_Passthrough(t *testing.T) {
+	s := newStabilizer(0)
+	for _, pt := range [][2]float64{{10, 20}, {30, 40}, {50, 60}} {
+		ox, oy := s.Push(pt[0], pt[1])
+		if ox != pt[0] || oy != pt[1] {
+			t.Fatalf("lag=0: got (%.1f,%.1f), want (%.1f,%.1f)", ox, oy, pt[0], pt[1])
+		}
+	}
+}
+
+func TestStabilizer_FirstPushReturnsInput(t *testing.T) {
+	s := newStabilizer(5)
+	ox, oy := s.Push(100, 200)
+	if ox != 100 || oy != 200 {
+		t.Fatalf("first push: got (%.1f,%.1f), want (100,200)", ox, oy)
+	}
+}
+
+func TestStabilizer_AveragesBuffer(t *testing.T) {
+	s := newStabilizer(3)
+	s.Push(0, 0)
+	s.Push(6, 6)
+	ox, oy := s.Push(3, 3) // buf = [0,6,3] avg = 3
+	if math.Abs(ox-3) > 0.01 || math.Abs(oy-3) > 0.01 {
+		t.Fatalf("3-point average: got (%.4f,%.4f), want (3,3)", ox, oy)
+	}
+}
+
+func TestStabilizer_SmoothsPath(t *testing.T) {
+	// Feed alternating y=60/40 jitter around 50. After the buffer fills the
+	// mean output should be much closer to 50 than the ±10 raw values.
+	s := newStabilizer(8)
+	raw := []float64{60, 40, 60, 40, 60, 40, 60, 40, 60, 40}
+	var sumDev float64
+	n := 0
+	for i, v := range raw {
+		_, oy := s.Push(0, v)
+		if i >= 8 { // only measure once buffer is full
+			sumDev += math.Abs(oy - 50)
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("not enough samples to evaluate smoothing")
+	}
+	meanDev := sumDev / float64(n)
+	if meanDev >= 5 {
+		t.Errorf("mean deviation after buffer full = %.2f, want < 5 (raw jitter = 10)", meanDev)
+	}
+}
+
+// ── Scatter ───────────────────────────────────────────────────────────────────
+
 func TestApplyScatter_ZeroIsIdentity(t *testing.T) {
 	p := BrushParams{Size: 40, Scatter: 0}
 	for range 20 {

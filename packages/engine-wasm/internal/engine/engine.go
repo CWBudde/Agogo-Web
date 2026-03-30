@@ -88,6 +88,7 @@ const (
 	commandEndPaintStroke           = 0x0402
 	commandSetForegroundColor       = 0x0410
 	commandSetBackgroundColor       = 0x0411
+	commandSampleMergedColor        = 0x0412
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -198,6 +199,8 @@ type RenderResult struct {
 	Thumbnails map[string]ThumbnailEntry `json:"thumbnails,omitempty"`
 	// SuggestedPath is set only in response to commandMagneticLassoSuggestPath.
 	SuggestedPath []SelectionPoint `json:"suggestedPath,omitempty"`
+	// SampledColor is set only in response to commandSampleMergedColor.
+	SampledColor *[4]uint8 `json:"sampledColor,omitempty"`
 }
 
 type EngineConfig struct {
@@ -254,6 +257,13 @@ type SetColorPayload struct {
 	Color [4]uint8 `json:"color"` // [R, G, B, A]
 }
 
+// SampleMergedColorPayload requests the RGBA color of the composite at a
+// document-space position. The result is returned in RenderResult.SampledColor.
+type SampleMergedColorPayload struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
 type BeginPaintStrokePayload struct {
 	X        float64     `json:"x"`
 	Y        float64     `json:"y"`
@@ -288,6 +298,7 @@ type activePaintStroke struct {
 	layerID      string
 	params       BrushParams
 	strokeState  brushStrokeState
+	stabilizer   stabilizerState
 	beforePixels []byte // snapshot of layer pixels before stroke started (for undo)
 	dirtyMin     [2]int // min corner of painted dirty rect (layer-local)
 	dirtyMax     [2]int // max corner of painted dirty rect (layer-local)
@@ -2124,6 +2135,26 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		}
 		inst.backgroundColor = payload.Color
 
+	case commandSampleMergedColor:
+		var payload SampleMergedColorPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc != nil {
+			surface := inst.compositeSurface(doc)
+			px := int(math.Round(payload.X))
+			py := int(math.Round(payload.Y))
+			if px >= 0 && py >= 0 && px < doc.Width && py < doc.Height {
+				idx := (py*doc.Width + px) * 4
+				color := [4]uint8{surface[idx], surface[idx+1], surface[idx+2], surface[idx+3]}
+				result := inst.render()
+				result.SuggestedPath = suggestedPath
+				result.SampledColor = &color
+				return result, nil
+			}
+		}
+
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
@@ -2368,6 +2399,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	inst.paintStroke = &activePaintStroke{
 		layerID:      layer.ID(),
 		params:       p.Brush,
+		stabilizer:   newStabilizer(p.Brush.Stabilizer),
 		beforePixels: before,
 	}
 
@@ -2377,7 +2409,8 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	}
 	effective := applyPressure(p.Brush, pressure)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
-	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
+	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
+	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
 		PaintDab(layer, dx, dy, effective, azimuth, squish)
@@ -2404,7 +2437,8 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	}
 	effective := applyPressure(inst.paintStroke.params, pressure)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
-	dabs := inst.paintStroke.strokeState.AddPoint(p.X, p.Y, 0.25, effective.Size)
+	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
+	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
 		PaintDab(layer, dx, dy, effective, azimuth, squish)
