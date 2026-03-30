@@ -259,3 +259,34 @@ func TestPaintDab_BlendModeDoesNotPanic(t *testing.T) {
 	}
 	PaintDab(layer, 10.0, 10.0, params) // must not panic
 }
+
+func TestPaintDab_WetEdges_TransparentCentre(t *testing.T) {
+	// Wet edges: centre pixel should have very low alpha; ring near edge higher.
+	const sz = 60
+	bounds := LayerBounds{X: 0, Y: 0, W: sz, H: sz}
+	layer := NewPixelLayer("test", bounds, make([]byte, sz*sz*4))
+
+	params := BrushParams{
+		Size:     50.0,
+		Hardness: 0.0,
+		Flow:     1.0,
+		Color:    [4]uint8{0, 0, 255, 255},
+		WetEdges: true,
+	}
+	cx, cy := float64(sz/2), float64(sz/2)
+	PaintDab(layer, cx, cy, params)
+
+	// Centre pixel must be mostly transparent.
+	centreIdx := (sz/2*sz + sz/2) * 4
+	if layer.Pixels[centreIdx+3] > 30 {
+		t.Errorf("wet-edges centre alpha = %d, want ≤ 30 (transparent centre)", layer.Pixels[centreIdx+3])
+	}
+
+	// A pixel at ~75% radius (ring position) must be more opaque than centre.
+	ringX := int(cx + 25*0.75) // radius=25, peak at 75%
+	ringIdx := (sz/2*sz + ringX) * 4
+	if layer.Pixels[ringIdx+3] <= layer.Pixels[centreIdx+3] {
+		t.Errorf("wet-edges ring alpha (%d) should exceed centre alpha (%d)",
+			layer.Pixels[ringIdx+3], layer.Pixels[centreIdx+3])
+	}
+}

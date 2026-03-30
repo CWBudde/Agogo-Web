@@ -2,6 +2,6 @@ module github.com/MeKo-Tech/agogo-web/packages/engine-wasm
 
 go 1.24.0
 
-require github.com/MeKo-Christian/agg_go v0.2.8
+require github.com/MeKo-Christian/agg_go v0.2.9
 
 require golang.org/x/sys v0.40.0 // indirect
