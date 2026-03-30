@@ -12,6 +12,7 @@ import {
   BrushToolIcon,
   ClipboardIcon,
   CopyIcon,
+  CropToolIcon,
   EraserToolIcon,
   FitScreenIcon,
   HandToolIcon,
@@ -52,6 +53,7 @@ type MenuActionId =
   | "save-project"
   | "export-project"
   | "generate-assets"
+  | "canvas-size"
   | "transform-free"
   | "transform-flip-h"
   | "transform-flip-v"
@@ -159,7 +161,7 @@ const menuItems: MenuPreviewMenu[] = [
         title: "Geometry",
         items: [
           { label: "Image Size..." },
-          { label: "Canvas Size..." },
+          { label: "Canvas Size...", shortcut: "Ctrl+Alt+C", actionId: "canvas-size" as const },
           { label: "Trim" },
         ],
       },
@@ -310,6 +312,7 @@ const toolItems: {
   { id: "move", label: "Move", Icon: MoveToolIcon },
   { id: "marquee", label: "Marquee", Icon: MarqueeToolIcon },
   { id: "lasso", label: "Lasso", Icon: LassoToolIcon },
+  { id: "crop", label: "Crop", Icon: CropToolIcon },
   { id: "wand", label: "Wand", Icon: SelectionIcon },
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
@@ -405,11 +408,21 @@ export default function App() {
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [canvasSizeOpen, setCanvasSizeOpen] = useState(false);
   const [openRecentOpen, setOpenRecentOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [draft, setDraft] =
     useState<CreateDocumentCommand>(defaultDocumentDraft);
+  const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
+    width: number;
+    height: number;
+    anchor: "top-left" | "top-center" | "top-right" | "middle-left" | "center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+  }>({
+    width: 0,
+    height: 0,
+    anchor: "center",
+  });
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
@@ -476,9 +489,26 @@ export default function App() {
   };
 
   const activateTool = (tool: EditorTool) => {
+    if (tool === activeTool) {
+      return;
+    }
+
+    // Cancel active special modes when switching away
+    if (activeTool === "crop" && tool !== "hand" && tool !== "zoom") {
+      engine.dispatchCommand(CommandID.CancelCrop, {});
+    }
+    if (activeTool === "transform" && tool !== "hand" && tool !== "zoom") {
+      engine.dispatchCommand(CommandID.CancelFreeTransform, {});
+    }
+
     setActiveTool(tool);
     if (tool !== "hand") {
       setIsPanMode(false);
+    }
+
+    // Begin special modes
+    if (tool === "crop") {
+      engine.dispatchCommand(CommandID.BeginCrop, {});
     }
   };
 
@@ -617,9 +647,9 @@ export default function App() {
       case "save-project":
       case "export-project":
       case "generate-assets":
+      case "canvas-size":
         return !render || actionId === "generate-assets";
-      case "transform-free":
-        return !render;
+      case "transform-free":        return !render;
       case "transform-flip-h":
       case "transform-flip-v":
       case "transform-rotate-cw":
@@ -664,6 +694,14 @@ export default function App() {
       case "export-project":
         setExportDialogOpen(true);
         break;
+      case "canvas-size":
+        setCanvasSizeDraft({
+          width: render?.uiMeta.documentWidth ?? draft.width,
+          height: render?.uiMeta.documentHeight ?? draft.height,
+          anchor: "center",
+        });
+        setCanvasSizeOpen(true);
+        break;
       case "transform-free":
         setActiveTool("transform");
         setTransformRefPoint([1, 1]);
@@ -698,12 +736,12 @@ export default function App() {
       openProjectPicker();
     },
     onSaveDocument() {
-      if (!isFileMenuActionDisabled("save-project")) {
+      if (!isMenuActionDisabled("save-project")) {
         saveProject();
       }
     },
     onExportDocument() {
-      if (!isFileMenuActionDisabled("export-project")) {
+      if (!isMenuActionDisabled("export-project")) {
         setExportDialogOpen(true);
       }
     },
@@ -922,6 +960,54 @@ export default function App() {
         >
           Anti-alias
         </ToolChoiceButton>
+      </>
+    ) : activeTool === "crop" ? (
+      <>
+        <ToolNumberField
+          label="W"
+          min={1}
+          max={99999}
+          step={1}
+          value={Math.round(render?.uiMeta.crop?.w ?? 0)}
+          onChange={(v) => {
+            if (render?.uiMeta.crop) {
+              engine.dispatchCommand(CommandID.UpdateCrop, {
+                ...render.uiMeta.crop,
+                w: v,
+              });
+            }
+          }}
+        />
+        <ToolNumberField
+          label="H"
+          min={1}
+          max={99999}
+          step={1}
+          value={Math.round(render?.uiMeta.crop?.h ?? 0)}
+          onChange={(v) => {
+            if (render?.uiMeta.crop) {
+              engine.dispatchCommand(CommandID.UpdateCrop, {
+                ...render.uiMeta.crop,
+                h: v,
+              });
+            }
+          }}
+        />
+        <Button
+          size="sm"
+          className="ml-2 h-6 px-3 text-[10px]"
+          onClick={() => engine.dispatchCommand(CommandID.CommitCrop)}
+        >
+          Apply
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-1 h-6 px-3 text-[10px]"
+          onClick={() => engine.dispatchCommand(CommandID.CancelCrop)}
+        >
+          Cancel
+        </Button>
       </>
     ) : activeTool === "lasso" ? (
       <>
@@ -1843,6 +1929,85 @@ export default function App() {
             }}
           >
             Export Archive
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={canvasSizeOpen}
+        title="Canvas Size"
+        description="Resizing the canvas shifts layers relative to the selected anchor."
+        className="max-w-md"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Width">
+            <input
+              type="number"
+              className={fieldClassName}
+              value={canvasSizeDraft.width}
+              onChange={(e) =>
+                setCanvasSizeDraft((c) => ({ ...c, width: Number(e.target.value) }))
+              }
+            />
+          </Field>
+          <Field label="Height">
+            <input
+              type="number"
+              className={fieldClassName}
+              value={canvasSizeDraft.height}
+              onChange={(e) =>
+                setCanvasSizeDraft((c) => ({ ...c, height: Number(e.target.value) }))
+              }
+            />
+          </Field>
+        </div>
+        <div className="mt-4">
+          <Field label="Anchor">
+            <div className="grid grid-cols-3 gap-1 w-24 h-24 mt-1">
+              {(
+                [
+                  "top-left",
+                  "top-center",
+                  "top-right",
+                  "middle-left",
+                  "center",
+                  "middle-right",
+                  "bottom-left",
+                  "bottom-center",
+                  "bottom-right",
+                ] as const
+              ).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  className={[
+                    "w-full h-full border transition",
+                    canvasSizeDraft.anchor === a
+                      ? "border-cyan-400 bg-cyan-400/20"
+                      : "border-white/10 bg-black/20 hover:border-white/20",
+                  ].join(" ")}
+                  onClick={() => setCanvasSizeDraft((c) => ({ ...c, anchor: a }))}
+                />
+              ))}
+            </div>
+          </Field>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setCanvasSizeOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              engine.dispatchCommand(CommandID.ResizeCanvas, canvasSizeDraft);
+              setCanvasSizeOpen(false);
+            }}
+          >
+            Resize
           </Button>
         </div>
       </Dialog>

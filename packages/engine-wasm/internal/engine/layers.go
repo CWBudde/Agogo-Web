@@ -695,3 +695,13 @@ func clampUnit(value float64) float64 {
 	}
 	return value
 }
+
+func walkLayerTree(node LayerNode, fn func(LayerNode)) {
+	if node == nil {
+		return
+	}
+	fn(node)
+	for _, child := range node.Children() {
+		walkLayerTree(child, fn)
+	}
+}

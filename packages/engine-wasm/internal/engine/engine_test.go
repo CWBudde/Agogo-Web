@@ -1035,6 +1035,91 @@ func TestDispatchCommandOpenImageFileAndSetActiveLayerWithoutHistoryEntry(t *tes
 	}
 }
 
+func TestCropDocument(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	// 1. Begin Crop
+	result, err := DispatchCommand(h, commandBeginCrop, "")
+	if err != nil {
+		t.Fatalf("begin crop: %v", err)
+	}
+	if result.UIMeta.Crop == nil || !result.UIMeta.Crop.Active {
+		t.Fatal("expected active crop meta in UI")
+	}
+
+	// 2. Update Crop
+	updatePayload := UpdateCropPayload{X: 10, Y: 20, W: 100, H: 50}
+	result, err = DispatchCommand(h, commandUpdateCrop, mustJSON(t, updatePayload))
+	if err != nil {
+		t.Fatalf("update crop: %v", err)
+	}
+	if result.UIMeta.Crop.X != 10 || result.UIMeta.Crop.W != 100 {
+		t.Fatalf("crop meta after update = %+v, want X=10 W=100", result.UIMeta.Crop)
+	}
+
+	// 3. Commit Crop
+	result, err = DispatchCommand(h, commandCommitCrop, "")
+	if err != nil {
+		t.Fatalf("commit crop: %v", err)
+	}
+	if result.UIMeta.Crop != nil {
+		t.Fatal("expected crop meta to be cleared after commit")
+	}
+	if result.UIMeta.DocumentWidth != 100 || result.UIMeta.DocumentHeight != 50 {
+		t.Fatalf("document size after crop = %dx%d, want 100x50", result.UIMeta.DocumentWidth, result.UIMeta.DocumentHeight)
+	}
+
+	// Verify history
+	if len(result.UIMeta.History) == 0 || result.UIMeta.History[len(result.UIMeta.History)-1].Description != "Crop Document" {
+		t.Fatalf("unexpected history after crop: %+v", result.UIMeta.History)
+	}
+
+	// 4. Undo Crop
+	result, err = DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo crop: %v", err)
+	}
+	if result.UIMeta.DocumentWidth == 100 {
+		t.Fatal("expected document width to be restored after undo")
+	}
+}
+
+func TestCanvasSize(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	doc := instances[h].manager.Active()
+	oldW, oldH := doc.Width, doc.Height
+
+	// Resize from center
+	payload := ResizeCanvasPayload{Width: oldW + 20, Height: oldH + 40, Anchor: "center"}
+	result, err := DispatchCommand(h, commandResizeCanvas, mustJSON(t, payload))
+	if err != nil {
+		t.Fatalf("resize canvas: %v", err)
+	}
+
+	if result.UIMeta.DocumentWidth != oldW+20 || result.UIMeta.DocumentHeight != oldH+40 {
+		t.Fatalf("document size after resize = %dx%d, want %dx%d", result.UIMeta.DocumentWidth, result.UIMeta.DocumentHeight, oldW+20, oldH+40)
+	}
+
+	// Verify layer shift (center anchor means dx = 10, dy = 20)
+	doc = instances[h].manager.Active()
+	pl := doc.ActiveLayer().(*PixelLayer)
+	if pl.Bounds.X != 10 || pl.Bounds.Y != 20 {
+		t.Fatalf("layer bounds after center resize = %d,%d, want 10,20", pl.Bounds.X, pl.Bounds.Y)
+	}
+
+	// Undo
+	result, err = DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo resize: %v", err)
+	}
+	if result.UIMeta.DocumentWidth != oldW {
+		t.Fatal("expected document width to be restored after undo")
+	}
+}
+
 func TestDocumentManagerSwitchReplaceAndCloseActive(t *testing.T) {
 	manager := newDocumentManager()
 	docA := testDocumentFixture("doc-a", "A", 100, 80)
