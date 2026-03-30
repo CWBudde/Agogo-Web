@@ -122,6 +122,15 @@ export function ZoomToolIcon(props: IconProps) {
   );
 }
 
+export function CropToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 3v15h15" />
+      <path d="M18 21V6H3" />
+    </IconBase>
+  );
+}
+
 export function NewDocumentIcon(props: IconProps) {
   return (
     <IconBase {...props}>

@@ -25,7 +25,8 @@ type EditorCanvasProps = {
     | "shape"
     | "hand"
     | "zoom"
-    | "transform";
+    | "transform"
+    | "crop";
   isPanMode: boolean;
   isZoomTool: boolean;
   selectionOptions: {
@@ -184,6 +185,24 @@ type TransformDraft = {
   startCorners: [[number, number], [number, number], [number, number], [number, number]];
   /** Warp grid at drag start. Present only in warp mode. */
   startWarpGrid?: [[number, number], [number, number], [number, number], [number, number]][];
+};
+
+type CropDragKind =
+  | "move"
+  | "scale-tl"
+  | "scale-tr"
+  | "scale-br"
+  | "scale-bl"
+  | "scale-t"
+  | "scale-r"
+  | "scale-b"
+  | "scale-l";
+
+type CropDraft = {
+  pointerId: number;
+  kind: CropDragKind;
+  startDoc: DocumentPoint;
+  startBox: { x: number; y: number; w: number; h: number };
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -423,6 +442,47 @@ function oppositeCorner(
   }
 }
 
+function cropHitTest(
+  crop: { x: number; y: number; w: number; h: number },
+  docToCanvas: (d: DocumentPoint) => { x: number; y: number } | null,
+  canvasX: number,
+  canvasY: number,
+): CropDragKind | null {
+  const handles: [CropDragKind, [number, number]][] = [
+    ["scale-tl", [crop.x, crop.y]],
+    ["scale-t", [crop.x + crop.w * 0.5, crop.y]],
+    ["scale-tr", [crop.x + crop.w, crop.y]],
+    ["scale-r", [crop.x + crop.w, crop.y + crop.h * 0.5]],
+    ["scale-br", [crop.x + crop.w, crop.y + crop.h]],
+    ["scale-b", [crop.x + crop.w * 0.5, crop.y + crop.h]],
+    ["scale-bl", [crop.x, crop.y + crop.h]],
+    ["scale-l", [crop.x, crop.y + crop.h * 0.5]],
+  ];
+
+  for (const [kind, docPos] of handles) {
+    const cp = docToCanvas({ x: docPos[0], y: docPos[1] });
+    if (!cp) continue;
+    const dx = canvasX - cp.x;
+    const dy = canvasY - cp.y;
+    if (dx * dx + dy * dy <= TRANSFORM_HANDLE_HIT_RADIUS ** 2) {
+      return kind;
+    }
+  }
+
+  // Inside crop box → move.
+  const tl = docToCanvas({ x: crop.x, y: crop.y });
+  const tr = docToCanvas({ x: crop.x + crop.w, y: crop.y });
+  const br = docToCanvas({ x: crop.x + crop.w, y: crop.y + crop.h });
+  const bl = docToCanvas({ x: crop.x, y: crop.y + crop.h });
+  if (tl && tr && br && bl) {
+    if (pointInQuad([tl, tr, br, bl], canvasX, canvasY)) {
+      return "move";
+    }
+  }
+
+  return null;
+}
+
 function findLayerMetaByID(
   layers: Array<LayerMetaSlim>,
   targetID: string,
@@ -469,6 +529,7 @@ export function EditorCanvas({
     useState<QuickSelectDraft | null>(null);
   const [transformDraft, setTransformDraft] =
     useState<TransformDraft | null>(null);
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
     null,
@@ -559,6 +620,9 @@ export function EditorCanvas({
     }
     if (activeTool !== "transform") {
       setTransformDraft(null);
+    }
+    if (activeTool !== "crop") {
+      setCropDraft(null);
     }
   }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
@@ -809,6 +873,24 @@ export function EditorCanvas({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTool, engine, render?.uiMeta.freeTransform?.active]);
+
+  // Crop commit/cancel keyboard shortcuts.
+  useEffect(() => {
+    if (activeTool !== "crop" || !render?.uiMeta.crop?.active) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        engine.dispatchCommand(CommandID.CommitCrop);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        engine.dispatchCommand(CommandID.CancelCrop);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTool, engine, render?.uiMeta.crop?.active]);
 
   const marqueeStartCanvas = marqueeDraft
     ? documentPointToCanvas(marqueeDraft.start)
@@ -1248,6 +1330,26 @@ export function EditorCanvas({
             return;
           }
         }
+        if (activeTool === "crop" && event.button === 0) {
+          const crop = render.uiMeta.crop;
+          if (crop?.active) {
+            const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
+            if (canvasPoint) {
+              const kind = cropHitTest(crop, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
+              if (kind) {
+                setCropDraft({
+                  pointerId: event.pointerId,
+                  kind,
+                  startDoc: { x: docPoint.x, y: docPoint.y },
+                  startBox: { x: crop.x, y: crop.y, w: crop.w, h: crop.h },
+                });
+                event.currentTarget.setPointerCapture(event.pointerId);
+                event.preventDefault();
+                return;
+              }
+            }
+          }
+        }
         if (isZoomTool && !isPanMode) {
           engine.beginTransaction("Zoom viewport");
           zoomDragRef.current = {
@@ -1579,6 +1681,82 @@ export function EditorCanvas({
           });
           return;
         }
+        if (
+          cropDraft &&
+          cropDraft.pointerId === event.pointerId &&
+          docPoint
+        ) {
+          const cd = cropDraft;
+          const dx = docPoint.x - cd.startDoc.x;
+          const dy = docPoint.y - cd.startDoc.y;
+          let newX = cd.startBox.x;
+          let newY = cd.startBox.y;
+          let newW = cd.startBox.w;
+          let newH = cd.startBox.h;
+
+          switch (cd.kind) {
+            case "move":
+              newX += dx;
+              newY += dy;
+              break;
+            case "scale-tl":
+              newX += dx;
+              newY += dy;
+              newW -= dx;
+              newH -= dy;
+              break;
+            case "scale-t":
+              newY += dy;
+              newH -= dy;
+              break;
+            case "scale-tr":
+              newY += dy;
+              newW += dx;
+              newH -= dy;
+              break;
+            case "scale-r":
+              newW += dx;
+              break;
+            case "scale-br":
+              newW += dx;
+              newH += dy;
+              break;
+            case "scale-b":
+              newH += dy;
+              break;
+            case "scale-bl":
+              newX += dx;
+              newW -= dx;
+              newH += dy;
+              break;
+            case "scale-l":
+              newX += dx;
+              newW -= dx;
+              break;
+          }
+
+          // Ensure positive dimensions
+          if (newW < 1) {
+            if (cd.kind.includes("l")) {
+              newX = cd.startBox.x + cd.startBox.w - 1;
+            }
+            newW = 1;
+          }
+          if (newH < 1) {
+            if (cd.kind.includes("t")) {
+              newY = cd.startBox.y + cd.startBox.h - 1;
+            }
+            newH = 1;
+          }
+
+          engine.dispatchCommand(CommandID.UpdateCrop, {
+            x: newX,
+            y: newY,
+            w: newW,
+            h: newH,
+          });
+          return;
+        }
         if (moveDraft && moveDraft.pointerId === event.pointerId && docPoint) {
           const totalDX = Math.round(docPoint.x - moveDraft.start.x);
           const totalDY = Math.round(docPoint.y - moveDraft.start.y);
@@ -1673,6 +1851,11 @@ export function EditorCanvas({
       onPointerUp={(event) => {
         if (transformDraft && transformDraft.pointerId === event.pointerId) {
           setTransformDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
+        if (cropDraft && cropDraft.pointerId === event.pointerId) {
+          setCropDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }

@@ -78,6 +78,11 @@ const (
 	commandRotateLayer90CW          = 0x0306
 	commandRotateLayer90CCW         = 0x0307
 	commandRotateLayer180           = 0x0308
+	commandBeginCrop                = 0x0320
+	commandUpdateCrop               = 0x0321
+	commandCommitCrop               = 0x0322
+	commandCancelCrop               = 0x0323
+	commandResizeCanvas             = 0x0324
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -173,6 +178,7 @@ type UIMeta struct {
 	MaskEditLayerID string             `json:"maskEditLayerId,omitempty"`
 	Selection       SelectionMeta      `json:"selection"`
 	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
+	Crop            *CropMeta          `json:"crop,omitempty"`
 }
 
 type RenderResult struct {
@@ -545,6 +551,8 @@ type instance struct {
 	// freeTransform holds the live state while free transform is active.
 	// It is UI-only state not included in history snapshots.
 	freeTransform *FreeTransformState
+	// crop holds the live state while the crop tool is active.
+	crop *CropState
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -1929,6 +1937,102 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		}
 		inst.cachedDocContentVersion = -1
 
+	case commandBeginCrop:
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		inst.crop = &CropState{
+			Active: true,
+			X:      0,
+			Y:      0,
+			W:      float64(doc.Width),
+			H:      float64(doc.Height),
+		}
+
+	case commandUpdateCrop:
+		var payload UpdateCropPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		if inst.crop == nil || !inst.crop.Active {
+			return RenderResult{}, fmt.Errorf("no active crop tool")
+		}
+		inst.crop.X = payload.X
+		inst.crop.Y = payload.Y
+		inst.crop.W = payload.W
+		inst.crop.H = payload.H
+
+	case commandCommitCrop:
+		if inst.crop == nil || !inst.crop.Active {
+			return RenderResult{}, fmt.Errorf("no active crop tool")
+		}
+		// Capture parameters before wiping crop state
+		x, y, w, h := int(inst.crop.X), int(inst.crop.Y), int(inst.crop.W), int(inst.crop.H)
+		command := &snapshotCommand{
+			description: "Crop Document",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if w <= 0 || h <= 0 {
+					return snapshot{}, fmt.Errorf("invalid crop dimensions: %dx%d", w, h)
+				}
+
+				// Shift all pixel layers by -x, -y
+				walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+					if pl, ok := n.(*PixelLayer); ok {
+						pl.Bounds.X -= x
+						pl.Bounds.Y -= y
+					}
+				})
+				doc.Width = w
+				doc.Height = h
+				doc.ContentVersion++
+
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+		inst.crop = nil
+		inst.cachedDocContentVersion = -1
+
+	case commandCancelCrop:
+		inst.crop = nil
+
+	case commandResizeCanvas:
+		var payload ResizeCanvasPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Canvas Size",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := applyResizeCanvas(doc, payload.Width, payload.Height, payload.Anchor); err != nil {
+					return snapshot{}, err
+				}
+				doc.ContentVersion++
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+		inst.cachedDocContentVersion = -1
+
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
@@ -2030,6 +2134,7 @@ func (inst *instance) render() RenderResult {
 	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels, inst.compositeSurface(doc))
 	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
 	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
+	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
 	return RenderResult{
 		FrameID:     frameID,
 		Viewport:    inst.viewport,
@@ -2058,6 +2163,7 @@ func (inst *instance) render() RenderResult {
 			MaskEditLayerID:     inst.maskEditLayerID,
 			Selection:           doc.selectionMeta(),
 			FreeTransform:       inst.freeTransform.meta(),
+			Crop:                inst.crop.meta(),
 		},
 	}
 }

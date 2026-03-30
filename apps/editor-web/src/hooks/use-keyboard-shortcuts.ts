@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
-export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom";
+export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
@@ -94,6 +94,10 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "z":
           event.preventDefault();
           actions.onToolSelect("zoom");
+          return;
+        case "c":
+          event.preventDefault();
+          actions.onToolSelect("crop");
           return;
         case "Mod+t":
           event.preventDefault();
