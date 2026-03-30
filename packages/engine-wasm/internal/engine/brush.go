@@ -135,7 +135,7 @@ func findPixelLayer(doc *Document, layerID string) *PixelLayer {
 	return found
 }
 
-// walkLayers calls fn for each LayerNode in the tree (depth-first, children-first).
+// walkLayers calls fn for each LayerNode in the tree (depth-first, pre-order).
 // If fn returns false the walk stops early.
 func walkLayers(root *GroupLayer, fn func(LayerNode) bool) {
 	if root == nil {
