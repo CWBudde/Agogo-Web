@@ -4,6 +4,7 @@ import {
   type FreeTransformMeta,
   type InterpolMode,
   type LayerNodeMeta,
+  type SetColorCommand,
   type ThumbnailEntry,
 } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -444,6 +445,11 @@ export default function App() {
     Record<string, ThumbnailEntry>
   >({});
   const [isDragOver, setIsDragOver] = useState(false);
+  const [foregroundColor, setForegroundColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
+  const [backgroundColor, setBackgroundColor] = useState<[number, number, number, number]>([255, 255, 255, 255]);
+  const [brushSize, _setBrushSize] = useState(20);
+  const [brushHardness] = useState(0.8);
+  const [brushFlow] = useState(1.0);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -484,6 +490,13 @@ export default function App() {
       // localStorage quota exceeded — silently skip
     }
   }, [contentVersion, engine.exportProject, engine.handle]);
+
+  useEffect(() => {
+    if (!engine.handle) return;
+    engine.dispatchCommand(CommandID.SetForegroundColor, {
+      color: foregroundColor,
+    } satisfies SetColorCommand);
+  }, [engine.handle, engine.dispatchCommand, foregroundColor]);
 
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -1421,6 +1434,25 @@ export default function App() {
                   </button>
                 );
               })}
+              {/* Foreground / background color swatches */}
+              <div className="relative mt-auto mb-1 flex h-10 w-10 flex-shrink-0 items-end justify-end">
+                {/* Background swatch (behind) */}
+                <button
+                  type="button"
+                  className="absolute bottom-0 right-0 h-6 w-6 rounded-sm border border-border"
+                  style={{ backgroundColor: `rgba(${backgroundColor.join(",")})` }}
+                  title="Background color"
+                  onClick={() => setBackgroundColor([255, 255, 255, 255])}
+                />
+                {/* Foreground swatch (front) */}
+                <button
+                  type="button"
+                  className="absolute left-0 top-0 h-6 w-6 rounded-sm border border-border"
+                  style={{ backgroundColor: `rgba(${foregroundColor.join(",")})` }}
+                  title="Foreground color (click to reset to black)"
+                  onClick={() => setForegroundColor([0, 0, 0, 255])}
+                />
+              </div>
             </aside>
 
             <main className="editor-stage flex min-w-0 min-h-[36rem] flex-col p-[var(--ui-gap-2)]">
@@ -1467,6 +1499,10 @@ export default function App() {
                   moveAutoSelectGroup={moveAutoSelectGroup}
                   selectedLayerIds={selectedLayerIds}
                   onCursorChange={setCursor}
+                  brushSize={brushSize}
+                  brushHardness={brushHardness}
+                  brushFlow={brushFlow}
+                  foregroundColor={foregroundColor}
                 />
               </section>
             </main>
