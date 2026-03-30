@@ -76,6 +76,13 @@ export enum CommandID {
   CancelCrop = 0x0323,
   ResizeCanvas = 0x0324,
 
+  // Phase 4: Painting
+  BeginPaintStroke = 0x0400,
+  ContinuePaintStroke = 0x0401,
+  EndPaintStroke = 0x0402,
+  SetForegroundColor = 0x0410,
+  SetBackgroundColor = 0x0411,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -159,6 +166,7 @@ export interface PointerEventCommand {
   button: number;
   buttons: number;
   panMode: boolean;
+  pressure?: number; // 0.0–1.0, defaults to 0.5
 }
 
 export interface BeginTransactionCommand {
@@ -483,4 +491,31 @@ export interface CropMeta {
   y: number;
   w: number;
   h: number;
+}
+
+// Phase 4: Painting
+
+export interface SetColorCommand {
+  color: [number, number, number, number]; // [R, G, B, A] each 0-255
+}
+
+export interface BrushParams {
+  size: number;       // diameter in document pixels
+  hardness: number;   // 0.0–1.0
+  opacity: number;    // 0.0–1.0
+  flow: number;       // 0.0–1.0
+  color: [number, number, number, number]; // RGBA 0-255
+}
+
+export interface BeginPaintStrokeCommand {
+  x: number;
+  y: number;
+  pressure?: number; // 0.0–1.0, defaults to 0.5
+  brush: BrushParams;
+}
+
+export interface ContinuePaintStrokeCommand {
+  x: number;
+  y: number;
+  pressure?: number;
 }
