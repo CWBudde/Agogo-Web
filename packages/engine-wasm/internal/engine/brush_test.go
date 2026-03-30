@@ -190,3 +190,72 @@ func TestBrushStrokeState_ShortMoveProducesNoDab(t *testing.T) {
 		t.Fatalf("2px move: want 0 dabs, got %d", len(dabs))
 	}
 }
+
+func TestBrushStrokeState_CarryOverAcrossSegments(t *testing.T) {
+	// Two successive 4px moves with a 5px interval.
+	// After first move (4px): 0 dabs, travelled=4.
+	// After second move (4px total=8px): 1 dab at x≈5, travelled=3.
+	var s brushStrokeState
+	s.AddPoint(0, 0, 0.25, 20) // first dab; interval=5
+	d1 := s.AddPoint(4, 0, 0.25, 20)
+	if len(d1) != 0 {
+		t.Fatalf("first 4px segment: want 0 dabs, got %d", len(d1))
+	}
+	d2 := s.AddPoint(8, 0, 0.25, 20)
+	if len(d2) != 1 {
+		t.Fatalf("second 4px segment: want 1 dab, got %d", len(d2))
+	}
+	if math.Abs(d2[0][0]-5) > 0.5 {
+		t.Errorf("carry-over dab x = %.2f, want ~5", d2[0][0])
+	}
+}
+
+func TestCatmullRomPoint_EndpointInterpolation(t *testing.T) {
+	// CR at t=0 must return p1 and at t=1 must return p2 exactly.
+	p0 := [2]float64{0, 0}
+	p1 := [2]float64{10, 0}
+	p2 := [2]float64{20, 5}
+	p3 := [2]float64{30, 0}
+
+	got0 := catmullRomPoint(p0, p1, p2, p3, 0)
+	if math.Abs(got0[0]-p1[0]) > 1e-9 || math.Abs(got0[1]-p1[1]) > 1e-9 {
+		t.Errorf("t=0: got %v, want %v", got0, p1)
+	}
+	got1 := catmullRomPoint(p0, p1, p2, p3, 1)
+	if math.Abs(got1[0]-p2[0]) > 1e-9 || math.Abs(got1[1]-p2[1]) > 1e-9 {
+		t.Errorf("t=1: got %v, want %v", got1, p2)
+	}
+}
+
+func TestCatmullRomPoint_CollinearIsLinear(t *testing.T) {
+	// Collinear control points → CR degenerates to a straight line.
+	p0 := [2]float64{0, 0}
+	p1 := [2]float64{10, 0}
+	p2 := [2]float64{20, 0}
+	p3 := [2]float64{30, 0}
+
+	for _, tc := range []struct{ t, wantX float64 }{
+		{0.25, 12.5},
+		{0.5, 15},
+		{0.75, 17.5},
+	} {
+		got := catmullRomPoint(p0, p1, p2, p3, tc.t)
+		if math.Abs(got[0]-tc.wantX) > 1e-9 || math.Abs(got[1]) > 1e-9 {
+			t.Errorf("t=%.2f: got (%.4f, %.4f), want (%.4f, 0)", tc.t, got[0], got[1], tc.wantX)
+		}
+	}
+}
+
+func TestPaintDab_BlendModeDoesNotPanic(t *testing.T) {
+	// Verify PaintDab runs without panic when a blend mode is set.
+	bounds := LayerBounds{X: 0, Y: 0, W: 20, H: 20}
+	layer := NewPixelLayer("test", bounds, make([]byte, 20*20*4))
+	params := BrushParams{
+		Size:      10.0,
+		Hardness:  1.0,
+		Flow:      1.0,
+		Color:     [4]uint8{255, 0, 0, 255},
+		BlendMode: "multiply",
+	}
+	PaintDab(layer, 10.0, 10.0, params) // must not panic
+}
