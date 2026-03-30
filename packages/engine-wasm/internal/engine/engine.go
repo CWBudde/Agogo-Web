@@ -537,6 +537,17 @@ func (m *DocumentManager) Active() *Document {
 	return cloneDocument(doc)
 }
 
+// activeMut returns the stored document directly without cloning.
+// Callers may modify the returned document in place; it is the caller's
+// responsibility to ensure the mutation is intentional (e.g. direct pixel
+// painting during a brush stroke).  Most code should use Active() instead.
+func (m *DocumentManager) activeMut() *Document {
+	if m.activeID == "" {
+		return nil
+	}
+	return m.docs[m.activeID]
+}
+
 func (m *DocumentManager) ActiveID() string {
 	return m.activeID
 }
@@ -2338,7 +2349,7 @@ func (inst *instance) fitViewportToActiveDocument() {
 }
 
 func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return
 	}
@@ -2373,7 +2384,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	if inst.paintStroke == nil {
 		return
 	}
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return
 	}
@@ -2400,7 +2411,7 @@ func (inst *instance) handleEndPaintStroke() {
 	if inst.paintStroke == nil {
 		return
 	}
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	stroke := inst.paintStroke
 	inst.paintStroke = nil
 
@@ -2425,7 +2436,7 @@ func (inst *instance) handleEndPaintStroke() {
 	cmd := &pixelDeltaCommand{
 		description: "Brush stroke",
 		target: func(inst *instance) []byte {
-			l := findPixelLayer(inst.manager.Active(), layerID)
+			l := findPixelLayer(inst.manager.activeMut(), layerID)
 			if l == nil {
 				return nil
 			}
