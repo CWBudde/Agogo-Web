@@ -1533,9 +1533,6 @@ export default function App() {
       </>
     ) : null;
 
-  const activeToolLabel = isPanMode
-    ? "Hand (temporary)"
-    : (toolItems.find((tool) => tool.id === activeTool)?.label ?? activeTool);
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
       <input
@@ -1676,22 +1673,6 @@ export default function App() {
               </button>
             </div>
           ) : null}
-
-          <div className="editor-chrome flex h-[36px] items-center justify-between gap-3 border-b border-border px-2">
-            <div className="flex min-w-0 items-center gap-3 overflow-hidden">
-              <ChromeLabel label="Tool">{activeToolLabel}</ChromeLabel>
-              <ChromeLabel label="Document">{draft.name}</ChromeLabel>
-              <ChromeLabel label="Status">{statusText}</ChromeLabel>
-            </div>
-            <div className="flex items-center gap-1 text-[11px] text-slate-300">
-              <MetricChip value={zoomPercent} />
-              <MetricChip value={documentSize} />
-              <MetricChip value={selectionSummary} />
-              <MetricChip
-                value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
-              />
-            </div>
-          </div>
 
           {selectionToolOptions ? (
             <div className="editor-chrome flex min-h-[38px] items-center justify-between gap-3 border-b border-border px-2 py-1.5">
@@ -2738,31 +2719,6 @@ function findLayerMetaInTree(
     }
   }
   return null;
-}
-
-function ChromeLabel({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-1 text-[11px]">
-      <span className="uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </span>
-      <span className="truncate text-slate-200">{children}</span>
-    </div>
-  );
-}
-
-function MetricChip({ value }: { value: string }) {
-  return (
-    <span className="rounded-[1px] border border-white/8 bg-panel-soft px-1.5 py-1">
-      {value}
-    </span>
-  );
 }
 
 function MenuPreviewPanel({
