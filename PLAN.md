@@ -53,14 +53,156 @@
   - [x] Per-stroke undo snapshotting in `handleBeginPaintStroke` allocates a full copy of the active layer before each stroke
   - [x] Cached-frame rendering still allocates heavily, which indicates the viewport path is allocation-heavy even when document compositing is reused
 
-### Phase X.4: Viewport Rendering Optimization
+### Phase X.4: Transform Replacement Audit & Scope Definition
+
+**Goal:** Define exactly which parts of `internal/engine/transform.go` should move from manual pixel math to AGG-backed image transforms, and which parts should intentionally remain manual.
+
+**Acceptance criterion:** Every major transform path is classified as `replace with AGG`, `keep manual`, or `defer`, with rationale tied to correctness, interpolation support, and measured performance.
+
+- [x] Record the current architectural finding:
+  - [x] Perspective and mesh-warp paths already use AGG (`TransformImageQuad`)
+  - [x] Affine free-transform commit still uses manual inverse-mapping and manual resampling
+  - [x] Discrete pixel transforms (`flip`, `rotate 90°`, `rotate 180°`) are currently exact index-remap loops
+  - [x] Transform handles overlay is currently a manual canvas-space overlay renderer
+- [x] Classify each transform path explicitly:
+  - [x] `applyPixelTransform` affine branch: replace with AGG
+    - [x] Rationale: this is the one major transform path still doing manual inverse-mapping and manual resampling even though AGG image transforms already exist in the same file for harder cases
+    - [x] Rationale: moving affine to AGG unifies affine, perspective, and warp under one image-transform pipeline and removes duplicated sampling logic
+  - [x] `DistortCorners` branch: keep AGG-backed and align behavior with affine branch
+    - [x] Rationale: this path already uses `TransformImageQuad` and is conceptually the correct backend for perspective-style distortion
+    - [x] Rationale: the work here is consistency and shared setup, not replacement
+  - [x] `WarpGrid` branch: keep AGG-backed and align behavior with affine branch
+    - [x] Rationale: the mesh-warp path is already implemented as AGG perspective patches per cell and should remain the reference implementation for warp rendering
+  - [x] Discrete transforms: keep manual exact pixel remaps
+    - [x] Rationale: `flip` and `rotate 90°/180°` are exact index-rearrangement operations, not resampling problems
+    - [x] Rationale: these paths are simpler, deterministic, and likely cheaper than paying AGG setup cost for no interpolation benefit
+  - [x] Transform overlay rendering: keep manual overlay drawing
+    - [x] Rationale: `RenderTransformHandlesOverlay` is UI overlay work rather than image-resampling work and does not benefit from routing through AGG by default
+    - [x] Rationale: migrate only if measurement later shows the overlay itself is a real bottleneck
+- [x] Document the required parity guarantees before migration:
+  - [x] Bounds computation and output layer positioning must remain stable
+    - [x] The migrated affine path must return the same `LayerBounds` contract and preserve the current layer placement semantics
+  - [x] Alpha handling and edge clamping must match current behavior or change intentionally with tests
+    - [x] Any differences at transparent edges or clamp boundaries must be treated as an explicit behavior change, not incidental fallout from the migration
+  - [x] Interpolation modes must remain available: nearest, bilinear, bicubic
+    - [x] The AGG-backed affine path must preserve the editor-facing interpolation choices rather than collapsing them to a single filter mode
+  - [x] Undo/redo and history semantics must remain unchanged
+    - [x] The migration is a rendering-backend change only; command behavior, snapshots, and history entries must remain identical
+
+### Phase X.5: AGG Affine Free-Transform Replacement
+
+**Goal:** Replace the manual affine resampling path in `internal/engine/transform.go` with AGG-backed image transformation so affine, distort, and warp all use the same image pipeline.
+
+**Acceptance criterion:** The affine branch of `applyPixelTransform` no longer uses the per-pixel inverse-mapping loop and instead renders through AGG with benchmarked parity or improvement.
+
+- [x] Migration shape agreed before implementation:
+  - [x] The affine path should render through AGG, not through the current per-pixel inverse-mapping loop
+  - [x] The correct AGG abstraction for the affine case is destination-parallelogram image mapping, not perspective quad mapping
+  - [x] Distort and warp remain on their existing AGG paths; X.5 only replaces the affine branch
+- [ ] Step 1: isolate affine rendering from shared transform bookkeeping
+  - [ ] Split `applyPixelTransform` into three responsibilities:
+    - [ ] output-bounds computation
+    - [ ] output-buffer allocation / image setup
+    - [ ] branch-specific pixel rendering
+  - [ ] Keep the current manual affine renderer available behind a temporary helper as the migration baseline
+  - [ ] Make explicit which helpers remain shared:
+    - [ ] `transformedAABB`
+    - [ ] output bounds and `LayerBounds` construction
+    - [ ] tile-relative coordinate conversion where still needed
+  - [ ] Make explicit which helpers are affine-manual-only and expected to be retired after migration:
+    - [ ] `inverseTransformPoint`
+    - [ ] `sampleOriginal`
+    - [ ] the affine-only inverse-mapping loop
+- [ ] Step 2: add a dedicated AGG affine renderer helper
+  - [ ] Introduce a helper in `internal/engine/transform.go` dedicated to affine image rendering, parallel to the current perspective and warp helpers
+  - [ ] Reuse the same AGG image creation / renderer setup pattern already used for `DistortCorners` and `WarpGrid`
+  - [ ] Build the destination parallelogram from the transformed affine corners in TL/TR/BR order expected by AGG parallelogram mapping
+  - [ ] Convert destination coordinates into output-tile-relative coordinates using the already computed output bounds (`outX`, `outY`, `outW`, `outH`)
+  - [ ] Keep output-buffer ownership unchanged: AGG renders directly into `newPixels`
+- [ ] Step 3: bind editor interpolation modes to AGG filter configuration
+  - [ ] `InterpolNearest` → `ImageFilter(NoFilter)` or the AGG nearest/no-filter path
+  - [ ] `InterpolBilinear` → `ImageFilter(Bilinear)`
+  - [ ] `InterpolBicubic` → AGG bicubic-capable filter path
+  - [ ] Confirm whether AGG also needs explicit resample mode configuration in addition to filter selection for deterministic affine output
+  - [ ] Record the exact chosen AGG settings in code comments so affine, distort, and warp use the same interpretation of interpolation names
+- [ ] Step 4: switch affine rendering over with a controlled fallback strategy
+  - [ ] Replace the body of the affine branch with the AGG affine helper
+  - [ ] Preserve the existing function signature and returned values so surrounding engine code does not need to change
+  - [ ] Keep a temporary manual fallback path available behind a local helper or branch until parity tests pass
+  - [ ] Keep `DistortCorners` and `WarpGrid` behavior unchanged during this phase to limit blast radius
+- [ ] Step 5: validate output parity deliberately
+  - [ ] Transparent pixels remain transparent
+  - [ ] Bounds computation and output layer placement remain stable for translate / scale / rotate / skew cases
+  - [ ] Edge handling differences are tested explicitly at image borders and partially out-of-bounds transforms
+  - [ ] Nearest / bilinear / bicubic outputs are checked on representative fixtures rather than assumed equivalent
+  - [ ] Any intentional visual differences from AGG become explicit expectations in tests instead of silent regressions
+- [ ] Step 6: retire manual affine resampling only after proof
+  - [ ] Remove affine-only inverse-mapping helpers if they are no longer used by crop or any other caller
+  - [ ] Keep shared transform math helpers that remain useful to all branches
+  - [ ] Leave discrete transform helpers in place; they are out of scope for X.5
+  - [ ] Document any retained manual helper with the reason it survived the AGG migration
+- [ ] Step 7: measure the result before closing X.5
+  - [ ] Add or extend a focused benchmark for affine transform commit
+  - [ ] Capture CPU profile before and after the AGG migration
+  - [ ] Capture allocation profile before and after the AGG migration
+  - [ ] Record whether the AGG affine path improved speed, reduced allocations, improved consistency, or only reduced code duplication
+  - [ ] Do not mark X.5 complete until the measurement result is written back into Phase X
+
+### Phase X.6: Transform Pipeline Unification & Cleanup
+
+**Goal:** Reduce divergence between affine, perspective, and warp transform code so all AGG-backed transform paths share setup, interpolation configuration, image creation, and bounds handling.
+
+**Acceptance criterion:** Affine, distort, and warp go through a shared AGG-oriented transform pipeline with minimal duplicated setup logic.
+
+- [ ] Refactor shared AGG transform setup in `internal/engine/transform.go`:
+  - [ ] Shared renderer/image creation
+  - [ ] Shared interpolation/filter selection
+  - [ ] Shared destination quad/parallelogram conversion helpers
+  - [ ] Shared output-bounds and tile-relative coordinate helpers
+- [ ] Make interpolation behavior consistent across transform modes
+- [ ] Eliminate duplicated AGG wiring between affine, distort, and warp branches where practical
+- [ ] Keep clear separation between transform data-model math and pixel-rendering implementation
+
+### Phase X.7: Discrete Transform & Overlay Policy
+
+**Goal:** Explicitly decide which transform-related code should remain manual because it is exact, simpler, or cheaper than routing through AGG.
+
+**Acceptance criterion:** The plan records a deliberate policy for discrete transforms and overlays instead of treating all manual transform code as technical debt.
+
+- [ ] Evaluate and decide for discrete transforms in `internal/engine/transform.go`:
+  - [ ] `flipPixelsH`
+  - [ ] `flipPixelsV`
+  - [ ] `rotatePixels90CW`
+  - [ ] `rotatePixels90CCW`
+  - [ ] `rotatePixels180`
+- [ ] Keep manual implementations if they remain exact, allocation-efficient, and faster than AGG setup
+- [ ] Evaluate transform overlay rendering separately from image transforms:
+  - [ ] `RenderTransformHandlesOverlay`
+  - [ ] Document why UI overlay rendering is manual or migrate only if measurement justifies it
+
+### Phase X.8: Transform Replacement Validation & Benchmarking
+
+**Goal:** Prove the AGG replacement is correct and faster, rather than assuming architectural cleanup alone improves the engine.
+
+**Acceptance criterion:** Dedicated transform benchmarks/tests exist or are expanded, and before/after measurements are recorded for the migrated affine path.
+
+- [ ] Add or extend focused benchmarks for transform commit paths:
+  - [ ] Affine free transform
+  - [ ] Perspective transform
+  - [ ] Warp transform
+  - [ ] Discrete rotate/flip operations
+- [ ] Add correctness tests for interpolation parity and output bounds stability
+- [ ] Capture CPU and allocation profiles before and after AGG affine migration
+- [ ] Record whether AGG affine replacement is actually faster than the previous manual path
+
+### Phase X.9: Viewport Rendering Optimization
 
 - [x] Refine the viewport profile with isolated stage benchmarks:
   - [x] `RenderViewportAggBase`: ~8.65 ms/op, ~1.15 MB/op, ~40.5k allocs/op
   - [x] `RenderViewportAggOverlays`: ~0.52 ms/op, ~272 KB/op, ~1.1k allocs/op
   - [x] `RenderViewportAggOnly`: ~8.44 ms/op, ~1.42 MB/op, ~41.7k allocs/op
   - [x] `RenderViewport` (full): ~20.3–22.0 ms/op, ~1.42 MB/op, ~41.7k allocs/op
-- [x] Record the current conclusion for X.4:
+- [x] Record the current conclusion for X.9:
   - [x] Full viewport CPU time is dominated more by this repository's `compositeDocumentToViewport` / `sampleBilinear` path than by AGG background drawing
   - [x] Viewport allocations are dominated by the AGG path (`RenderViewportBase` / checkerboard / border), not by `sampleBilinear`
   - [x] In the focused full-viewport CPU profile, `sampleBilinear` alone is the single biggest hotspot
@@ -72,30 +214,31 @@
   - [ ] Consider specialized fast paths for unrotated / nearest-neighbor / fully opaque sampling cases
   - [ ] Re-run the benchmark and `pprof` after each viewport optimization pass and record deltas here
 
-### Phase X.5: Background Rendering Optimization
+### Phase X.10: Background Rendering Optimization
 
 - [ ] Reduce background rendering cost in `internal/agg/agg.go`
   - [ ] Avoid redrawing the checkerboard and document shell every frame when viewport/document background inputs are unchanged
   - [ ] Evaluate caching or pre-rendering the checkerboard/background pass
   - [ ] Re-run the benchmark and `pprof` after each background-rendering optimization pass and record deltas here
 
-### Phase X.6: Brush Stroke Optimization
+### Phase X.11: Brush Stroke Optimization
 
 - [ ] Reduce brush stroke allocation pressure in `internal/engine/brush.go`
   - [ ] Investigate reuse of AGG renderer/rasterizer state across dabs within a stroke
   - [ ] Evaluate batching dabs or using a lower-allocation path for common circular brush cases
   - [ ] Re-run the benchmark and `pprof` after each brush optimization pass and record deltas here
 
-### Phase X.7: Stroke-Start Memory Optimization
+### Phase X.12: Stroke-Start Memory Optimization
 
 - [ ] Reduce stroke-start memory overhead in `internal/engine/engine.go`
   - [ ] Revisit the full-layer `beforePixels` copy used for undo on every stroke
   - [ ] Explore dirty-rect-bounded stroke history capture instead of whole-layer snapshotting
   - [ ] Re-run the benchmark and `pprof` after each stroke-start optimization pass and record deltas here
 
-### Phase X.8: Performance Regression Tracking
+### Phase X.13: Performance Regression Tracking
 
 - [ ] After each optimization pass, update this phase with before/after benchmark numbers for `PaintStrokes`, `CompositeSurface`, `RenderViewport`, `RenderFrameCachedComposite`, and `RenderFrameAfterPaint`
+- [ ] Track transform-specific before/after numbers alongside the global render benchmark once the AGG replacement work starts
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
 ---
