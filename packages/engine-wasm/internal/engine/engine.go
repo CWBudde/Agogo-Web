@@ -78,6 +78,7 @@ const (
 	commandRotateLayer90CW          = 0x0306
 	commandRotateLayer90CCW         = 0x0307
 	commandRotateLayer180           = 0x0308
+	commandTransformAgain           = 0x0309
 	commandBeginCrop                = 0x0320
 	commandUpdateCrop               = 0x0321
 	commandCommitCrop               = 0x0322
@@ -611,6 +612,9 @@ type instance struct {
 	// freeTransform holds the live state while free transform is active.
 	// It is UI-only state not included in history snapshots.
 	freeTransform *FreeTransformState
+	// lastTransform records the most recently committed transform (free or
+	// discrete) so that Transform Again can replay it on any layer.
+	lastTransform *LastTransformRecord
 	// crop holds the live state while the crop tool is active.
 	crop *CropState
 	// foregroundColor is the active foreground (paint) color.
@@ -1991,6 +1995,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			if err := inst.history.Execute(inst, command); err != nil {
 				return RenderResult{}, err
 			}
+			inst.lastTransform = recordLastFreeTransform(ft)
 			inst.freeTransform = nil
 			inst.cachedDocContentVersion = -1
 			break
@@ -2021,6 +2026,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.Execute(inst, command); err != nil {
 			return RenderResult{}, err
 		}
+		inst.lastTransform = recordLastFreeTransform(ft)
 		inst.freeTransform = nil
 		inst.cachedDocContentVersion = -1
 
@@ -2098,6 +2104,76 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		}
 		if err := inst.history.Execute(inst, command); err != nil {
 			return RenderResult{}, err
+		}
+		inst.lastTransform = &LastTransformRecord{Kind: kind}
+		inst.cachedDocContentVersion = -1
+
+	case commandTransformAgain:
+		if inst.lastTransform == nil {
+			return RenderResult{}, fmt.Errorf("no previous transform to repeat")
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return RenderResult{}, fmt.Errorf("no active document")
+		}
+		lt := inst.lastTransform
+		if lt.Kind == "free" {
+			l := doc.findLayer(doc.ActiveLayerID)
+			pl, ok := l.(*PixelLayer)
+			if !ok || pl == nil {
+				return RenderResult{}, fmt.Errorf("active layer is not a pixel layer")
+			}
+			finalPixels, finalBounds := applyLastFreeTransform(lt, pl)
+			command := &snapshotCommand{
+				description: "Transform Again",
+				applyFn: func(inst *instance) (snapshot, error) {
+					d := inst.manager.Active()
+					if d == nil {
+						return snapshot{}, fmt.Errorf("no active document")
+					}
+					layer := d.findLayer(d.ActiveLayerID)
+					p, ok := layer.(*PixelLayer)
+					if !ok || p == nil {
+						return snapshot{}, fmt.Errorf("layer not found")
+					}
+					p.Pixels = finalPixels
+					p.Bounds = finalBounds
+					d.ContentVersion++
+					if err := inst.manager.ReplaceActive(d); err != nil {
+						return snapshot{}, err
+					}
+					return inst.captureSnapshot(), nil
+				},
+			}
+			if err := inst.history.Execute(inst, command); err != nil {
+				return RenderResult{}, err
+			}
+		} else {
+			// Discrete transform again.
+			kind := lt.Kind
+			command := &snapshotCommand{
+				description: kindDescription(kind) + " Again",
+				applyFn: func(inst *instance) (snapshot, error) {
+					d := inst.manager.Active()
+					if d == nil {
+						return snapshot{}, fmt.Errorf("no active document")
+					}
+					layer := d.findLayer(d.ActiveLayerID)
+					p, ok := layer.(*PixelLayer)
+					if !ok || p == nil {
+						return snapshot{}, fmt.Errorf("active layer is not a pixel layer")
+					}
+					applyDiscreteTransformToLayer(p, kind)
+					d.ContentVersion++
+					if err := inst.manager.ReplaceActive(d); err != nil {
+						return snapshot{}, err
+					}
+					return inst.captureSnapshot(), nil
+				},
+			}
+			if err := inst.history.Execute(inst, command); err != nil {
+				return RenderResult{}, err
+			}
 		}
 		inst.cachedDocContentVersion = -1
 

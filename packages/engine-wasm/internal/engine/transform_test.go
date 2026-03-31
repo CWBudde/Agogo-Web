@@ -807,3 +807,147 @@ func TestFreeTransform_FloatingSelection_Cancel(t *testing.T) {
 		t.Errorf("pixel layer count = %d, want 1 after cancel", pixelLayers)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Transform Again tests
+// ---------------------------------------------------------------------------
+
+// activeLayerBounds retrieves the bounds of the active layer directly from the
+// engine instance (works because the test is in package engine).
+func activeLayerBounds(t *testing.T, h int32) LayerBounds {
+	t.Helper()
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	doc := inst.manager.Active()
+	if doc == nil {
+		t.Fatal("no active document")
+	}
+	l := doc.findLayer(doc.ActiveLayerID)
+	pl, ok := l.(*PixelLayer)
+	if !ok || pl == nil {
+		t.Fatal("active layer is not a pixel layer")
+	}
+	return pl.Bounds
+}
+
+// makeTestDoc creates a document with a single pixel layer of dimensions w×h
+// placed at (bx, by) and returns the engine handle and layer ID.
+func makeTestDoc(t *testing.T, w, h, bx, by int) (int32, string) {
+	t.Helper()
+	eng := Init("")
+	_, err := DispatchCommand(eng, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "Test", Width: 200, Height: 200, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8, Background: "white",
+	}))
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	result, err := DispatchCommand(eng, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Layer",
+		Bounds:    LayerBounds{X: bx, Y: by, W: w, H: h},
+		Pixels:    makeSolidPixels(w, h, 255, 0, 0, 255),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	return eng, result.UIMeta.ActiveLayerID
+}
+
+// TestTransformAgain_NoHistory verifies that Transform Again fails when no
+// previous transform has been committed.
+func TestTransformAgain_NoHistory(t *testing.T) {
+	h, _ := makeTestDoc(t, 4, 4, 0, 0)
+	defer Free(h)
+
+	_, err := DispatchCommand(h, commandTransformAgain, `{}`)
+	if err == nil {
+		t.Fatal("expected error when no previous transform exists")
+	}
+}
+
+// TestTransformAgain_FreeTranslation verifies that a pure-translation free
+// transform is correctly replayed on the same layer.
+func TestTransformAgain_FreeTranslation(t *testing.T) {
+	h, layerID := makeTestDoc(t, 4, 4, 0, 0)
+	defer Free(h)
+
+	// First transform: shift layer 10 px right, 5 px down.
+	_, err := DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	}))
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	_, err = DispatchCommand(h, commandUpdateFreeTransform, mustJSON(t, UpdateFreeTransformPayload{
+		A: 1, B: 0, C: 0, D: 1, TX: 10, TY: 5,
+		PivotX: 2, PivotY: 2, Interpolation: "nearest",
+	}))
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	_, err = DispatchCommand(h, commandCommitFreeTransform, `{}`)
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	// Layer should now be at (10, 5).
+	b := activeLayerBounds(t, h)
+	if b.X != 10 || b.Y != 5 {
+		t.Errorf("after first transform: bounds = (%d,%d), want (10,5)", b.X, b.Y)
+	}
+
+	// Transform Again: same +10, +5 shift should move it to (20, 10).
+	_, err = DispatchCommand(h, commandTransformAgain, `{}`)
+	if err != nil {
+		t.Fatalf("transform again: %v", err)
+	}
+	b = activeLayerBounds(t, h)
+	if b.X != 20 || b.Y != 10 {
+		t.Errorf("after transform again: bounds = (%d,%d), want (20,10)", b.X, b.Y)
+	}
+}
+
+// TestTransformAgain_DiscreteFlip verifies that a discrete flip is replayed.
+func TestTransformAgain_DiscreteFlip(t *testing.T) {
+	h, _ := makeTestDoc(t, 4, 4, 0, 0)
+	defer Free(h)
+
+	// Apply flip horizontal.
+	_, err := DispatchCommand(h, commandFlipLayerH, mustJSON(t, DiscreteTransformPayload{}))
+	if err != nil {
+		t.Fatalf("flipH: %v", err)
+	}
+
+	// Transform Again should also flip horizontal (double flip = back to original).
+	_, err = DispatchCommand(h, commandTransformAgain, `{}`)
+	if err != nil {
+		t.Fatalf("transform again: %v", err)
+	}
+}
+
+// TestTransformAgain_DiscreteRotate verifies that a discrete rotation is replayed.
+func TestTransformAgain_DiscreteRotate(t *testing.T) {
+	h, _ := makeTestDoc(t, 4, 6, 0, 0)
+	defer Free(h)
+
+	// Apply 90° CW: 4×6 → 6×4.
+	_, err := DispatchCommand(h, commandRotateLayer90CW, mustJSON(t, DiscreteTransformPayload{}))
+	if err != nil {
+		t.Fatalf("rotate90CW: %v", err)
+	}
+	b := activeLayerBounds(t, h)
+	if b.W != 6 || b.H != 4 {
+		t.Errorf("after 90CW: want 6×4, got %d×%d", b.W, b.H)
+	}
+
+	// Transform Again: another 90° CW → 6×4 becomes 4×6 again (180° total).
+	_, err = DispatchCommand(h, commandTransformAgain, `{}`)
+	if err != nil {
+		t.Fatalf("transform again: %v", err)
+	}
+	b = activeLayerBounds(t, h)
+	if b.W != 4 || b.H != 6 {
+		t.Errorf("after again: want 4×6, got %d×%d", b.W, b.H)
+	}
+}

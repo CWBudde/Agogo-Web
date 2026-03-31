@@ -16,6 +16,30 @@ const (
 	InterpolBicubic  InterpolMode = "bicubic"
 )
 
+// LastTransformRecord stores the parameters of the most recently committed
+// transform so that Transform Again (Ctrl+Shift+T) can replay it on any layer.
+//
+// For free transforms, all offsets are stored relative to the original layer
+// bounds, so the same shape of transform can be applied to a different layer.
+// For discrete transforms (flip, rotate), only Kind is needed.
+type LastTransformRecord struct {
+	// Kind is "free", "flipH", "flipV", "rotate90cw", "rotate90ccw", "rotate180".
+	Kind string
+	// Affine matrix components (only for Kind == "free").
+	A, B, C, D float64
+	// TXDelta / TYDelta: translation relative to the original layer bounds origin.
+	TXDelta, TYDelta float64
+	// PivotXDelta / PivotYDelta: pivot offset relative to the original layer origin.
+	PivotXDelta, PivotYDelta float64
+	Interpolation            InterpolMode
+	// DistortCorners, when non-nil, holds per-corner offsets in doc space
+	// from each corner's default (un-transformed) position. Order: TL, TR, BR, BL.
+	DistortCorners *[4][2]float64
+	// WarpGrid, when non-nil, holds per-point offsets from the default bilinear
+	// grid positions. Layout: [row][col][x,y], 4×4.
+	WarpGrid *[4][4][2]float64
+}
+
 // FreeTransformState holds the live state while free transform is active.
 //
 // The affine matrix maps layer-local pixel coordinates (lx, ly) in [0,W)×[0,H)
@@ -110,6 +134,99 @@ func initWarpGridFromBounds(b LayerBounds) *[4][4][2]float64 {
 		}
 	}
 	return &g
+}
+
+// recordLastFreeTransform builds a LastTransformRecord from a committed
+// FreeTransformState, expressing all positional values as offsets relative to
+// the layer's original bounds so the record can be applied to any layer.
+func recordLastFreeTransform(ft *FreeTransformState) *LastTransformRecord {
+	origX := float64(ft.OriginalBounds.X)
+	origY := float64(ft.OriginalBounds.Y)
+	rec := &LastTransformRecord{
+		Kind:        "free",
+		A:           ft.A,
+		B:           ft.B,
+		C:           ft.C,
+		D:           ft.D,
+		TXDelta:     ft.TX - origX,
+		TYDelta:     ft.TY - origY,
+		PivotXDelta: ft.PivotX - origX,
+		PivotYDelta: ft.PivotY - origY,
+		Interpolation: ft.Interpolation,
+	}
+	if ft.DistortCorners != nil {
+		// Store per-corner offsets from the default (un-transformed) corner positions.
+		defaultCorners := defaultBoundsCorners(ft.OriginalBounds)
+		offsets := new([4][2]float64)
+		for i := range 4 {
+			offsets[i][0] = ft.DistortCorners[i][0] - defaultCorners[i][0]
+			offsets[i][1] = ft.DistortCorners[i][1] - defaultCorners[i][1]
+		}
+		rec.DistortCorners = offsets
+	} else if ft.WarpGrid != nil {
+		// Store per-point offsets from the default bilinear grid positions.
+		defaultGrid := initWarpGridFromBounds(ft.OriginalBounds)
+		offsets := new([4][4][2]float64)
+		for r := range 4 {
+			for c := range 4 {
+				offsets[r][c][0] = ft.WarpGrid[r][c][0] - defaultGrid[r][c][0]
+				offsets[r][c][1] = ft.WarpGrid[r][c][1] - defaultGrid[r][c][1]
+			}
+		}
+		rec.WarpGrid = offsets
+	}
+	return rec
+}
+
+// defaultBoundsCorners returns the four corners of b in TL, TR, BR, BL order.
+func defaultBoundsCorners(b LayerBounds) [4][2]float64 {
+	x0, y0 := float64(b.X), float64(b.Y)
+	x1, y1 := float64(b.X+b.W), float64(b.Y+b.H)
+	return [4][2]float64{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}
+}
+
+// applyLastFreeTransform applies a LastTransformRecord (originally captured
+// from a free transform) to a pixel layer, producing new pixels and bounds.
+// The record's relative offsets are resolved against the layer's current bounds.
+func applyLastFreeTransform(lt *LastTransformRecord, pl *PixelLayer) ([]byte, LayerBounds) {
+	orig := pl.Bounds
+	origX := float64(orig.X)
+	origY := float64(orig.Y)
+	ft := &FreeTransformState{
+		Active:         true,
+		LayerID:        pl.ID(),
+		OriginalPixels: pl.Pixels,
+		OriginalBounds: orig,
+		A:              lt.A,
+		B:              lt.B,
+		C:              lt.C,
+		D:              lt.D,
+		TX:             origX + lt.TXDelta,
+		TY:             origY + lt.TYDelta,
+		PivotX:         origX + lt.PivotXDelta,
+		PivotY:         origY + lt.PivotYDelta,
+		Interpolation:  lt.Interpolation,
+	}
+	if lt.DistortCorners != nil {
+		defaultCorners := defaultBoundsCorners(orig)
+		corners := new([4][2]float64)
+		for i := range 4 {
+			corners[i][0] = defaultCorners[i][0] + lt.DistortCorners[i][0]
+			corners[i][1] = defaultCorners[i][1] + lt.DistortCorners[i][1]
+		}
+		ft.DistortCorners = corners
+	} else if lt.WarpGrid != nil {
+		defaultGrid := initWarpGridFromBounds(orig)
+		grid := new([4][4][2]float64)
+		for r := range 4 {
+			for c := range 4 {
+				grid[r][c][0] = defaultGrid[r][c][0] + lt.WarpGrid[r][c][0]
+				grid[r][c][1] = defaultGrid[r][c][1] + lt.WarpGrid[r][c][1]
+			}
+		}
+		ft.WarpGrid = grid
+	}
+	return applyPixelTransform(ft, lt.Interpolation)
 }
 
 // transformPoint maps a layer-local point through the affine matrix.
