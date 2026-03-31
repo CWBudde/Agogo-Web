@@ -63,6 +63,85 @@ func BenchmarkRenderPipeline512(b *testing.B) {
 		assertBenchmarkSurfaceLen(b, len(surface))
 	})
 
+	b.Run("AffineTransformCommit", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		for _, interp := range []InterpolMode{InterpolNearest, InterpolBilinear, InterpolBicubic} {
+			b.Run(string(interp), func(b *testing.B) {
+				state := fixture.affineTransformState(interp)
+				warmPixels, warmBounds := applyPixelTransform(state, interp)
+				if len(warmPixels) == 0 || warmBounds.W <= 0 || warmBounds.H <= 0 {
+					b.Fatal("expected affine transform benchmark setup to produce pixels")
+				}
+
+				b.ReportAllocs()
+				b.SetBytes(int64(warmBounds.W * warmBounds.H * 4))
+				b.ResetTimer()
+
+				var outPixels []byte
+				var outBounds LayerBounds
+				for i := 0; i < b.N; i++ {
+					outPixels, outBounds = applyPixelTransform(state, interp)
+				}
+
+				b.StopTimer()
+				if got, want := len(outPixels), outBounds.W*outBounds.H*4; got != want {
+					b.Fatalf("buffer length = %d, want %d", got, want)
+				}
+			})
+		}
+
+		b.Run("AffineTransformCommitIntegerTranslate", func(b *testing.B) {
+			fixture := newRenderBenchmarkFixture()
+			fixture.preparePaintedDocument()
+			state := fixture.integerTranslateTransformState(13, -9, InterpolNearest)
+			warmPixels, warmBounds := applyPixelTransform(state, InterpolNearest)
+			if len(warmPixels) == 0 || warmBounds.W != fixture.layer.Bounds.W || warmBounds.H != fixture.layer.Bounds.H {
+				b.Fatal("expected integer-translate transform benchmark setup to produce source-sized pixels")
+			}
+
+			b.ReportAllocs()
+			b.SetBytes(int64(warmBounds.W * warmBounds.H * 4))
+			b.ResetTimer()
+
+			var outPixels []byte
+			var outBounds LayerBounds
+			for i := 0; i < b.N; i++ {
+				outPixels, outBounds = applyPixelTransform(state, InterpolNearest)
+			}
+
+			b.StopTimer()
+			if got, want := len(outPixels), outBounds.W*outBounds.H*4; got != want {
+				b.Fatalf("buffer length = %d, want %d", got, want)
+			}
+		})
+
+		b.Run("AffineTransformCommitAxisAlignedScale", func(b *testing.B) {
+			fixture := newRenderBenchmarkFixture()
+			fixture.preparePaintedDocument()
+			state := fixture.axisAlignedScaleTransformState(0.84, 1.12, 18, -26, InterpolBilinear)
+			warmPixels, warmBounds := applyPixelTransform(state, InterpolBilinear)
+			if len(warmPixels) == 0 || warmBounds.W <= 0 || warmBounds.H <= 0 {
+				b.Fatal("expected axis-aligned transform benchmark setup to produce pixels")
+			}
+
+			b.ReportAllocs()
+			b.SetBytes(int64(warmBounds.W * warmBounds.H * 4))
+			b.ResetTimer()
+
+			var outPixels []byte
+			var outBounds LayerBounds
+			for i := 0; i < b.N; i++ {
+				outPixels, outBounds = applyPixelTransform(state, InterpolBilinear)
+			}
+
+			b.StopTimer()
+			if got, want := len(outPixels), outBounds.W*outBounds.H*4; got != want {
+				b.Fatalf("buffer length = %d, want %d", got, want)
+			}
+		})
+	})
+
 	b.Run("RenderViewportAggBase", func(b *testing.B) {
 		fixture := newRenderBenchmarkFixture()
 		fixture.preparePaintedDocument()
@@ -291,6 +370,58 @@ func (fixture *renderBenchmarkFixture) renderViewportOverlays(reuse []byte) []by
 		},
 		reuse,
 	)
+}
+
+func (fixture *renderBenchmarkFixture) affineTransformState(interp InterpolMode) *FreeTransformState {
+	rotation := 17 * math.Pi / 180
+	scaleX := 0.84
+	scaleY := 1.12
+	shearX := 0.18
+	cosR := math.Cos(rotation)
+	sinR := math.Sin(rotation)
+	return fixture.affineStateFromMatrix(
+		cosR*scaleX,
+		sinR*scaleX,
+		-sinR*scaleY+shearX,
+		cosR*scaleY,
+		18,
+		-26,
+		interp,
+	)
+}
+
+func (fixture *renderBenchmarkFixture) axisAlignedScaleTransformState(scaleX, scaleY, offsetX, offsetY float64, interp InterpolMode) *FreeTransformState {
+	return fixture.affineStateFromMatrix(scaleX, 0, 0, scaleY, offsetX, offsetY, interp)
+}
+
+func (fixture *renderBenchmarkFixture) integerTranslateTransformState(offsetX, offsetY float64, interp InterpolMode) *FreeTransformState {
+	return fixture.affineStateFromMatrix(1, 0, 0, 1, offsetX, offsetY, interp)
+}
+
+func (fixture *renderBenchmarkFixture) affineStateFromMatrix(a, b, c, d, offsetX, offsetY float64, interp InterpolMode) *FreeTransformState {
+	bounds := fixture.layer.Bounds
+	localPivotX := float64(bounds.W) * 0.5
+	localPivotY := float64(bounds.H) * 0.5
+	docPivotX := float64(bounds.X) + localPivotX + offsetX
+	docPivotY := float64(bounds.Y) + localPivotY + offsetY
+	tx := docPivotX - (a*localPivotX + c*localPivotY)
+	ty := docPivotY - (b*localPivotX + d*localPivotY)
+
+	return &FreeTransformState{
+		Active:         true,
+		LayerID:        fixture.layer.ID(),
+		OriginalPixels: fixture.layer.Pixels,
+		OriginalBounds: bounds,
+		A:              a,
+		B:              b,
+		C:              c,
+		D:              d,
+		TX:             tx,
+		TY:             ty,
+		PivotX:         docPivotX,
+		PivotY:         docPivotY,
+		Interpolation:  interp,
+	}
 }
 
 func benchmarkStrokeSet() []benchmarkStroke {
