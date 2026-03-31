@@ -8,6 +8,87 @@
 
 ---
 
+## Phase X: Rendering Performance Baseline & Hotspot Reduction
+
+**Goal:** Establish a reproducible performance baseline for the rendering engine, identify the dominant costs in the native Go pipeline before browser/Wasm overhead, and prioritize the first optimization passes.
+
+**Acceptance criterion:** A deterministic benchmark exists for a realistic 512×512 paint-and-render scenario, benchmark and `pprof` commands are documented, and the current top CPU/allocation hotspots are captured in the plan with clear next optimization targets.
+
+### Phase X.1: Benchmark Harness & Profiling Baseline
+
+- [x] Add a dedicated engine benchmark in `packages/engine-wasm/internal/engine/render_benchmark_test.go` that:
+  - [x] Creates an empty 512×512 document with a single pixel layer
+  - [x] Paints deterministic brush strokes with realistic pressure variation
+  - [x] Renders to the offline viewport canvas
+  - [x] Splits the pipeline into separate sub-benchmarks for painting, document compositing, viewport rendering, cached-frame rendering, and end-to-end paint+render
+- [x] Benchmark command captured:
+  - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkRenderPipeline512$' -benchmem`
+- [x] CPU profiling command captured:
+  - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkRenderPipeline512/RenderFrameAfterPaint$' -benchtime=2s -cpuprofile /tmp/agogo-render-frame-after-paint.cpu`
+  - [x] `go tool pprof -top /tmp/agogo-render-frame-after-paint.cpu`
+- [x] Allocation profiling command captured:
+  - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkRenderPipeline512/RenderFrameAfterPaint$' -benchtime=2s -memprofile /tmp/agogo-render-frame-after-paint.mem`
+  - [x] `go tool pprof -top -alloc_space /tmp/agogo-render-frame-after-paint.mem`
+
+### Phase X.2: Current Baseline Findings
+
+- [x] Native Go baseline measured on Linux / Intel i7-1255U for the 512×512 benchmark scenario:
+  - [x] `PaintStrokes`: ~18.8 ms/op, ~46.3 MB/op, ~37.2k allocs/op
+  - [x] `CompositeSurface`: ~3.36 ms/op, ~1.05 MB/op, 2 allocs/op
+  - [x] `RenderViewport`: ~12.6 ms/op, ~1.42 MB/op, ~41.7k allocs/op
+  - [x] `RenderFrameCachedComposite`: ~13.2 ms/op, ~2.47 MB/op, ~41.7k allocs/op
+  - [x] `RenderFrameAfterPaint`: ~33.8 ms/op, ~50.9 MB/op, ~78.9k allocs/op
+- [x] Primary conclusion recorded: the engine is already expensive in native Go, so the current slowdown is not explained primarily by WebAssembly overhead.
+
+### Phase X.3: Hotspots Confirmed By `pprof`
+
+- [x] CPU hotspots identified:
+  - [x] Viewport sampling in `internal/engine/viewport_composite.go`, especially `sampleBilinear`
+  - [x] AGG-driven viewport background work in `internal/agg/agg.go`, especially checkerboard/document background drawing
+  - [x] Brush dab rasterization in `internal/engine/brush.go` (`PaintDab`)
+  - [x] Full document compositing in `internal/engine/layer_ops.go`
+- [x] Allocation hotspots identified:
+  - [x] AGG rasterizer cell allocation (`RasterizerCellsAASimple.allocateBlock`) dominates allocation volume during brush dabs
+  - [x] Repeated `NewAgg2D()` construction contributes measurable allocation cost
+  - [x] Per-stroke undo snapshotting in `handleBeginPaintStroke` allocates a full copy of the active layer before each stroke
+  - [x] Cached-frame rendering still allocates heavily, which indicates the viewport path is allocation-heavy even when document compositing is reused
+
+### Phase X.4: Viewport Rendering Optimization
+
+- [ ] Reduce viewport cost in `internal/engine/viewport_composite.go`
+  - [ ] Profile and optimize `sampleBilinear`
+  - [ ] Check whether temporary values or return shapes in the sampling path are causing avoidable allocations
+  - [ ] Consider specialized fast paths for unrotated / nearest-neighbor / fully opaque sampling cases
+  - [ ] Re-run the benchmark and `pprof` after each viewport optimization pass and record deltas here
+
+### Phase X.5: Background Rendering Optimization
+
+- [ ] Reduce background rendering cost in `internal/agg/agg.go`
+  - [ ] Avoid redrawing the checkerboard and document shell every frame when viewport/document background inputs are unchanged
+  - [ ] Evaluate caching or pre-rendering the checkerboard/background pass
+  - [ ] Re-run the benchmark and `pprof` after each background-rendering optimization pass and record deltas here
+
+### Phase X.6: Brush Stroke Optimization
+
+- [ ] Reduce brush stroke allocation pressure in `internal/engine/brush.go`
+  - [ ] Investigate reuse of AGG renderer/rasterizer state across dabs within a stroke
+  - [ ] Evaluate batching dabs or using a lower-allocation path for common circular brush cases
+  - [ ] Re-run the benchmark and `pprof` after each brush optimization pass and record deltas here
+
+### Phase X.7: Stroke-Start Memory Optimization
+
+- [ ] Reduce stroke-start memory overhead in `internal/engine/engine.go`
+  - [ ] Revisit the full-layer `beforePixels` copy used for undo on every stroke
+  - [ ] Explore dirty-rect-bounded stroke history capture instead of whole-layer snapshotting
+  - [ ] Re-run the benchmark and `pprof` after each stroke-start optimization pass and record deltas here
+
+### Phase X.8: Performance Regression Tracking
+
+- [ ] After each optimization pass, update this phase with before/after benchmark numbers for `PaintStrokes`, `CompositeSurface`, `RenderViewport`, `RenderFrameCachedComposite`, and `RenderFrameAfterPaint`
+- [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
+
+---
+
 ## ✅ Phase 0: Scaffolding, Repo Structure, Build Pipeline — COMPLETE
 
 - **Monorepo:** Bun workspaces — `apps/editor-web` (Vite + React + TS + Tailwind v4 + shadcn + Base UI), `packages/engine-wasm` (Go 1.25 → `js/wasm`), `packages/proto` (shared TS types/command IDs)
