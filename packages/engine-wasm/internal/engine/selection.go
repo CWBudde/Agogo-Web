@@ -1037,7 +1037,7 @@ func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, sele
 			if canvasX < 0 || canvasX >= canvasW || canvasY < 0 || canvasY >= canvasH {
 				continue
 			}
-			pattern := (x + y + phase) & 7
+			pattern := (x + y - phase) & 7
 			color := byte(0)
 			if pattern >= 4 {
 				color = 255

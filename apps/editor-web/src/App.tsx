@@ -81,7 +81,8 @@ type MenuActionId =
   | "select-border"
   | "select-transform"
   | "select-color-range"
-  | "select-and-mask";
+  | "select-and-mask"
+  | "view-toggle-guides";
 
 type MenuPreviewItem = {
   label: string;
@@ -89,6 +90,7 @@ type MenuPreviewItem = {
   tone?: MenuPreviewTone;
   actionId?: MenuActionId;
   disabled?: boolean;
+  checked?: boolean;
 };
 
 type MenuPreviewMenu = {
@@ -284,7 +286,7 @@ const menuItems: MenuPreviewMenu[] = [
         items: [
           { label: "Pixel Grid" },
           { label: "Rulers" },
-          { label: "Guides", tone: "muted" },
+          { label: "Guides", actionId: "view-toggle-guides" },
         ],
       },
     ],
@@ -478,6 +480,7 @@ export default function App() {
   });
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
+  const [showGuides, setShowGuides] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
@@ -718,6 +721,10 @@ export default function App() {
     }
   };
 
+  const checkedMenuActionIds = new Set<MenuActionId>(
+    showGuides ? (["view-toggle-guides"] as MenuActionId[]) : [],
+  );
+
   const isMenuActionDisabled = (actionId: MenuActionId) => {
     switch (actionId) {
       case "save-project":
@@ -908,6 +915,12 @@ export default function App() {
       case "select-and-mask":
         setSelectAndMaskOpen(true);
         break;
+      case "view-toggle-guides": {
+        const next = !showGuides;
+        setShowGuides(next);
+        engine.setShowGuides(next);
+        break;
+      }
       default:
         break;
     }
@@ -1605,6 +1618,7 @@ export default function App() {
                           menu={menu}
                           isItemDisabled={isMenuItemDisabled}
                           onAction={handleMenuAction}
+                          checkedActionIds={checkedMenuActionIds}
                         />
                       ) : null}
                     </div>
@@ -2725,10 +2739,12 @@ function MenuPreviewPanel({
   menu,
   isItemDisabled,
   onAction,
+  checkedActionIds,
 }: {
   menu: MenuPreviewMenu;
   isItemDisabled(item: MenuPreviewItem): boolean;
   onAction(actionId: MenuActionId): void;
+  checkedActionIds?: Set<MenuActionId>;
 }) {
   const items = menu.sections.flatMap((section) => section.items);
 
@@ -2746,11 +2762,13 @@ function MenuPreviewPanel({
       <div className="py-1">
         {items.map((item) => {
           const disabled = isItemDisabled(item);
+          const checked = !!(item.actionId && checkedActionIds?.has(item.actionId));
           return (
             <MenuPreviewAction
               key={`${menu.label}-${item.label}`}
               item={item}
               disabled={disabled}
+              checked={checked}
               onClick={
                 item.actionId
                   ? () => onAction(item.actionId as MenuActionId)
@@ -2767,10 +2785,12 @@ function MenuPreviewPanel({
 function MenuPreviewAction({
   item,
   disabled,
+  checked,
   onClick,
 }: {
   item: MenuPreviewItem;
   disabled: boolean;
+  checked: boolean;
   onClick?: () => void;
 }) {
   const ItemIcon = iconForMenuItem(item.label);
@@ -2809,7 +2829,9 @@ function MenuPreviewAction({
           {item.label}
         </span>
       </span>
-      {item.shortcut ? (
+      {checked ? (
+        <span className="ml-4 shrink-0 text-[11px] text-cyan-400">✓</span>
+      ) : item.shortcut ? (
         <span className="ml-4 shrink-0 text-[11px] text-slate-500">
           {item.shortcut}
         </span>
