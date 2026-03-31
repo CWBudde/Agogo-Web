@@ -56,6 +56,9 @@ type EditorCanvasProps = {
   eraserTolerance: number;
   foregroundColor: [number, number, number, number];
   cropDeletePixels: boolean;
+  transformSelectionActive: boolean;
+  onTransformSelectionCommit: (a: number, b: number, c: number, d: number, tx: number, ty: number) => void;
+  onTransformSelectionCancel: () => void;
 };
 
 type ZoomDragState = {
@@ -217,6 +220,17 @@ type CropDraft = {
   startAngle: number;         // atan2 angle from crop center to startDoc (radians)
   cropCenterX: number;        // crop center X in doc space at drag start
   cropCenterY: number;        // crop center Y in doc space at drag start
+};
+
+type SelectionTransformDraft = {
+  pointerId: number;
+  kind: CropDragKind;
+  startDoc: DocumentPoint;
+  startBox: { x: number; y: number; w: number; h: number };
+  startRotation: number;
+  startAngle: number;
+  centerX: number;
+  centerY: number;
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -550,6 +564,9 @@ export function EditorCanvas({
   eraserTolerance,
   foregroundColor,
   cropDeletePixels,
+  transformSelectionActive,
+  onTransformSelectionCommit,
+  onTransformSelectionCancel,
 }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -569,6 +586,8 @@ export function EditorCanvas({
   const [transformDraft, setTransformDraft] =
     useState<TransformDraft | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
+  const [selTransformDraft, setSelTransformDraft] = useState<SelectionTransformDraft | null>(null);
+  const [selTransformBox, setSelTransformBox] = useState<{ x: number; y: number; w: number; h: number; rotation: number } | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
     null,
@@ -930,6 +949,54 @@ export function EditorCanvas({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTool, engine, render?.uiMeta.crop?.active]);
+
+  // Initialize selection transform box when mode is activated.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally runs only on mode toggle, not on every render update
+  useEffect(() => {
+    if (transformSelectionActive && render?.uiMeta.selection?.active && render.uiMeta.selection.bounds) {
+      const b = render.uiMeta.selection.bounds;
+      setSelTransformBox({ x: b.x, y: b.y, w: b.w, h: b.h, rotation: 0 });
+    } else if (!transformSelectionActive) {
+      setSelTransformBox(null);
+      setSelTransformDraft(null);
+    }
+  }, [transformSelectionActive]);
+
+  // Keyboard shortcuts for Transform Selection.
+  useEffect(() => {
+    if (!transformSelectionActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (selTransformBox && render?.uiMeta.selection?.bounds) {
+          const ob = render.uiMeta.selection.bounds;
+          const origCx = ob.x + ob.w / 2;
+          const origCy = ob.y + ob.h / 2;
+          const newCx = selTransformBox.x + selTransformBox.w / 2;
+          const newCy = selTransformBox.y + selTransformBox.h / 2;
+          const scaleX = ob.w !== 0 ? selTransformBox.w / ob.w : 1;
+          const scaleY = ob.h !== 0 ? selTransformBox.h / ob.h : 1;
+          const rotRad = (selTransformBox.rotation * Math.PI) / 180;
+          const cosR = Math.cos(rotRad);
+          const sinR = Math.sin(rotRad);
+          const ma = scaleX * cosR;
+          const mb = scaleX * sinR;
+          const mc = -scaleY * sinR;
+          const md = scaleY * cosR;
+          const mtx = newCx - ma * origCx - mc * origCy;
+          const mty = newCy - mb * origCx - md * origCy;
+          onTransformSelectionCommit(ma, mb, mc, md, mtx, mty);
+        } else {
+          onTransformSelectionCancel();
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        onTransformSelectionCancel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [transformSelectionActive, selTransformBox, render?.uiMeta.selection, onTransformSelectionCommit, onTransformSelectionCancel]);
 
   const marqueeStartCanvas = marqueeDraft
     ? documentPointToCanvas(marqueeDraft.start)
@@ -1369,6 +1436,27 @@ export function EditorCanvas({
             return;
           }
         }
+        if (transformSelectionActive && event.button === 0 && selTransformBox) {
+          const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
+          if (canvasPoint) {
+            const kind = cropHitTest(selTransformBox, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
+            const cx = selTransformBox.x + selTransformBox.w / 2;
+            const cy = selTransformBox.y + selTransformBox.h / 2;
+            setSelTransformDraft({
+              pointerId: event.pointerId,
+              kind: kind ?? "rotate",
+              startDoc: { x: docPoint.x, y: docPoint.y },
+              startBox: { x: selTransformBox.x, y: selTransformBox.y, w: selTransformBox.w, h: selTransformBox.h },
+              startRotation: selTransformBox.rotation,
+              startAngle: Math.atan2(docPoint.y - cy, docPoint.x - cx),
+              centerX: cx,
+              centerY: cy,
+            });
+            event.currentTarget.setPointerCapture(event.pointerId);
+            event.preventDefault();
+            return;
+          }
+        }
         if (activeTool === "crop" && event.button === 0) {
           const crop = render.uiMeta.crop;
           if (crop?.active) {
@@ -1773,6 +1861,35 @@ export function EditorCanvas({
           });
           return;
         }
+        if (selTransformDraft && selTransformDraft.pointerId === event.pointerId && docPoint) {
+          const sd = selTransformDraft;
+          const dx = docPoint.x - sd.startDoc.x;
+          const dy = docPoint.y - sd.startDoc.y;
+          let newX = sd.startBox.x;
+          let newY = sd.startBox.y;
+          let newW = sd.startBox.w;
+          let newH = sd.startBox.h;
+          let newRotation = sd.startRotation;
+
+          switch (sd.kind) {
+            case "rotate": {
+              const currentAngle = Math.atan2(docPoint.y - sd.centerY, docPoint.x - sd.centerX);
+              newRotation = sd.startRotation + ((currentAngle - sd.startAngle) * 180) / Math.PI;
+              break;
+            }
+            case "move": newX += dx; newY += dy; break;
+            case "scale-tl": newX += dx; newY += dy; newW -= dx; newH -= dy; break;
+            case "scale-t":  newY += dy; newH -= dy; break;
+            case "scale-tr": newY += dy; newW += dx; newH -= dy; break;
+            case "scale-r":  newW += dx; break;
+            case "scale-br": newW += dx; newH += dy; break;
+            case "scale-b":  newH += dy; break;
+            case "scale-bl": newX += dx; newW -= dx; newH += dy; break;
+            case "scale-l":  newX += dx; newW -= dx; break;
+          }
+          setSelTransformBox({ x: newX, y: newY, w: Math.max(newW, 1), h: Math.max(newH, 1), rotation: newRotation });
+          return;
+        }
         if (
           cropDraft &&
           cropDraft.pointerId === event.pointerId &&
@@ -1999,6 +2116,11 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
+        if (selTransformDraft && selTransformDraft.pointerId === event.pointerId) {
+          setSelTransformDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         if (cropDraft && cropDraft.pointerId === event.pointerId) {
           setCropDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
@@ -2147,7 +2269,8 @@ export function EditorCanvas({
       {marqueeOverlay ||
       freehandOverlay.length > 0 ||
       polygonOverlay ||
-      magneticLassoDraft ? (
+      magneticLassoDraft ||
+      (transformSelectionActive && selTransformBox) ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
           viewBox={`0 0 ${size.width} ${size.height}`}
@@ -2275,6 +2398,67 @@ export function EditorCanvas({
                         fill="rgba(56, 189, 248, 0.95)"
                       />
                     )}
+                  </>
+                );
+              })()
+            : null}
+          {transformSelectionActive && selTransformBox
+            ? (() => {
+                const stb = selTransformBox;
+                const rotRad = (stb.rotation * Math.PI) / 180;
+                const cosR = Math.cos(rotRad);
+                const sinR = Math.sin(rotRad);
+                const cx = stb.x + stb.w / 2;
+                const cy = stb.y + stb.h / 2;
+                const rotateToDoc = (lx: number, ly: number): DocumentPoint => ({
+                  x: cx + lx * cosR - ly * sinR,
+                  y: cy + lx * sinR + ly * cosR,
+                });
+                const corners: DocumentPoint[] = [
+                  rotateToDoc(-stb.w / 2, -stb.h / 2),
+                  rotateToDoc(stb.w / 2, -stb.h / 2),
+                  rotateToDoc(stb.w / 2, stb.h / 2),
+                  rotateToDoc(-stb.w / 2, stb.h / 2),
+                ];
+                const canvasCorners = corners.map((p) => documentPointToCanvas(p));
+                if (canvasCorners.some((p) => !p)) return null;
+                const pts = canvasCorners as { x: number; y: number }[];
+                const polygonPts = pts.map((p) => `${p.x},${p.y}`).join(" ");
+                const handlePositions: [string, DocumentPoint][] = [
+                  ["tl", rotateToDoc(-stb.w / 2, -stb.h / 2)],
+                  ["t",  rotateToDoc(0, -stb.h / 2)],
+                  ["tr", rotateToDoc(stb.w / 2, -stb.h / 2)],
+                  ["r",  rotateToDoc(stb.w / 2, 0)],
+                  ["br", rotateToDoc(stb.w / 2, stb.h / 2)],
+                  ["b",  rotateToDoc(0, stb.h / 2)],
+                  ["bl", rotateToDoc(-stb.w / 2, stb.h / 2)],
+                  ["l",  rotateToDoc(-stb.w / 2, 0)],
+                ];
+                return (
+                  <>
+                    <polygon
+                      points={polygonPts}
+                      fill="none"
+                      stroke="rgba(56, 189, 248, 0.9)"
+                      strokeDasharray="6 4"
+                      strokeWidth="1.5"
+                    />
+                    {handlePositions.map(([id, docP]) => {
+                      const cp = documentPointToCanvas(docP);
+                      if (!cp) return null;
+                      return (
+                        <rect
+                          key={id}
+                          x={cp.x - 4}
+                          y={cp.y - 4}
+                          width={8}
+                          height={8}
+                          fill="rgba(15,23,42,0.85)"
+                          stroke="rgba(56,189,248,0.9)"
+                          strokeWidth="1.5"
+                        />
+                      );
+                    })}
                   </>
                 );
               })()

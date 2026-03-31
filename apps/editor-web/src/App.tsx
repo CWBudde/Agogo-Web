@@ -9,6 +9,7 @@ import {
 } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
+import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import {
   BrushToolIcon,
@@ -68,7 +69,19 @@ type MenuActionId =
   | "transform-flip-v"
   | "transform-rotate-cw"
   | "transform-rotate-ccw"
-  | "transform-rotate-180";
+  | "transform-rotate-180"
+  | "select-all"
+  | "select-deselect"
+  | "select-reselect"
+  | "select-invert"
+  | "select-feather"
+  | "select-expand"
+  | "select-contract"
+  | "select-smooth"
+  | "select-border"
+  | "select-transform"
+  | "select-color-range"
+  | "select-and-mask";
 
 type MenuPreviewItem = {
   label: string;
@@ -206,22 +219,33 @@ const menuItems: MenuPreviewMenu[] = [
   },
   {
     label: "Select",
-    caption: "Selection workflows and edge refinement preview.",
+    caption: "Selection workflows and edge refinement.",
     sections: [
       {
         title: "Global",
         items: [
-          { label: "All", shortcut: "Ctrl+A" },
-          { label: "Deselect", shortcut: "Ctrl+D" },
-          { label: "Inverse", shortcut: "Shift+Ctrl+I" },
+          { label: "All",      shortcut: "Ctrl+A",       actionId: "select-all"      as const },
+          { label: "Deselect", shortcut: "Ctrl+D",       actionId: "select-deselect" as const },
+          { label: "Reselect", shortcut: "Ctrl+Shift+D", actionId: "select-reselect" as const },
+          { label: "Inverse",  shortcut: "Ctrl+Shift+I", actionId: "select-invert"   as const },
+        ],
+      },
+      {
+        title: "Modify",
+        items: [
+          { label: "Feather...",          actionId: "select-feather"      as const },
+          { label: "Expand...",           actionId: "select-expand"       as const },
+          { label: "Contract...",         actionId: "select-contract"     as const },
+          { label: "Smooth...",           actionId: "select-smooth"       as const },
+          { label: "Border...",           actionId: "select-border"       as const },
+          { label: "Transform Selection", actionId: "select-transform"    as const },
+          { label: "Color Range...",      actionId: "select-color-range"  as const },
         ],
       },
       {
         title: "Refine",
         items: [
-          { label: "Grow" },
-          { label: "Feather..." },
-          { label: "Select and Mask", tone: "muted" },
+          { label: "Select and Mask", actionId: "select-and-mask" as const },
         ],
       },
     ],
@@ -428,6 +452,18 @@ export default function App() {
   const [canvasSizeOpen, setCanvasSizeOpen] = useState(false);
   const [openRecentOpen, setOpenRecentOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [featherDialogOpen, setFeatherDialogOpen] = useState(false);
+  const [featherDialogValue, setFeatherDialogValue] = useState(5);
+  type ModifyKind = "expand" | "contract" | "smooth" | "border";
+  const [modifyDialog, setModifyDialog] = useState<{ open: boolean; kind: ModifyKind; value: number }>({ open: false, kind: "expand", value: 4 });
+  const openModifyDialog = (kind: ModifyKind) =>
+    setModifyDialog({ open: true, kind, value: kind === "smooth" ? 2 : 4 });
+  const [colorRangeOpen, setColorRangeOpen] = useState(false);
+  const [colorRangeColor, setColorRangeColor] = useState<[number, number, number, number]>([128, 128, 128, 255]);
+  const [colorRangeFuzziness, setColorRangeFuzziness] = useState(40);
+  const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
+  const [transformSelectionActive, setTransformSelectionActive] = useState(false);
+  const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [draft, setDraft] =
     useState<CreateDocumentCommand>(defaultDocumentDraft);
@@ -703,6 +739,19 @@ export default function App() {
       case "transform-rotate-ccw":
       case "transform-rotate-180":
         return !render?.uiMeta.activeLayerId;
+      case "select-all":
+      case "select-deselect":
+      case "select-reselect":
+      case "select-invert":
+      case "select-feather":
+      case "select-expand":
+      case "select-contract":
+      case "select-smooth":
+      case "select-border":
+      case "select-transform":
+      case "select-color-range":
+      case "select-and-mask":
+        return !render;
       default:
         return false;
     }
@@ -716,6 +765,50 @@ export default function App() {
       return true;
     }
     return isMenuActionDisabled(item.actionId);
+  };
+
+  const hexToRgba = (hex: string): [number, number, number, number] => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b, 255];
+  };
+
+  const rgbaToHex = ([r, g, b]: [number, number, number, number]) =>
+    `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+
+  const commitFeather = () => {
+    engine.dispatchCommand(CommandID.FeatherSelection, { radius: featherDialogValue });
+    setFeatherDialogOpen(false);
+  };
+
+  const commitModify = () => {
+    const { kind, value } = modifyDialog;
+    switch (kind) {
+      case "expand":
+        engine.dispatchCommand(CommandID.ExpandSelection, { pixels: value });
+        break;
+      case "contract":
+        engine.dispatchCommand(CommandID.ContractSelection, { pixels: value });
+        break;
+      case "smooth":
+        engine.dispatchCommand(CommandID.SmoothSelection, { radius: value });
+        break;
+      case "border":
+        engine.dispatchCommand(CommandID.BorderSelection, { width: value });
+        break;
+    }
+    setModifyDialog((d) => ({ ...d, open: false }));
+  };
+
+  const commitColorRange = () => {
+    engine.dispatchCommand(CommandID.SelectColorRange, {
+      targetColor: colorRangeColor,
+      fuzziness: colorRangeFuzziness,
+      sampleMerged: colorRangeSampleMerged,
+      mode: "replace",
+    });
+    setColorRangeOpen(false);
   };
 
   const handleMenuAction = (actionId: MenuActionId) => {
@@ -778,6 +871,42 @@ export default function App() {
         break;
       case "transform-rotate-180":
         engine.dispatchCommand(CommandID.RotateLayer180, {});
+        break;
+      case "select-all":
+        engine.selectAll();
+        break;
+      case "select-deselect":
+        engine.deselect();
+        break;
+      case "select-reselect":
+        engine.reselect();
+        break;
+      case "select-invert":
+        engine.invertSelection();
+        break;
+      case "select-feather":
+        setFeatherDialogOpen(true);
+        break;
+      case "select-expand":
+        openModifyDialog("expand");
+        break;
+      case "select-contract":
+        openModifyDialog("contract");
+        break;
+      case "select-smooth":
+        openModifyDialog("smooth");
+        break;
+      case "select-border":
+        openModifyDialog("border");
+        break;
+      case "select-transform":
+        setTransformSelectionActive(true);
+        break;
+      case "select-color-range":
+        setColorRangeOpen(true);
+        break;
+      case "select-and-mask":
+        setSelectAndMaskOpen(true);
         break;
       default:
         break;
@@ -1198,21 +1327,71 @@ export default function App() {
               });
             }}
           />
-          <span className="text-[11px] text-slate-300">
-            X: {Math.round(render.uiMeta.freeTransform.tx)}
-          </span>
-          <span className="text-[11px] text-slate-300">
-            Y: {Math.round(render.uiMeta.freeTransform.ty)}
-          </span>
-          <span className="text-[11px] text-slate-300">
-            W: {(render.uiMeta.freeTransform.scaleX * 100).toFixed(1)}%
-          </span>
-          <span className="text-[11px] text-slate-300">
-            H: {(render.uiMeta.freeTransform.scaleY * 100).toFixed(1)}%
-          </span>
-          <span className="text-[11px] text-slate-300">
-            R: {render.uiMeta.freeTransform.rotation.toFixed(1)}°
-          </span>
+          <ToolNumberField
+            label="X"
+            min={-99999}
+            max={99999}
+            step={1}
+            value={Math.round(render.uiMeta.freeTransform.tx)}
+            onChange={(value) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const updated = applyTransformFieldChange(ft, "x", value);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+            }}
+          />
+          <ToolNumberField
+            label="Y"
+            min={-99999}
+            max={99999}
+            step={1}
+            value={Math.round(render.uiMeta.freeTransform.ty)}
+            onChange={(value) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const updated = applyTransformFieldChange(ft, "y", value);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+            }}
+          />
+          <ToolNumberField
+            label="W%"
+            min={-99999}
+            max={99999}
+            step={1}
+            value={Math.round(render.uiMeta.freeTransform.scaleX * 100)}
+            onChange={(value) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const updated = applyTransformFieldChange(ft, "w", value);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+            }}
+          />
+          <ToolNumberField
+            label="H%"
+            min={-99999}
+            max={99999}
+            step={1}
+            value={Math.round(render.uiMeta.freeTransform.scaleY * 100)}
+            onChange={(value) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const updated = applyTransformFieldChange(ft, "h", value);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+            }}
+          />
+          <ToolNumberField
+            label="°"
+            min={-360}
+            max={360}
+            step={0.1}
+            value={Math.round(render.uiMeta.freeTransform.rotation * 10) / 10}
+            onChange={(value) => {
+              const ft = render.uiMeta.freeTransform;
+              if (!ft) return;
+              const updated = applyTransformFieldChange(ft, "r", value);
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+            }}
+          />
           <ToolOptionGroup label="Interp">
             {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
               <ToolChoiceButton
@@ -1627,6 +1806,12 @@ export default function App() {
                     eraserTolerance={eraserTolerance}
                     foregroundColor={foregroundColor}
                     cropDeletePixels={cropDeletePixels}
+                    transformSelectionActive={transformSelectionActive}
+                    onTransformSelectionCommit={(a, b, c, d, tx, ty) => {
+                      engine.dispatchCommand(CommandID.TransformSelection, { a, b, c, d, tx, ty });
+                      setTransformSelectionActive(false);
+                    }}
+                    onTransformSelectionCancel={() => setTransformSelectionActive(false)}
                   />
                 ) : (
                   <WelcomeScreen
@@ -2212,6 +2397,116 @@ export default function App() {
           </Button>
         </div>
       </Dialog>
+
+      <Dialog
+        open={featherDialogOpen}
+        title="Feather Selection"
+        description="Softens the selection edges by blurring."
+        className="max-w-xs"
+      >
+        <div className="space-y-3">
+          <Field label="Feather Radius (px)">
+            <input
+              type="number"
+              className={fieldClassName}
+              min={0}
+              max={250}
+              step={0.5}
+              value={featherDialogValue}
+              onChange={(e) => setFeatherDialogValue(Number(e.target.value))}
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setFeatherDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={commitFeather}>
+              OK
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={modifyDialog.open}
+        title={{ expand: "Expand Selection", contract: "Contract Selection", smooth: "Smooth Selection", border: "Border Selection" }[modifyDialog.kind]}
+        description={{ expand: "Grow the selection outward.", contract: "Shrink the selection inward.", smooth: "Smooth the selection edges.", border: "Create a border of the specified width." }[modifyDialog.kind]}
+        className="max-w-xs"
+      >
+        <div className="space-y-3">
+          <Field label={{ expand: "Expand By (px)", contract: "Contract By (px)", smooth: "Radius (px)", border: "Width (px)" }[modifyDialog.kind]}>
+            <input
+              type="number"
+              className={fieldClassName}
+              min={1}
+              max={500}
+              step={1}
+              value={modifyDialog.value}
+              onChange={(e) => setModifyDialog((d) => ({ ...d, value: Number(e.target.value) }))}
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setModifyDialog((d) => ({ ...d, open: false }))}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={commitModify}>
+              OK
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <SelectAndMaskWorkspace
+        open={selectAndMaskOpen}
+        onClose={() => setSelectAndMaskOpen(false)}
+        engine={engine}
+        activeLayerId={render?.uiMeta.activeLayerId ?? null}
+      />
+
+      <Dialog
+        open={colorRangeOpen}
+        title="Color Range"
+        description="Select pixels by color similarity."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <Field label="Sample Color">
+            <input
+              type="color"
+              className="h-8 w-full cursor-pointer rounded border border-white/10 bg-transparent"
+              value={rgbaToHex(colorRangeColor)}
+              onChange={(e) => setColorRangeColor(hexToRgba(e.target.value))}
+            />
+          </Field>
+          <Field label={`Fuzziness: ${colorRangeFuzziness}`}>
+            <input
+              type="range"
+              className="w-full accent-cyan-400"
+              min={0}
+              max={200}
+              step={1}
+              value={colorRangeFuzziness}
+              onChange={(e) => setColorRangeFuzziness(Number(e.target.value))}
+            />
+          </Field>
+          <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={colorRangeSampleMerged}
+              onChange={(e) => setColorRangeSampleMerged(e.target.checked)}
+            />
+            Sample all layers
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setColorRangeOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={commitColorRange}>
+              OK
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
@@ -2229,6 +2524,52 @@ type FreeTransformCorners = [
   [number, number],
   [number, number],
 ];
+
+/** Recompute affine transform after editing one display field in the options bar. */
+function applyTransformFieldChange(
+  ft: { a: number; b: number; c: number; d: number; tx: number; ty: number; scaleX: number; scaleY: number; rotation: number },
+  field: "x" | "y" | "w" | "h" | "r",
+  value: number,
+): { a: number; b: number; c: number; d: number; tx: number; ty: number } {
+  let { a, b, c, d, tx, ty, scaleX, scaleY, rotation } = ft;
+  switch (field) {
+    case "x":
+      tx = value;
+      break;
+    case "y":
+      ty = value;
+      break;
+    case "w": {
+      const newScaleX = value / 100;
+      const factor = scaleX !== 0 ? newScaleX / scaleX : 1;
+      a *= factor;
+      b *= factor;
+      break;
+    }
+    case "h": {
+      const newScaleY = value / 100;
+      const factor = scaleY !== 0 ? newScaleY / scaleY : 1;
+      c *= factor;
+      d *= factor;
+      break;
+    }
+    case "r": {
+      const deltaRad = ((value - rotation) * Math.PI) / 180;
+      const cos = Math.cos(deltaRad);
+      const sin = Math.sin(deltaRad);
+      const newA = a * cos - c * sin;
+      const newC = a * sin + c * cos;
+      const newB = b * cos - d * sin;
+      const newD = b * sin + d * cos;
+      a = newA;
+      b = newB;
+      c = newC;
+      d = newD;
+      break;
+    }
+  }
+  return { a, b, c, d, tx, ty };
+}
 
 /** Build a 4×4 warp control-point grid by bilinear interpolation of the transform corners. */
 function buildWarpGrid(
