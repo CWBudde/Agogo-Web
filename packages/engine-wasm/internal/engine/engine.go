@@ -27,6 +27,7 @@ const (
 	commandFitToView                = 0x0014
 	commandPointerEvent             = 0x0015
 	commandJumpHistory              = 0x0016
+	commandSetShowGuides            = 0x0017
 	commandAddLayer                 = 0x0100
 	commandDeleteLayer              = 0x0101
 	commandMoveLayer                = 0x0102
@@ -138,6 +139,7 @@ type ViewportState struct {
 	CanvasW          int     `json:"canvasW"`
 	CanvasH          int     `json:"canvasH"`
 	DevicePixelRatio float64 `json:"devicePixelRatio"`
+	ShowGuides       bool    `json:"showGuides"`
 }
 
 type DirtyRect struct {
@@ -302,6 +304,10 @@ type EndTransactionPayload struct {
 
 type JumpHistoryPayload struct {
 	HistoryIndex int `json:"historyIndex"`
+}
+
+type SetShowGuidesPayload struct {
+	Show bool `json:"show"`
 }
 
 // activePaintStroke holds per-stroke state while painting is in progress.
@@ -1794,6 +1800,12 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err := inst.history.JumpTo(inst, payload.HistoryIndex); err != nil {
 			return RenderResult{}, err
 		}
+	case commandSetShowGuides:
+		var payload SetShowGuidesPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		inst.viewport.ShowGuides = payload.Show
 	case commandClearHistory:
 		inst.history.Clear()
 	case commandFitToView:
@@ -2898,12 +2910,13 @@ func RenderViewport(doc *Document, vp *ViewportState, reuse []byte, documentSurf
 			Background: doc.Background.Kind,
 		},
 		&aggrender.Viewport{
-			CenterX:  vp.CenterX,
-			CenterY:  vp.CenterY,
-			Zoom:     clampZoom(vp.Zoom),
-			Rotation: vp.Rotation,
-			CanvasW:  vp.CanvasW,
-			CanvasH:  vp.CanvasH,
+			CenterX:    vp.CenterX,
+			CenterY:    vp.CenterY,
+			Zoom:       clampZoom(vp.Zoom),
+			Rotation:   vp.Rotation,
+			CanvasW:    vp.CanvasW,
+			CanvasH:    vp.CanvasH,
+			ShowGuides: vp.ShowGuides,
 		},
 		reuse,
 	)

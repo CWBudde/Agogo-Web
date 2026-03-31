@@ -14,12 +14,13 @@ type Document struct {
 }
 
 type Viewport struct {
-	CenterX  float64
-	CenterY  float64
-	Zoom     float64
-	Rotation float64
-	CanvasW  int
-	CanvasH  int
+	CenterX     float64
+	CenterY     float64
+	Zoom        float64
+	Rotation    float64
+	CanvasW     int
+	CanvasH     int
+	ShowGuides  bool
 }
 
 const checkerTile = 24
@@ -75,7 +76,9 @@ func RenderViewportOverlays(doc *Document, vp *Viewport, reuse []byte) []byte {
 	renderer.NoLine()
 	configureViewportTransform(renderer, width, height, vp)
 	renderDocumentBorder(renderer, doc, vp)
-	renderGuides(renderer, doc, vp)
+	if vp.ShowGuides {
+		renderGuides(renderer, doc, vp)
+	}
 
 	return reuse
 }

@@ -66,6 +66,7 @@ export interface EngineContextValue {
   clearHistory(): RenderResult | null;
   setRotation(rotation: number): RenderResult | null;
   fitToView(): RenderResult | null;
+  setShowGuides(show: boolean): RenderResult | null;
   exportProject(): string | null;
   importProject(projectJSON: string): RenderResult | null;
   undo(): RenderResult | null;

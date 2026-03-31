@@ -13,6 +13,7 @@ func (doc *Document) renderCompositeSurface() []byte {
 	return buffer
 }
 
+
 func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Document, vp *ViewportState, documentSurface []byte) {
 	if len(canvas) == 0 || canvasW <= 0 || canvasH <= 0 || doc == nil || len(documentSurface) == 0 {
 		return
@@ -25,6 +26,12 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 	halfCanvasW := float64(canvasW) * 0.5
 	halfCanvasH := float64(canvasH) * 0.5
 
+	// Use bilinear interpolation whenever zoom < 1 (downsampling) or the
+	// viewport is rotated. At zoom ≥ 1 with no rotation nearest-neighbour
+	// gives pixel-perfect display of individual document pixels, which is the
+	// correct behaviour for a raster editor at 100 %+.
+	useBilinear := zoom < 1.0 || vp.Rotation != 0
+
 	// Compute the canvas-space bounding box of the document rectangle and clamp
 	// to canvas bounds. At zoom < 1 this skips large areas of empty canvas; at
 	// zoom ≥ 1 the clip equals the full canvas (no extra cost).
@@ -36,27 +43,44 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 			deltaY := (float64(canvasY) + 0.5) - halfCanvasH
 			docX := (deltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
 			docY := (-deltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
-			sourceX := int(math.Floor(docX))
-			sourceY := int(math.Floor(docY))
-			if sourceX < 0 || sourceX >= doc.Width || sourceY < 0 || sourceY >= doc.Height {
-				continue
-			}
-			sourceIndex := (sourceY*doc.Width + sourceX) * 4
-			srcAlpha := documentSurface[sourceIndex+3]
-			if srcAlpha == 0 {
-				continue
-			}
+
 			destIndex := (canvasY*canvasW + canvasX) * 4
-			if srcAlpha == 255 {
-				// Fully opaque — normal blend over any destination is just a copy.
-				// Avoids float64 conversion and Porter-Duff math for the common case.
-				canvas[destIndex] = documentSurface[sourceIndex]
-				canvas[destIndex+1] = documentSurface[sourceIndex+1]
-				canvas[destIndex+2] = documentSurface[sourceIndex+2]
-				canvas[destIndex+3] = 255
-				continue
+
+			if useBilinear {
+				// sampleBilinear uses pixel-edge coordinates (lx=0.5 → centre of
+				// pixel 0), which matches docX directly.
+				pixel := sampleBilinear(documentSurface, doc.Width, doc.Height, docX, docY)
+				if pixel[3] == 0 {
+					continue
+				}
+				if pixel[3] == 255 {
+					canvas[destIndex] = pixel[0]
+					canvas[destIndex+1] = pixel[1]
+					canvas[destIndex+2] = pixel[2]
+					canvas[destIndex+3] = 255
+				} else {
+					compositePixelWithBlend(canvas[destIndex:destIndex+4], pixel[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+				}
+			} else {
+				sourceX := int(math.Floor(docX))
+				sourceY := int(math.Floor(docY))
+				if sourceX < 0 || sourceX >= doc.Width || sourceY < 0 || sourceY >= doc.Height {
+					continue
+				}
+				sourceIndex := (sourceY*doc.Width + sourceX) * 4
+				srcAlpha := documentSurface[sourceIndex+3]
+				if srcAlpha == 0 {
+					continue
+				}
+				if srcAlpha == 255 {
+					canvas[destIndex] = documentSurface[sourceIndex]
+					canvas[destIndex+1] = documentSurface[sourceIndex+1]
+					canvas[destIndex+2] = documentSurface[sourceIndex+2]
+					canvas[destIndex+3] = 255
+				} else {
+					compositePixelWithBlend(canvas[destIndex:destIndex+4], documentSurface[sourceIndex:sourceIndex+4], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+				}
 			}
-			compositePixelWithBlend(canvas[destIndex:destIndex+4], documentSurface[sourceIndex:sourceIndex+4], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
 		}
 	}
 }

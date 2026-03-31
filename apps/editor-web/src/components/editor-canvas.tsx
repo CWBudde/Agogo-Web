@@ -695,28 +695,50 @@ export function EditorCanvas({
     }
   }, [render]);
 
+  // Free the pixel buffer from command-dispatched render results. Blitting is
+  // handled by the rAF loop below so we only need to release the memory here.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !engine.handle || !render || render.bufferLen === 0) {
-      return;
+    if (render && render.bufferPtr !== 0 && engine.handle) {
+      engine.handle.free(render.bufferPtr);
     }
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    const bytes = engine.handle.readPixels(render);
-    const pixelCopy = new Uint8ClampedArray(bytes.length);
-    pixelCopy.set(bytes);
-    const imageData = new ImageData(
-      pixelCopy,
-      render.viewport.canvasW,
-      render.viewport.canvasH,
-    );
-    context.putImageData(imageData, 0, 0);
-    engine.handle.free(render.bufferPtr);
   }, [engine.handle, render]);
+
+  // Continuous render loop — calls renderFrame() on every animation frame so
+  // animated overlays like marching ants keep playing even without user input.
+  useEffect(() => {
+    if (!engine.handle) {
+      return;
+    }
+    let rafId: number;
+    const loop = () => {
+      const canvas = canvasRef.current;
+      const handle = engine.handle;
+      if (canvas && handle) {
+        const result = handle.renderFrame();
+        if (result.bufferLen > 0) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            const bytes = handle.readPixels(result);
+            const pixelCopy = new Uint8ClampedArray(bytes.length);
+            pixelCopy.set(bytes);
+            ctx.putImageData(
+              new ImageData(
+                pixelCopy,
+                result.viewport.canvasW,
+                result.viewport.canvasH,
+              ),
+              0,
+              0,
+            );
+          }
+          handle.free(result.bufferPtr);
+        }
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [engine.handle]);
 
   const canvasPointFromClient = (clientX: number, clientY: number) => {
     const host = hostRef.current;
@@ -1288,7 +1310,7 @@ export function EditorCanvas({
                   engine.createSelection({
                     shape: "polygon",
                     mode: magneticLassoDraft.mode,
-                    polygon: allPoints,
+                    polygon: allPoints.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
                     antiAlias: selectionOptions.antiAlias,
                   });
                 });
@@ -2186,7 +2208,7 @@ export function EditorCanvas({
               engine.createSelection({
                 shape: "polygon",
                 mode: freehandDraft.mode,
-                polygon: points,
+                polygon: points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
                 antiAlias: selectionOptions.antiAlias,
               });
             });

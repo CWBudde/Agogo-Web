@@ -195,6 +195,9 @@ export function EngineProvider({ children }: PropsWithChildren) {
       fitToView() {
         return run(CommandID.FitToView);
       },
+      setShowGuides(show: boolean) {
+        return run(CommandID.SetShowGuides, { show });
+      },
       exportProject() {
         return handleRef.current?.exportProject() ?? null;
       },

@@ -11,6 +11,7 @@ export enum CommandID {
   FitToView = 0x0014,
   PointerEvent = 0x0015,
   JumpHistory = 0x0016,
+  SetShowGuides = 0x0017,
 
   // Phase 2: Layers
   AddLayer = 0x0100,
