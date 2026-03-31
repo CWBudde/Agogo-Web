@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+// initWithDefaultDoc creates an engine instance with a pre-existing 1920×1080 document.
+// Use this in tests that require an active document to be present from the start.
+func initWithDefaultDoc(t *testing.T) int32 {
+	t.Helper()
+	h := Init(`{"documentWidth":1920,"documentHeight":1080,"background":"transparent","resolution":72}`)
+	if h <= 0 {
+		t.Fatalf("initWithDefaultDoc: invalid handle %d", h)
+	}
+	return h
+}
+
 func TestInitFree(t *testing.T) {
 	h := Init("")
 	if h <= 0 {
@@ -20,7 +31,7 @@ func TestInitFree(t *testing.T) {
 }
 
 func TestRenderFrameIncludesViewportBuffer(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	result, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{
@@ -219,7 +230,7 @@ func TestRenderCompositeSurfaceAppliesRasterMask(t *testing.T) {
 }
 
 func TestLayerMaskCommandsUpdateMetadataAndUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -283,7 +294,7 @@ func TestLayerMaskCommandsUpdateMetadataAndUndo(t *testing.T) {
 }
 
 func TestLayerClipCommandUpdatesMetadataAndUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	base, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -400,7 +411,7 @@ func TestInvalidHandleFails(t *testing.T) {
 }
 
 func TestPointerEventPanUpdatesViewportCenter(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if _, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{
@@ -881,7 +892,7 @@ func TestDispatchCommandRejectsInvalidPayloadAndUnsupportedCommand(t *testing.T)
 }
 
 func TestGetBufferPtrAndFreePointerBehavior(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if got := GetBufferPtr(h); got != 0 {
@@ -944,7 +955,7 @@ func TestDispatchCommandTransactionDefaultsToCommitWhenPayloadEmpty(t *testing.T
 }
 
 func TestDispatchCommandFitToViewCentersAndScalesDocument(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if _, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{CanvasW: 500, CanvasH: 250})); err != nil {
@@ -1036,7 +1047,7 @@ func TestDispatchCommandOpenImageFileAndSetActiveLayerWithoutHistoryEntry(t *tes
 }
 
 func TestCropDocument(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	// 1. Begin Crop
@@ -1086,7 +1097,7 @@ func TestCropDocument(t *testing.T) {
 }
 
 func TestCanvasSize(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	// Add a pixel layer so we can verify it shifts after canvas resize.
@@ -1260,7 +1271,7 @@ func TestCloseDocumentActivatesPreviousDocumentAndUndoRestoresClosedDocument(t *
 }
 
 func TestCloseLastDocumentReturnsNoActiveDocumentState(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	closed, err := DispatchCommand(h, commandCloseDocument, "")
@@ -1293,7 +1304,7 @@ func TestCloseLastDocumentReturnsNoActiveDocumentState(t *testing.T) {
 }
 
 func TestVectorMaskAddDeleteUndoable(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -1337,7 +1348,7 @@ func TestVectorMaskAddDeleteUndoable(t *testing.T) {
 }
 
 func TestMaskEditModeNotTrackedInHistory(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -1392,7 +1403,7 @@ func TestMaskEditModeNotTrackedInHistory(t *testing.T) {
 }
 
 func TestVectorMaskRendersWithoutError(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	_, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}))

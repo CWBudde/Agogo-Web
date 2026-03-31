@@ -8,7 +8,7 @@ import (
 )
 
 func TestDocumentLayerOperationsAndUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	addPixel, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -111,7 +111,7 @@ func TestDocumentLayerOperationsAndUndo(t *testing.T) {
 }
 
 func TestSetActiveLayerAndImplicitEmptyPixels(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	base, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -156,7 +156,7 @@ func TestSetActiveLayerAndImplicitEmptyPixels(t *testing.T) {
 }
 
 func TestRenameLayerSupportsUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -210,7 +210,7 @@ func TestRenameLayerSupportsUndo(t *testing.T) {
 }
 
 func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	text, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -303,7 +303,7 @@ func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
 }
 
 func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	bottom, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -370,7 +370,7 @@ func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
 }
 
 func TestDeleteLayerCommandSelectsNextSiblingAndSupportsUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	first, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -505,7 +505,7 @@ func TestDeleteLayerReturnsErrorForUnknownLayer(t *testing.T) {
 }
 
 func TestSetLayerLockCommandUpdatesMetadataAndSupportsUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -979,7 +979,7 @@ func TestClippingBaseSurfaceForLayerAndClipHelpers(t *testing.T) {
 }
 
 func TestFlattenImageCommandDiscardsHiddenLayersAndSupportsUndo(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
@@ -1156,7 +1156,7 @@ func TestGenerateAllThumbnailsIncludesMixedLayerTypesAndMasks(t *testing.T) {
 }
 
 func TestGetLayerThumbnailsCommandReturnsEntriesWithoutHistoryMutation(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
