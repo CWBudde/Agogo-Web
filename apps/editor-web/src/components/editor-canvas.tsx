@@ -51,6 +51,7 @@ type EditorCanvasProps = {
   brushHardness: number;
   brushFlow: number;
   foregroundColor: [number, number, number, number];
+  cropDeletePixels: boolean;
 };
 
 type ZoomDragState = {
@@ -193,7 +194,7 @@ type TransformDraft = {
 
 type CropDragKind =
   | "move"
-  | "draw-new"
+  | "rotate"
   | "scale-tl"
   | "scale-tr"
   | "scale-br"
@@ -208,6 +209,10 @@ type CropDraft = {
   kind: CropDragKind;
   startDoc: DocumentPoint;
   startBox: { x: number; y: number; w: number; h: number };
+  startRotation: number;      // crop rotation (degrees) when drag started
+  startAngle: number;         // atan2 angle from crop center to startDoc (radians)
+  cropCenterX: number;        // crop center X in doc space at drag start
+  cropCenterY: number;        // crop center Y in doc space at drag start
 };
 
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
@@ -448,20 +453,32 @@ function oppositeCorner(
 }
 
 function cropHitTest(
-  crop: { x: number; y: number; w: number; h: number },
+  crop: { x: number; y: number; w: number; h: number; rotation: number },
   docToCanvas: (d: DocumentPoint) => { x: number; y: number } | null,
   canvasX: number,
   canvasY: number,
 ): CropDragKind | null {
+  const rotRad = (crop.rotation * Math.PI) / 180;
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+  const cx = crop.x + crop.w / 2;
+  const cy = crop.y + crop.h / 2;
+
+  // Rotate a crop-local offset (lx, ly) to doc space
+  const rotateToDoc = (lx: number, ly: number): [number, number] => [
+    cx + lx * cosR - ly * sinR,
+    cy + lx * sinR + ly * cosR,
+  ];
+
   const handles: [CropDragKind, [number, number]][] = [
-    ["scale-tl", [crop.x, crop.y]],
-    ["scale-t", [crop.x + crop.w * 0.5, crop.y]],
-    ["scale-tr", [crop.x + crop.w, crop.y]],
-    ["scale-r", [crop.x + crop.w, crop.y + crop.h * 0.5]],
-    ["scale-br", [crop.x + crop.w, crop.y + crop.h]],
-    ["scale-b", [crop.x + crop.w * 0.5, crop.y + crop.h]],
-    ["scale-bl", [crop.x, crop.y + crop.h]],
-    ["scale-l", [crop.x, crop.y + crop.h * 0.5]],
+    ["scale-tl", rotateToDoc(-crop.w / 2, -crop.h / 2)],
+    ["scale-t",  rotateToDoc(0, -crop.h / 2)],
+    ["scale-tr", rotateToDoc(crop.w / 2, -crop.h / 2)],
+    ["scale-r",  rotateToDoc(crop.w / 2, 0)],
+    ["scale-br", rotateToDoc(crop.w / 2, crop.h / 2)],
+    ["scale-b",  rotateToDoc(0, crop.h / 2)],
+    ["scale-bl", rotateToDoc(-crop.w / 2, crop.h / 2)],
+    ["scale-l",  rotateToDoc(-crop.w / 2, 0)],
   ];
 
   for (const [kind, docPos] of handles) {
@@ -475,10 +492,14 @@ function cropHitTest(
   }
 
   // Inside crop box → move.
-  const tl = docToCanvas({ x: crop.x, y: crop.y });
-  const tr = docToCanvas({ x: crop.x + crop.w, y: crop.y });
-  const br = docToCanvas({ x: crop.x + crop.w, y: crop.y + crop.h });
-  const bl = docToCanvas({ x: crop.x, y: crop.y + crop.h });
+  const tlDoc = rotateToDoc(-crop.w / 2, -crop.h / 2);
+  const trDoc = rotateToDoc(crop.w / 2, -crop.h / 2);
+  const brDoc = rotateToDoc(crop.w / 2, crop.h / 2);
+  const blDoc = rotateToDoc(-crop.w / 2, crop.h / 2);
+  const tl = docToCanvas({ x: tlDoc[0], y: tlDoc[1] });
+  const tr = docToCanvas({ x: trDoc[0], y: trDoc[1] });
+  const br = docToCanvas({ x: brDoc[0], y: brDoc[1] });
+  const bl = docToCanvas({ x: blDoc[0], y: blDoc[1] });
   if (tl && tr && br && bl) {
     if (pointInQuad([tl, tr, br, bl], canvasX, canvasY)) {
       return "move";
@@ -521,6 +542,7 @@ export function EditorCanvas({
   brushHardness,
   brushFlow,
   foregroundColor,
+  cropDeletePixels,
 }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -1352,14 +1374,24 @@ export function EditorCanvas({
                   kind,
                   startDoc: { x: docPoint.x, y: docPoint.y },
                   startBox: { x: crop.x, y: crop.y, w: crop.w, h: crop.h },
+                  startRotation: crop.rotation ?? 0,
+                  startAngle: 0,
+                  cropCenterX: crop.x + crop.w / 2,
+                  cropCenterY: crop.y + crop.h / 2,
                 });
               } else {
-                // Click outside crop box — start drawing a new crop region.
+                // Click outside crop box — start rotation drag.
+                const cropCX = crop.x + crop.w / 2;
+                const cropCY = crop.y + crop.h / 2;
                 setCropDraft({
                   pointerId: event.pointerId,
-                  kind: "draw-new",
+                  kind: "rotate",
                   startDoc: { x: docPoint.x, y: docPoint.y },
-                  startBox: { x: docPoint.x, y: docPoint.y, w: 0, h: 0 },
+                  startBox: { x: crop.x, y: crop.y, w: crop.w, h: crop.h },
+                  startRotation: crop.rotation ?? 0,
+                  startAngle: Math.atan2(docPoint.y - cropCY, docPoint.x - cropCX),
+                  cropCenterX: cropCX,
+                  cropCenterY: cropCY,
                 });
               }
               event.currentTarget.setPointerCapture(event.pointerId);
@@ -1731,15 +1763,26 @@ export function EditorCanvas({
           let newH = cd.startBox.h;
 
           switch (cd.kind) {
+            case "rotate": {
+              const currentAngle = Math.atan2(
+                docPoint.y - cd.cropCenterY,
+                docPoint.x - cd.cropCenterX,
+              );
+              const angleDeltaDeg = ((currentAngle - cd.startAngle) * 180) / Math.PI;
+              const newRotation = cd.startRotation + angleDeltaDeg;
+              engine.dispatchCommand(CommandID.UpdateCrop, {
+                x: newX,
+                y: newY,
+                w: newW,
+                h: newH,
+                rotation: newRotation,
+                deletePixels: cropDeletePixels,
+              });
+              return;
+            }
             case "move":
               newX += dx;
               newY += dy;
-              break;
-            case "draw-new":
-              newX = Math.min(cd.startDoc.x, docPoint.x);
-              newY = Math.min(cd.startDoc.y, docPoint.y);
-              newW = Math.abs(docPoint.x - cd.startDoc.x);
-              newH = Math.abs(docPoint.y - cd.startDoc.y);
               break;
             case "scale-tl":
               newX += dx;
@@ -1777,6 +1820,30 @@ export function EditorCanvas({
               break;
           }
 
+          // Shift-key aspect ratio constraint (corner handles only)
+          const isCorner = cd.kind === "scale-tl" || cd.kind === "scale-tr" ||
+                           cd.kind === "scale-br" || cd.kind === "scale-bl";
+          if (event.shiftKey && isCorner && cd.startBox.w > 0 && cd.startBox.h > 0) {
+            const ratio = cd.startBox.w / cd.startBox.h;
+            const dWprop = Math.abs(newW - cd.startBox.w) / cd.startBox.w;
+            const dHprop = Math.abs(newH - cd.startBox.h) / cd.startBox.h;
+            if (dWprop >= dHprop) {
+              // Width dominates — derive height from width
+              const corrH = newW / ratio;
+              if (cd.kind === "scale-tl" || cd.kind === "scale-tr") {
+                newY = cd.startBox.y + cd.startBox.h - corrH;
+              }
+              newH = corrH;
+            } else {
+              // Height dominates — derive width from height
+              const corrW = newH * ratio;
+              if (cd.kind === "scale-tl" || cd.kind === "scale-bl") {
+                newX = cd.startBox.x + cd.startBox.w - corrW;
+              }
+              newW = corrW;
+            }
+          }
+
           // Ensure positive dimensions
           if (newW < 1) {
             if (cd.kind.includes("l")) {
@@ -1796,6 +1863,8 @@ export function EditorCanvas({
             y: newY,
             w: newW,
             h: newH,
+            rotation: cd.startRotation,
+            deletePixels: cropDeletePixels,
           });
           return;
         }

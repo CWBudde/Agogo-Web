@@ -2183,11 +2183,13 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, fmt.Errorf("no active document")
 		}
 		inst.crop = &CropState{
-			Active: true,
-			X:      0,
-			Y:      0,
-			W:      float64(doc.Width),
-			H:      float64(doc.Height),
+			Active:       true,
+			X:            0,
+			Y:            0,
+			W:            float64(doc.Width),
+			H:            float64(doc.Height),
+			Rotation:     0,
+			DeletePixels: false,
 		}
 
 	case commandUpdateCrop:
@@ -2202,13 +2204,20 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		inst.crop.Y = payload.Y
 		inst.crop.W = payload.W
 		inst.crop.H = payload.H
+		inst.crop.Rotation = payload.Rotation
+		inst.crop.DeletePixels = payload.DeletePixels
 
 	case commandCommitCrop:
 		if inst.crop == nil || !inst.crop.Active {
 			return RenderResult{}, fmt.Errorf("no active crop tool")
 		}
-		// Capture parameters before wiping crop state
-		x, y, w, h := int(inst.crop.X), int(inst.crop.Y), int(inst.crop.W), int(inst.crop.H)
+		// Capture state before clearing
+		cropX := inst.crop.X
+		cropY := inst.crop.Y
+		cropW := inst.crop.W
+		cropH := inst.crop.H
+		cropRot := inst.crop.Rotation
+		deletePixels := inst.crop.DeletePixels
 		command := &snapshotCommand{
 			description: "Crop Document",
 			applyFn: func(inst *instance) (snapshot, error) {
@@ -2216,17 +2225,40 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 				if doc == nil {
 					return snapshot{}, fmt.Errorf("no active document")
 				}
+				w := int(math.Round(cropW))
+				h := int(math.Round(cropH))
 				if w <= 0 || h <= 0 {
 					return snapshot{}, fmt.Errorf("invalid crop dimensions: %dx%d", w, h)
 				}
 
-				// Shift all pixel layers by -x, -y
-				walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-					if pl, ok := n.(*PixelLayer); ok {
-						pl.Bounds.X -= x
-						pl.Bounds.Y -= y
-					}
-				})
+				rotRad := cropRot * math.Pi / 180
+				cx := cropX + cropW/2
+				cy := cropY + cropH/2
+
+				if cropRot != 0 {
+					// Rotated crop: resample each pixel layer
+					walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+						if pl, ok := n.(*PixelLayer); ok {
+							newPixels, newBounds := applyRotatedCropToPixelLayer(pl, cx, cy, cropW, cropH, rotRad)
+							pl.Pixels = newPixels
+							pl.Bounds = newBounds
+						}
+					})
+				} else {
+					// Axis-aligned crop: shift layer origins, optionally trim pixels
+					x := int(math.Round(cropX))
+					y := int(math.Round(cropY))
+					walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+						if pl, ok := n.(*PixelLayer); ok {
+							pl.Bounds.X -= x
+							pl.Bounds.Y -= y
+							if deletePixels {
+								trimPixelLayerToBounds(pl, w, h)
+							}
+						}
+					})
+				}
+
 				doc.Width = w
 				doc.Height = h
 				doc.ContentVersion++

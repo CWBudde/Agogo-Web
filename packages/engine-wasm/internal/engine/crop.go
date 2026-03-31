@@ -7,21 +7,25 @@ import (
 
 // CropState holds the live state while the crop tool is active.
 type CropState struct {
-	Active bool
-	X      float64
-	Y      float64
-	W      float64
-	H      float64
+	Active       bool
+	X            float64
+	Y            float64
+	W            float64
+	H            float64
+	Rotation     float64 // degrees, 0 = no rotation
+	DeletePixels bool
 }
 
 // CropMeta is serialized into UIMeta so the frontend can render
 // the crop overlay and handles.
 type CropMeta struct {
-	Active bool    `json:"active"`
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	W      float64 `json:"w"`
-	H      float64 `json:"h"`
+	Active       bool    `json:"active"`
+	X            float64 `json:"x"`
+	Y            float64 `json:"y"`
+	W            float64 `json:"w"`
+	H            float64 `json:"h"`
+	Rotation     float64 `json:"rotation"`
+	DeletePixels bool    `json:"deletePixels"`
 }
 
 // meta builds the UIMeta representation of the current state.
@@ -30,20 +34,24 @@ func (s *CropState) meta() *CropMeta {
 		return nil
 	}
 	return &CropMeta{
-		Active: true,
-		X:      s.X,
-		Y:      s.Y,
-		W:      s.W,
-		H:      s.H,
+		Active:       true,
+		X:            s.X,
+		Y:            s.Y,
+		W:            s.W,
+		H:            s.H,
+		Rotation:     s.Rotation,
+		DeletePixels: s.DeletePixels,
 	}
 }
 
 // UpdateCropPayload defines the parameters for updating the crop box.
 type UpdateCropPayload struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
-	W float64 `json:"w"`
-	H float64 `json:"h"`
+	X            float64 `json:"x"`
+	Y            float64 `json:"y"`
+	W            float64 `json:"w"`
+	H            float64 `json:"h"`
+	Rotation     float64 `json:"rotation"`
+	DeletePixels bool    `json:"deletePixels"`
 }
 
 // ResizeCanvasPayload defines the parameters for the Canvas Size command.
@@ -160,11 +168,36 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 		return rx*invZoom + vp.CenterX, ry*invZoom + vp.CenterY
 	}
 
+	// Crop rotation support: precompute crop-space transform
+	cropRad := state.Rotation * (math.Pi / 180)
+	cropCosR := math.Cos(cropRad)
+	cropSinR := math.Sin(cropRad)
+	cropCX := state.X + state.W/2
+	cropCY := state.Y + state.H/2
+	halfW := state.W / 2
+	halfH := state.H / 2
+
+	// isInsideCrop returns true if a doc-space point is inside the (possibly rotated) crop box.
+	isInsideCrop := func(docX, docY float64) bool {
+		// Translate to crop-center-relative
+		tx := docX - cropCX
+		ty := docY - cropCY
+		// Apply inverse rotation (rotate by -cropRad)
+		localX := tx*cropCosR + ty*cropSinR
+		localY := -tx*cropSinR + ty*cropCosR
+		return localX >= -halfW && localX <= halfW && localY >= -halfH && localY <= halfH
+	}
+
+	// cropLocalToDoc converts a crop-local offset (relative to crop center) to doc space.
+	cropLocalToDoc := func(lx, ly float64) (float64, float64) {
+		return cropCX + lx*cropCosR - ly*cropSinR, cropCY + lx*cropSinR + ly*cropCosR
+	}
+
 	const darkenFactor = 0.5
-	for cy := 0; cy < canvasH; cy++ {
-		for cx := 0; cx < canvasW; cx++ {
+	for cy := range canvasH {
+		for cx := range canvasW {
 			dx, dy := canvasToDoc(cx, cy)
-			if dx < state.X || dx > state.X+state.W || dy < state.Y || dy > state.Y+state.H {
+			if !isInsideCrop(dx, dy) {
 				i := (cy*canvasW + cx) * 4
 				reuse[i] = byte(float64(reuse[i]) * darkenFactor)
 				reuse[i+1] = byte(float64(reuse[i+1]) * darkenFactor)
@@ -173,11 +206,15 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 		}
 	}
 
-	// 2. Draw crop box and grid
-	x0, y0 := docToCanvas(state.X, state.Y)
-	x1, y1 := docToCanvas(state.X+state.W, state.Y)
-	x2, y2 := docToCanvas(state.X+state.W, state.Y+state.H)
-	x3, y3 := docToCanvas(state.X, state.Y+state.H)
+	// 2. Draw crop box and grid — corners are rotated around the crop center.
+	c0dx, c0dy := cropLocalToDoc(-halfW, -halfH) // TL
+	c1dx, c1dy := cropLocalToDoc(halfW, -halfH)  // TR
+	c2dx, c2dy := cropLocalToDoc(halfW, halfH)   // BR
+	c3dx, c3dy := cropLocalToDoc(-halfW, halfH)  // BL
+	x0, y0 := docToCanvas(c0dx, c0dy)
+	x1, y1 := docToCanvas(c1dx, c1dy)
+	x2, y2 := docToCanvas(c2dx, c2dy)
+	x3, y3 := docToCanvas(c3dx, c3dy)
 
 	boxColor := overlayColor{255, 255, 255, 200}
 	drawLine := func(ax, ay, bx, by int, col overlayColor) {
@@ -203,11 +240,19 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 	gridColor := overlayColor{255, 255, 255, 100}
 	for i := 1; i < 3; i++ {
 		t := float64(i) / 3.0
-		ax, ay := docToCanvas(state.X+state.W*t, state.Y)
-		bx, by := docToCanvas(state.X+state.W*t, state.Y+state.H)
+		// Vertical grid line at local x = -halfW + W*t, from top to bottom edge
+		lx := -halfW + state.W*t
+		gADx, gADy := cropLocalToDoc(lx, -halfH)
+		gBDx, gBDy := cropLocalToDoc(lx, halfH)
+		ax, ay := docToCanvas(gADx, gADy)
+		bx, by := docToCanvas(gBDx, gBDy)
 		drawLine(ax, ay, bx, by, gridColor)
-		cx, cy := docToCanvas(state.X, state.Y+state.H*t)
-		dx, dy := docToCanvas(state.X+state.W, state.Y+state.H*t)
+		// Horizontal grid line at local y = -halfH + H*t, from left to right edge
+		ly := -halfH + state.H*t
+		gCDx, gCDy := cropLocalToDoc(-halfW, ly)
+		gDDx, gDDy := cropLocalToDoc(halfW, ly)
+		cx, cy := docToCanvas(gCDx, gCDy)
+		dx, dy := docToCanvas(gDDx, gDDy)
 		drawLine(cx, cy, dx, dy, gridColor)
 	}
 
@@ -230,14 +275,71 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 	drawHandle(x2, y2)
 	drawHandle(x3, y3)
 
-	mx0, my0 := docToCanvas(state.X+state.W*0.5, state.Y)
-	mx1, my1 := docToCanvas(state.X+state.W, state.Y+state.H*0.5)
-	mx2, my2 := docToCanvas(state.X+state.W*0.5, state.Y+state.H)
-	mx3, my3 := docToCanvas(state.X, state.Y+state.H*0.5)
+	m0dx, m0dy := cropLocalToDoc(0, -halfH)    // top edge mid
+	m1dx, m1dy := cropLocalToDoc(halfW, 0)     // right edge mid
+	m2dx, m2dy := cropLocalToDoc(0, halfH)     // bottom edge mid
+	m3dx, m3dy := cropLocalToDoc(-halfW, 0)    // left edge mid
+	mx0, my0 := docToCanvas(m0dx, m0dy)
+	mx1, my1 := docToCanvas(m1dx, m1dy)
+	mx2, my2 := docToCanvas(m2dx, m2dy)
+	mx3, my3 := docToCanvas(m3dx, m3dy)
 	drawHandle(mx0, my0)
 	drawHandle(mx1, my1)
 	drawHandle(mx2, my2)
 	drawHandle(mx3, my3)
 
 	return reuse
+}
+
+// applyRotatedCropToPixelLayer resamples a pixel layer's pixels for a rotated
+// crop commit. For each output pixel at (ox, oy) in the new W×H document, it
+// computes the source position in the original layer via inverse rotation around
+// the crop center, then samples bilinearly.
+func applyRotatedCropToPixelLayer(pl *PixelLayer, cx, cy, w, h, rotRad float64) (newPixels []byte, newBounds LayerBounds) {
+	outW := int(math.Round(w))
+	outH := int(math.Round(h))
+	newPixels = make([]byte, outW*outH*4)
+	cosR := math.Cos(rotRad)
+	sinR := math.Sin(rotRad)
+
+	for oy := range outH {
+		for ox := range outW {
+			// Crop-local position (relative to crop center in output space)
+			lx := float64(ox) + 0.5 - w/2
+			ly := float64(oy) + 0.5 - h/2
+			// Inverse-rotate to original doc space (rotate by rotRad)
+			srcX := cx + lx*cosR - ly*sinR
+			srcY := cy + lx*sinR + ly*cosR
+			// Transform to layer-local space
+			layerX := srcX - float64(pl.Bounds.X)
+			layerY := srcY - float64(pl.Bounds.Y)
+			// sampleBilinear uses pixel-center convention (lx+0.5, ly+0.5)
+			pix := sampleBilinear(pl.Pixels, pl.Bounds.W, pl.Bounds.H, layerX+0.5, layerY+0.5)
+			i := (oy*outW + ox) * 4
+			newPixels[i] = pix[0]
+			newPixels[i+1] = pix[1]
+			newPixels[i+2] = pix[2]
+			newPixels[i+3] = pix[3]
+		}
+	}
+	return newPixels, LayerBounds{X: 0, Y: 0, W: outW, H: outH}
+}
+
+// trimPixelLayerToBounds zeros out pixel data outside the given document bounds.
+// The layer's Bounds are already shifted (post-crop origin shift). Pixels outside
+// [0, docW) x [0, docH) in doc space are cleared.
+func trimPixelLayerToBounds(pl *PixelLayer, docW, docH int) {
+	for ly := range pl.Bounds.H {
+		for lx := range pl.Bounds.W {
+			dx := pl.Bounds.X + lx
+			dy := pl.Bounds.Y + ly
+			if dx < 0 || dx >= docW || dy < 0 || dy >= docH {
+				i := (ly*pl.Bounds.W + lx) * 4
+				pl.Pixels[i] = 0
+				pl.Pixels[i+1] = 0
+				pl.Pixels[i+2] = 0
+				pl.Pixels[i+3] = 0
+			}
+		}
+	}
 }
