@@ -20,6 +20,7 @@ type EditorCanvasProps = {
     | "lasso"
     | "wand"
     | "brush"
+    | "pencil"
     | "eraser"
     | "type"
     | "shape"
@@ -50,6 +51,7 @@ type EditorCanvasProps = {
   brushSize: number;
   brushHardness: number;
   brushFlow: number;
+  pencilAutoErase: boolean;
   foregroundColor: [number, number, number, number];
   cropDeletePixels: boolean;
 };
@@ -541,6 +543,7 @@ export function EditorCanvas({
   brushSize,
   brushHardness,
   brushFlow,
+  pencilAutoErase,
   foregroundColor,
   cropDeletePixels,
 }: EditorCanvasProps) {
@@ -1400,7 +1403,7 @@ export function EditorCanvas({
             }
           }
         }
-        if (activeTool === "brush" && event.button === 0 && !isPanMode) {
+        if ((activeTool === "brush" || activeTool === "pencil") && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
@@ -1411,9 +1414,10 @@ export function EditorCanvas({
             pressure: event.pressure || 0.5,
             brush: {
               size: brushSize,
-              hardness: brushHardness,
+              hardness: activeTool === "pencil" ? 1.0 : brushHardness,
               flow: brushFlow,
               color: foregroundColor,
+              autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
             },
           } satisfies BeginPaintStrokeCommand);
           return;
@@ -1931,7 +1935,7 @@ export function EditorCanvas({
           });
           return;
         }
-        if (activeTool === "brush" && brushActiveRef.current) {
+        if ((activeTool === "brush" || activeTool === "pencil") && brushActiveRef.current) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
@@ -1980,7 +1984,7 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
-        if (activeTool === "brush" && brushActiveRef.current) {
+        if ((activeTool === "brush" || activeTool === "pencil") && brushActiveRef.current) {
           brushActiveRef.current = false;
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;

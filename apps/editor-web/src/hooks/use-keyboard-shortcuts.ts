@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
-export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop";
+export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "pencil" | "eraser";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
@@ -20,6 +20,8 @@ type KeyboardActions = {
   onToolSelect(tool: ShortcutTool): void;
   onBeginTransform(): void;
   onNudgeLayer(dx: number, dy: number): void;
+  onBrushSizeChange(delta: number): void;
+  onBrushHardnessChange(delta: number): void;
 };
 
 function isEditableTarget(target: EventTarget | null) {
@@ -99,6 +101,14 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
           event.preventDefault();
           actions.onToolSelect("crop");
           return;
+        case "b":
+          event.preventDefault();
+          actions.onToolSelect("brush");
+          return;
+        case "e":
+          event.preventDefault();
+          actions.onToolSelect("eraser");
+          return;
         case "Mod+t":
           event.preventDefault();
           actions.onBeginTransform();
@@ -121,6 +131,26 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
           return;
         default:
           break;
+      }
+
+      // Brush size: [ / ]  (use event.code for layout independence)
+      if (event.code === "BracketLeft" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          actions.onBrushHardnessChange(-0.25);
+        } else {
+          actions.onBrushSizeChange(-1);
+        }
+        return;
+      }
+      if (event.code === "BracketRight" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          actions.onBrushHardnessChange(0.25);
+        } else {
+          actions.onBrushSizeChange(1);
+        }
+        return;
       }
 
       const command = defaultKeymap.get(key);

@@ -457,3 +457,133 @@ func TestApplyScatter_CoversDisc(t *testing.T) {
 		}
 	}
 }
+
+// ── Pencil / Auto-erase ───────────────────────────────────────────────────────
+
+// newPencilTestInstance creates a minimal instance with a single white-filled
+// pixel layer ready for pencil/auto-erase tests.
+func newPencilTestInstance(t *testing.T, w, h int, fillColor [4]uint8) (*instance, *PixelLayer, string) {
+	t.Helper()
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("pencil-test", "Pencil", w, h)
+	pixels := make([]byte, w*h*4)
+	// Pre-fill every pixel with fillColor.
+	for i := 0; i < w*h; i++ {
+		pixels[i*4] = fillColor[0]
+		pixels[i*4+1] = fillColor[1]
+		pixels[i*4+2] = fillColor[2]
+		pixels[i*4+3] = fillColor[3]
+	}
+	layer := NewPixelLayer("Pencil Layer", LayerBounds{X: 0, Y: 0, W: w, H: h}, pixels)
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+	doc.ActiveLayerID = layer.ID()
+	inst.manager.Create(doc)
+	return inst, layer, layer.ID()
+}
+
+func TestAutoErase_SwitchedToBackgroundWhenFGMatches(t *testing.T) {
+	// Layer pre-filled with red (the foreground color).
+	// Auto-erase should switch to the background color (blue) for the stroke.
+	const w, h = 50, 50
+	red := [4]uint8{255, 0, 0, 255}
+	blue := [4]uint8{0, 0, 255, 255}
+
+	inst, _, layerID := newPencilTestInstance(t, w, h, red)
+	inst.backgroundColor = blue
+
+	cx, cy := float64(w/2), float64(h/2)
+	brush := BrushParams{
+		Size:      10,
+		Hardness:  1.0,
+		Flow:      1.0,
+		Color:     red, // foreground
+		AutoErase: true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	doc := inst.manager.activeMut()
+	layer := findPixelLayer(doc, layerID)
+	idx := (int(cy)*w + int(cx)) * 4
+	if layer.Pixels[idx] != 0 || layer.Pixels[idx+2] < 200 {
+		t.Errorf("auto-erase: center R=%d B=%d, want R≈0 B≈255 (painted blue)", layer.Pixels[idx], layer.Pixels[idx+2])
+	}
+}
+
+func TestAutoErase_NoPaintSwitchWhenFGDiffers(t *testing.T) {
+	// Layer pre-filled with green — does NOT match the red foreground.
+	// Auto-erase should NOT switch; stroke paints red.
+	const w, h = 50, 50
+	green := [4]uint8{0, 255, 0, 255}
+	red := [4]uint8{255, 0, 0, 255}
+	blue := [4]uint8{0, 0, 255, 255}
+
+	inst, _, layerID := newPencilTestInstance(t, w, h, green)
+	inst.backgroundColor = blue
+
+	cx, cy := float64(w/2), float64(h/2)
+	brush := BrushParams{
+		Size:      10,
+		Hardness:  1.0,
+		Flow:      1.0,
+		Color:     red, // foreground
+		AutoErase: true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	doc := inst.manager.activeMut()
+	layer := findPixelLayer(doc, layerID)
+	idx := (int(cy)*w + int(cx)) * 4
+	if layer.Pixels[idx] < 200 {
+		t.Errorf("no auto-erase: center R=%d, want ≥200 (painted red)", layer.Pixels[idx])
+	}
+}
+
+func TestAutoErase_FalseNeverSwitches(t *testing.T) {
+	// AutoErase=false: even if start pixel matches FG, stroke uses FG (red).
+	const w, h = 50, 50
+	red := [4]uint8{255, 0, 0, 255}
+	blue := [4]uint8{0, 0, 255, 255}
+
+	inst, _, layerID := newPencilTestInstance(t, w, h, red)
+	inst.backgroundColor = blue
+
+	cx, cy := float64(w/2), float64(h/2)
+	brush := BrushParams{
+		Size:      10,
+		Hardness:  1.0,
+		Flow:      1.0,
+		Color:     red,
+		AutoErase: false,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	doc := inst.manager.activeMut()
+	layer := findPixelLayer(doc, layerID)
+	idx := (int(cy)*w + int(cx)) * 4
+	// Should still be (approximately) red at center.
+	if layer.Pixels[idx] < 200 {
+		t.Errorf("autoErase=false: center R=%d, want ≥200 (no color switch)", layer.Pixels[idx])
+	}
+}
+
+func TestPencilTool_HardnessOneIsFullyOpaque(t *testing.T) {
+	// Pencil mode uses hardness=1.0. Center pixel must be fully opaque.
+	const sz = 40
+	bounds := LayerBounds{X: 0, Y: 0, W: sz, H: sz}
+	layer := NewPixelLayer("test", bounds, make([]byte, sz*sz*4))
+
+	params := BrushParams{Size: 20, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	PaintDab(layer, float64(sz/2), float64(sz/2), params, 0, 1)
+
+	idx := (sz/2*sz + sz/2) * 4
+	if layer.Pixels[idx+3] < 250 {
+		t.Errorf("pencil center alpha = %d, want ~255 (hardness=1.0)", layer.Pixels[idx+3])
+	}
+}

@@ -515,6 +515,7 @@ export interface BrushParams {
   scatter?: number;      // max random dab offset as fraction of diameter, 0 = none
   stabilizer?: number;   // moving-average lag: number of past input points to average (0 = off)
   sampleMerged?: boolean; // read from composite (all layers) rather than active layer
+  autoErase?: boolean;   // if stroke starts on foreground color, paint with background color instead
 }
 
 export interface BeginPaintStrokeCommand {

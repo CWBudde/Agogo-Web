@@ -26,6 +26,7 @@ import {
   NewDocumentIcon,
   OpenFolderIcon,
   PanelsIcon,
+  PencilToolIcon,
   RedoIcon,
   SaveIcon,
   ScissorsIcon,
@@ -312,7 +313,7 @@ const menuItems: MenuPreviewMenu[] = [
   },
 ];
 
-type EditorTool = ShortcutTool | "brush" | "eraser" | "type" | "shape" | "transform";
+type EditorTool = ShortcutTool | "type" | "shape" | "transform";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
 type LassoMode = "freehand" | "polygon" | "magnetic";
@@ -329,6 +330,7 @@ const toolItems: {
   { id: "crop", label: "Crop", Icon: CropToolIcon },
   { id: "wand", label: "Wand", Icon: SelectionIcon },
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
+  { id: "pencil", label: "Pencil", Icon: PencilToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
   { id: "shape", label: "Shape", Icon: ShapeToolIcon },
@@ -449,8 +451,9 @@ export default function App() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [foregroundColor, setForegroundColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
   const [backgroundColor, setBackgroundColor] = useState<[number, number, number, number]>([255, 255, 255, 255]);
-  const [brushSize, _setBrushSize] = useState(20);
-  const [brushHardness] = useState(0.8);
+  const [brushSize, setBrushSize] = useState(20);
+  const [brushHardness, setBrushHardness] = useState(0.8);
+  const [pencilAutoErase, setPencilAutoErase] = useState(false);
   const [brushFlow] = useState(1.0);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
@@ -851,6 +854,17 @@ export default function App() {
         return;
       }
       engine.translateLayer({ dx, dy });
+    },
+    onBrushSizeChange(delta: number) {
+      setBrushSize((prev) => {
+        const step = prev < 10 ? 1 : prev < 100 ? 5 : 10;
+        return Math.max(1, Math.min(2500, prev + delta * step));
+      });
+    },
+    onBrushHardnessChange(delta: number) {
+      setBrushHardness((prev) =>
+        Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100)),
+      );
     },
   });
 
@@ -1264,6 +1278,25 @@ export default function App() {
           Click a layer to begin free transform · Enter to commit · Esc to cancel
         </span>
       )
+    ) : activeTool === "pencil" ? (
+      <>
+        <ToolNumberField
+          label="Size"
+          min={1}
+          max={2500}
+          step={1}
+          value={brushSize}
+          onChange={setBrushSize}
+        />
+        <label className="flex items-center gap-1 text-[10px]">
+          <input
+            type="checkbox"
+            checked={pencilAutoErase}
+            onChange={(e) => setPencilAutoErase(e.target.checked)}
+          />
+          Auto-erase
+        </label>
+      </>
     ) : null;
 
   const activeToolLabel = isPanMode
@@ -1534,6 +1567,7 @@ export default function App() {
                     brushSize={brushSize}
                     brushHardness={brushHardness}
                     brushFlow={brushFlow}
+                    pencilAutoErase={pencilAutoErase}
                     foregroundColor={foregroundColor}
                     cropDeletePixels={cropDeletePixels}
                   />
