@@ -850,7 +850,7 @@ export function EditorCanvas({
         engine.createSelection({
           shape: "polygon",
           mode: draft.mode,
-          polygon: draft.points,
+          polygon: draft.points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
           antiAlias: selectionOptions.antiAlias,
         });
       });
@@ -2159,10 +2159,10 @@ export function EditorCanvas({
           const w = constrainedEnd.x - marqueeDraft.start.x;
           const h = constrainedEnd.y - marqueeDraft.start.y;
           const rect = {
-            x: Math.min(marqueeDraft.start.x, marqueeDraft.start.x + w),
-            y: Math.min(marqueeDraft.start.y, marqueeDraft.start.y + h),
-            w: Math.max(1, Math.abs(w)),
-            h: Math.max(1, Math.abs(h)),
+            x: Math.round(Math.min(marqueeDraft.start.x, marqueeDraft.start.x + w)),
+            y: Math.round(Math.min(marqueeDraft.start.y, marqueeDraft.start.y + h)),
+            w: Math.max(1, Math.round(Math.abs(w))),
+            h: Math.max(1, Math.round(Math.abs(h))),
           };
           commitSelection("Create selection", () => {
             engine.createSelection({
