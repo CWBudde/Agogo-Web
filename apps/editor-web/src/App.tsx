@@ -9,6 +9,7 @@ import {
 } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
+import { WelcomeScreen } from "@/components/welcome-screen";
 import {
   BrushToolIcon,
   ClipboardIcon,
@@ -876,6 +877,7 @@ export default function App() {
     };
   }, [openMenu]);
 
+  const hasDocument = (render?.uiMeta.documentWidth ?? 0) > 0;
   const documentSize = render
     ? `${render.uiMeta.documentWidth} x ${render.uiMeta.documentHeight}`
     : "No document";
@@ -1478,39 +1480,52 @@ export default function App() {
                 </div>
               </div>
               <section
-                className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${isDragOver ? " ring-2 ring-inset ring-blue-500" : ""}`}
+                className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${isDragOver && hasDocument ? " ring-2 ring-inset ring-blue-500" : ""}`}
                 aria-label="Canvas drop zone"
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                onDragOver={hasDocument ? handleDragOver : undefined}
+                onDragLeave={hasDocument ? handleDragLeave : undefined}
+                onDrop={hasDocument ? handleDrop : undefined}
               >
-                <EditorCanvas
-                  activeTool={activeTool}
-                  isPanMode={isPanMode || activeTool === "hand"}
-                  isZoomTool={activeTool === "zoom"}
-                  selectionOptions={{
-                    marqueeShape,
-                    marqueeStyle,
-                    marqueeRatioW,
-                    marqueeRatioH,
-                    marqueeSizeW,
-                    marqueeSizeH,
-                    lassoMode,
-                    antiAlias: selectionAntiAlias,
-                    featherRadius: selectionFeatherRadius,
-                    wandMode,
-                    wandTolerance,
-                    wandContiguous,
-                    wandSampleMerged,
-                  }}
-                  moveAutoSelectGroup={moveAutoSelectGroup}
-                  selectedLayerIds={selectedLayerIds}
-                  onCursorChange={setCursor}
-                  brushSize={brushSize}
-                  brushHardness={brushHardness}
-                  brushFlow={brushFlow}
-                  foregroundColor={foregroundColor}
-                />
+                {hasDocument ? (
+                  <EditorCanvas
+                    activeTool={activeTool}
+                    isPanMode={isPanMode || activeTool === "hand"}
+                    isZoomTool={activeTool === "zoom"}
+                    selectionOptions={{
+                      marqueeShape,
+                      marqueeStyle,
+                      marqueeRatioW,
+                      marqueeRatioH,
+                      marqueeSizeW,
+                      marqueeSizeH,
+                      lassoMode,
+                      antiAlias: selectionAntiAlias,
+                      featherRadius: selectionFeatherRadius,
+                      wandMode,
+                      wandTolerance,
+                      wandContiguous,
+                      wandSampleMerged,
+                    }}
+                    moveAutoSelectGroup={moveAutoSelectGroup}
+                    selectedLayerIds={selectedLayerIds}
+                    onCursorChange={setCursor}
+                    brushSize={brushSize}
+                    brushHardness={brushHardness}
+                    brushFlow={brushFlow}
+                    foregroundColor={foregroundColor}
+                  />
+                ) : (
+                  <WelcomeScreen
+                    isDragOver={isDragOver}
+                    hasAutosave={hasAutosave}
+                    onNew={() => setNewDocumentOpen(true)}
+                    onOpen={() => projectInputRef.current?.click()}
+                    onResume={recoverAutosave}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  />
+                )}
               </section>
             </main>
 
