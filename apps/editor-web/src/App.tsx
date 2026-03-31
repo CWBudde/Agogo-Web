@@ -454,7 +454,9 @@ export default function App() {
   const [brushSize, setBrushSize] = useState(20);
   const [brushHardness, setBrushHardness] = useState(0.8);
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
-  const [brushFlow] = useState(1.0);
+  const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
+  const [eraserTolerance, setEraserTolerance] = useState(30);
+  const [brushFlow, setBrushFlow] = useState(1.0);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -1297,6 +1299,59 @@ export default function App() {
           Auto-erase
         </label>
       </>
+    ) : activeTool === "eraser" ? (
+      <>
+        <ToolOptionGroup label="Mode">
+          <ToolChoiceButton
+            active={eraserMode === "normal"}
+            onClick={() => setEraserMode("normal")}
+          >
+            Normal
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={eraserMode === "background"}
+            onClick={() => setEraserMode("background")}
+          >
+            Background
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={eraserMode === "magic"}
+            onClick={() => setEraserMode("magic")}
+          >
+            Magic
+          </ToolChoiceButton>
+        </ToolOptionGroup>
+        {eraserMode !== "magic" ? (
+          <>
+            <ToolNumberField
+              label="Size"
+              min={1}
+              max={2500}
+              step={1}
+              value={brushSize}
+              onChange={setBrushSize}
+            />
+            <ToolNumberField
+              label="Opacity"
+              min={0}
+              max={1}
+              step={0.05}
+              value={brushFlow}
+              onChange={setBrushFlow}
+            />
+          </>
+        ) : null}
+        {eraserMode !== "normal" ? (
+          <ToolNumberField
+            label="Tolerance"
+            min={0}
+            max={255}
+            step={1}
+            value={eraserTolerance}
+            onChange={setEraserTolerance}
+          />
+        ) : null}
+      </>
     ) : null;
 
   const activeToolLabel = isPanMode
@@ -1568,6 +1623,8 @@ export default function App() {
                     brushHardness={brushHardness}
                     brushFlow={brushFlow}
                     pencilAutoErase={pencilAutoErase}
+                    eraserMode={eraserMode}
+                    eraserTolerance={eraserTolerance}
                     foregroundColor={foregroundColor}
                     cropDeletePixels={cropDeletePixels}
                   />

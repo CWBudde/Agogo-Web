@@ -84,6 +84,7 @@ export enum CommandID {
   SetForegroundColor = 0x0410,
   SetBackgroundColor = 0x0411,
   SampleMergedColor = 0x0412,
+  MagicErase = 0x0413,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -515,7 +516,10 @@ export interface BrushParams {
   scatter?: number;      // max random dab offset as fraction of diameter, 0 = none
   stabilizer?: number;   // moving-average lag: number of past input points to average (0 = off)
   sampleMerged?: boolean; // read from composite (all layers) rather than active layer
-  autoErase?: boolean;   // if stroke starts on foreground color, paint with background color instead
+  autoErase?: boolean;       // if stroke starts on foreground color, paint with background color instead
+  erase?: boolean;           // erase to transparency (normal eraser mode)
+  eraseBackground?: boolean; // erase only pixels matching the sampled base color (background eraser mode)
+  eraseTolerance?: number;   // color tolerance for background eraser, 0–255 Euclidean RGB distance
 }
 
 export interface BeginPaintStrokeCommand {
@@ -540,4 +544,13 @@ export interface ContinuePaintStrokeCommand {
 export interface SampleMergedColorCommand {
   x: number;
   y: number;
+}
+
+/** Flood-erase pixels by color similarity (Magic Eraser tool). */
+export interface MagicEraseCommand {
+  x: number;           // document-space click position
+  y: number;
+  tolerance: number;   // 0–255 Euclidean RGB distance
+  contiguous: boolean; // true = flood-fill, false = erase all matching pixels in layer
+  sampleMerged: boolean;
 }

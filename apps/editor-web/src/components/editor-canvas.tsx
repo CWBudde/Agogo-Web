@@ -1,4 +1,4 @@
-import { CommandID, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FreeTransformMeta, type InterpolMode } from "@agogo/proto";
+import { CommandID, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FreeTransformMeta, type InterpolMode, type MagicEraseCommand } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -52,6 +52,8 @@ type EditorCanvasProps = {
   brushHardness: number;
   brushFlow: number;
   pencilAutoErase: boolean;
+  eraserMode: "normal" | "background" | "magic";
+  eraserTolerance: number;
   foregroundColor: [number, number, number, number];
   cropDeletePixels: boolean;
 };
@@ -544,6 +546,8 @@ export function EditorCanvas({
   brushHardness,
   brushFlow,
   pencilAutoErase,
+  eraserMode,
+  eraserTolerance,
   foregroundColor,
   cropDeletePixels,
 }: EditorCanvasProps) {
@@ -1403,7 +1407,20 @@ export function EditorCanvas({
             }
           }
         }
-        if ((activeTool === "brush" || activeTool === "pencil") && event.button === 0 && !isPanMode) {
+        if (activeTool === "eraser" && eraserMode === "magic" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.MagicErase, {
+            x: docPoint.x,
+            y: docPoint.y,
+            tolerance: eraserTolerance,
+            contiguous: true,
+            sampleMerged: false,
+          } satisfies MagicEraseCommand);
+          return;
+        }
+        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
@@ -1418,6 +1435,9 @@ export function EditorCanvas({
               flow: brushFlow,
               color: foregroundColor,
               autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
+              erase: activeTool === "eraser" && eraserMode === "normal" ? true : undefined,
+              eraseBackground: activeTool === "eraser" && eraserMode === "background" ? true : undefined,
+              eraseTolerance: activeTool === "eraser" && eraserMode === "background" ? eraserTolerance : undefined,
             },
           } satisfies BeginPaintStrokeCommand);
           return;
@@ -1935,7 +1955,7 @@ export function EditorCanvas({
           });
           return;
         }
-        if ((activeTool === "brush" || activeTool === "pencil") && brushActiveRef.current) {
+        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
@@ -1984,7 +2004,7 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
-        if ((activeTool === "brush" || activeTool === "pencil") && brushActiveRef.current) {
+        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           brushActiveRef.current = false;
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;
