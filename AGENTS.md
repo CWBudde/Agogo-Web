@@ -84,6 +84,47 @@ All graphic processing **must** use `agg_go` — the Go port of the Anti-Grain G
 - Never implement pixel-level rendering logic outside of `agg_go` — use its scanline rasterizer, span generators, color interpolation, and compositing primitives
 - When adding new rendering features (gradients, patterns, filters, blending modes, anti-aliasing), first explore what `agg_go` already provides before writing custom code
 
+### Extending agg_go with Missing Features
+
+The Go port lives at `../agg_go`; the original C++ AGG 2.6 source lives at `../agg-2.6/agg-src`.
+
+**Step 1 — Can the feature be composed from existing agg_go primitives?**
+
+Before adding anything to `agg_go`, check whether the missing behaviour can be assembled from what already exists:
+
+| Technique | Where to look in agg_go |
+|-----------|------------------------|
+| Combine two vertex sources | `internal/conv/concat.go` |
+| Apply a transform inline | `internal/conv/transform.go` |
+| Custom fill via scanline | `internal/span/` generators + `internal/renderer/scanline/` |
+| Blend two rendered layers | `internal/pixfmt/composite.go` + blending modes |
+| Filtered image sampling | `internal/image/image_accessors.go` + `internal/span/span_image_filter*.go` |
+| Reuse an existing gradient | `internal/span/span_gradient*.go` + `internal/span/gradient_lut.go` |
+
+Only proceed to Step 2 if no combination of existing primitives can produce the desired result.
+
+**Step 2 — Porting from C++ AGG**
+
+When a feature genuinely does not exist in `agg_go`, port it directly from the corresponding C++ header in `../agg-2.6/agg-src/include/`. Maintain the same structural style as the rest of `agg_go`:
+
+1. **Find the C++ source** — locate `agg_<feature>.h` (and the matching `.cpp` if any) in `../agg-2.6/agg-src/include/` or `../agg-2.6/agg-src/src/`.
+2. **Mirror the architecture** — one Go file per C++ header, placed in the matching `internal/` subdirectory (e.g. a new span generator goes in `internal/span/`, a new path converter in `internal/conv/`).
+3. **Use idiomatic Go, not literal C++ translation** — generics via interfaces, not templates; value receivers where the C++ uses stack objects; slices instead of raw pointer arithmetic.
+4. **Keep the AGG naming convention** — types and files should be recognisable to anyone familiar with the C++ library (e.g. `SpanGradientConical` for a new gradient, `RendererOutlineImage` for image-textured outlines).
+5. **Write a test that exercises the new code** — place it in the same package with a `_test.go` suffix.
+
+**Known gaps** (C++ features not yet in the Go port, in rough priority order):
+
+| Feature | C++ header | Target Go location |
+|---------|------------|-------------------|
+| Image-textured outline rendering | `agg_renderer_outline_image.h` | `internal/renderer/outline/` |
+| Complete image-filter kernel suite (Lanczos, sinc, etc.) | `agg_image_filters.h` | `internal/image/filters.go` |
+| Styled-cell AA rasteriser (compound sub-paths) | `agg_rasterizer_cells_aa.h` styled variant | `internal/rasterizer/cells_aa_styled.go` |
+| Perspective-subdivision span interpolator | `agg_span_interpolator_persp.h` subdivided variant | `internal/span/` |
+| Public color-conversion API (RGB8/RGB16) | `agg_color_conv_rgb8/16.h` | `internal/color/conv/` → expose via public API |
+
+If you add a feature not listed here, follow the same two-step process and document the gap you closed.
+
 ## Tooling
 
 | Tool | Purpose |

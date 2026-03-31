@@ -472,9 +472,9 @@ func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
 // bounds (in document space) are returned alongside the pixel buffer. interp
 // selects the resampling quality.
 //
-// For affine transforms the existing per-pixel inverse-mapping loop is used.
-// For distort mode (DistortCorners != nil) the AGG perspective span pipeline is
-// used via TransformImageQuadSimple, which gives correct bilinear filtering.
+// Affine, perspective, and mesh-warp paths all render through AGG image
+// transforms so the commit path uses one interpolation pipeline rather than a
+// mix of manual sampling and AGG-based warping.
 func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels []byte, newBounds LayerBounds) {
 	origW := s.OriginalBounds.W
 	origH := s.OriginalBounds.H
@@ -504,9 +504,12 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		renderer := agglib.NewAgg2D()
 		renderer.Attach(newPixels, outW, outH, outW*4)
 		renderer.ResetTransformations()
+		renderer.ImageResample(agglib.NoResample)
 		switch interp {
 		case InterpolNearest:
 			renderer.ImageFilter(agglib.NoFilter)
+		case InterpolBicubic:
+			renderer.ImageFilter(agglib.Bicubic)
 		default:
 			renderer.ImageFilter(agglib.Bilinear)
 		}
@@ -554,32 +557,18 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
 
 	} else {
-		// --- Affine warp via per-pixel inverse mapping ---
+		// --- Affine warp via AGG parallelogram mapping ---
 		if math.Abs(s.det()) < 1e-10 {
 			return newPixels, LayerBounds{X: outX, Y: outY, W: outW, H: outH}
 		}
-		for oy := range outH {
-			for ox := range outW {
-				docX := float64(outX+ox) + 0.5
-				docY := float64(outY+oy) + 0.5
-				lx, ly, ok := s.inverseTransformPoint(docX, docY)
-				if !ok {
-					continue
-				}
-				if lx < -1 || ly < -1 || lx > float64(origW)+1 || ly > float64(origH)+1 {
-					continue
-				}
-				px := sampleOriginal(s.OriginalPixels, origW, origH, lx, ly, interp)
-				if px[3] == 0 {
-					continue
-				}
-				i := (oy*outW + ox) * 4
-				newPixels[i] = px[0]
-				newPixels[i+1] = px[1]
-				newPixels[i+2] = px[2]
-				newPixels[i+3] = px[3]
-			}
+		renderer, srcImg := newAGGRenderer()
+		corners := s.transformedCorners()
+		parallelogram := []float64{
+			corners[0][0] - float64(outX), corners[0][1] - float64(outY),
+			corners[1][0] - float64(outX), corners[1][1] - float64(outY),
+			corners[2][0] - float64(outX), corners[2][1] - float64(outY),
 		}
+		_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, parallelogram)
 	}
 
 	newBounds = LayerBounds{X: outX, Y: outY, W: outW, H: outH}
