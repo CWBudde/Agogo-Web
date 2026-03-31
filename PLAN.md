@@ -55,9 +55,20 @@
 
 ### Phase X.4: Viewport Rendering Optimization
 
+- [x] Refine the viewport profile with isolated stage benchmarks:
+  - [x] `RenderViewportAggBase`: ~8.65 ms/op, ~1.15 MB/op, ~40.5k allocs/op
+  - [x] `RenderViewportAggOverlays`: ~0.52 ms/op, ~272 KB/op, ~1.1k allocs/op
+  - [x] `RenderViewportAggOnly`: ~8.44 ms/op, ~1.42 MB/op, ~41.7k allocs/op
+  - [x] `RenderViewport` (full): ~20.3–22.0 ms/op, ~1.42 MB/op, ~41.7k allocs/op
+- [x] Record the current conclusion for X.4:
+  - [x] Full viewport CPU time is dominated more by this repository's `compositeDocumentToViewport` / `sampleBilinear` path than by AGG background drawing
+  - [x] Viewport allocations are dominated by the AGG path (`RenderViewportBase` / checkerboard / border), not by `sampleBilinear`
+  - [x] In the focused full-viewport CPU profile, `sampleBilinear` alone is the single biggest hotspot
+  - [x] In the focused AGG-only profile, checkerboard rectangles dominate through AGG scanline/rasterizer work (`qsortCellsByX`, `SortCells`, `RenderScanlineAASolid`)
 - [ ] Reduce viewport cost in `internal/engine/viewport_composite.go`
   - [ ] Profile and optimize `sampleBilinear`
-  - [ ] Check whether temporary values or return shapes in the sampling path are causing avoidable allocations
+  - [ ] Reduce CPU overhead from `txPixelAt`, `clampFloat`, and repeated bilinear math in the sampling loop
+  - [ ] Preserve the current near-zero allocation behavior of the internal sampling path while optimizing it
   - [ ] Consider specialized fast paths for unrotated / nearest-neighbor / fully opaque sampling cases
   - [ ] Re-run the benchmark and `pprof` after each viewport optimization pass and record deltas here
 

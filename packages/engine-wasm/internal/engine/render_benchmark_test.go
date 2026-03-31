@@ -3,6 +3,8 @@ package engine
 import (
 	"math"
 	"testing"
+
+	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
 )
 
 const benchmarkCanvasSize = 512
@@ -59,6 +61,54 @@ func BenchmarkRenderPipeline512(b *testing.B) {
 
 		b.StopTimer()
 		assertBenchmarkSurfaceLen(b, len(surface))
+	})
+
+	b.Run("RenderViewportAggBase", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		pixels := make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4)
+		b.ReportAllocs()
+		b.SetBytes(benchmarkCanvasBytes())
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			pixels = fixture.renderViewportBase(pixels)
+		}
+
+		b.StopTimer()
+		assertBenchmarkSurfaceLen(b, len(pixels))
+	})
+
+	b.Run("RenderViewportAggOverlays", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		pixels := fixture.renderViewportBase(make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4))
+		b.ReportAllocs()
+		b.SetBytes(benchmarkCanvasBytes())
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			pixels = fixture.renderViewportOverlays(pixels)
+		}
+
+		b.StopTimer()
+		assertBenchmarkSurfaceLen(b, len(pixels))
+	})
+
+	b.Run("RenderViewportAggOnly", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		pixels := make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4)
+		b.ReportAllocs()
+		b.SetBytes(benchmarkCanvasBytes())
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			pixels = RenderViewport(fixture.doc, &fixture.inst.viewport, pixels, nil)
+		}
+
+		b.StopTimer()
+		assertBenchmarkSurfaceLen(b, len(pixels))
 	})
 
 	b.Run("RenderViewport", func(b *testing.B) {
@@ -202,6 +252,45 @@ func (fixture *renderBenchmarkFixture) paintAllStrokes() {
 
 		fixture.inst.handleEndPaintStroke()
 	}
+}
+
+func (fixture *renderBenchmarkFixture) renderViewportBase(reuse []byte) []byte {
+	return aggrender.RenderViewportBase(
+		&aggrender.Document{
+			Width:      fixture.doc.Width,
+			Height:     fixture.doc.Height,
+			Background: fixture.doc.Background.Kind,
+		},
+		&aggrender.Viewport{
+			CenterX:  fixture.inst.viewport.CenterX,
+			CenterY:  fixture.inst.viewport.CenterY,
+			Zoom:     clampZoom(fixture.inst.viewport.Zoom),
+			Rotation: fixture.inst.viewport.Rotation,
+			CanvasW:  fixture.inst.viewport.CanvasW,
+			CanvasH:  fixture.inst.viewport.CanvasH,
+		},
+		reuse,
+	)
+}
+
+func (fixture *renderBenchmarkFixture) renderViewportOverlays(reuse []byte) []byte {
+	return aggrender.RenderViewportOverlays(
+		&aggrender.Document{
+			Width:      fixture.doc.Width,
+			Height:     fixture.doc.Height,
+			Background: fixture.doc.Background.Kind,
+		},
+		&aggrender.Viewport{
+			CenterX:    fixture.inst.viewport.CenterX,
+			CenterY:    fixture.inst.viewport.CenterY,
+			Zoom:       clampZoom(fixture.inst.viewport.Zoom),
+			Rotation:   fixture.inst.viewport.Rotation,
+			CanvasW:    fixture.inst.viewport.CanvasW,
+			CanvasH:    fixture.inst.viewport.CanvasH,
+			ShowGuides: fixture.inst.viewport.ShowGuides,
+		},
+		reuse,
+	)
 }
 
 func benchmarkStrokeSet() []benchmarkStroke {

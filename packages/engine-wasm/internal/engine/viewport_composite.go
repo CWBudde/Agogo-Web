@@ -13,7 +13,6 @@ func (doc *Document) renderCompositeSurface() []byte {
 	return buffer
 }
 
-
 func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Document, vp *ViewportState, documentSurface []byte) {
 	if len(canvas) == 0 || canvasW <= 0 || canvasH <= 0 || doc == nil || len(documentSurface) == 0 {
 		return
@@ -35,51 +34,65 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 	// to canvas bounds. At zoom < 1 this skips large areas of empty canvas; at
 	// zoom ≥ 1 the clip equals the full canvas (no extra cost).
 	clipX0, clipY0, clipX1, clipY1 := docBoundsOnCanvas(doc, vp, canvasW, canvasH, zoom, cosTheta, sinTheta, halfCanvasW, halfCanvasH)
+	stepDocX := cosTheta / zoom
+	stepDocY := -sinTheta / zoom
+	startDeltaX := (float64(clipX0) + 0.5) - halfCanvasW
+
+	if useBilinear {
+		for canvasY := clipY0; canvasY < clipY1; canvasY++ {
+			deltaY := (float64(canvasY) + 0.5) - halfCanvasH
+			docX := (startDeltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
+			docY := (-startDeltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
+			destIndex := (canvasY*canvasW + clipX0) * 4
+
+			for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+				pixel := sampleBilinear(documentSurface, doc.Width, doc.Height, docX, docY)
+				if pixel[3] != 0 {
+					if pixel[3] == 255 {
+						canvas[destIndex] = pixel[0]
+						canvas[destIndex+1] = pixel[1]
+						canvas[destIndex+2] = pixel[2]
+						canvas[destIndex+3] = 255
+					} else {
+						compositePixelWithBlend(canvas[destIndex:destIndex+4], pixel[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+					}
+				}
+
+				docX += stepDocX
+				docY += stepDocY
+				destIndex += 4
+			}
+		}
+		return
+	}
 
 	for canvasY := clipY0; canvasY < clipY1; canvasY++ {
+		deltaY := (float64(canvasY) + 0.5) - halfCanvasH
+		docX := (startDeltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
+		docY := (-startDeltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
+		destIndex := (canvasY*canvasW + clipX0) * 4
+
 		for canvasX := clipX0; canvasX < clipX1; canvasX++ {
-			deltaX := (float64(canvasX) + 0.5) - halfCanvasW
-			deltaY := (float64(canvasY) + 0.5) - halfCanvasH
-			docX := (deltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
-			docY := (-deltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
-
-			destIndex := (canvasY*canvasW + canvasX) * 4
-
-			if useBilinear {
-				// sampleBilinear uses pixel-edge coordinates (lx=0.5 → centre of
-				// pixel 0), which matches docX directly.
-				pixel := sampleBilinear(documentSurface, doc.Width, doc.Height, docX, docY)
-				if pixel[3] == 0 {
-					continue
-				}
-				if pixel[3] == 255 {
-					canvas[destIndex] = pixel[0]
-					canvas[destIndex+1] = pixel[1]
-					canvas[destIndex+2] = pixel[2]
-					canvas[destIndex+3] = 255
-				} else {
-					compositePixelWithBlend(canvas[destIndex:destIndex+4], pixel[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
-				}
-			} else {
-				sourceX := int(math.Floor(docX))
-				sourceY := int(math.Floor(docY))
-				if sourceX < 0 || sourceX >= doc.Width || sourceY < 0 || sourceY >= doc.Height {
-					continue
-				}
+			sourceX := int(math.Floor(docX))
+			sourceY := int(math.Floor(docY))
+			if sourceX >= 0 && sourceX < doc.Width && sourceY >= 0 && sourceY < doc.Height {
 				sourceIndex := (sourceY*doc.Width + sourceX) * 4
 				srcAlpha := documentSurface[sourceIndex+3]
-				if srcAlpha == 0 {
-					continue
-				}
-				if srcAlpha == 255 {
-					canvas[destIndex] = documentSurface[sourceIndex]
-					canvas[destIndex+1] = documentSurface[sourceIndex+1]
-					canvas[destIndex+2] = documentSurface[sourceIndex+2]
-					canvas[destIndex+3] = 255
-				} else {
-					compositePixelWithBlend(canvas[destIndex:destIndex+4], documentSurface[sourceIndex:sourceIndex+4], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+				if srcAlpha != 0 {
+					if srcAlpha == 255 {
+						canvas[destIndex] = documentSurface[sourceIndex]
+						canvas[destIndex+1] = documentSurface[sourceIndex+1]
+						canvas[destIndex+2] = documentSurface[sourceIndex+2]
+						canvas[destIndex+3] = 255
+					} else {
+						compositePixelWithBlend(canvas[destIndex:destIndex+4], documentSurface[sourceIndex:sourceIndex+4], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+					}
 				}
 			}
+
+			docX += stepDocX
+			docY += stepDocY
+			destIndex += 4
 		}
 	}
 }
