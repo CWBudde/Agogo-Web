@@ -70,14 +70,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
     let active = true;
     dispatch({ type: "load" });
 
-    void loadEngine({
-      config: {
-        documentWidth: 1920,
-        documentHeight: 1080,
-        background: "transparent",
-        resolution: 72,
-      },
-    })
+    void loadEngine()
       .then((handle) => {
         if (!active) {
           return;

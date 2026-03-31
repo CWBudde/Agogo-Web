@@ -690,18 +690,20 @@ func Init(configJSON string) int32 {
 		backgroundColor: [4]uint8{255, 255, 255, 255},
 	}
 
-	doc := inst.newDocument(CreateDocumentPayload{
-		Name:       "Untitled-1",
-		Width:      valueOrDefault(config.DocumentWidth, defaultDocWidth),
-		Height:     valueOrDefault(config.DocumentHeight, defaultDocHeight),
-		Resolution: floatValueOrDefault(config.Resolution, defaultResolutionDPI),
-		ColorMode:  "rgb",
-		BitDepth:   8,
-		Background: stringValueOrDefault(config.Background, "transparent"),
-	})
-	inst.manager.Create(doc)
-	inst.viewport.CenterX = float64(doc.Width) * 0.5
-	inst.viewport.CenterY = float64(doc.Height) * 0.5
+	if config.DocumentWidth > 0 && config.DocumentHeight > 0 {
+		doc := inst.newDocument(CreateDocumentPayload{
+			Name:       "Untitled-1",
+			Width:      config.DocumentWidth,
+			Height:     config.DocumentHeight,
+			Resolution: floatValueOrDefault(config.Resolution, defaultResolutionDPI),
+			ColorMode:  "rgb",
+			BitDepth:   8,
+			Background: stringValueOrDefault(config.Background, "transparent"),
+		})
+		inst.manager.Create(doc)
+		inst.viewport.CenterX = float64(doc.Width) * 0.5
+		inst.viewport.CenterY = float64(doc.Height) * 0.5
+	}
 
 	instances[id] = inst
 	return id
