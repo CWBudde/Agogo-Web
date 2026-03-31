@@ -186,7 +186,8 @@
   - [ ] Discrete rotate/flip operations
 - [ ] Add correctness tests for interpolation parity and output bounds stability
   - [x] Output bounds stability now has direct regression coverage for integer-translate and negative-offset axis-aligned affine cases
-  - [ ] Add explicit interpolation-parity fixtures across nearest, bilinear, and bicubic
+  - [x] Add explicit interpolation-parity fixtures across nearest, bilinear, and bicubic at the sampler level using a representative fixture and multiple subpixel sample coordinates
+  - [x] Transform-level tests now verify that nearest, bilinear, and bicubic preserve bounds/output shape stability for both axis-aligned and general affine AGG-backed paths
 - [x] Capture CPU and allocation profiles before and after AGG affine migration
 - [x] Record whether AGG affine replacement is actually faster than the previous manual path
   - [x] Result so far: the main win is allocation reduction and path simplification; general-affine CPU time remains dominated by AGG internals

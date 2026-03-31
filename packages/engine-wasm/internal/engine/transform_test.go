@@ -27,6 +27,32 @@ func pixelRGBA(buf []byte, w, x, y int) (r, g, b, a byte) {
 	return buf[i], buf[i+1], buf[i+2], buf[i+3]
 }
 
+func pixelRGBAArray(buf []byte, w, x, y int) [4]byte {
+	r, g, b, a := pixelRGBA(buf, w, x, y)
+	return [4]byte{r, g, b, a}
+}
+
+func makeInterpolationFixturePixels() ([]byte, map[[4]byte]struct{}) {
+	const w, h = 4, 4
+	buf := make([]byte, w*h*4)
+	colors := make(map[[4]byte]struct{}, w*h)
+	for y := range h {
+		for x := range w {
+			r := byte(20 + x*53 + y*17)
+			g := byte(15 + x*11 + y*61)
+			b := byte(240 - x*37 - y*19)
+			color := [4]byte{r, g, b, 255}
+			i := (y*w + x) * 4
+			buf[i] = color[0]
+			buf[i+1] = color[1]
+			buf[i+2] = color[2]
+			buf[i+3] = color[3]
+			colors[color] = struct{}{}
+		}
+	}
+	return buf, colors
+}
+
 // ---------------------------------------------------------------------------
 // identityState builds a FreeTransformState with the identity transform for a
 // layer with the given pixel dimensions placed at origin.
@@ -164,6 +190,121 @@ func TestApplyPixelTransform_AxisAlignedScaleNegativeOffset(t *testing.T) {
 	r, g, b, a = pixelRGBA(outPixels, outBounds.W, outBounds.W-1, outBounds.H-1)
 	if r != 255 || g != 255 || b != 0 || a != 255 {
 		t.Fatalf("scaled bottom-right pixel = (%d,%d,%d,%d), want (255,255,0,255)", r, g, b, a)
+	}
+}
+
+func TestApplyPixelTransform_InterpolationModes_AxisAlignedScaleAndTranslate(t *testing.T) {
+	pixels, _ := makeInterpolationFixturePixels()
+	candidates := []struct {
+		a  float64
+		d  float64
+		tx float64
+		ty float64
+	}{
+		{1.6, 1.35, 0.35, 0.4},
+		{1.45, 1.2, 0.2, 0.15},
+		{0.85, 1.4, 0.3, 0.6},
+		{1.3, 0.9, 0.45, 0.25},
+	}
+	for _, candidate := range candidates {
+		newState := func() *FreeTransformState {
+			s := identityState(4, 4, pixels)
+			s.A = candidate.a
+			s.D = candidate.d
+			s.TX = candidate.tx
+			s.TY = candidate.ty
+			return s
+		}
+		nearestPixels, nearestBounds := applyPixelTransform(newState(), InterpolNearest)
+		bilinearPixels, bilinearBounds := applyPixelTransform(newState(), InterpolBilinear)
+		bicubicPixels, bicubicBounds := applyPixelTransform(newState(), InterpolBicubic)
+		if bilinearBounds != nearestBounds || bicubicBounds != nearestBounds {
+			t.Fatalf("interpolation bounds mismatch: nearest=%+v bilinear=%+v bicubic=%+v", nearestBounds, bilinearBounds, bicubicBounds)
+		}
+		if len(nearestPixels) != len(bilinearPixels) || len(nearestPixels) != len(bicubicPixels) {
+			t.Fatalf("interpolation output length mismatch: nearest=%d bilinear=%d bicubic=%d", len(nearestPixels), len(bilinearPixels), len(bicubicPixels))
+		}
+		if pixelRGBAArray(nearestPixels, nearestBounds.W, nearestBounds.W/2, nearestBounds.H/2)[3] == 0 {
+			t.Fatal("expected nearest output centre alpha to remain opaque")
+		}
+		if pixelRGBAArray(bilinearPixels, bilinearBounds.W, bilinearBounds.W/2, bilinearBounds.H/2)[3] == 0 {
+			t.Fatal("expected bilinear output centre alpha to remain opaque")
+		}
+		if pixelRGBAArray(bicubicPixels, bicubicBounds.W, bicubicBounds.W/2, bicubicBounds.H/2)[3] == 0 {
+			t.Fatal("expected bicubic output centre alpha to remain opaque")
+		}
+	}
+}
+
+func TestApplyPixelTransform_InterpolationModes_GeneralAffine(t *testing.T) {
+	pixels, _ := makeInterpolationFixturePixels()
+	candidates := []struct {
+		a  float64
+		b  float64
+		c  float64
+		d  float64
+		tx float64
+		ty float64
+	}{
+		{1.18, 0.42, -0.33, 1.27, 0.6, -0.15},
+		{0.95, 0.55, -0.28, 1.31, 0.35, 0.25},
+		{1.12, 0.24, -0.41, 0.96, -0.2, 0.45},
+	}
+	for _, candidate := range candidates {
+		newState := func() *FreeTransformState {
+			s := identityState(4, 4, pixels)
+			s.A = candidate.a
+			s.B = candidate.b
+			s.C = candidate.c
+			s.D = candidate.d
+			s.TX = candidate.tx
+			s.TY = candidate.ty
+			return s
+		}
+		nearestPixels, nearestBounds := applyPixelTransform(newState(), InterpolNearest)
+		bilinearPixels, bilinearBounds := applyPixelTransform(newState(), InterpolBilinear)
+		bicubicPixels, bicubicBounds := applyPixelTransform(newState(), InterpolBicubic)
+		if bilinearBounds != nearestBounds || bicubicBounds != nearestBounds {
+			t.Fatalf("general affine interpolation bounds mismatch: nearest=%+v bilinear=%+v bicubic=%+v", nearestBounds, bilinearBounds, bicubicBounds)
+		}
+		if len(nearestPixels) != len(bilinearPixels) || len(nearestPixels) != len(bicubicPixels) {
+			t.Fatalf("general affine interpolation output length mismatch: nearest=%d bilinear=%d bicubic=%d", len(nearestPixels), len(bilinearPixels), len(bicubicPixels))
+		}
+		center := pixelRGBAArray(bilinearPixels, bilinearBounds.W, bilinearBounds.W/2, bilinearBounds.H/2)
+		if center[3] == 0 {
+			t.Fatal("expected general-affine bilinear output centre to remain non-transparent")
+		}
+	}
+}
+
+func TestInterpolationSamplers_RepresentativeFixture(t *testing.T) {
+	pixels, _ := makeInterpolationFixturePixels()
+	coords := [][2]float64{{1.8, 2.2}, {1.35, 2.65}, {2.1, 1.4}, {0.9, 1.7}}
+	foundNearestBilinear := false
+	foundNearestBicubic := false
+	foundBilinearBicubic := false
+	for _, coord := range coords {
+		nearest := sampleNearest(pixels, 4, 4, coord[0], coord[1])
+		bilinear := sampleBilinear(pixels, 4, 4, coord[0], coord[1])
+		bicubic := sampleBicubic(pixels, 4, 4, coord[0], coord[1])
+		if nearest != bilinear {
+			foundNearestBilinear = true
+		}
+		if nearest != bicubic {
+			foundNearestBicubic = true
+		}
+		if bilinear != bicubic {
+			foundBilinearBicubic = true
+		}
+	}
+	if !foundNearestBilinear {
+		t.Fatal("expected at least one representative sample coordinate where nearest and bilinear differ")
+	}
+	if !foundNearestBicubic {
+		t.Fatal("expected at least one representative sample coordinate where nearest and bicubic differ")
+	}
+	if !foundBilinearBicubic {
+		t.Fatal("expected at least one representative sample coordinate where bilinear and bicubic differ")
 	}
 }
 
