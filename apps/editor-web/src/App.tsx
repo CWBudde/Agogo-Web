@@ -41,6 +41,10 @@ import {
 import { LayersPanel } from "@/components/layers-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import {
+  DropdownMenuItem,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import {
   type ShortcutTool,
@@ -479,6 +483,8 @@ export default function App() {
     anchor: "center",
   });
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const zoomClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPanMode, setIsPanMode] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
@@ -1044,11 +1050,24 @@ export default function App() {
   const zoomPercent = render
     ? `${Math.round(render.viewport.zoom * 100)}%`
     : "0%";
-  const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "Outside";
-  const statusText = render?.uiMeta.statusText ?? "Waiting for engine";
-  const selectionSummary = render?.uiMeta.selection.active
-    ? `${render.uiMeta.selection.pixelCount} px selected`
-    : "No selection";
+  const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "—";
+
+  function handleZoomClick() {
+    if (zoomClickTimerRef.current) return;
+    zoomClickTimerRef.current = setTimeout(() => {
+      zoomClickTimerRef.current = null;
+      setZoomMenuOpen((prev) => !prev);
+    }, 200);
+  }
+
+  function handleZoomDoubleClick() {
+    if (zoomClickTimerRef.current) {
+      clearTimeout(zoomClickTimerRef.current);
+      zoomClickTimerRef.current = null;
+    }
+    engine.setZoom(1);
+    setZoomMenuOpen(false);
+  }
   const historyEntries = render?.uiMeta.history ?? [];
   const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
   const widthValue = formatDimension(
@@ -1749,20 +1768,6 @@ export default function App() {
             </aside>
 
             <main className="editor-stage flex min-w-0 min-h-[36rem] flex-col p-[var(--ui-gap-2)]">
-              <div className="flex items-center justify-between border-b border-border px-[var(--ui-gap-2)] pb-[var(--ui-gap-2)] text-[11px] text-slate-400">
-                <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                  <span className="truncate text-slate-200">
-                    {draft.name}.agp {render ? `(Layer 1, RGB)` : ""}
-                  </span>
-                  <span>{zoomPercent}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span>
-                    Canvas {render?.viewport.canvasW ?? 0} x{" "}
-                    {render?.viewport.canvasH ?? 0}
-                  </span>
-                </div>
-              </div>
               <section
                 className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${isDragOver && hasDocument ? " ring-2 ring-inset ring-blue-500" : ""}`}
                 aria-label="Canvas drop zone"
@@ -2029,20 +2034,48 @@ export default function App() {
 
           <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-white/8 px-2 text-[11px] text-slate-500">
             <div className="flex items-center gap-2 overflow-hidden">
-              <span className="text-slate-200">{zoomPercent}</span>
+              <span className="truncate text-slate-300">
+                {draft.name}.agp
+              </span>
               <Separator orientation="vertical" className="h-3 bg-white/8" />
               <span>{documentSize}</span>
               <Separator orientation="vertical" className="h-3 bg-white/8" />
-              <span>Cursor {cursorText}</span>
+              <span>{cursorText}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span>{statusText}</span>
-              <Separator orientation="vertical" className="h-3 bg-white/8" />
-              <span>
-                {engine.status === "ready"
-                  ? `Engine #${engine.handle?.handle}`
-                  : engine.status}
-              </span>
+            <div className="relative flex items-center gap-2">
+              {zoomMenuOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-40"
+                    aria-label="Close zoom menu"
+                    onClick={() => setZoomMenuOpen(false)}
+                  />
+                  <DropdownMenuContent className="absolute bottom-full right-0 z-50 mb-1 min-w-[100px] rounded-xl p-1">
+                    {[25, 50, 75, 100, 150, 200, 300, 400].map((level) => (
+                      <DropdownMenuItem
+                        key={level}
+                        className={`text-[11px] py-1 px-3 rounded-lg ${Math.round((render?.viewport.zoom ?? 1) * 100) === level ? "text-blue-400" : ""}`}
+                        onClick={() => {
+                          engine.setZoom(level / 100);
+                          setZoomMenuOpen(false);
+                        }}
+                      >
+                        {level}%
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </>
+              )}
+              <button
+                type="button"
+                className="cursor-pointer select-none tabular-nums text-slate-200 hover:text-white"
+                onClick={handleZoomClick}
+                onDoubleClick={handleZoomDoubleClick}
+                title="Click for zoom options · Double-click to reset to 100%"
+              >
+                {zoomPercent}
+              </button>
             </div>
           </footer>
         </div>

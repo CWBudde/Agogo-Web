@@ -403,21 +403,37 @@ func sampleBilinear(pixels []byte, w, h int, lx, ly float64) [4]byte {
 	y0 := int(math.Floor(fy))
 	tx := fx - float64(x0)
 	ty := fy - float64(y0)
+	weightsX0 := 1 - tx
+	weightsY0 := 1 - ty
+	w00 := weightsX0 * weightsY0
+	w10 := tx * weightsY0
+	w01 := weightsX0 * ty
+	w11 := tx * ty
 
-	p00 := txPixelAt(pixels, w, h, x0, y0)
-	p10 := txPixelAt(pixels, w, h, x0+1, y0)
-	p01 := txPixelAt(pixels, w, h, x0, y0+1)
-	p11 := txPixelAt(pixels, w, h, x0+1, y0+1)
-
-	var out [4]byte
-	for c := range 4 {
-		v := float64(p00[c])*(1-tx)*(1-ty) +
-			float64(p10[c])*tx*(1-ty) +
-			float64(p01[c])*(1-tx)*ty +
-			float64(p11[c])*tx*ty
-		out[c] = byte(clampFloat(v, 0, 255))
+	var x1, y1 int
+	if x0 >= 0 && x0+1 < w && y0 >= 0 && y0+1 < h {
+		x1 = x0 + 1
+		y1 = y0 + 1
+	} else {
+		x0 = clampInt(x0, 0, w-1)
+		y0 = clampInt(y0, 0, h-1)
+		x1 = clampInt(x0+1, 0, w-1)
+		y1 = clampInt(y0+1, 0, h-1)
 	}
-	return out
+
+	row0 := y0 * w * 4
+	row1 := y1 * w * 4
+	i00 := row0 + x0*4
+	i10 := row0 + x1*4
+	i01 := row1 + x0*4
+	i11 := row1 + x1*4
+
+	return [4]byte{
+		byte(float64(pixels[i00])*w00 + float64(pixels[i10])*w10 + float64(pixels[i01])*w01 + float64(pixels[i11])*w11),
+		byte(float64(pixels[i00+1])*w00 + float64(pixels[i10+1])*w10 + float64(pixels[i01+1])*w01 + float64(pixels[i11+1])*w11),
+		byte(float64(pixels[i00+2])*w00 + float64(pixels[i10+2])*w10 + float64(pixels[i01+2])*w01 + float64(pixels[i11+2])*w11),
+		byte(float64(pixels[i00+3])*w00 + float64(pixels[i10+3])*w10 + float64(pixels[i01+3])*w01 + float64(pixels[i11+3])*w11),
+	}
 }
 
 // catmullRomKernel evaluates the Catmull-Rom kernel for parameter t and four
