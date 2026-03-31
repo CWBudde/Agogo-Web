@@ -209,3 +209,43 @@ func TestCrop_CommitErrorsWithoutActiveCrop(t *testing.T) {
 		t.Error("expected error from CommitCrop without active crop, got nil")
 	}
 }
+
+func TestApplyRotatedCropToPixelLayerSolidPixels(t *testing.T) {
+	pl := &PixelLayer{
+		layerBase: newLayerBase("Layer"),
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    makeSolidPixels(2, 2, 200, 100, 50, 255),
+	}
+
+	pixels, bounds := applyRotatedCropToPixelLayer(pl, 1, 1, 2, 2, 0)
+	if bounds != (LayerBounds{X: 0, Y: 0, W: 2, H: 2}) {
+		t.Fatalf("crop bounds = %+v, want {X:0 Y:0 W:2 H:2}", bounds)
+	}
+	if len(pixels) != 16 {
+		t.Fatalf("cropped pixel length = %d, want 16", len(pixels))
+	}
+	for index := 0; index < len(pixels); index += 4 {
+		if pixels[index] != 200 || pixels[index+1] != 100 || pixels[index+2] != 50 || pixels[index+3] != 255 {
+			t.Fatalf("pixel %d = %v, want solid source color", index/4, pixels[index:index+4])
+		}
+	}
+}
+
+func TestTrimPixelLayerToBoundsClearsOutsidePixels(t *testing.T) {
+	pl := &PixelLayer{
+		layerBase: newLayerBase("Layer"),
+		Bounds:    LayerBounds{X: -1, Y: 0, W: 2, H: 1},
+		Pixels: []byte{
+			255, 0, 0, 255,
+			0, 255, 0, 255,
+		},
+	}
+
+	trimPixelLayerToBounds(pl, 1, 1)
+	if got := pl.Pixels[:4]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 0 {
+		t.Fatalf("outside pixel = %v, want fully cleared", got)
+	}
+	if got := pl.Pixels[4:8]; got[0] != 0 || got[1] != 255 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("inside pixel = %v, want unchanged", got)
+	}
+}
