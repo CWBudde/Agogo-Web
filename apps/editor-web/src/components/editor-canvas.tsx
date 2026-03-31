@@ -193,6 +193,7 @@ type TransformDraft = {
 
 type CropDragKind =
   | "move"
+  | "draw-new"
   | "scale-tl"
   | "scale-tr"
   | "scale-br"
@@ -1352,10 +1353,18 @@ export function EditorCanvas({
                   startDoc: { x: docPoint.x, y: docPoint.y },
                   startBox: { x: crop.x, y: crop.y, w: crop.w, h: crop.h },
                 });
-                event.currentTarget.setPointerCapture(event.pointerId);
-                event.preventDefault();
-                return;
+              } else {
+                // Click outside crop box — start drawing a new crop region.
+                setCropDraft({
+                  pointerId: event.pointerId,
+                  kind: "draw-new",
+                  startDoc: { x: docPoint.x, y: docPoint.y },
+                  startBox: { x: docPoint.x, y: docPoint.y, w: 0, h: 0 },
+                });
               }
+              event.currentTarget.setPointerCapture(event.pointerId);
+              event.preventDefault();
+              return;
             }
           }
         }
@@ -1725,6 +1734,12 @@ export function EditorCanvas({
             case "move":
               newX += dx;
               newY += dy;
+              break;
+            case "draw-new":
+              newX = Math.min(cd.startDoc.x, docPoint.x);
+              newY = Math.min(cd.startDoc.y, docPoint.y);
+              newW = Math.abs(docPoint.x - cd.startDoc.x);
+              newH = Math.abs(docPoint.y - cd.startDoc.y);
               break;
             case "scale-tl":
               newX += dx;
