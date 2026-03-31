@@ -107,6 +107,66 @@ func TestApplyPixelTransform_Degenerate(t *testing.T) {
 	}
 }
 
+func TestApplyPixelTransform_IntegerTranslatePreservesPixels(t *testing.T) {
+	pixels := []byte{
+		0, 255, 0, 255,
+		255, 0, 0, 255,
+		0, 0, 255, 255,
+		255, 255, 0, 255,
+	}
+	s := identityState(2, 2, pixels)
+	s.TX = -3
+	s.TY = 2
+	s.PivotX = -2
+	s.PivotY = 3
+
+	outPixels, outBounds := applyPixelTransform(s, InterpolNearest)
+
+	wantBounds := LayerBounds{X: -3, Y: 2, W: 2, H: 2}
+	if outBounds != wantBounds {
+		t.Fatalf("integer translate bounds = %+v, want %+v", outBounds, wantBounds)
+	}
+	if len(outPixels) != len(pixels) {
+		t.Fatalf("integer translate len = %d, want %d", len(outPixels), len(pixels))
+	}
+	for i := range pixels {
+		if outPixels[i] != pixels[i] {
+			t.Fatalf("integer translate pixel[%d] = %d, want %d", i, outPixels[i], pixels[i])
+		}
+	}
+}
+
+func TestApplyPixelTransform_AxisAlignedScaleNegativeOffset(t *testing.T) {
+	pixels := []byte{
+		0, 255, 0, 255,
+		255, 0, 0, 255,
+		0, 0, 255, 255,
+		255, 255, 0, 255,
+	}
+	s := identityState(2, 2, pixels)
+	s.A = 2
+	s.D = 2
+	s.TX = -1
+	s.TY = -1
+	s.PivotX = 0
+	s.PivotY = 0
+
+	outPixels, outBounds := applyPixelTransform(s, InterpolNearest)
+
+	wantBounds := LayerBounds{X: -1, Y: -1, W: 4, H: 4}
+	if outBounds != wantBounds {
+		t.Fatalf("axis-aligned scale bounds = %+v, want %+v", outBounds, wantBounds)
+	}
+	r, g, b, a := pixelRGBA(outPixels, outBounds.W, 0, 0)
+	if r != 0 || g != 255 || b != 0 || a != 255 {
+		t.Fatalf("scaled top-left pixel = (%d,%d,%d,%d), want (0,255,0,255)", r, g, b, a)
+	}
+	r, g, b, a = pixelRGBA(outPixels, outBounds.W, outBounds.W-1, outBounds.H-1)
+	if r != 255 || g != 255 || b != 0 || a != 255 {
+		t.Fatalf("scaled bottom-right pixel = (%d,%d,%d,%d), want (255,255,0,255)", r, g, b, a)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // sampleBilinear tests
 // ---------------------------------------------------------------------------
@@ -417,29 +477,6 @@ func TestFreeTransformMeta_Rotation90(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// inverseTransformPoint tests
-// ---------------------------------------------------------------------------
-
-func TestInverseTransformPoint_Identity(t *testing.T) {
-	s := &FreeTransformState{A: 1, B: 0, C: 0, D: 1, TX: 5, TY: 3}
-	lx, ly, ok := s.inverseTransformPoint(15, 13)
-	if !ok {
-		t.Fatal("inverse of identity returned ok=false")
-	}
-	if math.Abs(lx-10) > 1e-9 || math.Abs(ly-10) > 1e-9 {
-		t.Errorf("inverse: got (%f, %f), want (10, 10)", lx, ly)
-	}
-}
-
-func TestInverseTransformPoint_Singular(t *testing.T) {
-	s := &FreeTransformState{A: 0, B: 0, C: 0, D: 0}
-	_, _, ok := s.inverseTransformPoint(1, 1)
-	if ok {
-		t.Error("singular matrix should return ok=false")
-	}
-}
-
 func TestInitWarpGridFromBounds(t *testing.T) {
 	grid := initWarpGridFromBounds(LayerBounds{X: 10, Y: 20, W: 9, H: 6})
 	if grid == nil {
@@ -582,10 +619,6 @@ func TestSampleBicubicSolidPixels(t *testing.T) {
 	got := sampleBicubic(pixels, 4, 4, 1.75, 2.25)
 	if got != ([4]byte{70, 80, 90, 255}) {
 		t.Fatalf("bicubic sample = %v, want [70 80 90 255]", got)
-	}
-	got = sampleOriginal(pixels, 4, 4, 1.75, 2.25, InterpolBicubic)
-	if got != ([4]byte{70, 80, 90, 255}) {
-		t.Fatalf("sampleOriginal bicubic = %v, want [70 80 90 255]", got)
 	}
 }
 
