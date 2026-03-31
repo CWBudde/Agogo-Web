@@ -419,6 +419,7 @@ export default function App() {
   const [wandSampleMerged, setWandSampleMerged] = useState(false);
   const [moveAutoSelectGroup, setMoveAutoSelectGroup] = useState(false);
   const [transformRefPoint, setTransformRefPoint] = useState<[number, number]>([1, 1]);
+  const [cropDeletePixels, setCropDeletePixels] = useState(false);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
@@ -529,6 +530,7 @@ export default function App() {
     // Cancel active special modes when switching away
     if (activeTool === "crop" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelCrop, {});
+      setCropDeletePixels(false);
     }
     if (activeTool === "transform" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelFreeTransform, {});
@@ -1025,6 +1027,8 @@ export default function App() {
               engine.dispatchCommand(CommandID.UpdateCrop, {
                 ...render.uiMeta.crop,
                 w: v,
+                rotation: render.uiMeta.crop.rotation ?? 0,
+                deletePixels: cropDeletePixels,
               });
             }
           }}
@@ -1040,10 +1044,28 @@ export default function App() {
               engine.dispatchCommand(CommandID.UpdateCrop, {
                 ...render.uiMeta.crop,
                 h: v,
+                rotation: render.uiMeta.crop.rotation ?? 0,
+                deletePixels: cropDeletePixels,
               });
             }
           }}
         />
+        <label className="ml-3 flex items-center gap-1 text-[10px]">
+          <input
+            type="checkbox"
+            checked={cropDeletePixels}
+            onChange={(e) => {
+              setCropDeletePixels(e.target.checked);
+              if (render?.uiMeta.crop) {
+                engine.dispatchCommand(CommandID.UpdateCrop, {
+                  ...render.uiMeta.crop,
+                  deletePixels: e.target.checked,
+                });
+              }
+            }}
+          />
+          Delete
+        </label>
         <Button
           size="sm"
           className="ml-2 h-6 px-3 text-[10px]"
@@ -1513,6 +1535,7 @@ export default function App() {
                     brushHardness={brushHardness}
                     brushFlow={brushFlow}
                     foregroundColor={foregroundColor}
+                    cropDeletePixels={cropDeletePixels}
                   />
                 ) : (
                   <WelcomeScreen

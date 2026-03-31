@@ -479,6 +479,8 @@ export interface UpdateCropCommand {
   y: number;
   w: number;
   h: number;
+  rotation: number;
+  deletePixels: boolean;
 }
 
 export interface ResizeCanvasCommand {
@@ -493,6 +495,8 @@ export interface CropMeta {
   y: number;
   w: number;
   h: number;
+  rotation: number;
+  deletePixels: boolean;
 }
 
 // Phase 4: Painting
