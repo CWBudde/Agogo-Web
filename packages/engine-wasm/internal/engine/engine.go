@@ -268,7 +268,7 @@ type SampleMergedColorPayload struct {
 
 // MagicErasePayload describes a one-click flood-clear by color similarity.
 type MagicErasePayload struct {
-	X            float64 `json:"x"`            // document-space click position
+	X            float64 `json:"x"` // document-space click position
 	Y            float64 `json:"y"`
 	Tolerance    float64 `json:"tolerance"`    // 0–255 Euclidean RGB distance
 	Contiguous   bool    `json:"contiguous"`   // true = flood-fill, false = all matching pixels
@@ -306,14 +306,14 @@ type JumpHistoryPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID         string
-	params          BrushParams
-	strokeState     brushStrokeState
-	stabilizer      stabilizerState
-	beforePixels    []byte    // snapshot of layer pixels before stroke started (for undo)
-	dirtyMin        [2]int    // min corner of painted dirty rect (layer-local)
-	dirtyMax        [2]int    // max corner of painted dirty rect (layer-local)
-	hasDirty        bool
+	layerID          string
+	params           BrushParams
+	strokeState      brushStrokeState
+	stabilizer       stabilizerState
+	beforePixels     []byte // snapshot of layer pixels before stroke started (for undo)
+	dirtyMin         [2]int // min corner of painted dirty rect (layer-local)
+	dirtyMax         [2]int // max corner of painted dirty rect (layer-local)
+	hasDirty         bool
 	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
 }
 
@@ -1879,11 +1879,11 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					OriginalSourceBounds: origSrcBounds,
 					PreBeginSnapshot:     &preBegin,
 					A:                    1, B: 0, C: 0, D: 1,
-					TX:                   float64(floatBounds.X),
-					TY:                   float64(floatBounds.Y),
-					PivotX:               float64(floatBounds.X) + float64(floatBounds.W)*0.5,
-					PivotY:               float64(floatBounds.Y) + float64(floatBounds.H)*0.5,
-					Interpolation:        InterpolBilinear,
+					TX:            float64(floatBounds.X),
+					TY:            float64(floatBounds.Y),
+					PivotX:        float64(floatBounds.X) + float64(floatBounds.W)*0.5,
+					PivotY:        float64(floatBounds.Y) + float64(floatBounds.H)*0.5,
+					Interpolation: InterpolBilinear,
 				}
 				if payload.Mode == "warp" {
 					inst.freeTransform.WarpGrid = initWarpGridFromBounds(floatBounds)

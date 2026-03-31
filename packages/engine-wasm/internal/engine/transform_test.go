@@ -440,6 +440,155 @@ func TestInverseTransformPoint_Singular(t *testing.T) {
 	}
 }
 
+func TestInitWarpGridFromBounds(t *testing.T) {
+	grid := initWarpGridFromBounds(LayerBounds{X: 10, Y: 20, W: 9, H: 6})
+	if grid == nil {
+		t.Fatal("initWarpGridFromBounds returned nil")
+	}
+	if grid[0][0] != ([2]float64{10, 20}) {
+		t.Fatalf("grid[0][0] = %v, want [10 20]", grid[0][0])
+	}
+	if grid[1][2] != ([2]float64{16, 22}) {
+		t.Fatalf("grid[1][2] = %v, want [16 22]", grid[1][2])
+	}
+	if grid[3][3] != ([2]float64{19, 26}) {
+		t.Fatalf("grid[3][3] = %v, want [19 26]", grid[3][3])
+	}
+}
+
+func TestRecordLastFreeTransform_DistortCorners(t *testing.T) {
+	state := identityState(6, 4, makeSolidPixels(6, 4, 10, 20, 30, 255))
+	state.OriginalBounds = LayerBounds{X: 10, Y: 20, W: 6, H: 4}
+	state.TX = 13
+	state.TY = 24
+	state.PivotX = 14
+	state.PivotY = 22
+	state.Interpolation = InterpolBicubic
+	state.DistortCorners = &[4][2]float64{{9, 19}, {17, 20}, {16, 25}, {10, 24}}
+
+	rec := recordLastFreeTransform(state)
+	if rec.Kind != "free" || rec.Interpolation != InterpolBicubic {
+		t.Fatalf("record = %+v, want free bicubic record", rec)
+	}
+	if rec.TXDelta != 3 || rec.TYDelta != 4 || rec.PivotXDelta != 4 || rec.PivotYDelta != 2 {
+		t.Fatalf("record deltas = tx:%v ty:%v px:%v py:%v, want 3 4 4 2", rec.TXDelta, rec.TYDelta, rec.PivotXDelta, rec.PivotYDelta)
+	}
+	if rec.DistortCorners == nil {
+		t.Fatal("distort corners offsets should be recorded")
+	}
+	if rec.DistortCorners[0] != ([2]float64{-1, -1}) || rec.DistortCorners[1] != ([2]float64{1, 0}) || rec.DistortCorners[2] != ([2]float64{0, 1}) {
+		t.Fatalf("distort offsets = %v, want expected relative offsets", *rec.DistortCorners)
+	}
+}
+
+func TestRecordLastFreeTransform_WarpGrid(t *testing.T) {
+	state := identityState(9, 6, makeSolidPixels(9, 6, 10, 20, 30, 255))
+	state.OriginalBounds = LayerBounds{X: 10, Y: 20, W: 9, H: 6}
+	defaultGrid := initWarpGridFromBounds(state.OriginalBounds)
+	grid := *defaultGrid
+	grid[1][2][0] += 1.5
+	grid[3][0][1] -= 2
+	state.WarpGrid = &grid
+
+	rec := recordLastFreeTransform(state)
+	if rec.WarpGrid == nil {
+		t.Fatal("warp-grid offsets should be recorded")
+	}
+	if math.Abs(rec.WarpGrid[1][2][0]-1.5) > 1e-9 || math.Abs(rec.WarpGrid[3][0][1]+2) > 1e-9 {
+		t.Fatalf("warp-grid offsets = %v, want preserved relative offsets", *rec.WarpGrid)
+	}
+	if rec.WarpGrid[0][0] != ([2]float64{0, 0}) {
+		t.Fatalf("warp-grid zero offset = %v, want [0 0]", rec.WarpGrid[0][0])
+	}
+}
+
+func TestApplyLastFreeTransform_AffineTranslation(t *testing.T) {
+	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 2, H: 2}, makeSolidPixels(2, 2, 200, 100, 50, 255))
+	rec := &LastTransformRecord{
+		Kind:          "free",
+		A:             1,
+		B:             0,
+		C:             0,
+		D:             1,
+		TXDelta:       3,
+		TYDelta:       4,
+		PivotXDelta:   1,
+		PivotYDelta:   1,
+		Interpolation: InterpolNearest,
+	}
+
+	pixels, bounds := applyLastFreeTransform(rec, layer)
+	if bounds != (LayerBounds{X: 13, Y: 24, W: 2, H: 2}) {
+		t.Fatalf("translated bounds = %+v, want {X:13 Y:24 W:2 H:2}", bounds)
+	}
+	for index := 0; index < len(pixels); index += 4 {
+		if pixels[index] != 200 || pixels[index+1] != 100 || pixels[index+2] != 50 || pixels[index+3] != 255 {
+			t.Fatalf("translated pixel %d = %v, want original solid color", index/4, pixels[index:index+4])
+		}
+	}
+}
+
+func TestApplyLastFreeTransform_WarpGridIdentity(t *testing.T) {
+	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 3, H: 3}, makeSolidPixels(3, 3, 80, 90, 100, 255))
+	rec := &LastTransformRecord{
+		Kind:          "free",
+		A:             1,
+		D:             1,
+		Interpolation: InterpolNearest,
+		WarpGrid:      new([4][4][2]float64),
+	}
+
+	pixels, bounds := applyLastFreeTransform(rec, layer)
+	if bounds != layer.Bounds {
+		t.Fatalf("warp-grid bounds = %+v, want %+v", bounds, layer.Bounds)
+	}
+	r, g, b, a := pixelRGBA(pixels, bounds.W, 1, 1)
+	if r != 80 || g != 90 || b != 100 || a != 255 {
+		t.Fatalf("warp-grid center pixel = (%d,%d,%d,%d), want (80,90,100,255)", r, g, b, a)
+	}
+}
+
+func TestApplyLastFreeTransform_DistortIdentity(t *testing.T) {
+	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 3, H: 3}, makeSolidPixels(3, 3, 40, 50, 60, 255))
+	rec := &LastTransformRecord{
+		Kind:           "free",
+		A:              1,
+		D:              1,
+		Interpolation:  InterpolNearest,
+		DistortCorners: new([4][2]float64),
+	}
+
+	pixels, bounds := applyLastFreeTransform(rec, layer)
+	if bounds != layer.Bounds {
+		t.Fatalf("distort bounds = %+v, want %+v", bounds, layer.Bounds)
+	}
+	r, g, b, a := pixelRGBA(pixels, bounds.W, 1, 1)
+	if r != 40 || g != 50 || b != 60 || a != 255 {
+		t.Fatalf("distort center pixel = (%d,%d,%d,%d), want (40,50,60,255)", r, g, b, a)
+	}
+}
+
+func TestCatmullRomKernelEndpoints(t *testing.T) {
+	if got := catmullRomKernel(0, 1, 2, 3, 4); math.Abs(got-2) > 1e-9 {
+		t.Fatalf("kernel at t=0 = %f, want 2", got)
+	}
+	if got := catmullRomKernel(1, 1, 2, 3, 4); math.Abs(got-3) > 1e-9 {
+		t.Fatalf("kernel at t=1 = %f, want 3", got)
+	}
+}
+
+func TestSampleBicubicSolidPixels(t *testing.T) {
+	pixels := makeSolidPixels(4, 4, 70, 80, 90, 255)
+	got := sampleBicubic(pixels, 4, 4, 1.75, 2.25)
+	if got != ([4]byte{70, 80, 90, 255}) {
+		t.Fatalf("bicubic sample = %v, want [70 80 90 255]", got)
+	}
+	got = sampleOriginal(pixels, 4, 4, 1.75, 2.25, InterpolBicubic)
+	if got != ([4]byte{70, 80, 90, 255}) {
+		t.Fatalf("sampleOriginal bicubic = %v, want [70 80 90 255]", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // End-to-end free transform via engine commands
 // ---------------------------------------------------------------------------

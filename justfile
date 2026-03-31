@@ -41,6 +41,10 @@ fe-build:
 fe-typecheck:
     bun run --cwd apps/editor-web typecheck
 
+# Run frontend unit tests
+fe-test:
+    bun run --cwd apps/editor-web test
+
 # ── Go / Engine ───────────────────────────────────────────────────────────────
 
 # Run Go unit tests on host (no Wasm target needed)
@@ -93,7 +97,7 @@ lint-fix:
 # ── Combined ──────────────────────────────────────────────────────────────────
 
 # Run all tests
-test: test-go fe-typecheck
+test: test-go fe-typecheck fe-test
 
 # Full production build (wasm + frontend)
 build: wasm-build fe-build

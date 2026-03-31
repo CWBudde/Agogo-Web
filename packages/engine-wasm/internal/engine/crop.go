@@ -275,10 +275,10 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 	drawHandle(x2, y2)
 	drawHandle(x3, y3)
 
-	m0dx, m0dy := cropLocalToDoc(0, -halfH)    // top edge mid
-	m1dx, m1dy := cropLocalToDoc(halfW, 0)     // right edge mid
-	m2dx, m2dy := cropLocalToDoc(0, halfH)     // bottom edge mid
-	m3dx, m3dy := cropLocalToDoc(-halfW, 0)    // left edge mid
+	m0dx, m0dy := cropLocalToDoc(0, -halfH) // top edge mid
+	m1dx, m1dy := cropLocalToDoc(halfW, 0)  // right edge mid
+	m2dx, m2dy := cropLocalToDoc(0, halfH)  // bottom edge mid
+	m3dx, m3dy := cropLocalToDoc(-halfW, 0) // left edge mid
 	mx0, my0 := docToCanvas(m0dx, m0dy)
 	mx1, my1 := docToCanvas(m1dx, m1dy)
 	mx2, my2 := docToCanvas(m2dx, m2dy)

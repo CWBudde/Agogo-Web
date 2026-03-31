@@ -73,9 +73,9 @@ type FreeTransformState struct {
 	WarpGrid *[4][4][2]float64
 	// Floating-selection fields (set when the transform was initiated on a
 	// selection rather than a whole layer).
-	IsFloating           bool      // true when selected pixels were lifted to a temp layer
-	SourceLayerID        string    // the layer from which pixels were extracted
-	OriginalSourcePixels []byte    // source layer pixels before the selection was cut
+	IsFloating           bool   // true when selected pixels were lifted to a temp layer
+	SourceLayerID        string // the layer from which pixels were extracted
+	OriginalSourcePixels []byte // source layer pixels before the selection was cut
 	OriginalSourceBounds LayerBounds
 	PreBeginSnapshot     *snapshot // full-document snapshot taken before begin (for undo)
 }
@@ -143,15 +143,15 @@ func recordLastFreeTransform(ft *FreeTransformState) *LastTransformRecord {
 	origX := float64(ft.OriginalBounds.X)
 	origY := float64(ft.OriginalBounds.Y)
 	rec := &LastTransformRecord{
-		Kind:        "free",
-		A:           ft.A,
-		B:           ft.B,
-		C:           ft.C,
-		D:           ft.D,
-		TXDelta:     ft.TX - origX,
-		TYDelta:     ft.TY - origY,
-		PivotXDelta: ft.PivotX - origX,
-		PivotYDelta: ft.PivotY - origY,
+		Kind:          "free",
+		A:             ft.A,
+		B:             ft.B,
+		C:             ft.C,
+		D:             ft.D,
+		TXDelta:       ft.TX - origX,
+		TYDelta:       ft.TY - origY,
+		PivotXDelta:   ft.PivotX - origX,
+		PivotYDelta:   ft.PivotY - origY,
 		Interpolation: ft.Interpolation,
 	}
 	if ft.DistortCorners != nil {
