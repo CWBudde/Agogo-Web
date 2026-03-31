@@ -6,6 +6,12 @@ import { fileURLToPath, URL } from "node:url";
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? "/Agogo-Web/" : "/",
   plugins: [react(), tailwindcss()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    restoreMocks: true,
+  },
   server: {
     headers: {
       // Required for SharedArrayBuffer (used by some Wasm runtimes) and

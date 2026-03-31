@@ -10,19 +10,19 @@ import (
 
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size         float64  `json:"size"`                   // Diameter in document pixels
-	Hardness     float64  `json:"hardness"`               // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow         float64  `json:"flow"`                   // Per-dab alpha multiplier, 0–1
-	Color        [4]uint8 `json:"color"`                  // RGBA paint color
-	BlendMode    string   `json:"blendMode,omitempty"`    // AGG blend mode string, e.g. "multiply", "screen"
-	WetEdges     bool     `json:"wetEdges,omitempty"`     // Accumulate paint at stroke edges (watercolour effect)
-	Scatter      float64  `json:"scatter,omitempty"`      // Max random dab offset as a fraction of brush diameter (0 = none)
-	Stabilizer   int      `json:"stabilizer,omitempty"`   // Moving-average lag: number of past input points to average (0 = off)
-	SampleMerged bool     `json:"sampleMerged,omitempty"` // Sample composite (all layers) rather than active layer when reading pixels
-	AutoErase       bool    `json:"autoErase,omitempty"`       // If stroke starts on foreground color, paint with background color instead
-	Erase           bool    `json:"erase,omitempty"`           // Erase to transparency (uses dst-out compositing)
-	EraseBackground bool    `json:"eraseBackground,omitempty"` // Erase only pixels matching the sampled base color
-	EraseTolerance  float64 `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
+	Size            float64  `json:"size"`                      // Diameter in document pixels
+	Hardness        float64  `json:"hardness"`                  // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow            float64  `json:"flow"`                      // Per-dab alpha multiplier, 0–1
+	Color           [4]uint8 `json:"color"`                     // RGBA paint color
+	BlendMode       string   `json:"blendMode,omitempty"`       // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges        bool     `json:"wetEdges,omitempty"`        // Accumulate paint at stroke edges (watercolour effect)
+	Scatter         float64  `json:"scatter,omitempty"`         // Max random dab offset as a fraction of brush diameter (0 = none)
+	Stabilizer      int      `json:"stabilizer,omitempty"`      // Moving-average lag: number of past input points to average (0 = off)
+	SampleMerged    bool     `json:"sampleMerged,omitempty"`    // Sample composite (all layers) rather than active layer when reading pixels
+	AutoErase       bool     `json:"autoErase,omitempty"`       // If stroke starts on foreground color, paint with background color instead
+	Erase           bool     `json:"erase,omitempty"`           // Erase to transparency (uses dst-out compositing)
+	EraseBackground bool     `json:"eraseBackground,omitempty"` // Erase only pixels matching the sampled base color
+	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from

@@ -249,3 +249,52 @@ func TestTrimPixelLayerToBoundsClearsOutsidePixels(t *testing.T) {
 		t.Fatalf("inside pixel = %v, want unchanged", got)
 	}
 }
+
+func TestApplyResizeCanvasAnchorsAndValidation(t *testing.T) {
+	root := func() (*Document, *PixelLayer) {
+		pixel := NewPixelLayer("Layer", LayerBounds{X: 5, Y: 7, W: 8, H: 6}, makeSolidPixels(8, 6, 200, 100, 50, 255))
+		group := NewGroupLayer("Group")
+		group.SetChildren([]LayerNode{pixel})
+		layerRoot := NewGroupLayer("Root")
+		layerRoot.SetChildren([]LayerNode{group})
+		return &Document{Width: 100, Height: 80, LayerRoot: layerRoot}, pixel
+	}
+
+	doc, _ := root()
+	if err := applyResizeCanvas(doc, 0, 80, "center"); err == nil {
+		t.Fatal("expected invalid canvas dimensions error")
+	}
+
+	tests := []struct {
+		name   string
+		anchor string
+		wantDX int
+		wantDY int
+	}{
+		{name: "top-left", anchor: "top-left", wantDX: 0, wantDY: 0},
+		{name: "top-center", anchor: "top-center", wantDX: 20, wantDY: 0},
+		{name: "top-right", anchor: "top-right", wantDX: 40, wantDY: 0},
+		{name: "middle-left", anchor: "middle-left", wantDX: 0, wantDY: 20},
+		{name: "center", anchor: "center", wantDX: 20, wantDY: 20},
+		{name: "middle-right", anchor: "middle-right", wantDX: 40, wantDY: 20},
+		{name: "bottom-left", anchor: "bottom-left", wantDX: 0, wantDY: 40},
+		{name: "bottom-center", anchor: "bottom-center", wantDX: 20, wantDY: 40},
+		{name: "bottom-right", anchor: "bottom-right", wantDX: 40, wantDY: 40},
+		{name: "fallback", anchor: "unexpected", wantDX: 0, wantDY: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, pixel := root()
+			if err := applyResizeCanvas(doc, 140, 120, tc.anchor); err != nil {
+				t.Fatalf("applyResizeCanvas: %v", err)
+			}
+			if doc.Width != 140 || doc.Height != 120 {
+				t.Fatalf("document size = %dx%d, want 140x120", doc.Width, doc.Height)
+			}
+			if pixel.Bounds.X != 5+tc.wantDX || pixel.Bounds.Y != 7+tc.wantDY {
+				t.Fatalf("pixel bounds = (%d,%d), want (%d,%d)", pixel.Bounds.X, pixel.Bounds.Y, 5+tc.wantDX, 7+tc.wantDY)
+			}
+		})
+	}
+}
