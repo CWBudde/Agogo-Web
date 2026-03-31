@@ -75,6 +75,15 @@ Commands are JSON-encoded and dispatched via `DispatchCommand(cmdId, jsonPayload
 ### Canvas component
 `apps/editor-web/src/components/editor-canvas.tsx` — receives pixel data from Wasm and blits it to the HTML Canvas. No JS-side pixel manipulation.
 
+### Graphics Rendering: agg_go (MANDATORY)
+
+All graphic processing **must** use `agg_go` — the Go port of the Anti-Grain Geometry (AGG) library. This is a core design constraint, not a preference:
+
+- `agg_go` handles all pixel formats (RGBA, RGB, grayscale, etc.) and rendering styles
+- The project exists specifically to showcase the breadth and quality of `agg_go`'s capabilities
+- Never implement pixel-level rendering logic outside of `agg_go` — use its scanline rasterizer, span generators, color interpolation, and compositing primitives
+- When adding new rendering features (gradients, patterns, filters, blending modes, anti-aliasing), first explore what `agg_go` already provides before writing custom code
+
 ## Tooling
 
 | Tool | Purpose |
