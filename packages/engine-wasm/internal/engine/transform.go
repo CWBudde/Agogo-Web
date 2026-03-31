@@ -56,15 +56,17 @@ type LastTransformRecord struct {
 //
 // so that doc position = layer-local position + layer origin.
 type FreeTransformState struct {
-	Active         bool
-	LayerID        string
-	OriginalPixels []byte
-	ScratchPixels  []byte
-	OriginalBounds LayerBounds
-	A, B, C, D     float64
-	TX, TY         float64
-	PivotX, PivotY float64 // pivot in doc space; initially layer centre
-	Interpolation  InterpolMode
+	Active          bool
+	LayerID         string
+	OriginalPixels  []byte
+	ScratchPixels   []byte
+	ScratchRenderer *agglib.Agg2D
+	ScratchSource   *agglib.Image
+	OriginalBounds  LayerBounds
+	A, B, C, D      float64
+	TX, TY          float64
+	PivotX, PivotY  float64 // pivot in doc space; initially layer centre
+	Interpolation   InterpolMode
 	// DistortCorners is set when the user drags a corner in Ctrl+distort mode.
 	// When non-nil, AGG's perspective span pipeline warps the source pixels to
 	// these four doc-space corners (TL, TR, BR, BL) instead of the affine matrix.
@@ -301,20 +303,6 @@ func (s *FreeTransformState) det() float64 {
 	return s.A*s.D - s.C*s.B
 }
 
-// inverseTransformPoint maps a document-space point back to layer-local coords.
-// Returns false if the matrix is singular.
-func (s *FreeTransformState) inverseTransformPoint(dx, dy float64) (lx, ly float64, ok bool) {
-	det := s.det()
-	if math.Abs(det) < 1e-10 {
-		return 0, 0, false
-	}
-	rx := dx - s.TX
-	ry := dy - s.TY
-	lx = (s.D*rx - s.C*ry) / det
-	ly = (-s.B*rx + s.A*ry) / det
-	return lx, ly, true
-}
-
 // meta builds the UIMeta representation of the current state.
 func (s *FreeTransformState) meta() *FreeTransformMeta {
 	if s == nil || !s.Active {
@@ -373,19 +361,6 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 // ---------------------------------------------------------------------------
 // Pixel resampling
 // ---------------------------------------------------------------------------
-
-// sampleOriginal samples a colour from the original pixel buffer using the
-// chosen interpolation mode. lx, ly are fractional layer-local coordinates.
-func sampleOriginal(pixels []byte, w, h int, lx, ly float64, interp InterpolMode) [4]byte {
-	switch interp {
-	case InterpolBicubic:
-		return sampleBicubic(pixels, w, h, lx, ly)
-	case InterpolNearest:
-		return sampleNearest(pixels, w, h, lx, ly)
-	default:
-		return sampleBilinear(pixels, w, h, lx, ly)
-	}
-}
 
 // txPixelAt returns the RGBA at integer layer-local (px, py), clamped to bounds.
 func txPixelAt(pixels []byte, w, h, px, py int) [4]byte {
@@ -507,6 +482,142 @@ func isAxisAlignedPositiveScale(s *FreeTransformState) bool {
 		isNearlyZero(s.C)
 }
 
+type transformRenderTarget struct {
+	outX   int
+	outY   int
+	outW   int
+	outH   int
+	pixels []byte
+}
+
+func computeTransformRenderTarget(s *FreeTransformState) transformRenderTarget {
+	origW := s.OriginalBounds.W
+	origH := s.OriginalBounds.H
+	minX, minY, maxX, maxY := s.transformedAABB()
+	outX := int(math.Floor(minX))
+	outY := int(math.Floor(minY))
+	outW := int(math.Ceil(maxX)) - outX
+	outH := int(math.Ceil(maxY)) - outY
+	if outW <= 0 || outH <= 0 {
+		return transformRenderTarget{
+			outX:   s.OriginalBounds.X,
+			outY:   s.OriginalBounds.Y,
+			outW:   origW,
+			outH:   origH,
+			pixels: acquireTransformPixels(s, origW*origH*4),
+		}
+	}
+	const maxTransformDim = 32768
+	if outW > maxTransformDim || outH > maxTransformDim {
+		outW = minInt(outW, maxTransformDim)
+		outH = minInt(outH, maxTransformDim)
+	}
+	return transformRenderTarget{
+		outX:   outX,
+		outY:   outY,
+		outW:   outW,
+		outH:   outH,
+		pixels: acquireTransformPixels(s, outW*outH*4),
+	}
+}
+
+func (target transformRenderTarget) bounds() LayerBounds {
+	return LayerBounds{X: target.outX, Y: target.outY, W: target.outW, H: target.outH}
+}
+
+func (target transformRenderTarget) tileQuad(pts [4][2]float64) [8]float64 {
+	return [8]float64{
+		pts[0][0] - float64(target.outX), pts[0][1] - float64(target.outY),
+		pts[1][0] - float64(target.outX), pts[1][1] - float64(target.outY),
+		pts[2][0] - float64(target.outX), pts[2][1] - float64(target.outY),
+		pts[3][0] - float64(target.outX), pts[3][1] - float64(target.outY),
+	}
+}
+
+func (target transformRenderTarget) affineParallelogram(corners [4][2]float64) []float64 {
+	return []float64{
+		corners[0][0] - float64(target.outX), corners[0][1] - float64(target.outY),
+		corners[1][0] - float64(target.outX), corners[1][1] - float64(target.outY),
+		corners[2][0] - float64(target.outX), corners[2][1] - float64(target.outY),
+	}
+}
+
+func acquireTransformAGGResources(s *FreeTransformState, target transformRenderTarget, origW, origH int, interp InterpolMode) (*agglib.Agg2D, *agglib.Image) {
+	renderer := s.ScratchRenderer
+	if renderer == nil {
+		renderer = agglib.NewAgg2D()
+		s.ScratchRenderer = renderer
+	}
+	renderer.Attach(target.pixels, target.outW, target.outH, target.outW*4)
+	renderer.ImageResample(agglib.NoResample)
+	switch interp {
+	case InterpolNearest:
+		renderer.ImageFilter(agglib.NoFilter)
+	case InterpolBicubic:
+		renderer.ImageFilter(agglib.Bicubic)
+	default:
+		renderer.ImageFilter(agglib.Bilinear)
+	}
+	srcImg := s.ScratchSource
+	if srcImg == nil {
+		srcImg = agglib.NewImage(s.OriginalPixels, origW, origH, origW*4)
+		s.ScratchSource = srcImg
+	} else {
+		srcImg.Attach(s.OriginalPixels, origW, origH, origW*4)
+	}
+	return renderer, srcImg
+}
+
+func renderWarpTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
+	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
+	g := *s.WarpGrid
+	const cells = 3
+	for row := range cells {
+		for col := range cells {
+			srcX1 := col * origW / cells
+			srcY1 := row * origH / cells
+			srcX2 := (col + 1) * origW / cells
+			srcY2 := (row + 1) * origH / cells
+			quad := target.tileQuad([4][2]float64{
+				g[row][col],
+				g[row][col+1],
+				g[row+1][col+1],
+				g[row+1][col],
+			})
+			_ = renderer.TransformImageQuad(srcImg, srcX1, srcY1, srcX2, srcY2, quad)
+		}
+	}
+}
+
+func renderDistortTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
+	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
+	quad := target.tileQuad(*s.DistortCorners)
+	_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
+}
+
+func renderAffineTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
+	if math.Abs(s.det()) < 1e-10 {
+		return
+	}
+	corners := s.transformedCorners()
+	if isPureIntegerTranslate(s) && target.outW == origW && target.outH == origH {
+		copy(target.pixels, s.OriginalPixels)
+		return
+	}
+	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
+	if isAxisAlignedPositiveScale(s) {
+		_ = renderer.TransformImageSimple(
+			srcImg,
+			corners[0][0]-float64(target.outX),
+			corners[0][1]-float64(target.outY),
+			corners[2][0]-float64(target.outX),
+			corners[2][1]-float64(target.outY),
+		)
+		return
+	}
+	_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, target.affineParallelogram(corners))
+}
+
 // applyPixelTransform creates new pixel data by applying the affine transform
 // (or perspective warp when DistortCorners is set) stored in s. The new layer
 // bounds (in document space) are returned alongside the pixel buffer. interp
@@ -521,111 +632,18 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 	if origW <= 0 || origH <= 0 || len(s.OriginalPixels) < origW*origH*4 {
 		return s.OriginalPixels, s.OriginalBounds
 	}
-
-	// Compute output bounds from the (potentially distorted) corners.
-	minX, minY, maxX, maxY := s.transformedAABB()
-	outX := int(math.Floor(minX))
-	outY := int(math.Floor(minY))
-	outW := int(math.Ceil(maxX)) - outX
-	outH := int(math.Ceil(maxY)) - outY
-	if outW <= 0 || outH <= 0 {
-		return acquireTransformPixels(s, origW*origH*4), s.OriginalBounds
-	}
-	const maxTransformDim = 32768
-	if outW > maxTransformDim || outH > maxTransformDim {
-		outW = minInt(outW, maxTransformDim)
-		outH = minInt(outH, maxTransformDim)
-	}
-
-	newPixels = acquireTransformPixels(s, outW*outH*4)
-
-	// aggRenderer creates an AGG canvas targeting newPixels with the appropriate filter.
-	newAGGRenderer := func() (*agglib.Agg2D, *agglib.Image) {
-		renderer := agglib.NewAgg2D()
-		renderer.Attach(newPixels, outW, outH, outW*4)
-		renderer.ResetTransformations()
-		renderer.ImageResample(agglib.NoResample)
-		switch interp {
-		case InterpolNearest:
-			renderer.ImageFilter(agglib.NoFilter)
-		case InterpolBicubic:
-			renderer.ImageFilter(agglib.Bicubic)
-		default:
-			renderer.ImageFilter(agglib.Bilinear)
-		}
-		srcImg := agglib.NewImage(s.OriginalPixels, origW, origH, origW*4)
-		return renderer, srcImg
-	}
-
-	// tileQuad converts four doc-space points into a tile-relative [8]float64 quad.
-	tileQuad := func(pts [4][2]float64) [8]float64 {
-		return [8]float64{
-			pts[0][0] - float64(outX), pts[0][1] - float64(outY),
-			pts[1][0] - float64(outX), pts[1][1] - float64(outY),
-			pts[2][0] - float64(outX), pts[2][1] - float64(outY),
-			pts[3][0] - float64(outX), pts[3][1] - float64(outY),
-		}
-	}
+	target := computeTransformRenderTarget(s)
+	newPixels = target.pixels
 
 	if s.WarpGrid != nil {
-		// --- Mesh warp via AGG: render each 3×3 cell as a perspective patch ---
-		renderer, srcImg := newAGGRenderer()
-		g := *s.WarpGrid
-		const cells = 3 // 4×4 control points → 3×3 cells
-		for row := range cells {
-			for col := range cells {
-				// Source sub-rectangle for this cell (integer pixel coords).
-				srcX1 := col * origW / cells
-				srcY1 := row * origH / cells
-				srcX2 := (col + 1) * origW / cells
-				srcY2 := (row + 1) * origH / cells
-				// Destination quad from the four surrounding control points.
-				quad := tileQuad([4][2]float64{
-					g[row][col],     // TL
-					g[row][col+1],   // TR
-					g[row+1][col+1], // BR
-					g[row+1][col],   // BL
-				})
-				_ = renderer.TransformImageQuad(srcImg, srcX1, srcY1, srcX2, srcY2, quad)
-			}
-		}
-
+		renderWarpTransform(s, target, interp, origW, origH)
 	} else if s.DistortCorners != nil {
-		// --- Perspective warp via AGG ---
-		renderer, srcImg := newAGGRenderer()
-		quad := tileQuad(*s.DistortCorners)
-		_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
-
+		renderDistortTransform(s, target, interp, origW, origH)
 	} else {
-		// --- Affine warp dispatch ---
-		if math.Abs(s.det()) < 1e-10 {
-			return newPixels, LayerBounds{X: outX, Y: outY, W: outW, H: outH}
-		}
-		corners := s.transformedCorners()
-		if isPureIntegerTranslate(s) && outW == origW && outH == origH {
-			copy(newPixels, s.OriginalPixels)
-		} else {
-			renderer, srcImg := newAGGRenderer()
-			if isAxisAlignedPositiveScale(s) {
-				_ = renderer.TransformImageSimple(
-					srcImg,
-					corners[0][0]-float64(outX),
-					corners[0][1]-float64(outY),
-					corners[2][0]-float64(outX),
-					corners[2][1]-float64(outY),
-				)
-			} else {
-				parallelogram := []float64{
-					corners[0][0] - float64(outX), corners[0][1] - float64(outY),
-					corners[1][0] - float64(outX), corners[1][1] - float64(outY),
-					corners[2][0] - float64(outX), corners[2][1] - float64(outY),
-				}
-				_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, parallelogram)
-			}
-		}
+		renderAffineTransform(s, target, interp, origW, origH)
 	}
 
-	newBounds = LayerBounds{X: outX, Y: outY, W: outW, H: outH}
+	newBounds = target.bounds()
 	return newPixels, newBounds
 }
 
