@@ -234,9 +234,9 @@
   - [x] Numeric display in Options bar: X, Y, W%, H%, rotation angle (read-only; skew H/V and lock-aspect checkbox not yet implemented)
   - [x] Commit: Enter; Cancel: Escape
   - [x] Interpolation mode for pixel layers: Nearest Neighbor, Bilinear, Bicubic — selector in options bar, dispatched via UpdateFreeTransform
-- [ ] Transform on selection content:
-  - [ ] Floating selection: selected pixels become a temporary floating layer during transform
-  - [ ] Merge back on commit
+- [x] Transform on selection content:
+  - [x] Floating selection: selected pixels become a temporary floating layer during transform
+  - [x] Merge back on commit
 - [x] **Edit > Transform sub-menu:**
   - [x] Scale, Rotate, Skew, Distort, Perspective, Warp — each begins free transform (Warp also initialises the 4×4 mesh via BeginFreeTransformPayload.Mode="warp")
   - [x] Flip Horizontal / Flip Vertical

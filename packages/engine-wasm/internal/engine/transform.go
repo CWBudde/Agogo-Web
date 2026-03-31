@@ -47,6 +47,13 @@ type FreeTransformState struct {
 	// columns left-to-right). Each 3×3 cell is rendered as a separate
 	// perspective-corrected patch via AGG's TransformImageQuad.
 	WarpGrid *[4][4][2]float64
+	// Floating-selection fields (set when the transform was initiated on a
+	// selection rather than a whole layer).
+	IsFloating           bool      // true when selected pixels were lifted to a temp layer
+	SourceLayerID        string    // the layer from which pixels were extracted
+	OriginalSourcePixels []byte    // source layer pixels before the selection was cut
+	OriginalSourceBounds LayerBounds
+	PreBeginSnapshot     *snapshot // full-document snapshot taken before begin (for undo)
 }
 
 // FreeTransformMeta is serialised into UIMeta so the frontend can render
@@ -766,4 +773,178 @@ func absInt(n int) int {
 		return -n
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// Floating-selection helpers
+// ---------------------------------------------------------------------------
+
+// extractSelectionContent lifts selected pixels from pl into a new buffer.
+// Only pixels inside both the layer bounds and the selection mask are included.
+// Returns false when the selection and layer do not overlap.
+func extractSelectionContent(pl *PixelLayer, sel *Selection) (pixels []byte, bounds LayerBounds, ok bool) {
+	bnd := pl.Bounds
+	selW, selH := sel.Width, sel.Height
+
+	minX, minY := bnd.X+bnd.W, bnd.Y+bnd.H
+	maxX, maxY := bnd.X-1, bnd.Y-1
+	for ly := range bnd.H {
+		for lx := range bnd.W {
+			docX := lx + bnd.X
+			docY := ly + bnd.Y
+			if docX < 0 || docX >= selW || docY < 0 || docY >= selH {
+				continue
+			}
+			if sel.Mask[docY*selW+docX] == 0 {
+				continue
+			}
+			if docX < minX {
+				minX = docX
+			}
+			if docX > maxX {
+				maxX = docX
+			}
+			if docY < minY {
+				minY = docY
+			}
+			if docY > maxY {
+				maxY = docY
+			}
+		}
+	}
+	if maxX < minX || maxY < minY {
+		return nil, LayerBounds{}, false
+	}
+
+	floatW := maxX - minX + 1
+	floatH := maxY - minY + 1
+	pixels = make([]byte, floatW*floatH*4)
+
+	for ly := range bnd.H {
+		for lx := range bnd.W {
+			docX := lx + bnd.X
+			docY := ly + bnd.Y
+			if docX < minX || docX > maxX || docY < minY || docY > maxY {
+				continue
+			}
+			if docX < 0 || docX >= selW || docY < 0 || docY >= selH {
+				continue
+			}
+			selA := sel.Mask[docY*selW+docX]
+			if selA == 0 {
+				continue
+			}
+			srcIdx := (ly*bnd.W + lx) * 4
+			if srcIdx+3 >= len(pl.Pixels) {
+				continue
+			}
+			fx := docX - minX
+			fy := docY - minY
+			dstIdx := (fy*floatW + fx) * 4
+			outA := byte(uint16(pl.Pixels[srcIdx+3]) * uint16(selA) / 255)
+			pixels[dstIdx] = pl.Pixels[srcIdx]
+			pixels[dstIdx+1] = pl.Pixels[srcIdx+1]
+			pixels[dstIdx+2] = pl.Pixels[srcIdx+2]
+			pixels[dstIdx+3] = outA
+		}
+	}
+
+	bounds = LayerBounds{X: minX, Y: minY, W: floatW, H: floatH}
+	return pixels, bounds, true
+}
+
+// clearSelectionContent removes selected pixels from pl by reducing their
+// alpha by the selection mask value (multiply by 1 − selA/255).
+func clearSelectionContent(pl *PixelLayer, sel *Selection) {
+	bnd := pl.Bounds
+	selW, selH := sel.Width, sel.Height
+	for ly := range bnd.H {
+		for lx := range bnd.W {
+			docX := lx + bnd.X
+			docY := ly + bnd.Y
+			if docX < 0 || docX >= selW || docY < 0 || docY >= selH {
+				continue
+			}
+			selA := sel.Mask[docY*selW+docX]
+			if selA == 0 {
+				continue
+			}
+			i := (ly*bnd.W + lx) * 4
+			if i+3 >= len(pl.Pixels) {
+				continue
+			}
+			newA := byte(uint16(pl.Pixels[i+3]) * uint16(255-selA) / 255)
+			pl.Pixels[i+3] = newA
+			if newA == 0 {
+				pl.Pixels[i] = 0
+				pl.Pixels[i+1] = 0
+				pl.Pixels[i+2] = 0
+			}
+		}
+	}
+}
+
+// mergePixelLayerOnto composites srcPixels (at srcBounds) over dst using
+// source-over blending. dst's pixel buffer and bounds are expanded if necessary
+// to cover srcBounds.
+func mergePixelLayerOnto(dst *PixelLayer, srcPixels []byte, srcBounds LayerBounds) {
+	if len(srcPixels) == 0 || srcBounds.W <= 0 || srcBounds.H <= 0 {
+		return
+	}
+	dstB := dst.Bounds
+	if len(dst.Pixels) < dstB.W*dstB.H*4 || dstB.W <= 0 || dstB.H <= 0 {
+		dst.Pixels = append([]byte(nil), srcPixels...)
+		dst.Bounds = srcBounds
+		return
+	}
+
+	unionX := minInt(dstB.X, srcBounds.X)
+	unionY := minInt(dstB.Y, srcBounds.Y)
+	unionW := maxInt(dstB.X+dstB.W, srcBounds.X+srcBounds.W) - unionX
+	unionH := maxInt(dstB.Y+dstB.H, srcBounds.Y+srcBounds.H) - unionY
+
+	out := make([]byte, unionW*unionH*4)
+
+	// Copy existing dst pixels into the union canvas.
+	for ly := range dstB.H {
+		for lx := range dstB.W {
+			si := (ly*dstB.W + lx) * 4
+			ox := lx + dstB.X - unionX
+			oy := ly + dstB.Y - unionY
+			di := (oy*unionW + ox) * 4
+			out[di] = dst.Pixels[si]
+			out[di+1] = dst.Pixels[si+1]
+			out[di+2] = dst.Pixels[si+2]
+			out[di+3] = dst.Pixels[si+3]
+		}
+	}
+
+	// Composite src pixels over the union canvas (source-over).
+	for ly := range srcBounds.H {
+		for lx := range srcBounds.W {
+			si := (ly*srcBounds.W + lx) * 4
+			if si+3 >= len(srcPixels) {
+				continue
+			}
+			sA := float64(srcPixels[si+3]) / 255
+			if sA <= 0 {
+				continue
+			}
+			ox := lx + srcBounds.X - unionX
+			oy := ly + srcBounds.Y - unionY
+			di := (oy*unionW + ox) * 4
+			dA := float64(out[di+3]) / 255
+			outA := sA + dA*(1-sA)
+			if outA < 1e-9 {
+				continue
+			}
+			for c := range 3 {
+				out[di+c] = byte((float64(srcPixels[si+c])*sA + float64(out[di+c])*dA*(1-sA)) / outA)
+			}
+			out[di+3] = byte(outA * 255)
+		}
+	}
+
+	dst.Pixels = out
+	dst.Bounds = LayerBounds{X: unionX, Y: unionY, W: unionW, H: unionH}
 }

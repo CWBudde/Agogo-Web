@@ -557,3 +557,253 @@ func TestDiscreteTransform_FlipH(t *testing.T) {
 		t.Fatalf("flipH: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Floating-selection helpers unit tests
+// ---------------------------------------------------------------------------
+
+func TestExtractSelectionContent_Basic(t *testing.T) {
+	// 4×4 layer, solid red.
+	pixels := makeSolidPixels(4, 4, 255, 0, 0, 255)
+	pl := &PixelLayer{
+		layerBase: newLayerBase("L"),
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    pixels,
+	}
+	// Select the top-left 2×2 region.
+	sel := newSelection(4, 4)
+	for y := range 2 {
+		for x := range 2 {
+			sel.Mask[y*4+x] = 255
+		}
+	}
+
+	floatPixels, floatBounds, ok := extractSelectionContent(pl, sel)
+	if !ok {
+		t.Fatal("expected content to be extracted")
+	}
+	if floatBounds.W != 2 || floatBounds.H != 2 {
+		t.Fatalf("floatBounds = %v, want 2×2", floatBounds)
+	}
+	// All extracted pixels should be fully red.
+	for i := 0; i < len(floatPixels); i += 4 {
+		if floatPixels[i] != 255 || floatPixels[i+1] != 0 || floatPixels[i+2] != 0 || floatPixels[i+3] != 255 {
+			t.Fatalf("pixel[%d] = %v, want red", i/4, floatPixels[i:i+4])
+		}
+	}
+}
+
+func TestExtractSelectionContent_NoOverlap(t *testing.T) {
+	// 4×4 layer at origin; selection entirely outside layer bounds.
+	pixels := makeSolidPixels(2, 2, 255, 0, 0, 255)
+	pl := &PixelLayer{
+		layerBase: newLayerBase("L"),
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    pixels,
+	}
+	sel := newSelection(4, 4)
+	// Select only bottom-right corner, outside the 2×2 layer.
+	sel.Mask[3*4+3] = 255
+
+	_, _, ok := extractSelectionContent(pl, sel)
+	if ok {
+		t.Fatal("expected no content when selection doesn't overlap layer")
+	}
+}
+
+func TestClearSelectionContent(t *testing.T) {
+	pixels := makeSolidPixels(4, 4, 200, 100, 50, 255)
+	pl := &PixelLayer{
+		layerBase: newLayerBase("L"),
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    append([]byte(nil), pixels...),
+	}
+	// Select the entire layer.
+	sel := newSelection(4, 4)
+	for i := range sel.Mask {
+		sel.Mask[i] = 255
+	}
+
+	clearSelectionContent(pl, sel)
+
+	for i := 3; i < len(pl.Pixels); i += 4 {
+		if pl.Pixels[i] != 0 {
+			t.Fatalf("pixel alpha[%d] = %d, want 0", i/4, pl.Pixels[i])
+		}
+	}
+}
+
+func TestMergePixelLayerOnto_Basic(t *testing.T) {
+	// dst: 4×4 solid green.
+	dst := &PixelLayer{
+		layerBase: newLayerBase("dst"),
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    makeSolidPixels(4, 4, 0, 255, 0, 255),
+	}
+	// src: 2×2 solid red, overlapping top-left of dst.
+	srcPixels := makeSolidPixels(2, 2, 255, 0, 0, 255)
+	srcBounds := LayerBounds{X: 0, Y: 0, W: 2, H: 2}
+
+	mergePixelLayerOnto(dst, srcPixels, srcBounds)
+
+	if dst.Bounds.W != 4 || dst.Bounds.H != 4 {
+		t.Fatalf("dst bounds = %v, want 4×4", dst.Bounds)
+	}
+	// Top-left 2×2 should now be red (src-over fully opaque src).
+	for y := range 2 {
+		for x := range 2 {
+			r, g, b, a := pixelRGBA(dst.Pixels, 4, x, y)
+			if r != 255 || g != 0 || b != 0 || a != 255 {
+				t.Errorf("pixel(%d,%d) = (%d,%d,%d,%d), want red", x, y, r, g, b, a)
+			}
+		}
+	}
+	// Bottom-right pixels should remain green.
+	r, g, b, a := pixelRGBA(dst.Pixels, 4, 3, 3)
+	if r != 0 || g != 255 || b != 0 || a != 255 {
+		t.Errorf("pixel(3,3) = (%d,%d,%d,%d), want green", r, g, b, a)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration: floating-selection free transform
+// ---------------------------------------------------------------------------
+
+func TestFreeTransform_FloatingSelection_Commit(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	_, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "Test", Width: 8, Height: 8, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8, Background: "transparent",
+	}))
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	// Add a 4×4 solid red pixel layer at origin.
+	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    makeSolidPixels(4, 4, 255, 0, 0, 255),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := result.UIMeta.ActiveLayerID
+
+	// Select the left half (2×4).
+	_, err = DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+		Shape: SelectionShapeRect,
+		Mode:  SelectionCombineReplace,
+		Rect:  LayerBounds{X: 0, Y: 0, W: 2, H: 4},
+	}))
+	if err != nil {
+		t.Fatalf("create selection: %v", err)
+	}
+
+	// Begin free transform — should enter floating-selection mode.
+	result, err = DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	}))
+	if err != nil {
+		t.Fatalf("begin free transform: %v", err)
+	}
+	if result.UIMeta.FreeTransform == nil || !result.UIMeta.FreeTransform.Active {
+		t.Fatal("freeTransform should be active")
+	}
+	// The active layer should now be the floating layer (different from the original).
+	floatingID := result.UIMeta.ActiveLayerID
+	if floatingID == layerID {
+		t.Fatal("active layer should be the floating layer, not the original")
+	}
+
+	// Commit (identity transform — merges back in place).
+	result, err = DispatchCommand(h, commandCommitFreeTransform, `{}`)
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if result.UIMeta.FreeTransform != nil && result.UIMeta.FreeTransform.Active {
+		t.Error("freeTransform should be inactive after commit")
+	}
+	// Selection should be cleared after commit.
+	if result.UIMeta.Selection.Active {
+		t.Error("selection should be cleared after commit")
+	}
+	// Active layer should be the original source layer.
+	if result.UIMeta.ActiveLayerID != layerID {
+		t.Errorf("active layer = %q, want %q", result.UIMeta.ActiveLayerID, layerID)
+	}
+	// Floating layer should be gone (only 1 non-background layer in doc).
+	layers := result.UIMeta.Layers
+	pixelLayers := 0
+	for _, l := range layers {
+		if l.LayerType == LayerTypePixel {
+			pixelLayers++
+		}
+	}
+	if pixelLayers != 1 {
+		t.Errorf("pixel layer count = %d, want 1 after merge", pixelLayers)
+	}
+}
+
+func TestFreeTransform_FloatingSelection_Cancel(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	_, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "Test", Width: 8, Height: 8, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8, Background: "transparent",
+	}))
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	result, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    makeSolidPixels(4, 4, 0, 200, 100, 255),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID := result.UIMeta.ActiveLayerID
+
+	_, err = DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+		Shape: SelectionShapeRect,
+		Mode:  SelectionCombineReplace,
+		Rect:  LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+	}))
+	if err != nil {
+		t.Fatalf("create selection: %v", err)
+	}
+
+	_, err = DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	}))
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+
+	// Cancel — source layer should be restored, floating layer removed.
+	result, err = DispatchCommand(h, commandCancelFreeTransform, `{}`)
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if result.UIMeta.FreeTransform != nil && result.UIMeta.FreeTransform.Active {
+		t.Error("freeTransform should be inactive after cancel")
+	}
+	if result.UIMeta.ActiveLayerID != layerID {
+		t.Errorf("active layer = %q, want original %q", result.UIMeta.ActiveLayerID, layerID)
+	}
+	// Only the original pixel layer should remain.
+	pixelLayers := 0
+	for _, l := range result.UIMeta.Layers {
+		if l.LayerType == LayerTypePixel {
+			pixelLayers++
+		}
+	}
+	if pixelLayers != 1 {
+		t.Errorf("pixel layer count = %d, want 1 after cancel", pixelLayers)
+	}
+}

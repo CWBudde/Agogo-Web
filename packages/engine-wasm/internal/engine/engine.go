@@ -1835,6 +1835,48 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if !ok {
 			return RenderResult{}, fmt.Errorf("free transform only supported on pixel layers")
 		}
+		// Phase 3.3 – Floating selection: lift selected pixels into a temp layer.
+		if sel := doc.Selection; sel != nil {
+			floatPixels, floatBounds, hasContent := extractSelectionContent(pl, sel)
+			if hasContent {
+				preBegin := inst.captureSnapshot()
+				origSrcPixels := append([]byte(nil), pl.Pixels...)
+				origSrcBounds := pl.Bounds
+				clearSelectionContent(pl, sel)
+				floatingLayer := NewPixelLayer("Floating Selection", floatBounds, floatPixels)
+				if _, srcParent, srcIndex, ok2 := findLayerByID(doc.ensureLayerRoot(), layerID); ok2 {
+					insertChild(srcParent, floatingLayer, srcIndex+1)
+				}
+				doc.ActiveLayerID = floatingLayer.ID()
+				doc.ContentVersion++
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return RenderResult{}, err
+				}
+				inst.cachedDocContentVersion = -1
+				inst.freeTransform = &FreeTransformState{
+					Active:               true,
+					LayerID:              floatingLayer.ID(),
+					OriginalPixels:       append([]byte(nil), floatPixels...),
+					OriginalBounds:       floatBounds,
+					IsFloating:           true,
+					SourceLayerID:        layerID,
+					OriginalSourcePixels: origSrcPixels,
+					OriginalSourceBounds: origSrcBounds,
+					PreBeginSnapshot:     &preBegin,
+					A:                    1, B: 0, C: 0, D: 1,
+					TX:                   float64(floatBounds.X),
+					TY:                   float64(floatBounds.Y),
+					PivotX:               float64(floatBounds.X) + float64(floatBounds.W)*0.5,
+					PivotY:               float64(floatBounds.Y) + float64(floatBounds.H)*0.5,
+					Interpolation:        InterpolBilinear,
+				}
+				if payload.Mode == "warp" {
+					inst.freeTransform.WarpGrid = initWarpGridFromBounds(floatBounds)
+				}
+				break
+			}
+		}
+		// Normal (full-layer) free transform.
 		inst.freeTransform = &FreeTransformState{
 			Active:         true,
 			LayerID:        layerID,
@@ -1913,10 +1955,48 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if !ok || pl == nil {
 			return RenderResult{}, fmt.Errorf("transform layer not found or wrong type")
 		}
-		// Restore original pixels and apply with final interpolation.
+		// Compute final pixels from the original (always uses OriginalPixels as source).
 		finalPixels, finalBounds := applyPixelTransform(inst.freeTransform, inst.freeTransform.Interpolation)
-		// Wrap the commit in a history transaction.
 		ft := inst.freeTransform
+
+		if ft.IsFloating {
+			// Floating-selection commit: restore the pre-begin document state so the
+			// history "before" snapshot reflects the state before the transform started,
+			// then merge the transformed pixels back into the source layer.
+			if err := inst.restoreSnapshot(*ft.PreBeginSnapshot); err != nil {
+				return RenderResult{}, err
+			}
+			command := &snapshotCommand{
+				description: "Transform Selection",
+				applyFn: func(inst *instance) (snapshot, error) {
+					d := inst.manager.Active()
+					if d == nil {
+						return snapshot{}, fmt.Errorf("no active document")
+					}
+					srcLayer := d.findLayer(ft.SourceLayerID)
+					sl, ok := srcLayer.(*PixelLayer)
+					if !ok || sl == nil {
+						return snapshot{}, fmt.Errorf("source layer not found")
+					}
+					mergePixelLayerOnto(sl, finalPixels, finalBounds)
+					d.Selection = nil
+					d.ActiveLayerID = ft.SourceLayerID
+					d.ContentVersion++
+					if err := inst.manager.ReplaceActive(d); err != nil {
+						return snapshot{}, err
+					}
+					return inst.captureSnapshot(), nil
+				},
+			}
+			if err := inst.history.Execute(inst, command); err != nil {
+				return RenderResult{}, err
+			}
+			inst.freeTransform = nil
+			inst.cachedDocContentVersion = -1
+			break
+		}
+
+		// Normal (full-layer) commit.
 		command := &snapshotCommand{
 			description: "Free Transform",
 			applyFn: func(inst *instance) (snapshot, error) {
@@ -1953,14 +2033,27 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if doc == nil {
 			return RenderResult{}, fmt.Errorf("no active document")
 		}
-		layer := doc.findLayer(inst.freeTransform.LayerID)
-		if pl, ok := layer.(*PixelLayer); ok && pl != nil {
-			pl.Pixels = inst.freeTransform.OriginalPixels
-			pl.Bounds = inst.freeTransform.OriginalBounds
-			doc.ContentVersion++
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return RenderResult{}, err
+		ft := inst.freeTransform
+		if ft.IsFloating {
+			// Restore source layer to its pre-begin state and remove floating layer.
+			if srcLayer := doc.findLayer(ft.SourceLayerID); srcLayer != nil {
+				if sl, ok := srcLayer.(*PixelLayer); ok {
+					sl.Pixels = ft.OriginalSourcePixels
+					sl.Bounds = ft.OriginalSourceBounds
+				}
 			}
+			_ = doc.DeleteLayer(ft.LayerID)
+			doc.ActiveLayerID = ft.SourceLayerID
+		} else {
+			layer := doc.findLayer(ft.LayerID)
+			if pl, ok := layer.(*PixelLayer); ok && pl != nil {
+				pl.Pixels = ft.OriginalPixels
+				pl.Bounds = ft.OriginalBounds
+			}
+		}
+		doc.ContentVersion++
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return RenderResult{}, err
 		}
 		inst.freeTransform = nil
 		inst.cachedDocContentVersion = -1
