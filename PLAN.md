@@ -306,10 +306,10 @@
 - [x] **Brush Tool (B):**
   - [x] Uses full brush engine (size, hardness, flow, spacing, pressure dynamics)
   - [x] Paints with foreground color
-  - [ ] Shortcut: `[`/`]` resize, `Shift+[`/`]` hardness
-- [ ] **Pencil Tool:**
-  - [ ] Hard-edge dabs only (no anti-aliasing), `hardness` locked to 100%
-  - [ ] Auto-erase mode (paints background color if stroke begins on foreground color)
+  - [x] Shortcut: `[`/`]` resize, `Shift+[`/`]` hardness
+- [x] **Pencil Tool:**
+  - [x] Hard-edge dabs only (no anti-aliasing), `hardness` locked to 100%
+  - [x] Auto-erase mode (paints background color if stroke begins on foreground color)
 - [ ] **Eraser Tool (E):**
   - [ ] Normal mode: paints transparency (clears alpha) on pixel layers
   - [ ] Background Eraser: erases to background color (or transparency based on sampling)

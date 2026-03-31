@@ -2597,10 +2597,25 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	before := make([]byte, len(layer.Pixels))
 	copy(before, layer.Pixels)
 
+	brushParams := p.Brush
+	if brushParams.AutoErase {
+		// Sample the active layer pixel at the stroke start.
+		// If it matches the brush (foreground) color, switch to background color.
+		px := int(math.Round(p.X)) - layer.Bounds.X
+		py := int(math.Round(p.Y)) - layer.Bounds.Y
+		if px >= 0 && py >= 0 && px < layer.Bounds.W && py < layer.Bounds.H {
+			idx := (py*layer.Bounds.W + px) * 4
+			fg := brushParams.Color
+			if layer.Pixels[idx] == fg[0] && layer.Pixels[idx+1] == fg[1] && layer.Pixels[idx+2] == fg[2] {
+				brushParams.Color = inst.backgroundColor
+			}
+		}
+	}
+
 	inst.paintStroke = &activePaintStroke{
 		layerID:      layer.ID(),
-		params:       p.Brush,
-		stabilizer:   newStabilizer(p.Brush.Stabilizer),
+		params:       brushParams,
+		stabilizer:   newStabilizer(brushParams.Stabilizer),
 		beforePixels: before,
 	}
 
@@ -2608,7 +2623,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	if pressure == 0 {
 		pressure = 0.5
 	}
-	effective := applyPressure(p.Brush, pressure)
+	effective := applyPressure(brushParams, pressure)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)

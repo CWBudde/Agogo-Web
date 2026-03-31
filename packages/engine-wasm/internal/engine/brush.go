@@ -19,6 +19,7 @@ type BrushParams struct {
 	Scatter      float64  `json:"scatter,omitempty"`      // Max random dab offset as a fraction of brush diameter (0 = none)
 	Stabilizer   int      `json:"stabilizer,omitempty"`   // Moving-average lag: number of past input points to average (0 = off)
 	SampleMerged bool     `json:"sampleMerged,omitempty"` // Sample composite (all layers) rather than active layer when reading pixels
+	AutoErase    bool     `json:"autoErase,omitempty"`    // If stroke starts on foreground color, paint with background color instead
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
