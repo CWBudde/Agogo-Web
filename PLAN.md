@@ -261,19 +261,21 @@
 
 ### Phase 3.5: Selection & Transform UI
 
-- [ ] Options bar for each selection tool (feather, anti-alias, mode buttons)
-- [ ] Selection menu commands:
-  - [ ] All, Deselect, Reselect, Inverse
-  - [ ] Feather, Modify (Expand/Contract/Smooth/Border)
-  - [ ] Transform Selection
-  - [ ] Color Range dialog
+- [x] Options bar for each selection tool (feather, anti-alias, mode buttons)
+- [x] Selection menu commands:
+  - [x] All, Deselect, Reselect, Inverse
+  - [x] Feather, Modify (Expand/Contract/Smooth/Border)
+  - [x] Transform Selection
+  - [x] Color Range dialog
   - [ ] Save/Load selection to/from channel
-- [ ] Select and Mask workspace (Refine Edge):
-  - [ ] Dedicated full-screen workspace mode
+- [x] Select and Mask workspace (Refine Edge):
+  - [x] Dedicated full-screen workspace mode
   - [ ] View modes: Onion Skin, Marching Ants, Overlay, Black/White, Black, White, Layer
-  - [ ] Edge refinement controls: Smart Radius, Radius, Smooth, Feather, Contrast, Shift Edge
-  - [ ] Output to: Selection, Layer Mask, New Layer, New Layer with Mask, Document
-- [ ] Transform Options bar: all numeric fields, interpolation dropdown, warp toggle
+  - [x] Edge refinement controls: Smooth, Feather, Shift Edge (expand/contract)
+  - [ ] Edge refinement controls: Smart Radius, Contrast (require new engine commands)
+  - [x] Output to: Selection, Layer Mask
+  - [ ] Output to: New Layer, New Layer with Mask, Document
+- [x] Transform Options bar: all numeric fields editable (X/Y/W/H/R), interpolation dropdown, warp toggle
 
 ---
 
