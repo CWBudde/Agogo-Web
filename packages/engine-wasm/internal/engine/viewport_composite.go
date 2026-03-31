@@ -26,11 +26,10 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 	halfCanvasW := float64(canvasW) * 0.5
 	halfCanvasH := float64(canvasH) * 0.5
 
-	// Use bilinear interpolation whenever zoom < 1 (downsampling) or the
-	// viewport is rotated. At zoom ≥ 1 with no rotation nearest-neighbour
-	// gives pixel-perfect display of individual document pixels, which is the
-	// correct behaviour for a raster editor at 100 %+.
-	useBilinear := zoom < 1.0 || vp.Rotation != 0
+	// Use bilinear interpolation below 4× zoom or when the viewport is rotated.
+	// At 4× and above, nearest-neighbour gives pixel-perfect blocks that are
+	// the expected look when inspecting individual document pixels up close.
+	useBilinear := zoom < 4.0 || vp.Rotation != 0
 
 	// Compute the canvas-space bounding box of the document rectangle and clamp
 	// to canvas bounds. At zoom < 1 this skips large areas of empty canvas; at
