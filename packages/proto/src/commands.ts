@@ -68,6 +68,7 @@ export enum CommandID {
   RotateLayer90CW = 0x0306,
   RotateLayer90CCW = 0x0307,
   RotateLayer180 = 0x0308,
+  TransformAgain = 0x0309,
 
   // Phase 3.4: Crop
   BeginCrop = 0x0320,

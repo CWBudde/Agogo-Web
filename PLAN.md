@@ -241,7 +241,7 @@
   - [x] Scale, Rotate, Skew, Distort, Perspective, Warp — each begins free transform (Warp also initialises the 4×4 mesh via BeginFreeTransformPayload.Mode="warp")
   - [x] Flip Horizontal / Flip Vertical
   - [x] Rotate 90° CW/CCW, 180°
-  - [ ] Again (repeat last transform)
+  - [x] Again (repeat last transform)
 
 ### Phase 3.4: Crop Tool
 
