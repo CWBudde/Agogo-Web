@@ -19,7 +19,10 @@ type BrushParams struct {
 	Scatter      float64  `json:"scatter,omitempty"`      // Max random dab offset as a fraction of brush diameter (0 = none)
 	Stabilizer   int      `json:"stabilizer,omitempty"`   // Moving-average lag: number of past input points to average (0 = off)
 	SampleMerged bool     `json:"sampleMerged,omitempty"` // Sample composite (all layers) rather than active layer when reading pixels
-	AutoErase    bool     `json:"autoErase,omitempty"`    // If stroke starts on foreground color, paint with background color instead
+	AutoErase       bool    `json:"autoErase,omitempty"`       // If stroke starts on foreground color, paint with background color instead
+	Erase           bool    `json:"erase,omitempty"`           // Erase to transparency (uses dst-out compositing)
+	EraseBackground bool    `json:"eraseBackground,omitempty"` // Erase only pixels matching the sampled base color
+	EraseTolerance  float64 `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -101,8 +104,11 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish 
 	renderer.Attach(layer.Pixels, w, h, w*4)
 	renderer.NoLine()
 
-	// Apply blend mode (defaults to normal src-over when empty).
-	if p.BlendMode != "" {
+	// Apply blend mode. Normal erase uses dst-out (removes destination alpha
+	// proportionally to the brush shape). Other blend modes use the string map.
+	if p.Erase {
+		renderer.BlendMode(agglib.BlendDstOut)
+	} else if p.BlendMode != "" {
 		renderer.BlendMode(agglib.StringToBlendMode(p.BlendMode))
 	}
 
@@ -124,6 +130,11 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish 
 	renderer.AddEllipse(0, 0, radius, radius, agglib.CCW)
 
 	r, g, b, a := p.Color[0], p.Color[1], p.Color[2], p.Color[3]
+	// For dst-out erasing the color channels are ignored; only alpha drives the erasure.
+	// Use white so the intent is clear and AGG's internal path is straightforward.
+	if p.Erase {
+		r, g, b, a = 255, 255, 255, 255
+	}
 
 	if p.WetEdges {
 		// Wet edges: paint accumulates at the stroke boundary (watercolour effect).
@@ -166,6 +177,103 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish 
 	c2 := agglib.NewColor(r, g, b, 0)
 	renderer.FillRadialGradient(0, 0, radius, c1, c2, 1.0)
 	renderer.DrawPath(agglib.FillOnly)
+}
+
+// EraseBackgroundDab erases pixels within the dab area whose color is within
+// p.EraseTolerance (Euclidean RGB distance) of baseColor. Pixels outside the
+// tolerance band are left untouched. The erasure amount is modulated by the
+// brush mask alpha (hardness/gradient) and p.Flow.
+//
+// Unlike PaintDab this is a direct per-pixel operation — no AGG compositing —
+// because the erase decision depends on each pixel's existing color.
+func EraseBackgroundDab(layer *PixelLayer, cx, cy float64, p BrushParams, baseColor [4]uint8) {
+	w := layer.Bounds.W
+	h := layer.Bounds.H
+	if w <= 0 || h <= 0 {
+		return
+	}
+	lx := cx - float64(layer.Bounds.X)
+	ly := cy - float64(layer.Bounds.Y)
+
+	radius := p.Size * 0.5
+	if radius < 0.5 {
+		radius = 0.5
+	}
+	flow := clampFloat(p.Flow, 0, 1)
+	tolerance := clampFloat(p.EraseTolerance, 0, 442)
+
+	// Axis-aligned bounding box of the dab (conservative — use full radius).
+	x0 := int(lx-radius) - 1
+	y0 := int(ly-radius) - 1
+	x1 := int(lx+radius) + 2
+	y1 := int(ly+radius) + 2
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > w {
+		x1 = w
+	}
+	if y1 > h {
+		y1 = h
+	}
+
+	hardness := clampFloat(p.Hardness, 0, 1)
+
+	for py := y0; py < y1; py++ {
+		for px := x0; px < x1; px++ {
+			// Normalised distance from dab centre.
+			dx := float64(px) - lx
+			dy := float64(py) - ly
+			dist := math.Sqrt(dx*dx+dy*dy) / radius
+			if dist > 1.0 {
+				continue
+			}
+
+			// Brush mask alpha: 1.0 in the core, falls off toward the edge.
+			var maskAlpha float64
+			if hardness >= 1.0 || dist <= hardness {
+				maskAlpha = 1.0
+			} else {
+				// Linear falloff from hardness radius to edge.
+				maskAlpha = 1.0 - (dist-hardness)/(1.0-hardness)
+			}
+			if maskAlpha <= 0 {
+				continue
+			}
+
+			// Check destination color against base color.
+			idx := (py*w + px) * 4
+			if layer.Pixels[idx+3] == 0 {
+				continue // already transparent
+			}
+			pix := layer.Pixels[idx : idx+4]
+			dist2base := colorDistance(pix, baseColor)
+			if tolerance == 0 && dist2base > 0 {
+				continue
+			}
+			if tolerance > 0 && dist2base > tolerance {
+				continue
+			}
+
+			// Soft fade: pixels closer to baseColor are erased more.
+			var coverage float64
+			if tolerance == 0 {
+				coverage = 1.0
+			} else {
+				coverage = 1.0 - dist2base/tolerance
+			}
+
+			eraseAmount := maskAlpha * flow * coverage
+			newAlpha := float64(pix[3]) * (1.0 - eraseAmount)
+			if newAlpha < 0 {
+				newAlpha = 0
+			}
+			layer.Pixels[idx+3] = uint8(newAlpha)
+		}
+	}
 }
 
 // applyPressure scales brush Size and Flow by the pointer pressure value (0–1).

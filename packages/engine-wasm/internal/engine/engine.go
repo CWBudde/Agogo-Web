@@ -90,6 +90,7 @@ const (
 	commandSetForegroundColor       = 0x0410
 	commandSetBackgroundColor       = 0x0411
 	commandSampleMergedColor        = 0x0412
+	commandMagicErase               = 0x0413
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -265,6 +266,15 @@ type SampleMergedColorPayload struct {
 	Y float64 `json:"y"`
 }
 
+// MagicErasePayload describes a one-click flood-clear by color similarity.
+type MagicErasePayload struct {
+	X            float64 `json:"x"`            // document-space click position
+	Y            float64 `json:"y"`
+	Tolerance    float64 `json:"tolerance"`    // 0–255 Euclidean RGB distance
+	Contiguous   bool    `json:"contiguous"`   // true = flood-fill, false = all matching pixels
+	SampleMerged bool    `json:"sampleMerged"` // sample composite instead of active layer
+}
+
 type BeginPaintStrokePayload struct {
 	X        float64     `json:"x"`
 	Y        float64     `json:"y"`
@@ -296,14 +306,15 @@ type JumpHistoryPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID      string
-	params       BrushParams
-	strokeState  brushStrokeState
-	stabilizer   stabilizerState
-	beforePixels []byte // snapshot of layer pixels before stroke started (for undo)
-	dirtyMin     [2]int // min corner of painted dirty rect (layer-local)
-	dirtyMax     [2]int // max corner of painted dirty rect (layer-local)
-	hasDirty     bool
+	layerID         string
+	params          BrushParams
+	strokeState     brushStrokeState
+	stabilizer      stabilizerState
+	beforePixels    []byte    // snapshot of layer pixels before stroke started (for undo)
+	dirtyMin        [2]int    // min corner of painted dirty rect (layer-local)
+	dirtyMax        [2]int    // max corner of painted dirty rect (layer-local)
+	hasDirty        bool
+	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
 }
 
 type pointerDragState struct {
@@ -2356,6 +2367,21 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			}
 		}
 
+	case commandMagicErase:
+		var payload MagicErasePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc != nil {
+			layer := findPixelLayer(doc, doc.ActiveLayerID)
+			if layer != nil {
+				if err := inst.handleMagicErase(payload, doc, layer); err != nil {
+					return RenderResult{}, err
+				}
+			}
+		}
+
 	default:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
@@ -2612,12 +2638,24 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		}
 	}
 
-	inst.paintStroke = &activePaintStroke{
+	stroke := &activePaintStroke{
 		layerID:      layer.ID(),
 		params:       brushParams,
 		stabilizer:   newStabilizer(brushParams.Stabilizer),
 		beforePixels: before,
 	}
+
+	// Background eraser: sample the pixel under the pointer once at stroke begin.
+	if brushParams.EraseBackground {
+		px := int(math.Round(p.X)) - layer.Bounds.X
+		py := int(math.Round(p.Y)) - layer.Bounds.Y
+		if px >= 0 && py >= 0 && px < layer.Bounds.W && py < layer.Bounds.H {
+			idx := (py*layer.Bounds.W + px) * 4
+			stroke.bgEraseBaseColor = [4]uint8{layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3]}
+		}
+	}
+
+	inst.paintStroke = stroke
 
 	pressure := p.Pressure
 	if pressure == 0 {
@@ -2629,7 +2667,11 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
-		PaintDab(layer, dx, dy, effective, azimuth, squish)
+		if brushParams.EraseBackground {
+			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
+		} else {
+			PaintDab(layer, dx, dy, effective, azimuth, squish)
+		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
 	doc.ContentVersion++
@@ -2657,7 +2699,11 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
-		PaintDab(layer, dx, dy, effective, azimuth, squish)
+		if inst.paintStroke.params.EraseBackground {
+			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
+		} else {
+			PaintDab(layer, dx, dy, effective, azimuth, squish)
+		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
 	if len(dabs) > 0 {
@@ -2703,6 +2749,99 @@ func (inst *instance) handleEndPaintStroke() {
 		delta: delta,
 	}
 	inst.history.push(cmd)
+}
+
+// handleMagicErase implements the Magic Eraser: flood-fills (or global-selects)
+// pixels within tolerance of the clicked color and clears their alpha to 0.
+// The operation is undoable.
+func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer *PixelLayer) error {
+	// Determine the source surface for color sampling.
+	var surface []byte
+	if p.SampleMerged {
+		surface = inst.compositeSurface(doc)
+	} else {
+		surface = layer.Pixels
+	}
+
+	// Convert document-space click to pixel coordinates on the source surface.
+	var srcW, srcH int
+	var offX, offY int
+	if p.SampleMerged {
+		srcW, srcH = doc.Width, doc.Height
+	} else {
+		srcW, srcH = layer.Bounds.W, layer.Bounds.H
+		offX, offY = layer.Bounds.X, layer.Bounds.Y
+	}
+	px := int(math.Round(p.X)) - offX
+	py := int(math.Round(p.Y)) - offY
+	if px < 0 || py < 0 || px >= srcW || py >= srcH {
+		return nil
+	}
+
+	// Sample the target color.
+	targetColor, ok := sampleSurfaceColor(surface, srcW, srcH, px, py)
+	if !ok {
+		return nil
+	}
+
+	// Build a mask of pixels to erase (reuse selection logic, then apply to layer).
+	var mask *Selection
+	if p.Contiguous {
+		mask = magicWandFloodFill(surface, srcW, srcH, px, py, p.Tolerance)
+	} else {
+		mask = selectColorRange(surface, srcW, srcH, targetColor, p.Tolerance)
+	}
+	if mask == nil {
+		return nil
+	}
+
+	// Snapshot layer pixels for undo.
+	before := make([]byte, len(layer.Pixels))
+	copy(before, layer.Pixels)
+
+	// Apply mask to layer alpha: multiply dest alpha by (1 - mask/255).
+	lw := layer.Bounds.W
+	lh := layer.Bounds.H
+	for ly := range lh {
+		for lx := range lw {
+			// Map layer-local coordinates to mask coordinates.
+			maskX := lx + layer.Bounds.X - offX
+			maskY := ly + layer.Bounds.Y - offY
+			if maskX < 0 || maskY < 0 || maskX >= mask.Width || maskY >= mask.Height {
+				continue
+			}
+			coverage := float64(mask.Mask[maskY*mask.Width+maskX]) / 255.0
+			if coverage <= 0 {
+				continue
+			}
+			idx := (ly*lw + lx) * 4
+			newAlpha := float64(layer.Pixels[idx+3]) * (1.0 - coverage)
+			if newAlpha < 0 {
+				newAlpha = 0
+			}
+			layer.Pixels[idx+3] = uint8(newAlpha)
+		}
+	}
+	doc.ContentVersion++
+
+	// Record undo.
+	layerID := layer.ID()
+	delta, err := NewPixelDelta(before, layer.Pixels, lw, lh, DirtyRect{0, 0, lw, lh})
+	if err != nil {
+		return nil
+	}
+	inst.history.push(&pixelDeltaCommand{
+		description: "Magic Eraser",
+		target: func(inst *instance) []byte {
+			l := findPixelLayer(inst.manager.activeMut(), layerID)
+			if l == nil {
+				return nil
+			}
+			return l.Pixels
+		},
+		delta: delta,
+	})
+	return nil
 }
 
 func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {

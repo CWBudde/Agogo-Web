@@ -587,3 +587,142 @@ func TestPencilTool_HardnessOneIsFullyOpaque(t *testing.T) {
 		t.Errorf("pencil center alpha = %d, want ~255 (hardness=1.0)", layer.Pixels[idx+3])
 	}
 }
+
+// ── Eraser ────────────────────────────────────────────────────────────────────
+
+func TestNormalErase_RemovesAlpha(t *testing.T) {
+	// Paint a solid red dab, then erase the center — center alpha must drop.
+	const sz = 40
+	bounds := LayerBounds{X: 0, Y: 0, W: sz, H: sz}
+	layer := NewPixelLayer("test", bounds, make([]byte, sz*sz*4))
+
+	paint := BrushParams{Size: 30, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	PaintDab(layer, float64(sz/2), float64(sz/2), paint, 0, 1)
+
+	centerIdx := (sz/2*sz + sz/2) * 4
+	if layer.Pixels[centerIdx+3] < 250 {
+		t.Fatalf("pre-erase: center alpha = %d, want ~255", layer.Pixels[centerIdx+3])
+	}
+
+	erase := BrushParams{Size: 20, Hardness: 1.0, Flow: 1.0, Erase: true}
+	PaintDab(layer, float64(sz/2), float64(sz/2), erase, 0, 1)
+
+	if layer.Pixels[centerIdx+3] > 10 {
+		t.Errorf("after erase: center alpha = %d, want ~0", layer.Pixels[centerIdx+3])
+	}
+}
+
+func TestNormalErase_PartialFlow(t *testing.T) {
+	// flow=0.5 should reduce alpha to roughly half, not fully erase.
+	const sz = 40
+	bounds := LayerBounds{X: 0, Y: 0, W: sz, H: sz}
+	layer := NewPixelLayer("test", bounds, make([]byte, sz*sz*4))
+
+	paint := BrushParams{Size: 30, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	PaintDab(layer, float64(sz/2), float64(sz/2), paint, 0, 1)
+
+	erase := BrushParams{Size: 20, Hardness: 1.0, Flow: 0.5, Erase: true}
+	PaintDab(layer, float64(sz/2), float64(sz/2), erase, 0, 1)
+
+	centerIdx := (sz/2*sz + sz/2) * 4
+	alpha := layer.Pixels[centerIdx+3]
+	// dst-out with src_alpha=~128: result = 255 * (1 - 128/255) ≈ 127
+	if alpha < 100 || alpha > 160 {
+		t.Errorf("partial erase: center alpha = %d, want ~127", alpha)
+	}
+}
+
+func TestEraseBackground_MatchingColorErased(t *testing.T) {
+	// Layer filled with red. Background erase with red as base color should erase.
+	const sz = 40
+	red := [4]uint8{255, 0, 0, 255}
+	pixels := make([]byte, sz*sz*4)
+	for i := range sz * sz {
+		pixels[i*4] = red[0]
+		pixels[i*4+1] = red[1]
+		pixels[i*4+2] = red[2]
+		pixels[i*4+3] = red[3]
+	}
+	layer := NewPixelLayer("test", LayerBounds{X: 0, Y: 0, W: sz, H: sz}, pixels)
+
+	params := BrushParams{Size: 20, Hardness: 1.0, Flow: 1.0, EraseBackground: true, EraseTolerance: 30}
+	EraseBackgroundDab(layer, float64(sz/2), float64(sz/2), params, red)
+
+	centerIdx := (sz/2*sz + sz/2) * 4
+	if layer.Pixels[centerIdx+3] > 10 {
+		t.Errorf("background erase: center alpha = %d, want ~0 (red matches base)", layer.Pixels[centerIdx+3])
+	}
+}
+
+func TestEraseBackground_NonMatchingColorKept(t *testing.T) {
+	// Layer filled with blue. Background erase with red base color should NOT erase blue.
+	const sz = 40
+	blue := [4]uint8{0, 0, 255, 255}
+	red := [4]uint8{255, 0, 0, 255}
+	pixels := make([]byte, sz*sz*4)
+	for i := range sz * sz {
+		pixels[i*4] = blue[0]
+		pixels[i*4+1] = blue[1]
+		pixels[i*4+2] = blue[2]
+		pixels[i*4+3] = blue[3]
+	}
+	layer := NewPixelLayer("test", LayerBounds{X: 0, Y: 0, W: sz, H: sz}, pixels)
+
+	params := BrushParams{Size: 20, Hardness: 1.0, Flow: 1.0, EraseBackground: true, EraseTolerance: 30}
+	EraseBackgroundDab(layer, float64(sz/2), float64(sz/2), params, red)
+
+	centerIdx := (sz/2*sz + sz/2) * 4
+	if layer.Pixels[centerIdx+3] < 250 {
+		t.Errorf("background erase: blue pixel alpha = %d, want ~255 (outside tolerance)", layer.Pixels[centerIdx+3])
+	}
+}
+
+func TestMagicErase_ClearsMatchingPixels(t *testing.T) {
+	const w, h = 50, 50
+	red := [4]uint8{255, 0, 0, 255}
+
+	inst, _, layerID := newPencilTestInstance(t, w, h, red)
+
+	payload := MagicErasePayload{
+		X: float64(w / 2), Y: float64(h / 2),
+		Tolerance:  30,
+		Contiguous: true,
+	}
+	doc := inst.manager.activeMut()
+	layer := findPixelLayer(doc, layerID)
+	if err := inst.handleMagicErase(payload, doc, layer); err != nil {
+		t.Fatalf("handleMagicErase: %v", err)
+	}
+
+	layer = findPixelLayer(inst.manager.activeMut(), layerID)
+	for i := 3; i < len(layer.Pixels); i += 4 {
+		if layer.Pixels[i] != 0 {
+			t.Fatalf("pixel %d alpha = %d after magic erase, want 0", i/4, layer.Pixels[i])
+		}
+	}
+}
+
+func TestMagicErase_IsUndoable(t *testing.T) {
+	const w, h = 50, 50
+	red := [4]uint8{255, 0, 0, 255}
+	inst, _, layerID := newPencilTestInstance(t, w, h, red)
+
+	payload := MagicErasePayload{X: float64(w / 2), Y: float64(h / 2), Tolerance: 30, Contiguous: true}
+	doc := inst.manager.activeMut()
+	layer := findPixelLayer(doc, layerID)
+	if err := inst.handleMagicErase(payload, doc, layer); err != nil {
+		t.Fatalf("handleMagicErase: %v", err)
+	}
+
+	if err := inst.history.Undo(inst); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	inst.manager.activeMut().ContentVersion++
+
+	layer = findPixelLayer(inst.manager.activeMut(), layerID)
+	for i := 3; i < len(layer.Pixels); i += 4 {
+		if layer.Pixels[i] != red[3] {
+			t.Fatalf("pixel %d alpha = %d after undo, want %d", i/4, layer.Pixels[i], red[3])
+		}
+	}
+}

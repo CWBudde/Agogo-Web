@@ -310,10 +310,10 @@
 - [x] **Pencil Tool:**
   - [x] Hard-edge dabs only (no anti-aliasing), `hardness` locked to 100%
   - [x] Auto-erase mode (paints background color if stroke begins on foreground color)
-- [ ] **Eraser Tool (E):**
-  - [ ] Normal mode: paints transparency (clears alpha) on pixel layers
-  - [ ] Background Eraser: erases to background color (or transparency based on sampling)
-  - [ ] Magic Eraser: one-click flood-clear by color similarity (like Paint Bucket but erases)
+- [x] **Eraser Tool (E):**
+  - [x] Normal mode: paints transparency (clears alpha) on pixel layers
+  - [x] Background Eraser: erases to background color (or transparency based on sampling)
+  - [x] Magic Eraser: one-click flood-clear by color similarity (like Paint Bucket but erases)
 - [ ] **Mixer Brush (later, Phase 4.2b):**
   - [ ] Simulates wet paint mixing; deferred
 - [ ] **Clone Stamp (S) (later, Phase 4.2b):**
