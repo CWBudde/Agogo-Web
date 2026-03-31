@@ -16,6 +16,8 @@ const (
 	InterpolBicubic  InterpolMode = "bicubic"
 )
 
+const transformDispatchEpsilon = 1e-6
+
 // LastTransformRecord stores the parameters of the most recently committed
 // transform so that Transform Again (Ctrl+Shift+T) can replay it on any layer.
 //
@@ -57,6 +59,7 @@ type FreeTransformState struct {
 	Active         bool
 	LayerID        string
 	OriginalPixels []byte
+	ScratchPixels  []byte
 	OriginalBounds LayerBounds
 	A, B, C, D     float64
 	TX, TY         float64
@@ -467,6 +470,43 @@ func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
 	return out
 }
 
+func acquireTransformPixels(s *FreeTransformState, size int) []byte {
+	if size <= 0 {
+		return nil
+	}
+	if cap(s.ScratchPixels) < size {
+		s.ScratchPixels = make([]byte, size)
+	} else {
+		s.ScratchPixels = s.ScratchPixels[:size]
+		clear(s.ScratchPixels)
+	}
+	return s.ScratchPixels
+}
+
+func isNearlyZero(value float64) bool {
+	return math.Abs(value) <= transformDispatchEpsilon
+}
+
+func isNearlyInteger(value float64) bool {
+	return math.Abs(value-math.Round(value)) <= transformDispatchEpsilon
+}
+
+func isPureIntegerTranslate(s *FreeTransformState) bool {
+	return math.Abs(s.A-1) <= transformDispatchEpsilon &&
+		math.Abs(s.D-1) <= transformDispatchEpsilon &&
+		isNearlyZero(s.B) &&
+		isNearlyZero(s.C) &&
+		isNearlyInteger(s.TX) &&
+		isNearlyInteger(s.TY)
+}
+
+func isAxisAlignedPositiveScale(s *FreeTransformState) bool {
+	return s.A > transformDispatchEpsilon &&
+		s.D > transformDispatchEpsilon &&
+		isNearlyZero(s.B) &&
+		isNearlyZero(s.C)
+}
+
 // applyPixelTransform creates new pixel data by applying the affine transform
 // (or perspective warp when DistortCorners is set) stored in s. The new layer
 // bounds (in document space) are returned alongside the pixel buffer. interp
@@ -489,7 +529,7 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 	outW := int(math.Ceil(maxX)) - outX
 	outH := int(math.Ceil(maxY)) - outY
 	if outW <= 0 || outH <= 0 {
-		return make([]byte, origW*origH*4), s.OriginalBounds
+		return acquireTransformPixels(s, origW*origH*4), s.OriginalBounds
 	}
 	const maxTransformDim = 32768
 	if outW > maxTransformDim || outH > maxTransformDim {
@@ -497,7 +537,7 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		outH = minInt(outH, maxTransformDim)
 	}
 
-	newPixels = make([]byte, outW*outH*4)
+	newPixels = acquireTransformPixels(s, outW*outH*4)
 
 	// aggRenderer creates an AGG canvas targeting newPixels with the appropriate filter.
 	newAGGRenderer := func() (*agglib.Agg2D, *agglib.Image) {
@@ -557,18 +597,32 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
 
 	} else {
-		// --- Affine warp via AGG parallelogram mapping ---
+		// --- Affine warp dispatch ---
 		if math.Abs(s.det()) < 1e-10 {
 			return newPixels, LayerBounds{X: outX, Y: outY, W: outW, H: outH}
 		}
-		renderer, srcImg := newAGGRenderer()
 		corners := s.transformedCorners()
-		parallelogram := []float64{
-			corners[0][0] - float64(outX), corners[0][1] - float64(outY),
-			corners[1][0] - float64(outX), corners[1][1] - float64(outY),
-			corners[2][0] - float64(outX), corners[2][1] - float64(outY),
+		if isPureIntegerTranslate(s) && outW == origW && outH == origH {
+			copy(newPixels, s.OriginalPixels)
+		} else {
+			renderer, srcImg := newAGGRenderer()
+			if isAxisAlignedPositiveScale(s) {
+				_ = renderer.TransformImageSimple(
+					srcImg,
+					corners[0][0]-float64(outX),
+					corners[0][1]-float64(outY),
+					corners[2][0]-float64(outX),
+					corners[2][1]-float64(outY),
+				)
+			} else {
+				parallelogram := []float64{
+					corners[0][0] - float64(outX), corners[0][1] - float64(outY),
+					corners[1][0] - float64(outX), corners[1][1] - float64(outY),
+					corners[2][0] - float64(outX), corners[2][1] - float64(outY),
+				}
+				_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, parallelogram)
+			}
 		}
-		_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, parallelogram)
 	}
 
 	newBounds = LayerBounds{X: outX, Y: outY, W: outW, H: outH}
