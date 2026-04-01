@@ -94,6 +94,30 @@ func TestCoreAdjustmentKindsAffectPixels(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:   "invert",
+			kind:   "invert",
+			params: `{}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				want := [4]byte{255 - base[0], 255 - base[1], 255 - base[2], base[3]}
+				if got != want {
+					t.Fatalf("invert pixel = %v, want %v", got, want)
+				}
+			},
+		},
+		{
+			name:   "gradient-map",
+			kind:   "gradient-map",
+			params: `{"stops":[{"position":0,"color":[0,0,0,255]},{"position":1,"color":[255,0,0,255]}]}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				if got[0] <= got[1] || got[0] <= got[2] {
+					t.Fatalf("gradient-map pixel = %v, want red-dominant mapping", got)
+				}
+				if got[3] != base[3] {
+					t.Fatalf("gradient-map alpha = %d, want source alpha %d", got[3], base[3])
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {

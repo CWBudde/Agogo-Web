@@ -112,6 +112,10 @@ func registerCoreAdjustmentTransforms() {
 	RegisterAdjustmentFactory("blackandwhite", blackWhiteAdjustmentFactory)
 	RegisterAdjustmentFactory("black & white", blackWhiteAdjustmentFactory)
 	RegisterAdjustmentFactory("black/white", blackWhiteAdjustmentFactory)
+	RegisterAdjustmentFactory("invert", invertAdjustmentFactory)
+	RegisterAdjustmentFactory("gradient-map", gradientMapAdjustmentFactory)
+	RegisterAdjustmentFactory("gradientmap", gradientMapAdjustmentFactory)
+	RegisterAdjustmentFactory("gradient map", gradientMapAdjustmentFactory)
 }
 
 func levelsAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
@@ -316,6 +320,40 @@ func blackWhiteAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, e
 
 		rr, gg, bb := unitToRGBBytes(gray, gray, gray)
 		return rr, gg, bb, a, nil
+	}, nil
+}
+
+func invertAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	_, err := decodeAdjustmentParams[struct{}](params)
+	if err != nil {
+		return nil, err
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		return 255 - r, 255 - g, 255 - b, a, nil
+	}, nil
+}
+
+type gradientMapParams struct {
+	Stops   []GradientStopPayload `json:"stops,omitempty"`
+	Reverse bool                  `json:"reverse,omitempty"`
+}
+
+func gradientMapAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[gradientMapParams](params)
+	if err != nil {
+		return nil, err
+	}
+
+	lut := buildGradientLUT(cfg.Stops, [4]uint8{0, 0, 0, 255}, [4]uint8{255, 255, 255, 255})
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		rf, gf, bf := rgbBytesToUnit(r, g, b)
+		lum := luminosity([3]float64{rf, gf, bf})
+		if cfg.Reverse {
+			lum = 1 - lum
+		}
+		mapped := gradientColorAt(lut, lum)
+		mapped[3] = uint8((uint16(mapped[3]) * uint16(a)) / 255)
+		return mapped[0], mapped[1], mapped[2], mapped[3], nil
 	}, nil
 }
 

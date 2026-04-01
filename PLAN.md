@@ -852,14 +852,14 @@
   - [ ] Ensure the properties panel can swap between extended adjustment UIs without remounting the editor shell
   - [ ] Add regression coverage for save/load, undo/redo, and live-preview re-rendering for each new adjustment type
 - [ ] **Gradient Map:**
-  - [ ] Map source luminance to gradient stops across the full 0–255 range
-  - [ ] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
-  - [ ] Support reverse-gradient behavior and preserve alpha handling from the source layer
-  - [ ] Add a preview rendering path that updates as gradient stops are edited
+  - [x] Map source luminance to gradient stops across the full 0–255 range
+  - [x] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
+  - [x] Support reverse-gradient behavior and preserve alpha handling from the source layer
+  - [x] Add a preview rendering path that updates as gradient stops are edited
 - [ ] **Invert:**
-  - [ ] Flip all RGB channels with `255 - v`
-  - [ ] Leave alpha unchanged unless the existing adjustment model explicitly treats alpha as part of the transform
-  - [ ] Keep the implementation minimal and deterministic so it is effectively a no-parameter adjustment
+  - [x] Flip all RGB channels with `255 - v`
+  - [x] Leave alpha unchanged unless the existing adjustment model explicitly treats alpha as part of the transform
+  - [x] Keep the implementation minimal and deterministic so it is effectively a no-parameter adjustment
 - [ ] **Threshold:**
   - [ ] Convert the image to a hard black/white split using a single threshold slider
   - [ ] Define whether threshold is based on luminance or a specific channel and document that choice in the UI copy
