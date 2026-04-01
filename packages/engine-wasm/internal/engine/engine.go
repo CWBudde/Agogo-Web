@@ -11,8 +11,8 @@ import (
 	"time"
 	"unsafe"
 
-	agglib "github.com/MeKo-Christian/agg_go"
-	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
+	agglib "github.com/cwbudde/agg_go"
+	aggrender "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/agg"
 )
 
 // thumbnailSize is the width and height of layer preview thumbnails in pixels.
@@ -313,19 +313,26 @@ type SetShowGuidesPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID          string
-	params           BrushParams
-	strokeState      brushStrokeState
-	stabilizer       stabilizerState
-	beforePixels     []byte // snapshot of layer pixels before stroke started (for undo)
-	dirtyMin         [2]int // min corner of painted dirty rect (layer-local)
-	dirtyMax         [2]int // max corner of painted dirty rect (layer-local)
-	hasDirty         bool
+	layerID        string
+	params         BrushParams
+	strokeState    brushStrokeState
+	stabilizer     stabilizerState
+	dirtyMin       [2]int // min corner of painted dirty rect (layer-local)
+	dirtyMax       [2]int // max corner of painted dirty rect (layer-local)
+	hasDirty       bool
 	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
 	renderer *agglib.Agg2D
+	// Lazy row-saving for undo: instead of snapshotting the entire layer at
+	// stroke begin, we save only the rows that the dirty rect touches, captured
+	// before each dab paints over them.  The buffer is provided by instance and
+	// reused across strokes to avoid per-stroke allocations.
+	beforeRowBuf   []byte // contiguous pixel data for saved rows
+	beforeRowStart int    // first saved row (layer-local Y)
+	beforeRowEnd   int    // exclusive end row
+	layerW         int    // layer width in pixels (for row stride)
 }
 
 type pointerDragState struct {
@@ -662,6 +669,9 @@ type instance struct {
 	backgroundColor [4]uint8 // RGBA
 	// paintStroke is non-nil while a brush stroke is in progress.
 	paintStroke *activePaintStroke
+	// undoRowBuf is a reusable buffer for stroke undo row snapshots.
+	// Avoids allocating a new buffer every stroke.
+	undoRowBuf []byte
 }
 
 // compositeSurface returns the precomputed document composite for doc, reusing
@@ -2655,10 +2665,6 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	if layer == nil {
 		return
 	}
-	// Snapshot pixels before the stroke for undo.
-	before := make([]byte, len(layer.Pixels))
-	copy(before, layer.Pixels)
-
 	brushParams := p.Brush
 	if brushParams.AutoErase {
 		// Sample the active layer pixel at the stroke start.
@@ -2675,10 +2681,9 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	}
 
 	stroke := &activePaintStroke{
-		layerID:      layer.ID(),
-		params:       brushParams,
-		stabilizer:   newStabilizer(brushParams.Stabilizer),
-		beforePixels: before,
+		layerID:    layer.ID(),
+		params:     brushParams,
+		stabilizer: newStabilizer(brushParams.Stabilizer),
 	}
 
 	// Background eraser: sample the pixel under the pointer once at stroke begin.
@@ -2707,6 +2712,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
+		stroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
 		if brushParams.EraseBackground {
 			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
 		} else {
@@ -2739,6 +2745,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
+		inst.paintStroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
 		if inst.paintStroke.params.EraseBackground {
 			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
 		} else {
@@ -2772,7 +2779,10 @@ func (inst *instance) handleEndPaintStroke() {
 		W: stroke.dirtyMax[0] - stroke.dirtyMin[0],
 		H: stroke.dirtyMax[1] - stroke.dirtyMin[1],
 	}
-	delta, err := NewPixelDelta(stroke.beforePixels, layer.Pixels, layer.Bounds.W, layer.Bounds.H, rect)
+	delta, err := newPixelDeltaFromRows(
+		stroke.beforeRowBuf, stroke.beforeRowStart, stroke.layerW,
+		layer.Pixels, layer.Bounds.W, layer.Bounds.H, rect,
+	)
 	if err != nil {
 		return
 	}

@@ -65,6 +65,45 @@ func (c *pixelDeltaCommand) Description() string {
 	return c.description
 }
 
+// newPixelDeltaFromRows builds a PixelDelta using a row-bounded before-snapshot
+// instead of a full-layer copy.  beforeRows contains contiguous rows starting at
+// rowStart with the given rowWidth (in pixels).  afterPixels is the current
+// full-layer buffer.
+func newPixelDeltaFromRows(beforeRows []byte, rowStart, rowWidth int, afterPixels []byte, width, height int, rect DirtyRect) (PixelDelta, error) {
+	normalized, err := normalizeDirtyRect(rect, width, height)
+	if err != nil {
+		return PixelDelta{}, err
+	}
+
+	// Extract "before" from the row-bounded buffer.  The saved rows act like a
+	// mini-layer of dimensions rowWidth × savedRowCount, so we adjust the rect's
+	// Y coordinate to be relative to the saved region.
+	savedH := len(beforeRows) / (rowWidth * 4)
+	adjustedRect := DirtyRect{
+		X: normalized.X,
+		Y: normalized.Y - rowStart,
+		W: normalized.W,
+		H: normalized.H,
+	}
+	before, err := copyDirtyRect(beforeRows, rowWidth, savedH, adjustedRect)
+	if err != nil {
+		return PixelDelta{}, fmt.Errorf("extracting before from row snapshot: %w", err)
+	}
+
+	after, err := copyDirtyRect(afterPixels, width, height, normalized)
+	if err != nil {
+		return PixelDelta{}, err
+	}
+
+	return PixelDelta{
+		Rect:   normalized,
+		Width:  width,
+		Height: height,
+		Before: before,
+		After:  after,
+	}, nil
+}
+
 func normalizeDirtyRect(rect DirtyRect, width, height int) (DirtyRect, error) {
 	if width <= 0 || height <= 0 {
 		return DirtyRect{}, fmt.Errorf("invalid surface dimensions %dx%d", width, height)

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
+	aggrender "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/agg"
 )
 
 const benchmarkCanvasSize = 512

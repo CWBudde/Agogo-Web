@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"syscall/js"
 
-	"github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/buildinfo"
-	"github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/engine"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/buildinfo"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/engine"
 )
 
 func main() {
