@@ -21,7 +21,7 @@ export interface EngineConfig {
 export interface EngineHandle {
   readonly handle: number;
   readonly memory: WebAssembly.Memory;
-  dispatch(commandId: number, payload?: unknown): RenderResult;
+  dispatchCommand(commandId: number, payload?: unknown): RenderResult;
   renderFrame(): RenderResult;
   exportProject(): string;
   importProject(projectJSON: string): RenderResult;
