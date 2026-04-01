@@ -110,4 +110,5 @@ export interface RawRenderResult {
 	viewport: ViewportMeta;
 	bufferPtr: number;
 	bufferLen: number;
+	reused: boolean;
 }

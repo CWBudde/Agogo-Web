@@ -322,6 +322,39 @@
           }
           return { iterations, viewport };
         },
+
+        endToEndSkipReused(iterations) {
+          let viewport = this.sampleViewport;
+          let lastPresented = null;
+          let presented = 0;
+          for (let i = 0; i < iterations; i += 1) {
+            const frame = this.renderFrameHot();
+            const canSkipBlit =
+              frame.reused &&
+              lastPresented !== null &&
+              lastPresented.bufferPtr === frame.bufferPtr &&
+              lastPresented.bufferLen === frame.bufferLen &&
+              lastPresented.canvasW === frame.viewport.canvasW &&
+              lastPresented.canvasH === frame.viewport.canvasH;
+            if (!canSkipBlit) {
+              const bytes = new Uint8ClampedArray(this.memory.buffer, frame.bufferPtr, frame.bufferLen);
+              this.ctx.putImageData(
+                new ImageData(bytes, frame.viewport.canvasW, frame.viewport.canvasH),
+                0,
+                0,
+              );
+              lastPresented = {
+                bufferPtr: frame.bufferPtr,
+                bufferLen: frame.bufferLen,
+                canvasW: frame.viewport.canvasW,
+                canvasH: frame.viewport.canvasH,
+              };
+              presented += 1;
+            }
+            viewport = frame.viewport;
+          }
+          return { iterations, viewport, presented };
+        },
       };
 
       window.__agogoProfile = profile;
