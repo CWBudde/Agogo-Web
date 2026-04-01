@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	agglib "github.com/MeKo-Christian/agg_go"
+	agglib "github.com/cwbudde/agg_go"
 )
 
 func TestRenderViewportBaseTransparentBackgroundUsesCheckerboard(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	agglib "github.com/MeKo-Christian/agg_go"
+	agglib "github.com/cwbudde/agg_go"
 )
 
 func makeHighFrequencyFixturePixels() []byte {

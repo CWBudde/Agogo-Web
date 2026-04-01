@@ -4,7 +4,7 @@ package agg
 import (
 	"math"
 
-	agglib "github.com/MeKo-Christian/agg_go"
+	agglib "github.com/cwbudde/agg_go"
 )
 
 type Document struct {

@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"math"
 
-	agglib "github.com/MeKo-Christian/agg_go"
+	agglib "github.com/cwbudde/agg_go"
 )
 
 // ---------------------------------------------------------------------------

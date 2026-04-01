@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	agglib "github.com/MeKo-Christian/agg_go"
+	agglib "github.com/cwbudde/agg_go"
 )
 
 // BrushParams describes one brush dab's visual properties.
@@ -292,6 +292,90 @@ func applyPressure(p BrushParams, pressure float64) BrushParams {
 	p.Size = p.Size * (0.5 + 0.5*pressure)
 	p.Flow = clampFloat(p.Flow*pressure, 0, 1)
 	return p
+}
+
+// saveRowsBeforeDab saves the original (pre-paint) pixel rows that the dab at
+// (cx, cy) with the given brush size will touch.  It lazily grows the saved row
+// range as the dirty area expands, using buf (typically instance.undoRowBuf) as
+// a reusable backing store to avoid per-stroke allocations.
+func (s *activePaintStroke) saveRowsBeforeDab(layer *PixelLayer, cx, cy, size float64, buf *[]byte) {
+	r := int(math.Ceil(size*0.5)) + 2
+	needYMin := int(cy) - layer.Bounds.Y - r
+	needYMax := int(cy) - layer.Bounds.Y + r
+	if needYMin < 0 {
+		needYMin = 0
+	}
+	if needYMax > layer.Bounds.H {
+		needYMax = layer.Bounds.H
+	}
+	if needYMax <= needYMin {
+		return
+	}
+
+	rowBytes := layer.Bounds.W * 4
+
+	if s.layerW == 0 {
+		// First dab — initialise the row snapshot.
+		s.layerW = layer.Bounds.W
+		s.beforeRowStart = needYMin
+		s.beforeRowEnd = needYMax
+		needed := (needYMax - needYMin) * rowBytes
+		if cap(*buf) >= needed {
+			*buf = (*buf)[:needed]
+		} else {
+			*buf = make([]byte, needed)
+		}
+		copy((*buf)[:needed], layer.Pixels[needYMin*rowBytes:needYMax*rowBytes])
+		s.beforeRowBuf = (*buf)[:needed]
+		return
+	}
+
+	// Determine the new row range after merging the dab's Y extent.
+	newMin, newMax := s.beforeRowStart, s.beforeRowEnd
+	if needYMin < newMin {
+		newMin = needYMin
+	}
+	if needYMax > newMax {
+		newMax = needYMax
+	}
+	if newMin == s.beforeRowStart && newMax == s.beforeRowEnd {
+		return // already covered
+	}
+
+	needed := (newMax - newMin) * rowBytes
+	oldLen := (s.beforeRowEnd - s.beforeRowStart) * rowBytes
+
+	if cap(*buf) < needed {
+		// Need a bigger buffer — allocate and copy existing data at its new offset.
+		newBuf := make([]byte, needed)
+		offset := (s.beforeRowStart - newMin) * rowBytes
+		copy(newBuf[offset:offset+oldLen], (*buf)[:oldLen])
+		*buf = newBuf
+	} else {
+		*buf = (*buf)[:needed]
+		if newMin < s.beforeRowStart {
+			// Extending upward — shift existing data right. copy handles overlap.
+			offset := (s.beforeRowStart - newMin) * rowBytes
+			copy((*buf)[offset:offset+oldLen], (*buf)[:oldLen])
+		}
+	}
+
+	// Copy newly-needed rows from the (still unmodified) layer pixels.
+	if newMin < s.beforeRowStart {
+		srcStart := newMin * rowBytes
+		srcEnd := s.beforeRowStart * rowBytes
+		copy((*buf)[:srcEnd-srcStart], layer.Pixels[srcStart:srcEnd])
+	}
+	if newMax > s.beforeRowEnd {
+		dstOffset := (s.beforeRowEnd - newMin) * rowBytes
+		srcStart := s.beforeRowEnd * rowBytes
+		srcEnd := newMax * rowBytes
+		copy((*buf)[dstOffset:], layer.Pixels[srcStart:srcEnd])
+	}
+
+	s.beforeRowStart = newMin
+	s.beforeRowEnd = newMax
+	s.beforeRowBuf = (*buf)[:needed]
 }
 
 // expandDirty grows the stroke's dirty bounding box to include the dab at (cx, cy).

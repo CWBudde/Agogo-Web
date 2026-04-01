@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/engine"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/engine"
 )
 
 var registerBridgeOnce sync.Once
