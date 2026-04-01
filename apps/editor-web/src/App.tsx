@@ -390,6 +390,7 @@ const toolItems: {
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
   { id: "mixerBrush", label: "Mixer Brush", Icon: BrushToolIcon },
   { id: "cloneStamp", label: "Clone Stamp", Icon: CopyIcon },
+  { id: "historyBrush", label: "History Brush", Icon: UndoIcon },
   { id: "pencil", label: "Pencil", Icon: PencilToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
   { id: "fill", label: "Fill", Icon: FillToolIcon },
@@ -661,6 +662,7 @@ export default function App() {
   const [mixerBrushSampleMerged, setMixerBrushSampleMerged] = useState(true);
   const [cloneStampSampleMerged, setCloneStampSampleMerged] = useState(true);
   const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
+  const [historyBrushSampleMerged, setHistoryBrushSampleMerged] = useState(true);
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
   const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
   const [eraserTolerance, setEraserTolerance] = useState(30);
@@ -1749,7 +1751,7 @@ export default function App() {
           Click a layer to begin free transform · Enter to commit · Esc to cancel
         </span>
       )
-    ) : activeTool === "brush" || activeTool === "pencil" || activeTool === "mixerBrush" || activeTool === "cloneStamp" ? (
+    ) : activeTool === "brush" || activeTool === "pencil" || activeTool === "mixerBrush" || activeTool === "cloneStamp" || activeTool === "historyBrush" ? (
       <>
         <BrushPresetPicker
           selectedPresetId={brushPresetId}
@@ -1798,6 +1800,18 @@ export default function App() {
               {cloneStampSource
                 ? `Source set at ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
                 : "Alt-click the canvas to set a clone source."}
+            </div>
+          </>
+        ) : activeTool === "historyBrush" ? (
+          <>
+            <ToolChoiceButton
+              active={historyBrushSampleMerged}
+              onClick={() => setHistoryBrushSampleMerged((value) => !value)}
+            >
+              Sample Merged
+            </ToolChoiceButton>
+            <div className="text-[11px] text-slate-400">
+              Paints from the previous history state.
             </div>
           </>
         ) : null}
@@ -2231,6 +2245,7 @@ export default function App() {
                     cloneStampSampleMerged={cloneStampSampleMerged}
                     cloneStampSource={cloneStampSource}
                     onCloneStampSourceChange={setCloneStampSource}
+                    historyBrushSampleMerged={historyBrushSampleMerged}
                     pencilAutoErase={pencilAutoErase}
                     eraserMode={eraserMode}
                     eraserTolerance={eraserTolerance}
@@ -2457,6 +2472,23 @@ export default function App() {
                                 <ToolChoiceButton
                                   active={cloneStampSampleMerged}
                                   onClick={() => setCloneStampSampleMerged((value) => !value)}
+                                >
+                                  Sample Merged
+                                </ToolChoiceButton>
+                              </div>
+                            </div>
+                          ) : activeTool === "historyBrush" ? (
+                            <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/10 p-3">
+                              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                History Brush
+                              </p>
+                              <div className="space-y-2 text-[11px] text-slate-400">
+                                <div>
+                                  Paints from the previous history state. The source selection is still implicit in this first draft.
+                                </div>
+                                <ToolChoiceButton
+                                  active={historyBrushSampleMerged}
+                                  onClick={() => setHistoryBrushSampleMerged((value) => !value)}
                                 >
                                   Sample Merged
                                 </ToolChoiceButton>
