@@ -72,7 +72,12 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 		return nil
 	}
 
-	transform, err := lookupAdjustmentTransform(layer.AdjustmentKind, layer.Params)
+	resolvedParams, err := resolveAdjustmentParamsForSurface(surface, docW, docH, layer, clipAlpha)
+	if err != nil {
+		return err
+	}
+
+	transform, err := lookupAdjustmentTransform(layer.AdjustmentKind, resolvedParams)
 	if err != nil {
 		return err
 	}
@@ -94,7 +99,7 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 				continue
 			}
 
-			r, g, b, a, err := transform(surface[index], surface[index+1], surface[index+2], surface[index+3], layer.Params)
+			r, g, b, a, err := transform(surface[index], surface[index+1], surface[index+2], surface[index+3], resolvedParams)
 			if err != nil {
 				return fmt.Errorf("adjustment layer %q: %w", layer.Name(), err)
 			}
@@ -115,6 +120,20 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 	}
 
 	return nil
+}
+
+func resolveAdjustmentParamsForSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) (json.RawMessage, error) {
+	if layer == nil {
+		return nil, nil
+	}
+	switch normalizeAdjustmentKind(layer.AdjustmentKind) {
+	case "levels":
+		return resolveLevelsParamsForSurface(surface, docW, docH, layer, clipAlpha)
+	case "black-white", "blackandwhite", "black & white", "black/white":
+		return resolveBlackWhiteParamsForSurface(surface, docW, docH, layer, clipAlpha)
+	default:
+		return layer.Params, nil
+	}
 }
 
 func blendByte(base, target, alpha uint8) uint8 {

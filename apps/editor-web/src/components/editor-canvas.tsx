@@ -845,8 +845,9 @@ export function EditorCanvas({
             : event.deltaMode === 2
               ? currentRender.viewport.canvasH
               : 1;
-        const screenDeltaX = event.deltaX * deltaModeScale;
-        const screenDeltaY = event.deltaY * deltaModeScale;
+        const rawPanDeltaX = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+        const screenDeltaX = rawPanDeltaX * deltaModeScale;
+        const screenDeltaY = 0;
         const panDx =
           (screenDeltaX * cos + screenDeltaY * sin) /
           currentRender.viewport.zoom;
@@ -927,11 +928,9 @@ export function EditorCanvas({
           const ctx = canvas.getContext("2d");
           if (ctx) {
             const bytes = handle.readPixels(result);
-            const pixelCopy = new Uint8ClampedArray(bytes.length);
-            pixelCopy.set(bytes);
             ctx.putImageData(
               new ImageData(
-                pixelCopy,
+                bytes,
                 result.viewport.canvasW,
                 result.viewport.canvasH,
               ),

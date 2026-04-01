@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agogo Browser Zoom Profile</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: #0b0f14;
+        color: #dbe6f3;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: #9eb0c4;
+      }
+
+      #status {
+        white-space: pre-wrap;
+        word-break: break-word;
+        border: 1px solid #223041;
+        background: #101722;
+        padding: 16px;
+        border-radius: 8px;
+      }
+
+      canvas {
+        display: block;
+        margin-top: 16px;
+        border: 1px solid #223041;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Agogo Browser Zoom Profile</h1>
+    <p>Loads the Wasm engine and exposes reproducible batch profiling helpers on <code>window.__agogoProfile</code>.</p>
+    <pre id="status">Booting…</pre>
+    <canvas id="canvas" width="512" height="512"></canvas>
+
+    <script src="/wasm_exec.js"></script>
+    <script>
+      const CommandID = {
+        ZoomSet: 0x0010,
+        Resize: 0x0013,
+        BeginPaintStroke: 0x0400,
+        ContinuePaintStroke: 0x0401,
+        EndPaintStroke: 0x0402,
+      };
+
+      const benchmarkCanvasSize = 512;
+      const benchmarkZoom = 10;
+      const warmupIterations = 30;
+
+      function setStatus(message) {
+        document.getElementById("status").textContent = message;
+      }
+
+      function waveStroke(startX, centerY, width, amplitude, steps, phase) {
+        const points = [];
+        for (let step = 0; step <= steps; step += 1) {
+          const t = step / steps;
+          points.push({
+            x: startX + t * width,
+            y: centerY + Math.sin(t * Math.PI * 2 + phase) * amplitude,
+            pressure: 0.55 + 0.35 * Math.sin(t * Math.PI),
+          });
+        }
+        return points;
+      }
+
+      function arcStroke(centerX, centerY, radiusX, radiusY, steps, startAngle, endAngle) {
+        const points = [];
+        for (let step = 0; step <= steps; step += 1) {
+          const t = step / steps;
+          const angle = startAngle + t * (endAngle - startAngle);
+          points.push({
+            x: centerX + Math.cos(angle) * radiusX,
+            y: centerY + Math.sin(angle) * radiusY,
+            pressure: 0.48 + 0.28 * Math.cos(t * Math.PI),
+          });
+        }
+        return points;
+      }
+
+      function benchmarkStrokeSet() {
+        const softBrush = {
+          size: 28,
+          hardness: 0.72,
+          flow: 0.9,
+          color: [232, 64, 48, 255],
+        };
+        const hardBrush = {
+          size: 18,
+          hardness: 1,
+          flow: 0.82,
+          color: [56, 124, 224, 255],
+        };
+
+        return [
+          { brush: softBrush, points: waveStroke(72, 128, 440, 56, 18, 0.45) },
+          { brush: softBrush, points: arcStroke(256, 288, 144, 104, 20, 2.9, 6.05) },
+          { brush: hardBrush, points: waveStroke(80, 376, 432, 28, 16, 1.1) },
+        ];
+      }
+
+      function parseJSON(payload) {
+        const parsed = JSON.parse(payload);
+        if (parsed && typeof parsed === "object" && typeof parsed.error === "string") {
+          throw new Error(parsed.error);
+        }
+        return parsed;
+      }
+
+      async function loadEngine() {
+        if (typeof Go !== "function") {
+          throw new Error("Go runtime constructor is not available.");
+        }
+        const go = new Go();
+        const response = await fetch("/engine.wasm");
+        const result = await WebAssembly.instantiateStreaming(response, go.importObject);
+        const instance = result.instance ?? result;
+        go.run(instance);
+        return instance.exports;
+      }
+
+      const profile = {
+        ready: false,
+        memory: null,
+        handle: null,
+        canvas: null,
+        ctx: null,
+        sampleViewport: null,
+        samplePixels: null,
+
+        dispatch(commandId, payload) {
+          return parseJSON(window.DispatchCommand(this.handle, commandId, JSON.stringify(payload ?? {})));
+        },
+
+        renderFrame() {
+          return parseJSON(window.RenderFrame(this.handle));
+        },
+
+        freeBuffer(ptr) {
+          if (typeof window.Free === "function") {
+            window.Free(ptr);
+          }
+        },
+
+        async setup() {
+          if (this.ready) {
+            return {
+              canvasW: benchmarkCanvasSize,
+              canvasH: benchmarkCanvasSize,
+              zoom: benchmarkZoom,
+              warmupIterations,
+              viewport: this.sampleViewport,
+            };
+          }
+
+          this.canvas = document.getElementById("canvas");
+          this.ctx = this.canvas.getContext("2d");
+          if (!this.ctx) {
+            throw new Error("2D canvas context is unavailable.");
+          }
+
+          const exports = await loadEngine();
+          this.memory = exports.memory || exports.mem;
+          if (!(this.memory instanceof WebAssembly.Memory)) {
+            throw new Error("Wasm memory export is unavailable.");
+          }
+
+          this.handle = window.EngineInit(
+            JSON.stringify({
+              documentWidth: benchmarkCanvasSize,
+              documentHeight: benchmarkCanvasSize,
+              background: "transparent",
+              resolution: 72,
+            }),
+          );
+
+          this.dispatch(CommandID.Resize, {
+            canvasW: benchmarkCanvasSize,
+            canvasH: benchmarkCanvasSize,
+            devicePixelRatio: 1,
+          });
+
+          for (const stroke of benchmarkStrokeSet()) {
+            const [start, ...rest] = stroke.points;
+            this.dispatch(CommandID.BeginPaintStroke, {
+              x: start.x,
+              y: start.y,
+              pressure: start.pressure,
+              brush: stroke.brush,
+            });
+            for (const point of rest) {
+              this.dispatch(CommandID.ContinuePaintStroke, {
+                x: point.x,
+                y: point.y,
+                pressure: point.pressure,
+              });
+            }
+            this.dispatch(CommandID.EndPaintStroke, {});
+          }
+
+          this.dispatch(CommandID.ZoomSet, { zoom: benchmarkZoom });
+
+          for (let i = 0; i < warmupIterations; i += 1) {
+            const frame = this.renderFrame();
+            this.freeBuffer(frame.bufferPtr);
+          }
+
+          const frame = this.renderFrame();
+          const bytes = new Uint8ClampedArray(this.memory.buffer, frame.bufferPtr, frame.bufferLen);
+          this.samplePixels = new Uint8ClampedArray(bytes.length);
+          this.samplePixels.set(bytes);
+          this.sampleViewport = frame.viewport;
+          this.freeBuffer(frame.bufferPtr);
+          this.ready = true;
+
+          const summary = {
+            canvasW: benchmarkCanvasSize,
+            canvasH: benchmarkCanvasSize,
+            zoom: benchmarkZoom,
+            warmupIterations,
+            viewport: this.sampleViewport,
+          };
+          setStatus(`${JSON.stringify(summary, null, 2)}\n\nReady.`);
+          document.title = "ready";
+          return summary;
+        },
+
+        renderFrameOnly(iterations) {
+          let viewport = this.sampleViewport;
+          for (let i = 0; i < iterations; i += 1) {
+            const frame = this.renderFrame();
+            viewport = frame.viewport;
+            this.freeBuffer(frame.bufferPtr);
+          }
+          return { iterations, viewport };
+        },
+
+        pixelCopyOnly(iterations) {
+          let lastCopy = null;
+          for (let i = 0; i < iterations; i += 1) {
+            lastCopy = new Uint8ClampedArray(this.samplePixels.length);
+            lastCopy.set(this.samplePixels);
+          }
+          return { iterations, bytes: lastCopy?.length ?? 0 };
+        },
+
+        putImageDataOnly(iterations) {
+          const image = new ImageData(
+            new Uint8ClampedArray(this.samplePixels),
+            this.sampleViewport.canvasW,
+            this.sampleViewport.canvasH,
+          );
+          for (let i = 0; i < iterations; i += 1) {
+            this.ctx.putImageData(image, 0, 0);
+          }
+          return { iterations, canvasW: image.width, canvasH: image.height };
+        },
+
+        endToEnd(iterations) {
+          let viewport = this.sampleViewport;
+          for (let i = 0; i < iterations; i += 1) {
+            const frame = this.renderFrame();
+            const bytes = new Uint8ClampedArray(this.memory.buffer, frame.bufferPtr, frame.bufferLen);
+            this.ctx.putImageData(
+              new ImageData(bytes, frame.viewport.canvasW, frame.viewport.canvasH),
+              0,
+              0,
+            );
+            viewport = frame.viewport;
+            this.freeBuffer(frame.bufferPtr);
+          }
+          return { iterations, viewport };
+        },
+      };
+
+      window.__agogoProfile = profile;
+
+      profile
+        .setup()
+        .catch((error) => {
+          const message = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
+          setStatus(message);
+          document.title = "error";
+          console.error(error);
+        });
+    </script>
+  </body>
+</html>

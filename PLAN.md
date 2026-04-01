@@ -312,6 +312,35 @@
     - [x] Current conclusion:
       - [x] The pathological cost at extreme zoom was the border rasterization strategy, not an unavoidable consequence of high zoom itself
       - [x] With clipped screen-space border rendering, heavily zoomed viewport navigation is back in the same rough cost class as the underlying image/base passes
+  - [x] Browser/Wasm zoom profile captured after the native overlay fix
+    - [x] Added reproducible browser profiling helpers:
+      - [x] [browser-zoom-profile.html](/mnt/projekte/Code/Agogo-Web/apps/editor-web/public/browser-zoom-profile.html)
+      - [x] [profile_browser_zoom1000.mjs](/mnt/projekte/Code/Agogo-Web/scripts/profile_browser_zoom1000.mjs)
+    - [x] Browser profiling workflow:
+      - [x] `just wasm-build`
+      - [x] `bun run --cwd apps/editor-web dev --host 127.0.0.1 --port 4173`
+      - [x] `node scripts/profile_browser_zoom1000.mjs`
+    - [x] Headless Chrome / Linux baseline for the 512×512 painted document at `1000%` zoom:
+      - [x] `renderFrameOnly`: **~3.60 ms/op**
+      - [x] `pixelCopyOnly`: **~0.33 ms/op**
+      - [x] `putImageDataOnly`: **~0.04 ms/op**
+      - [x] `endToEnd`: **~4.62 ms/op**
+    - [x] Current conclusion:
+      - [x] After the overlay fix, browser/Wasm overhead is now dominated by the Wasm `RenderFrame()` call itself rather than the JS-side pixel copy or canvas blit
+      - [x] The JS pixel copy is measurable but secondary; `putImageData` is comparatively cheap in this 512×512 scenario
+      - [x] Browser/Wasm execution is now roughly ~2.6× the native `Zoom1000/RenderViewport` cost, which is a credible remaining Wasm/runtime tax rather than a pathological engine hotspot
+  - [x] Removed the extra JS-side pixel copy from the real canvas render loop
+    - [x] `apps/editor-web/src/components/editor-canvas.tsx` now passes the Wasm-backed `Uint8ClampedArray` directly into `ImageData` and frees the engine buffer only after `putImageData` returns
+    - [x] Browser repro page was updated to match the production no-copy path before remeasurement
+    - [x] `bun run --cwd apps/editor-web typecheck` passes after the change
+    - [x] Updated browser/Wasm baseline after the no-copy change:
+      - [x] `renderFrameOnly`: ~3.66 ms/op
+      - [x] `pixelCopyOnly`: ~0.36 ms/op (still measurable in isolation, but no longer on the hot end-to-end path)
+      - [x] `putImageDataOnly`: ~0.05 ms/op
+      - [x] `endToEnd`: **~3.77 ms/op** (down from **~4.62 ms/op**)
+    - [x] Current conclusion:
+      - [x] Removing the JS copy cut the browser end-to-end cost by roughly **18%**
+      - [x] Browser overhead is now much closer to pure Wasm `RenderFrame()` cost, which confirms the copied RGBA staging buffer was a real but tractable frontend tax
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
 ---
@@ -738,7 +767,7 @@
 - [ ] **Levels:**
   - [x] Input black point, white point, midtone gamma (per channel: R/G/B/RGB)
   - [x] Output black point, white point
-  - [ ] Auto-calculate (stretch to full range), Auto Options (clipping %)
+  - [x] Auto-calculate (stretch to full range), Auto Options (clipping %)
   - [ ] Histogram display inside properties panel
 - [ ] **Curves:**
   - [x] Curve editor: click+drag to add/move control points on the curve
@@ -747,7 +776,7 @@
   - [ ] Presets (save/load named curves)
   - [ ] Eyedropper: click image to set black/white/gray point from sample
 - [ ] **Hue/Saturation:**
-  - [ ] Master + per-color-range (Reds, Yellows, Greens, Cyans, Blues, Magentas)
+  - [x] Master + per-color-range (Reds, Yellows, Greens, Cyans, Blues, Magentas)
   - [x] Hue shift (−180 to +180), Saturation (−100 to +100), Lightness (−100 to +100)
   - [x] Colorize mode (monochromatic)
   - [ ] Color range selector eyedropper (click color in image to target that range)
@@ -764,7 +793,7 @@
 - [ ] **Black & White:**
   - [x] Six color-range sliders (Reds/Yellows/Greens/Cyans/Blues/Magentas)
   - [x] Tint option (adds color overlay on grayscale)
-  - [ ] Auto
+  - [x] Auto
 
 ### Phase 5.3: Extended Adjustment Layers
 
