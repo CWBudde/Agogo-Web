@@ -11,6 +11,7 @@ apps/editor-web/public/wasm_exec.js
 # ── Go build artifacts ────────────────────────────────────────────────────────
 packages/engine-wasm/coverage.out
 packages/engine-wasm/coverage.html
+*.test
 
 # ── OS / Editor ──────────────────────────────────────────────────────────────
 .DS_Store

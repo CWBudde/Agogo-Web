@@ -142,6 +142,94 @@ func BenchmarkRenderPipeline512(b *testing.B) {
 		})
 	})
 
+	b.Run("PerspectiveTransformCommit", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		for _, interp := range []InterpolMode{InterpolNearest, InterpolBilinear, InterpolBicubic} {
+			b.Run(string(interp), func(b *testing.B) {
+				state := fixture.perspectiveTransformState(interp)
+				warmPixels, warmBounds := applyPixelTransform(state, interp)
+				if len(warmPixels) == 0 || warmBounds.W <= 0 || warmBounds.H <= 0 {
+					b.Fatal("expected perspective transform benchmark setup to produce pixels")
+				}
+
+				b.ReportAllocs()
+				b.SetBytes(int64(warmBounds.W * warmBounds.H * 4))
+				b.ResetTimer()
+
+				var outPixels []byte
+				var outBounds LayerBounds
+				for i := 0; i < b.N; i++ {
+					outPixels, outBounds = applyPixelTransform(state, interp)
+				}
+
+				b.StopTimer()
+				if got, want := len(outPixels), outBounds.W*outBounds.H*4; got != want {
+					b.Fatalf("buffer length = %d, want %d", got, want)
+				}
+			})
+		}
+	})
+
+	b.Run("WarpTransformCommit", func(b *testing.B) {
+		fixture := newRenderBenchmarkFixture()
+		fixture.preparePaintedDocument()
+		for _, interp := range []InterpolMode{InterpolNearest, InterpolBilinear, InterpolBicubic} {
+			b.Run(string(interp), func(b *testing.B) {
+				state := fixture.warpTransformState(interp)
+				warmPixels, warmBounds := applyPixelTransform(state, interp)
+				if len(warmPixels) == 0 || warmBounds.W <= 0 || warmBounds.H <= 0 {
+					b.Fatal("expected warp transform benchmark setup to produce pixels")
+				}
+
+				b.ReportAllocs()
+				b.SetBytes(int64(warmBounds.W * warmBounds.H * 4))
+				b.ResetTimer()
+
+				var outPixels []byte
+				var outBounds LayerBounds
+				for i := 0; i < b.N; i++ {
+					outPixels, outBounds = applyPixelTransform(state, interp)
+				}
+
+				b.StopTimer()
+				if got, want := len(outPixels), outBounds.W*outBounds.H*4; got != want {
+					b.Fatalf("buffer length = %d, want %d", got, want)
+				}
+			})
+		}
+	})
+
+	b.Run("DiscreteTransforms", func(b *testing.B) {
+		makePixels := func() []byte {
+			return make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4)
+		}
+		for _, kind := range []string{"flipH", "flipV", "rotate90cw", "rotate90ccw", "rotate180"} {
+			b.Run(kind, func(b *testing.B) {
+				pixels := makePixels()
+				w, h := benchmarkCanvasSize, benchmarkCanvasSize
+				b.ReportAllocs()
+				b.SetBytes(int64(len(pixels)))
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					switch kind {
+					case "flipH":
+						_ = flipPixelsH(pixels, w, h)
+					case "flipV":
+						_ = flipPixelsV(pixels, w, h)
+					case "rotate90cw":
+						_, _, _ = rotatePixels90CW(pixels, w, h)
+					case "rotate90ccw":
+						_, _, _ = rotatePixels90CCW(pixels, w, h)
+					case "rotate180":
+						_ = rotatePixels180(pixels, w, h)
+					}
+				}
+			})
+		}
+	})
+
 	b.Run("RenderViewportAggBase", func(b *testing.B) {
 		fixture := newRenderBenchmarkFixture()
 		fixture.preparePaintedDocument()
@@ -396,6 +484,57 @@ func (fixture *renderBenchmarkFixture) axisAlignedScaleTransformState(scaleX, sc
 
 func (fixture *renderBenchmarkFixture) integerTranslateTransformState(offsetX, offsetY float64, interp InterpolMode) *FreeTransformState {
 	return fixture.affineStateFromMatrix(1, 0, 0, 1, offsetX, offsetY, interp)
+}
+
+func (fixture *renderBenchmarkFixture) perspectiveTransformState(interp InterpolMode) *FreeTransformState {
+	bounds := fixture.layer.Bounds
+	x0, y0 := float64(bounds.X), float64(bounds.Y)
+	w, h := float64(bounds.W), float64(bounds.H)
+	// Trapezoid perspective: pinch the top edge inward.
+	corners := &[4][2]float64{
+		{x0 + w*0.15, y0 - h*0.05}, // TL
+		{x0 + w*0.85, y0 + h*0.08}, // TR
+		{x0 + w*1.05, y0 + h*1.02}, // BR
+		{x0 - w*0.05, y0 + h*0.98}, // BL
+	}
+	return &FreeTransformState{
+		Active:          true,
+		LayerID:         fixture.layer.ID(),
+		OriginalPixels:  fixture.layer.Pixels,
+		OriginalBounds:  bounds,
+		A:               1, B: 0, C: 0, D: 1,
+		TX:              x0,
+		TY:              y0,
+		PivotX:          x0 + w*0.5,
+		PivotY:          y0 + h*0.5,
+		Interpolation:   interp,
+		DistortCorners:  corners,
+	}
+}
+
+func (fixture *renderBenchmarkFixture) warpTransformState(interp InterpolMode) *FreeTransformState {
+	bounds := fixture.layer.Bounds
+	grid := initWarpGridFromBounds(bounds)
+	// Displace a few interior points to create a non-trivial warp.
+	grid[1][1][0] += float64(bounds.W) * 0.06
+	grid[1][1][1] += float64(bounds.H) * 0.04
+	grid[2][2][0] -= float64(bounds.W) * 0.05
+	grid[2][2][1] += float64(bounds.H) * 0.07
+	x0, y0 := float64(bounds.X), float64(bounds.Y)
+	w, h := float64(bounds.W), float64(bounds.H)
+	return &FreeTransformState{
+		Active:         true,
+		LayerID:        fixture.layer.ID(),
+		OriginalPixels: fixture.layer.Pixels,
+		OriginalBounds: bounds,
+		A:              1, B: 0, C: 0, D: 1,
+		TX:             x0,
+		TY:             y0,
+		PivotX:         x0 + w*0.5,
+		PivotY:         y0 + h*0.5,
+		Interpolation:  interp,
+		WarpGrid:       grid,
+	}
 }
 
 func (fixture *renderBenchmarkFixture) affineStateFromMatrix(a, b, c, d, offsetX, offsetY float64, interp InterpolMode) *FreeTransformState {
