@@ -620,6 +620,8 @@ export function EditorCanvas({
   const [selTransformDraft, setSelTransformDraft] = useState<SelectionTransformDraft | null>(null);
   const [selTransformBox, setSelTransformBox] = useState<{ x: number; y: number; w: number; h: number; rotation: number } | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
+  const [gradientDragStart, setGradientDragStart] = useState<DocumentPoint | null>(null);
+  const [gradientDragCurrent, setGradientDragCurrent] = useState<DocumentPoint | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
     null,
   );
@@ -712,6 +714,10 @@ export function EditorCanvas({
     }
     if (activeTool !== "crop") {
       setCropDraft(null);
+    }
+    if (activeTool !== "gradient") {
+      setGradientDragStart(null);
+      setGradientDragCurrent(null);
     }
   }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
@@ -1580,7 +1586,9 @@ export function EditorCanvas({
         if (activeTool === "gradient" && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
-          setGradientDragStart({ x: docPoint.x, y: docPoint.y });
+          const start = { x: docPoint.x, y: docPoint.y };
+          setGradientDragStart(start);
+          setGradientDragCurrent(start);
           event.currentTarget.setPointerCapture(event.pointerId);
           event.preventDefault();
           return;
@@ -1729,6 +1737,14 @@ export function EditorCanvas({
               current ? { ...current, lastX: pixelX, lastY: pixelY } : current,
             );
           }
+          return;
+        }
+        if (
+          gradientDragStart &&
+          activeTool === "gradient" &&
+          docPoint
+        ) {
+          setGradientDragCurrent({ x: docPoint.x, y: docPoint.y });
           return;
         }
         if (
@@ -2225,7 +2241,7 @@ export function EditorCanvas({
         }
         if (gradientDragStart && activeTool === "gradient" && event.button === 0) {
           const point = clientPointToDocument(event.clientX, event.clientY);
-          const end = point ?? gradientDragStart;
+          const end = gradientDragCurrent ?? point ?? gradientDragStart;
           engine.dispatchCommand(CommandID.ApplyGradient, {
             startX: gradientDragStart.x,
             startY: gradientDragStart.y,
@@ -2237,6 +2253,7 @@ export function EditorCanvas({
             createLayer: gradientCreateLayer,
           } satisfies ApplyGradientCommand);
           setGradientDragStart(null);
+          setGradientDragCurrent(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
@@ -2384,6 +2401,7 @@ export function EditorCanvas({
       freehandOverlay.length > 0 ||
       polygonOverlay ||
       magneticLassoDraft ||
+      gradientDragStart ||
       (transformSelectionActive && selTransformBox) ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -2516,6 +2534,37 @@ export function EditorCanvas({
                 );
               })()
             : null}
+          {gradientDragStart ? (() => {
+            const start = gradientDragStart;
+            const end = gradientDragCurrent ?? gradientDragStart;
+            const midX = (start.x + end.x) * 0.5;
+            const midY = (start.y + end.y) * 0.5;
+            return (
+              <>
+                <line
+                  x1={start.x}
+                  y1={start.y}
+                  x2={end.x}
+                  y2={end.y}
+                  stroke="rgba(56, 189, 248, 0.95)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <circle cx={start.x} cy={start.y} r={4} fill="rgba(248, 250, 252, 0.95)" />
+                <circle cx={end.x} cy={end.y} r={4} fill="rgba(56, 189, 248, 0.95)" />
+                <text
+                  x={midX}
+                  y={midY - 8}
+                  fill="rgba(248, 250, 252, 0.95)"
+                  fontSize="10"
+                  textAnchor="middle"
+                  style={{ paintOrder: "stroke", stroke: "rgba(15, 23, 42, 0.85)", strokeWidth: 3 }}
+                >
+                  {gradientType}
+                </text>
+              </>
+            );
+          })() : null}
           {transformSelectionActive && selTransformBox
             ? (() => {
                 const stb = selTransformBox;
