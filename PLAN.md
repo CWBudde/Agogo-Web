@@ -250,10 +250,18 @@
 
 ### Phase X.12: Stroke-Start Memory Optimization
 
-- [ ] Reduce stroke-start memory overhead in `internal/engine/engine.go`
-  - [ ] Revisit the full-layer `beforePixels` copy used for undo on every stroke
-  - [ ] Explore dirty-rect-bounded stroke history capture instead of whole-layer snapshotting
-  - [ ] Re-run the benchmark and `pprof` after each stroke-start optimization pass and record deltas here
+- [x] Reduce stroke-start memory overhead in `internal/engine/engine.go`
+  - [x] Replaced full-layer `beforePixels` copy with lazy row-level copy-on-write (`saveRowsBeforeDab`)
+  - [x] Dirty-rect-bounded stroke history: only the rows the dirty rect touches are snapshotted before each dab paints, instead of copying the entire layer upfront
+  - [x] Reusable buffer (`instance.undoRowBuf`) avoids per-stroke allocation — buffer grows once and is reused across strokes
+  - [x] Added `newPixelDeltaFromRows` in `pixel_delta.go` to build undo deltas from the row-bounded snapshot
+  - [x] Benchmark results (PaintStrokes, 512×512):
+    - Before: ~8.3 ms/op, 5.31 MB/op, 19,593 allocs/op
+    - After: ~6.7 ms/op, 2.04 MB/op, 13,935 allocs/op
+    - **19% faster, 62% less memory, 29% fewer allocations**
+  - [x] `pprof` confirms `handleBeginPaintStroke` eliminated from allocation top-10 (was 59.7% / 1041 MB → gone)
+  - [x] `saveRowsBeforeDab` appears at 3.4% (32.5 MB) — 97% reduction from the original full-layer copy
+  - [x] Remaining top allocator: `copyDirtyRect` at 58.9% — inherent to undo storage (before+after dirty rect data persisted in history)
 
 ### Phase X.13: Performance Regression Tracking
 

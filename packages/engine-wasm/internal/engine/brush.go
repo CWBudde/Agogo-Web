@@ -298,7 +298,7 @@ func applyPressure(p BrushParams, pressure float64) BrushParams {
 // (cx, cy) with the given brush size will touch.  It lazily grows the saved row
 // range as the dirty area expands, using buf (typically instance.undoRowBuf) as
 // a reusable backing store to avoid per-stroke allocations.
-func (s *activePaintStroke) saveRowsBeforeDab(layer *PixelLayer, cx, cy, size float64, buf *[]byte) {
+func (s *activePaintStroke) saveRowsBeforeDab(layer *PixelLayer, _, cy, size float64, buf *[]byte) {
 	r := int(math.Ceil(size*0.5)) + 2
 	needYMin := int(cy) - layer.Bounds.Y - r
 	needYMax := int(cy) - layer.Bounds.Y + r
