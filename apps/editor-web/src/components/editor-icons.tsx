@@ -229,6 +229,42 @@ export function SelectionIcon(props: IconProps) {
   );
 }
 
+export function FillToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 19h14" />
+      <path d="M8 16h8" />
+      <path d="M10 13V6" />
+      <path d="M10 6l-2 2" />
+      <path d="M10 6l2 2" />
+      <path d="M14 16c0-1.5 1.2-2.7 2.7-2.7S19.4 14.5 19.4 16s-1.2 2.8-2.7 2.8S14 17.5 14 16Z" />
+    </IconBase>
+  );
+}
+
+export function GradientToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4.5 18.5h15" />
+      <path d="M4.5 13.5h15" />
+      <path d="M4.5 8.5h15" />
+      <path d="M4.5 5.5h15" />
+      <path d="M5 5.5v13" />
+      <path d="M19 5.5v13" />
+    </IconBase>
+  );
+}
+
+export function EyedropperToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m14.5 4.5 5 5" />
+      <path d="M12.5 6.5 17.5 11.5 8 21H4v-4z" />
+      <path d="M9 15l-1.5 1.5" />
+    </IconBase>
+  );
+}
+
 export function SlidersIcon(props: IconProps) {
   return (
     <IconBase {...props}>

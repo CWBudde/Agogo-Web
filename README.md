@@ -1,3 +1,5 @@
+> Try it online: [Agogo Web live demo](https://cwbudde.github.io/Agogo-Web/)
+
 # Agogo Web
 
 Agogo Web is a browser-native image editor built around a strict split of responsibilities: a Go WebAssembly engine owns document state, rendering, compositing, selections, filters, and export logic, while a React and Vite frontend provides the desktop-style shell and presents engine-produced pixels on an HTML canvas.
