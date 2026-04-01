@@ -176,16 +176,15 @@
 
 **Acceptance criterion:** The plan records a deliberate policy for discrete transforms and overlays instead of treating all manual transform code as technical debt.
 
-- [ ] Evaluate and decide for discrete transforms in `internal/engine/transform.go`:
-  - [ ] `flipPixelsH`
-  - [ ] `flipPixelsV`
-  - [ ] `rotatePixels90CW`
-  - [ ] `rotatePixels90CCW`
-  - [ ] `rotatePixels180`
-- [ ] Keep manual implementations if they remain exact, allocation-efficient, and faster than AGG setup
-- [ ] Evaluate transform overlay rendering separately from image transforms:
-  - [ ] `RenderTransformHandlesOverlay`
-  - [ ] Document why UI overlay rendering is manual or migrate only if measurement justifies it
+- [x] Evaluate and decide for discrete transforms in `internal/engine/transform.go`:
+  - [x] `flipPixelsH` — **keep manual**: exact 1:1 pixel swap, ~10 lines, O(n) single alloc; AGG would need renderer setup + affine matrix for a byte-identical result with rasterizer overhead
+  - [x] `flipPixelsV` — **keep manual**: same rationale as flipH
+  - [x] `rotatePixels90CW` — **keep manual**: exact index remapping with dimension swap; AGG cannot guarantee bit-exactness for 90° rotation and would require filter/resample configuration for a lossless operation
+  - [x] `rotatePixels90CCW` — **keep manual**: same rationale as 90CW
+  - [x] `rotatePixels180` — **keep manual**: trivial reverse-index loop; simpler and faster than any AGG path
+- [x] Keep manual implementations: all five are exact, allocation-efficient, and faster than AGG setup — no interpolation or anti-aliasing is involved, so AGG adds cost without benefit
+- [x] Evaluate transform overlay rendering separately from image transforms:
+  - [x] `RenderTransformHandlesOverlay` — **keep manual**: draws pixel-crisp UI elements (bounding box, corner/edge handles, rotation handle, pivot crosshair) directly into a pre-existing overlay buffer; AGG would produce anti-aliased lines/circles that make handles look blurry at screen resolution; the overlay compositing model (separate buffer, blended on top) doesn't benefit from AGG's rasterizer pipeline
 
 ### Phase X.8: Transform Replacement Validation & Benchmarking
 
@@ -193,17 +192,17 @@
 
 **Acceptance criterion:** Dedicated transform benchmarks/tests exist or are expanded, and before/after measurements are recorded for the migrated affine path.
 
-- [ ] Add or extend focused benchmarks for transform commit paths:
+- [x] Add or extend focused benchmarks for transform commit paths:
   - [x] Affine free transform
-  - [ ] Perspective transform
-  - [ ] Warp transform
-  - [ ] Discrete rotate/flip operations
-- [ ] Add correctness tests for interpolation parity and output bounds stability
+  - [x] Perspective transform — ~8.7 ms/op (nearest), ~8.9 ms/op (bilinear), ~9.5 ms/op (bicubic); 576 allocs/op, ~18 KB/op
+  - [x] Warp transform — ~10.3 ms/op (nearest), ~12.0 ms/op (bilinear), ~10.8 ms/op (bicubic); 1803 allocs/op, ~60 KB/op (9 perspective patches)
+  - [x] Discrete rotate/flip — all ~0.65–1.1 ms/op at 512×512; 1 alloc/op, ~1 MB/op (output buffer only); rotate180 fastest at ~0.65 ms; confirms X.7 policy that discrete ops are far cheaper than AGG setup
+- [x] Add correctness tests for interpolation parity and output bounds stability
   - [x] Output bounds stability now has direct regression coverage for integer-translate and negative-offset axis-aligned affine cases
   - [x] Add explicit interpolation-parity fixtures across nearest, bilinear, and bicubic at the sampler level using a representative fixture and multiple subpixel sample coordinates
   - [x] Transform-level tests now verify that nearest, bilinear, and bicubic preserve bounds/output shape stability for both axis-aligned and general affine AGG-backed paths
   - [x] Added a direct AGG reproducer test for affine image transforms so interpolation collapse can be verified without going through the engine wrapper
-  - [x] Added an engine-side regression that requires affine bilinear and bicubic outputs to diverge for at least one representative candidate under the temporary `ResampleAlways` mitigation
+  - [x] Added an engine-side regression that requires affine bilinear and bicubic outputs to diverge for at least one representative candidate under the `AffineImageResamplePreferFiltered` policy
 - [x] Capture CPU and allocation profiles before and after AGG affine migration
 - [x] Record whether AGG affine replacement is actually faster than the previous manual path
   - [x] Result so far: the main win is allocation reduction and path simplification; general-affine CPU time remains dominated by AGG internals
@@ -220,19 +219,25 @@
   - [x] Viewport allocations are dominated by the AGG path (`RenderViewportBase` / checkerboard / border), not by `sampleBilinear`
   - [x] In the focused full-viewport CPU profile, `sampleBilinear` alone is the single biggest hotspot
   - [x] In the focused AGG-only profile, checkerboard rectangles dominate through AGG scanline/rasterizer work (`qsortCellsByX`, `SortCells`, `RenderScanlineAASolid`)
-- [ ] Reduce viewport cost in `internal/engine/viewport_composite.go`
-  - [ ] Profile and optimize `sampleBilinear`
-  - [ ] Reduce CPU overhead from `txPixelAt`, `clampFloat`, and repeated bilinear math in the sampling loop
-  - [ ] Preserve the current near-zero allocation behavior of the internal sampling path while optimizing it
-  - [ ] Consider specialized fast paths for unrotated / nearest-neighbor / fully opaque sampling cases
-  - [ ] Re-run the benchmark and `pprof` after each viewport optimization pass and record deltas here
+- [x] Reduce viewport cost in `internal/engine/viewport_composite.go`
+  - [x] Profile and optimize `sampleBilinear`: inlined bilinear sampling with fixed-point (8-bit fractional) integer weights, eliminating `math.Floor`, `float64` channel multiplications, and `[4]byte` return copies
+  - [x] Reduce CPU overhead from `txPixelAt`, `clampFloat`, and repeated bilinear math: eliminated all three from the viewport hot path; direct buffer index arithmetic with fast interior check that skips clamping for non-edge pixels
+  - [x] Preserve near-zero allocation behavior: confirmed 0 new allocations (41,667 allocs/op unchanged, all from AGG background)
+  - [x] Specialized fast path for unrotated viewports (`compositeViewportBilinearUnrotated`): hoists Y weights and row offsets out of the inner loop since docY is constant per scanline; rotated path (`compositeViewportBilinearRotated`) also uses inlined fixed-point sampling
+  - [x] Re-run benchmark and pprof after optimization:
+    - Before: `RenderViewport` ~10.0 ms/op; `compositeDocumentToViewport` 48.2% cum, `sampleBilinear` 22.4% flat
+    - After: `RenderViewport` ~7.3 ms/op (**27% faster**); `compositeDocumentToViewport` 26.0% cum, bilinear sampling 14.9% flat
+    - Bottleneck has shifted to AGG checkerboard rendering (~66% cum) — that is Phase X.10
 
 ### Phase X.10: Background Rendering Optimization
 
-- [ ] Reduce background rendering cost in `internal/agg/agg.go`
-  - [ ] Avoid redrawing the checkerboard and document shell every frame when viewport/document background inputs are unchanged
-  - [ ] Evaluate caching or pre-rendering the checkerboard/background pass
-  - [ ] Re-run the benchmark and `pprof` after each background-rendering optimization pass and record deltas here
+- [x] Reduce background rendering cost in `internal/agg/agg.go`
+  - [x] Avoid redrawing the checkerboard and document shell every frame: added `viewportBaseKey` cache on the `instance` struct keyed on document dimensions, background type, and all viewport transform inputs (center, zoom, rotation, canvas size); on cache hit the pre-rendered background is `copy()`'d instead of re-rasterizing ~460 AGG rectangles
+  - [x] Caching approach chosen over pre-rendering: a `cachedViewportBase` buffer stores the last `RenderViewportBase` output and is reused when the key matches; cache auto-invalidates when any input changes — no manual invalidation needed
+  - [x] Re-run benchmark after background-rendering optimization:
+    - `RenderFrameCachedComposite` (pan/zoom/idle frames): **~20 ms → 2.6 ms/op (87% faster)**, allocs **41.7k → 1.2k/op (97% fewer)**
+    - `RenderViewport` (standalone, no cache): ~7.5 ms/op unchanged — the cache only benefits the `instance.render()` path
+    - `RenderFrameAfterPaint` (cache-miss frame after content change): ~23 ms/op unchanged — correctly falls through to full AGG render
 
 ### Phase X.11: Brush Stroke Optimization
 

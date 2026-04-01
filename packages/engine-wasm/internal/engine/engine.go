@@ -613,10 +613,27 @@ func (m *DocumentManager) CloseActive() error {
 	return nil
 }
 
+// viewportBaseKey captures everything that affects the rendered background
+// (checkerboard/solid fill, document shell). When unchanged between frames,
+// the cached background buffer is memcpy'd instead of re-rendered through AGG.
+type viewportBaseKey struct {
+	DocWidth      int
+	DocHeight     int
+	Background    string
+	CenterX       float64
+	CenterY       float64
+	Zoom          float64
+	Rotation      float64
+	CanvasW       int
+	CanvasH       int
+}
+
 type instance struct {
 	pixels                  []byte
 	manager                 *DocumentManager
 	viewport                ViewportState
+	cachedViewportBase      []byte
+	cachedViewportBaseKey   viewportBaseKey
 	history                 *HistoryStack
 	frameID                 int64
 	pointer                 pointerDragState
@@ -2494,7 +2511,7 @@ func (inst *instance) render() RenderResult {
 		activeLayerName = activeLayer.Name()
 	}
 
-	inst.pixels = RenderViewport(doc, &inst.viewport, inst.pixels, inst.compositeSurface(doc))
+	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
 	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
 	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
 	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
@@ -2876,6 +2893,80 @@ func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
 		ModifiedAt: timestamp,
 		LayerRoot:  NewGroupLayer("Root"),
 	}
+}
+
+// renderViewportWithCache renders the viewport using a cached background when
+// the viewport/document inputs are unchanged. The background (checkerboard or
+// solid fill) is the most expensive AGG pass; caching it and copying the buffer
+// avoids re-rasterizing hundreds of rectangles every frame.
+func (inst *instance) renderViewportWithCache(doc *Document, documentSurface []byte) []byte {
+	vp := &inst.viewport
+	key := viewportBaseKey{
+		DocWidth:   doc.Width,
+		DocHeight:  doc.Height,
+		Background: doc.Background.Kind,
+		CenterX:    vp.CenterX,
+		CenterY:    vp.CenterY,
+		Zoom:       clampZoom(vp.Zoom),
+		Rotation:   vp.Rotation,
+		CanvasW:    vp.CanvasW,
+		CanvasH:    vp.CanvasH,
+	}
+
+	canvasSize := maxInt(vp.CanvasW, 1) * maxInt(vp.CanvasH, 1) * 4
+
+	if key == inst.cachedViewportBaseKey && len(inst.cachedViewportBase) == canvasSize {
+		// Cache hit: copy the pre-rendered background into the output buffer.
+		if len(inst.pixels) != canvasSize {
+			inst.pixels = make([]byte, canvasSize)
+		}
+		copy(inst.pixels, inst.cachedViewportBase)
+	} else {
+		// Cache miss: render through AGG and store a copy.
+		inst.pixels = aggrender.RenderViewportBase(
+			&aggrender.Document{
+				Width:      doc.Width,
+				Height:     doc.Height,
+				Background: doc.Background.Kind,
+			},
+			&aggrender.Viewport{
+				CenterX:  key.CenterX,
+				CenterY:  key.CenterY,
+				Zoom:     key.Zoom,
+				Rotation: key.Rotation,
+				CanvasW:  key.CanvasW,
+				CanvasH:  key.CanvasH,
+			},
+			inst.pixels,
+		)
+		if len(inst.cachedViewportBase) != canvasSize {
+			inst.cachedViewportBase = make([]byte, canvasSize)
+		}
+		copy(inst.cachedViewportBase, inst.pixels)
+		inst.cachedViewportBaseKey = key
+	}
+
+	if len(documentSurface) > 0 {
+		compositeDocumentToViewport(inst.pixels, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, documentSurface)
+	}
+
+	return aggrender.RenderViewportOverlays(
+		&aggrender.Document{
+			Width:      doc.Width,
+			Height:     doc.Height,
+			Background: doc.Background.Kind,
+		},
+		&aggrender.Viewport{
+			CenterX:    vp.CenterX,
+			CenterY:    vp.CenterY,
+			Zoom:       clampZoom(vp.Zoom),
+			Rotation:   vp.Rotation,
+			CanvasW:    vp.CanvasW,
+			CanvasH:    vp.CanvasH,
+			ShowGuides: vp.ShowGuides,
+		},
+		inst.pixels,
+	)
 }
 
 // RenderViewport renders the document shell and the current composited layer tree.
