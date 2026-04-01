@@ -241,10 +241,12 @@
 
 ### Phase X.11: Brush Stroke Optimization
 
-- [ ] Reduce brush stroke allocation pressure in `internal/engine/brush.go`
-  - [ ] Investigate reuse of AGG renderer/rasterizer state across dabs within a stroke
-  - [ ] Evaluate batching dabs or using a lower-allocation path for common circular brush cases
-  - [ ] Re-run the benchmark and `pprof` after each brush optimization pass and record deltas here
+- [x] Reduce brush stroke allocation pressure in `internal/engine/brush.go`
+  - [x] Reuse AGG renderer across dabs within a stroke: cached `*agglib.Agg2D` on `activePaintStroke`, created once at stroke begin; `paintDabReuse` calls `Attach` per dab (resets transforms/state) but the rasterizer keeps its pre-allocated cell blocks
+  - [x] Batching evaluation: not needed — renderer reuse alone eliminated the dominant cost; the rasterizer cell allocations dropped from 82% → 7.7% of total alloc; remaining per-dab allocations are `Attach` pixel-format setup (~2 KB/dab) and internal agg_go span/scanline objects — further gains require agg_go library changes
+  - [x] Re-run benchmark after brush optimization:
+    - `PaintStrokes`: **16.4 ms → 8.3 ms/op (49% faster)**, allocs **37.2k → 19.6k/op (47% fewer)**, memory **46.3 MB → 5.3 MB/op (89% less)**
+    - Remaining top allocators: `handleBeginPaintStroke` undo copy (59%) and `copyDirtyRect` (23%) — both Phase X.12
 
 ### Phase X.12: Stroke-Start Memory Optimization
 
