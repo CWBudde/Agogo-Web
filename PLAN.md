@@ -269,6 +269,49 @@
 - [x] Track transform-specific before/after numbers alongside the global render benchmark once the AGG replacement work starts
   - [x] Affine free-transform commit is now benchmarked directly in `render_benchmark_test.go`
   - [x] Before/after data recorded in X.5 shows large allocation wins from scratch-buffer reuse, simple-case dispatch, and `Agg2D` reuse
+- [x] Add a dedicated zoom-stress benchmark for heavily zoomed viewports
+  - [x] `render_benchmark_test.go` now includes `BenchmarkViewportZoomScenarios512`
+  - [x] Benchmark command:
+    - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkViewportZoomScenarios512$' -benchmem`
+  - [x] Native Go zoom-stress baseline measured on Linux / Intel i7-1255U:
+    - [x] `Zoom100/CompositeDocumentToViewport`: ~1.92 ms/op, 0 B/op, 0 allocs/op
+    - [x] `Zoom100/RenderViewportAggBase`: ~4.19 ms/op, ~398 KB/op, ~17.0k allocs/op
+    - [x] `Zoom100/RenderViewportAggOverlays`: ~0.32 ms/op, ~240 KB/op, ~120 allocs/op
+    - [x] `Zoom100/RenderViewport`: ~6.73 ms/op, ~638 KB/op, ~17.1k allocs/op
+    - [x] `Zoom1000/CompositeDocumentToViewport`: ~0.64 ms/op, 0 B/op, 0 allocs/op
+    - [x] `Zoom1000/RenderViewportAggBase`: ~0.90 ms/op, ~197 KB/op, ~472 allocs/op
+    - [x] `Zoom1000/RenderViewportAggOverlays`: ~7.90 ms/op, ~1.60 MB/op, ~133 allocs/op
+    - [x] `Zoom1000/RenderViewport`: ~9.68 ms/op, ~1.80 MB/op, ~605 allocs/op
+    - [x] `Zoom1000/RenderFrameCachedComposite`: ~9.23 ms/op, ~2.65 MB/op, ~149 allocs/op
+  - [x] Current conclusion:
+    - [x] At `1000%` zoom the document compositing path is faster, not slower, because nearest-neighbour sampling and reduced background coverage lower its cost
+    - [x] The dominant regression is `RenderViewportAggOverlays`, which currently spends most of the frame budget drawing the transformed document border through AGG at extreme zoom
+    - [x] Next optimization target for zoomed-in navigation should be the overlay pass, not `compositeDocumentToViewport`
+  - [x] Focused `pprof` for the zoomed overlay path:
+    - [x] CPU profiling command:
+      - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkViewportZoomScenarios512/Zoom1000/RenderViewportAggOverlays$' -benchtime=2s -cpuprofile /tmp/agogo-zoom1000-overlays.cpu`
+      - [x] `go tool pprof -top /tmp/agogo-zoom1000-overlays.cpu`
+    - [x] Allocation profiling command:
+      - [x] `go test ./internal/engine -run '^$' -bench '^BenchmarkViewportZoomScenarios512/Zoom1000/RenderViewportAggOverlays$' -benchtime=2s -memprofile /tmp/agogo-zoom1000-overlays.mem`
+      - [x] `go tool pprof -top -alloc_space /tmp/agogo-zoom1000-overlays.mem`
+    - [x] CPU hotspot summary:
+      - [x] `RenderViewportOverlays` spends ~98% cumulative CPU time under `renderDocumentBorder`
+      - [x] `github.com/cwbudde/agg_go/internal/scanline.(*ScanlineU8).AddSpan` is ~83.7% flat CPU
+      - [x] The rest is AGG rasterizer sorting/cell generation (`qsortCellsByX`, `SortCells`, `SweepScanline`)
+    - [x] Allocation hotspot summary:
+      - [x] ~96% of allocation space is inside `RenderViewportOverlays` → `renderDocumentBorder`
+      - [x] The dominant allocators are AGG rasterizer cell/block growth (`RasterizerCellsAASimple.allocateBlock`) and scanline backing-store resizing
+      - [x] This confirms the zoomed-in regression is the anti-aliased stroked border path, not document-pixel compositing
+  - [x] Zoomed overlay optimization implemented in `internal/agg/agg.go`
+    - [x] High-zoom document border rendering now switches from a transformed world-space AGG rectangle to clipped screen-space border segments
+    - [x] The border remains AGG-rendered, but only for the visible on-canvas segments instead of rasterizing a huge off-screen stroke
+    - [x] Post-fix benchmark results (`BenchmarkViewportZoomScenarios512`):
+      - [x] `Zoom1000/RenderViewportAggOverlays`: ~7.90 ms/op, ~1.60 MB/op, ~133 allocs/op → **~10 µs/op, ~10 KB/op, 63 allocs/op**
+      - [x] `Zoom1000/RenderViewport`: ~9.68 ms/op, ~1.80 MB/op, ~605 allocs/op → **~1.78 ms/op, ~207 KB/op, ~535 allocs/op**
+      - [x] `Zoom1000/RenderFrameCachedComposite`: ~9.23 ms/op, ~2.65 MB/op, ~149 allocs/op → **~0.93 ms/op, ~1.06 MB/op, 78 allocs/op**
+    - [x] Current conclusion:
+      - [x] The pathological cost at extreme zoom was the border rasterization strategy, not an unavoidable consequence of high zoom itself
+      - [x] With clipped screen-space border rendering, heavily zoomed viewport navigation is back in the same rough cost class as the underlying image/base passes
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
 ---

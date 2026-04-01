@@ -621,6 +621,8 @@ export function EditorCanvas({
   const zoomDragRef = useRef<ZoomDragState>(null);
   const pendingZoomRef = useRef<PendingZoom | null>(null);
   const zoomRafRef = useRef<number | null>(null);
+  const pendingPanRef = useRef<{ centerX: number; centerY: number } | null>(null);
+  const panRafRef = useRef<number | null>(null);
   const brushActiveRef = useRef(false);
   const lastViewportRef = useRef<{
     width: number;
@@ -647,6 +649,11 @@ export function EditorCanvas({
     useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
   const render = engine.render;
+  const engineHandle = engine.handle;
+  const setZoom = engine.setZoom;
+  const setPan = engine.setPan;
+  const renderRef = useRef(render);
+  renderRef.current = render;
 
   // Keep a stable ref so the resize effect doesn't re-run whenever
   // engine.resizeViewport gets a new identity (it changes on every render
@@ -704,6 +711,10 @@ export function EditorCanvas({
         cancelAnimationFrame(zoomRafRef.current);
         zoomRafRef.current = null;
       }
+      if (panRafRef.current !== null) {
+        cancelAnimationFrame(panRafRef.current);
+        panRafRef.current = null;
+      }
     };
   }, []);
 
@@ -756,6 +767,149 @@ export function EditorCanvas({
       engine.handle.free(render.bufferPtr);
     }
   }, [engine.handle, render]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      if (!engineHandle) {
+        return;
+      }
+      const currentRender = renderRef.current;
+      if (!currentRender) {
+        return;
+      }
+
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return;
+      }
+
+      const rect = host.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(rect.width, 1);
+      const scaleY = canvas.height / Math.max(rect.height, 1);
+      const point = {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY,
+      };
+      const dx = point.x - currentRender.viewport.canvasW * 0.5;
+      const dy = point.y - currentRender.viewport.canvasH * 0.5;
+      const radians = (currentRender.viewport.rotation * Math.PI) / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      const docPoint = {
+        x:
+          currentRender.viewport.centerX +
+          (dx * cos + dy * sin) / currentRender.viewport.zoom,
+        y:
+          currentRender.viewport.centerY +
+          (-dx * sin + dy * cos) / currentRender.viewport.zoom,
+      };
+
+      if (event.altKey) {
+        const direction = event.deltaY > 0 ? 1 / 1.1 : 1.1;
+        // Read from the pending ref first to avoid stale zoom when wheel events
+        // arrive faster than React can re-render.
+        const currentZoom =
+          pendingZoomRef.current?.zoom ?? currentRender.viewport.zoom;
+        pendingZoomRef.current = {
+          zoom: currentZoom * direction,
+          anchorX: docPoint.x,
+          anchorY: docPoint.y,
+        };
+        if (zoomRafRef.current === null) {
+          zoomRafRef.current = requestAnimationFrame(() => {
+            zoomRafRef.current = null;
+            const pending = pendingZoomRef.current;
+            if (pending) {
+              // Retain the dispatched zoom so events arriving before React
+              // re-renders don't fall back to stale render.viewport.zoom.
+              // The useEffect([render]) below clears this once React catches up.
+              pendingZoomRef.current = {
+                zoom: pending.zoom,
+                anchorX: undefined,
+                anchorY: undefined,
+              };
+              setZoom(pending.zoom, pending.anchorX, pending.anchorY);
+            }
+          });
+        }
+      } else if (event.ctrlKey || event.metaKey) {
+        const deltaModeScale =
+          event.deltaMode === 1
+            ? 16
+            : event.deltaMode === 2
+              ? currentRender.viewport.canvasH
+              : 1;
+        const screenDeltaX = event.deltaX * deltaModeScale;
+        const screenDeltaY = event.deltaY * deltaModeScale;
+        const panDx =
+          (screenDeltaX * cos + screenDeltaY * sin) /
+          currentRender.viewport.zoom;
+        const panDy =
+          (-screenDeltaX * sin + screenDeltaY * cos) /
+          currentRender.viewport.zoom;
+        const currentCenterX =
+          pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
+        const currentCenterY =
+          pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
+        pendingPanRef.current = {
+          centerX: currentCenterX + panDx,
+          centerY: currentCenterY + panDy,
+        };
+        if (panRafRef.current === null) {
+          panRafRef.current = requestAnimationFrame(() => {
+            panRafRef.current = null;
+            const pending = pendingPanRef.current;
+            if (pending) {
+              pendingPanRef.current = {
+                centerX: pending.centerX,
+                centerY: pending.centerY,
+              };
+              setPan(pending.centerX, pending.centerY);
+            }
+          });
+        }
+      } else {
+        const deltaModeScale =
+          event.deltaMode === 1
+            ? 16
+            : event.deltaMode === 2
+              ? currentRender.viewport.canvasH
+              : 1;
+        const screenDeltaY = event.deltaY * deltaModeScale;
+        const panDy = screenDeltaY / currentRender.viewport.zoom;
+        const currentCenterX =
+          pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
+        const currentCenterY =
+          pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
+        pendingPanRef.current = {
+          centerX: currentCenterX,
+          centerY: currentCenterY + panDy,
+        };
+        if (panRafRef.current === null) {
+          panRafRef.current = requestAnimationFrame(() => {
+            panRafRef.current = null;
+            const pending = pendingPanRef.current;
+            if (pending) {
+              pendingPanRef.current = {
+                centerX: pending.centerX,
+                centerY: pending.centerY,
+              };
+              setPan(pending.centerX, pending.centerY);
+            }
+          });
+        }
+      }
+    };
+
+    host.addEventListener("wheel", handleWheel, { passive: false });
+    return () => host.removeEventListener("wheel", handleWheel);
+  }, [engineHandle, setPan, setZoom]);
 
   // Continuous render loop — calls renderFrame() on every animation frame so
   // animated overlays like marching ants keep playing even without user input.
@@ -811,7 +965,8 @@ export function EditorCanvas({
 
   const updateCursor = (clientX: number, clientY: number) => {
     const host = hostRef.current;
-    if (!host || !render) {
+    const currentRender = renderRef.current;
+    if (!host || !currentRender) {
       onCursorChange(null);
       return;
     }
@@ -824,21 +979,23 @@ export function EditorCanvas({
     const canvasX = point.x;
     const canvasY = point.y;
 
-    const dx = canvasX - render.viewport.canvasW * 0.5;
-    const dy = canvasY - render.viewport.canvasH * 0.5;
-    const radians = (render.viewport.rotation * Math.PI) / 180;
+    const dx = canvasX - currentRender.viewport.canvasW * 0.5;
+    const dy = canvasY - currentRender.viewport.canvasH * 0.5;
+    const radians = (currentRender.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
     const docX =
-      render.viewport.centerX + (dx * cos + dy * sin) / render.viewport.zoom;
+      currentRender.viewport.centerX +
+      (dx * cos + dy * sin) / currentRender.viewport.zoom;
     const docY =
-      render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom;
+      currentRender.viewport.centerY +
+      (-dx * sin + dy * cos) / currentRender.viewport.zoom;
 
     if (
       docX >= 0 &&
-      docX < render.uiMeta.documentWidth &&
+      docX < currentRender.uiMeta.documentWidth &&
       docY >= 0 &&
-      docY < render.uiMeta.documentHeight
+      docY < currentRender.uiMeta.documentHeight
     ) {
       onCursorChange({ x: Math.floor(docX), y: Math.floor(docY) });
       return;
@@ -848,43 +1005,48 @@ export function EditorCanvas({
   };
 
   const clientPointToDocument = (clientX: number, clientY: number) => {
-    if (!render) {
+    const currentRender = renderRef.current;
+    if (!currentRender) {
       return null;
     }
     const point = canvasPointFromClient(clientX, clientY);
     if (!point) {
       return null;
     }
-    const dx = point.x - render.viewport.canvasW * 0.5;
-    const dy = point.y - render.viewport.canvasH * 0.5;
-    const radians = (render.viewport.rotation * Math.PI) / 180;
+    const dx = point.x - currentRender.viewport.canvasW * 0.5;
+    const dy = point.y - currentRender.viewport.canvasH * 0.5;
+    const radians = (currentRender.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
     return {
-      x: render.viewport.centerX + (dx * cos + dy * sin) / render.viewport.zoom,
+      x:
+        currentRender.viewport.centerX +
+        (dx * cos + dy * sin) / currentRender.viewport.zoom,
       y:
-        render.viewport.centerY + (-dx * sin + dy * cos) / render.viewport.zoom,
+        currentRender.viewport.centerY +
+        (-dx * sin + dy * cos) / currentRender.viewport.zoom,
       canvasX: point.x,
       canvasY: point.y,
     };
   };
 
   const documentPointToCanvas = (docPoint: DocumentPoint) => {
-    if (!render) {
+    const currentRender = renderRef.current;
+    if (!currentRender) {
       return null;
     }
-    const radians = (render.viewport.rotation * Math.PI) / 180;
+    const radians = (currentRender.viewport.rotation * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
-    const dx = docPoint.x - render.viewport.centerX;
-    const dy = docPoint.y - render.viewport.centerY;
+    const dx = docPoint.x - currentRender.viewport.centerX;
+    const dy = docPoint.y - currentRender.viewport.centerY;
     return {
       x:
-        render.viewport.canvasW * 0.5 +
-        (dx * cos - dy * sin) * render.viewport.zoom,
+        currentRender.viewport.canvasW * 0.5 +
+        (dx * cos - dy * sin) * currentRender.viewport.zoom,
       y:
-        render.viewport.canvasH * 0.5 +
-        (dx * sin + dy * cos) * render.viewport.zoom,
+        currentRender.viewport.canvasH * 0.5 +
+        (dx * sin + dy * cos) * currentRender.viewport.zoom,
     };
   };
 
@@ -2425,40 +2587,6 @@ export function EditorCanvas({
       }}
       onPointerLeave={() => {
         onCursorChange(null);
-      }}
-      onWheel={(event) => {
-        if (!render) {
-          return;
-        }
-        event.preventDefault();
-        const direction = event.deltaY > 0 ? 1 / 1.1 : 1.1;
-        const docPoint = clientPointToDocument(event.clientX, event.clientY);
-        // Read from pending ref first — avoids stale React state when events
-        // arrive faster than React can re-render.
-        const currentZoom =
-          pendingZoomRef.current?.zoom ?? render.viewport.zoom;
-        pendingZoomRef.current = {
-          zoom: currentZoom * direction,
-          anchorX: docPoint?.x,
-          anchorY: docPoint?.y,
-        };
-        if (zoomRafRef.current === null) {
-          zoomRafRef.current = requestAnimationFrame(() => {
-            zoomRafRef.current = null;
-            const pending = pendingZoomRef.current;
-            if (pending) {
-              // Retain the dispatched zoom so events arriving before React
-              // re-renders don't fall back to stale render.viewport.zoom.
-              // The useEffect([render]) below clears this once React catches up.
-              pendingZoomRef.current = {
-                zoom: pending.zoom,
-                anchorX: undefined,
-                anchorY: undefined,
-              };
-              engine.setZoom(pending.zoom, pending.anchorX, pending.anchorY);
-            }
-          });
-        }
       }}
     >
       <canvas

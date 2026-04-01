@@ -49,7 +49,7 @@ func TestRenderViewportBaseSolidBackgroundModesFillDocument(t *testing.T) {
 
 func TestRenderViewportOverlaysDrawGuidesAndBorder(t *testing.T) {
 	doc := &Document{Width: 48, Height: 48, Background: "white"}
-	vp := &Viewport{CenterX: 24, CenterY: 24, Zoom: 1, CanvasW: 48, CanvasH: 48}
+	vp := &Viewport{CenterX: 24, CenterY: 24, Zoom: 1, CanvasW: 48, CanvasH: 48, ShowGuides: true}
 
 	base := RenderViewportBase(doc, vp, nil)
 	withOverlays := RenderViewportOverlays(doc, vp, append([]byte(nil), base...))

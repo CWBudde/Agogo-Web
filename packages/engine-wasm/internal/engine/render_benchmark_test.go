@@ -28,6 +28,14 @@ type renderBenchmarkFixture struct {
 	strokes       []benchmarkStroke
 }
 
+type viewportBenchmarkCase struct {
+	Name     string
+	Zoom     float64
+	CenterX  float64
+	CenterY  float64
+	Rotation float64
+}
+
 func BenchmarkRenderPipeline512(b *testing.B) {
 	b.Run("PaintStrokes", func(b *testing.B) {
 		fixture := newRenderBenchmarkFixture()
@@ -335,6 +343,134 @@ func BenchmarkRenderPipeline512(b *testing.B) {
 	})
 }
 
+func BenchmarkViewportZoomScenarios512(b *testing.B) {
+	fixture := newRenderBenchmarkFixture()
+	fixture.preparePaintedDocument()
+	documentSurface := fixture.doc.renderCompositeSurface()
+	assertBenchmarkSurfaceLen(b, len(documentSurface))
+
+	cases := []viewportBenchmarkCase{
+		{
+			Name:     "Zoom100",
+			Zoom:     1,
+			CenterX:  benchmarkCanvasSize * 0.5,
+			CenterY:  benchmarkCanvasSize * 0.5,
+			Rotation: 0,
+		},
+		{
+			Name:     "Zoom1000",
+			Zoom:     10,
+			CenterX:  benchmarkCanvasSize * 0.5,
+			CenterY:  benchmarkCanvasSize * 0.5,
+			Rotation: 0,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		b.Run(tc.Name, func(b *testing.B) {
+			fixture.setViewport(tc)
+			basePixels := fixture.renderViewportBase(make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4))
+			clipX0, clipY0, clipX1, clipY1 := fixture.viewportClipBounds()
+			clipPixels := (clipX1 - clipX0) * (clipY1 - clipY0)
+			b.Logf(
+				"viewport zoom %.2fx covers %dx%d canvas pixels (%d total) in the document clip rect",
+				tc.Zoom,
+				clipX1-clipX0,
+				clipY1-clipY0,
+				clipPixels,
+			)
+
+			b.Run("CompositeDocumentToViewport", func(b *testing.B) {
+				canvas := make([]byte, len(basePixels))
+				b.ReportAllocs()
+				b.SetBytes(benchmarkCanvasBytes())
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					b.StopTimer()
+					copy(canvas, basePixels)
+					b.StartTimer()
+
+					compositeDocumentToViewport(
+						canvas,
+						fixture.inst.viewport.CanvasW,
+						fixture.inst.viewport.CanvasH,
+						fixture.doc,
+						&fixture.inst.viewport,
+						documentSurface,
+					)
+				}
+
+				b.StopTimer()
+				assertBenchmarkSurfaceLen(b, len(canvas))
+			})
+
+			b.Run("RenderViewportAggBase", func(b *testing.B) {
+				pixels := make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4)
+				b.ReportAllocs()
+				b.SetBytes(benchmarkCanvasBytes())
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					pixels = fixture.renderViewportBase(pixels)
+				}
+
+				b.StopTimer()
+				assertBenchmarkSurfaceLen(b, len(pixels))
+			})
+
+			b.Run("RenderViewportAggOverlays", func(b *testing.B) {
+				pixels := append([]byte(nil), basePixels...)
+				b.ReportAllocs()
+				b.SetBytes(benchmarkCanvasBytes())
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					pixels = fixture.renderViewportOverlays(pixels)
+				}
+
+				b.StopTimer()
+				assertBenchmarkSurfaceLen(b, len(pixels))
+			})
+
+			b.Run("RenderViewport", func(b *testing.B) {
+				pixels := make([]byte, benchmarkCanvasSize*benchmarkCanvasSize*4)
+				b.ReportAllocs()
+				b.SetBytes(benchmarkCanvasBytes())
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					pixels = RenderViewport(fixture.doc, &fixture.inst.viewport, pixels, documentSurface)
+				}
+
+				b.StopTimer()
+				assertBenchmarkSurfaceLen(b, len(pixels))
+			})
+
+			b.Run("RenderFrameCachedComposite", func(b *testing.B) {
+				fixture.inst.cachedViewportBase = nil
+				fixture.inst.cachedViewportBaseKey = viewportBaseKey{}
+				result := fixture.inst.render()
+				if result.BufferLen == 0 {
+					b.Fatal("expected initial render to populate the viewport buffer")
+				}
+
+				b.ReportAllocs()
+				b.SetBytes(benchmarkCanvasBytes())
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					result = fixture.inst.render()
+				}
+
+				b.StopTimer()
+				assertBenchmarkSurfaceLen(b, int(result.BufferLen))
+			})
+		})
+	}
+}
+
 func newRenderBenchmarkFixture() *renderBenchmarkFixture {
 	doc := testDocumentFixture("bench-doc", "Benchmark", benchmarkCanvasSize, benchmarkCanvasSize)
 	layer := NewPixelLayer(
@@ -393,6 +529,36 @@ func (fixture *renderBenchmarkFixture) preparePaintedDocument() {
 	fixture.inst.cachedDocSurface = nil
 	fixture.inst.cachedDocID = ""
 	fixture.inst.cachedDocContentVersion = 0
+}
+
+func (fixture *renderBenchmarkFixture) setViewport(tc viewportBenchmarkCase) {
+	fixture.inst.viewport.CenterX = tc.CenterX
+	fixture.inst.viewport.CenterY = tc.CenterY
+	fixture.inst.viewport.Zoom = tc.Zoom
+	fixture.inst.viewport.Rotation = tc.Rotation
+	fixture.inst.viewport.CanvasW = benchmarkCanvasSize
+	fixture.inst.viewport.CanvasH = benchmarkCanvasSize
+	fixture.inst.viewport.DevicePixelRatio = 1
+}
+
+func (fixture *renderBenchmarkFixture) viewportClipBounds() (x0, y0, x1, y1 int) {
+	zoom := clampZoom(fixture.inst.viewport.Zoom)
+	rotation := fixture.inst.viewport.Rotation * (math.Pi / 180)
+	cosTheta := math.Cos(rotation)
+	sinTheta := math.Sin(rotation)
+	halfCanvasW := float64(fixture.inst.viewport.CanvasW) * 0.5
+	halfCanvasH := float64(fixture.inst.viewport.CanvasH) * 0.5
+	return docBoundsOnCanvas(
+		fixture.doc,
+		&fixture.inst.viewport,
+		fixture.inst.viewport.CanvasW,
+		fixture.inst.viewport.CanvasH,
+		zoom,
+		cosTheta,
+		sinTheta,
+		halfCanvasW,
+		halfCanvasH,
+	)
 }
 
 func (fixture *renderBenchmarkFixture) paintAllStrokes() {
