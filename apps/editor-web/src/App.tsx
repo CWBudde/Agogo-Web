@@ -1,5 +1,6 @@
 import {
   CommandID,
+  type AddLayerCommand,
   type CreateDocumentCommand,
   type GradientStopCommand,
   type FreeTransformMeta,
@@ -96,6 +97,8 @@ type MenuActionId =
   | "transform-rotate-ccw"
   | "transform-rotate-180"
   | "edit-fill"
+  | "image-invert"
+  | "image-gradient-map"
   | "select-all"
   | "select-deselect"
   | "select-reselect"
@@ -217,6 +220,8 @@ const menuItems: MenuPreviewMenu[] = [
           { label: "Levels..." },
           { label: "Curves..." },
           { label: "Hue/Saturation..." },
+          { label: "Invert", actionId: "image-invert" as const },
+          { label: "Gradient Map...", actionId: "image-gradient-map" as const },
         ],
       },
       {
@@ -679,6 +684,7 @@ export default function App() {
     ]),
   );
   const [gradientEditorOpen, setGradientEditorOpen] = useState(false);
+  const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
   const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
   const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
@@ -841,6 +847,31 @@ export default function App() {
     setNewDocumentOpen(true);
   };
 
+  const createAdjustmentLayer = (
+    name: string,
+    adjustmentKind: string,
+    params: unknown = {},
+  ) => {
+    if (!render?.uiMeta.activeLayerId) {
+      return;
+    }
+    const position = findLayerPositionInTree(
+      render.uiMeta.layers,
+      render.uiMeta.activeLayerId,
+    );
+    if (!position) {
+      return;
+    }
+    engine.dispatchCommand(CommandID.AddLayer, {
+      layerType: "adjustment",
+      name,
+      adjustmentKind,
+      params,
+      parentLayerId: position.parentId,
+      index: position.index + 1,
+    } satisfies AddLayerCommand);
+  };
+
   const saveProject = () => {
     const base64Zip = engine.exportProject();
     if (!base64Zip) {
@@ -978,6 +1009,9 @@ export default function App() {
       case "generate-assets":
       case "canvas-size":
         return !render || actionId === "generate-assets";
+      case "image-invert":
+      case "image-gradient-map":
+        return !render?.uiMeta.activeLayerId;
       case "transform-free":
       case "transform-scale":
       case "transform-rotate":
@@ -1155,6 +1189,12 @@ export default function App() {
         break;
       case "edit-fill":
         setFillDialogOpen(true);
+        break;
+      case "image-invert":
+        createAdjustmentLayer("Invert", "invert");
+        break;
+      case "image-gradient-map":
+        setGradientMapDialogOpen(true);
         break;
       case "view-toggle-guides": {
         const next = !showGuides;
@@ -3184,6 +3224,31 @@ export default function App() {
         onClose={() => setGradientEditorOpen(false)}
       />
 
+      <GradientEditorDialog
+        open={gradientMapDialogOpen}
+        title="Gradient Map"
+        description="Create an adjustment layer that remaps luminance through the current gradient."
+        stops={gradientStops}
+        onStopsChange={setGradientStops}
+        recentColors={recentColors}
+        onRecentColorSelect={pushRecentColor}
+        channelMode={colorChannelMode}
+        onChannelModeChange={setColorChannelMode}
+        onlyWebColors={onlyWebColors}
+        onOnlyWebColorsChange={setOnlyWebColors}
+        reverse={gradientReverse}
+        onReverseChange={setGradientReverse}
+        primaryActionLabel="Create Adjustment Layer"
+        onPrimaryAction={() => {
+          createAdjustmentLayer("Gradient Map", "gradient-map", {
+            stops: gradientStops,
+            reverse: gradientReverse,
+          });
+          setGradientMapDialogOpen(false);
+        }}
+        onClose={() => setGradientMapDialogOpen(false)}
+      />
+
       <SelectAndMaskWorkspace
         open={selectAndMaskOpen}
         onClose={() => setSelectAndMaskOpen(false)}
@@ -3489,6 +3554,24 @@ function findLayerMetaInTree(
   return null;
 }
 
+function findLayerPositionInTree(
+  layers: LayerNodeMeta[],
+  targetID: string,
+  parentId?: string,
+): { parentId?: string; index: number } | null {
+  for (let index = 0; index < layers.length; index++) {
+    const layer = layers[index];
+    if (layer.id === targetID) {
+      return { parentId, index };
+    }
+    const child = findLayerPositionInTree(layer.children ?? [], targetID, layer.id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
 function MenuPreviewPanel({
   menu,
   isItemDisabled,
@@ -3643,6 +3726,8 @@ function iconForMenuItem(label: string) {
     lower.includes("levels") ||
     lower.includes("curves") ||
     lower.includes("hue") ||
+    lower.includes("invert") ||
+    lower.includes("gradient") ||
     lower.includes("blur") ||
     lower.includes("noise") ||
     lower.includes("stylize") ||

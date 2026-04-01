@@ -17,6 +17,11 @@ type GradientEditorProps = {
   onChannelModeChange(mode: ColorChannelMode): void;
   onlyWebColors: boolean;
   onOnlyWebColorsChange(value: boolean): void;
+  reverse?: boolean;
+  onReverseChange?(value: boolean): void;
+  primaryActionLabel?: string;
+  onPrimaryAction?: () => void;
+  primaryActionDisabled?: boolean;
   onClose(): void;
 };
 
@@ -177,6 +182,11 @@ export function GradientEditorDialog({
   onChannelModeChange,
   onlyWebColors,
   onOnlyWebColorsChange,
+  reverse,
+  onReverseChange,
+  primaryActionLabel,
+  onPrimaryAction,
+  primaryActionDisabled,
   onClose,
 }: GradientEditorProps) {
   const [editorStops, setEditorStops] = useState<GradientEditorStop[]>(() => normalizeStops(stops));
@@ -584,6 +594,21 @@ export function GradientEditorDialog({
                 />
                 Only Web Colors
               </label>
+              {onReverseChange ? (
+                <label className="flex items-center gap-1 text-[10px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={reverse ?? false}
+                    onChange={(event) => onReverseChange(event.target.checked)}
+                  />
+                  Reverse
+                </label>
+              ) : null}
+              {onPrimaryAction ? (
+                <Button size="sm" onClick={onPrimaryAction} disabled={primaryActionDisabled}>
+                  {primaryActionLabel ?? "Apply"}
+                </Button>
+              ) : null}
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Close
               </Button>
