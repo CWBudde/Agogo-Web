@@ -74,9 +74,9 @@ func RenderViewportOverlays(doc *Document, vp *Viewport, reuse []byte) []byte {
 	renderer := agglib.NewAgg2D()
 	renderer.Attach(reuse, width, height, width*4)
 	renderer.NoLine()
-	configureViewportTransform(renderer, width, height, vp)
 	renderDocumentBorder(renderer, doc, vp)
 	if vp.ShowGuides {
+		configureViewportTransform(renderer, width, height, vp)
 		renderGuides(renderer, doc, vp)
 	}
 
@@ -108,14 +108,147 @@ func renderDocumentBackground(renderer *agglib.Agg2D, doc *Document, minX, minY,
 }
 
 func renderDocumentBorder(renderer *agglib.Agg2D, doc *Document, vp *Viewport) {
+	if shouldRenderBorderInScreenSpace(doc, vp) {
+		renderDocumentBorderScreenSpace(renderer, doc, vp)
+		return
+	}
+
 	lineWidth := 1.5
 	if vp.Zoom > 0 {
 		lineWidth = math.Max(1.0/vp.Zoom, 0.75)
 	}
+	configureViewportTransform(renderer, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), vp)
 	renderer.LineWidth(lineWidth)
 	renderer.LineColor(docBorder)
 	renderer.NoFill()
 	renderer.Rectangle(0, 0, float64(doc.Width), float64(doc.Height))
+}
+
+func shouldRenderBorderInScreenSpace(doc *Document, vp *Viewport) bool {
+	if doc == nil || vp == nil {
+		return false
+	}
+	return vp.Zoom >= 4
+}
+
+func renderDocumentBorderScreenSpace(renderer *agglib.Agg2D, doc *Document, vp *Viewport) {
+	width := maxInt(vp.CanvasW, 1)
+	height := maxInt(vp.CanvasH, 1)
+	corners := [4][2]float64{
+		projectDocToScreen(0, 0, vp),
+		projectDocToScreen(float64(doc.Width), 0, vp),
+		projectDocToScreen(float64(doc.Width), float64(doc.Height), vp),
+		projectDocToScreen(0, float64(doc.Height), vp),
+	}
+
+	renderer.ResetTransformations()
+	renderer.LineColor(docBorder)
+	renderer.NoFill()
+	renderer.LineWidth(0.75)
+
+	for i := 0; i < len(corners); i++ {
+		start := corners[i]
+		end := corners[(i+1)%len(corners)]
+		x0, y0, x1, y1, ok := clipLineToCanvas(start[0], start[1], end[0], end[1], width, height)
+		if !ok {
+			continue
+		}
+		renderer.Line(x0, y0, x1, y1)
+	}
+}
+
+func projectDocToScreen(x, y float64, vp *Viewport) [2]float64 {
+	rotation := vp.Rotation * (math.Pi / 180)
+	cosTheta := math.Cos(rotation)
+	sinTheta := math.Sin(rotation)
+	dx := x - vp.CenterX
+	dy := y - vp.CenterY
+	return [2]float64{
+		dx*cosTheta*vp.Zoom - dy*sinTheta*vp.Zoom + float64(maxInt(vp.CanvasW, 1))*0.5,
+		dx*sinTheta*vp.Zoom + dy*cosTheta*vp.Zoom + float64(maxInt(vp.CanvasH, 1))*0.5,
+	}
+}
+
+func clipLineToCanvas(x0, y0, x1, y1 float64, width, height int) (float64, float64, float64, float64, bool) {
+	const (
+		clipLeft = 1 << iota
+		clipRight
+		clipBottom
+		clipTop
+	)
+
+	minX := 0.0
+	minY := 0.0
+	maxX := float64(maxInt(width, 1) - 1)
+	maxY := float64(maxInt(height, 1) - 1)
+
+	outCode := func(x, y float64) int {
+		code := 0
+		if x < minX {
+			code |= clipLeft
+		} else if x > maxX {
+			code |= clipRight
+		}
+		if y < minY {
+			code |= clipTop
+		} else if y > maxY {
+			code |= clipBottom
+		}
+		return code
+	}
+
+	code0 := outCode(x0, y0)
+	code1 := outCode(x1, y1)
+
+	for {
+		if code0|code1 == 0 {
+			return x0, y0, x1, y1, true
+		}
+		if code0&code1 != 0 {
+			return 0, 0, 0, 0, false
+		}
+
+		codeOut := code0
+		if codeOut == 0 {
+			codeOut = code1
+		}
+
+		var x, y float64
+		switch {
+		case codeOut&clipTop != 0:
+			if y1 == y0 {
+				return 0, 0, 0, 0, false
+			}
+			x = x0 + (x1-x0)*(minY-y0)/(y1-y0)
+			y = minY
+		case codeOut&clipBottom != 0:
+			if y1 == y0 {
+				return 0, 0, 0, 0, false
+			}
+			x = x0 + (x1-x0)*(maxY-y0)/(y1-y0)
+			y = maxY
+		case codeOut&clipRight != 0:
+			if x1 == x0 {
+				return 0, 0, 0, 0, false
+			}
+			y = y0 + (y1-y0)*(maxX-x0)/(x1-x0)
+			x = maxX
+		default:
+			if x1 == x0 {
+				return 0, 0, 0, 0, false
+			}
+			y = y0 + (y1-y0)*(minX-x0)/(x1-x0)
+			x = minX
+		}
+
+		if codeOut == code0 {
+			x0, y0 = x, y
+			code0 = outCode(x0, y0)
+		} else {
+			x1, y1 = x, y
+			code1 = outCode(x1, y1)
+		}
+	}
 }
 
 func drawCheckerboard(renderer *agglib.Agg2D, minX, minY, maxX, maxY float64, doc *Document) {
