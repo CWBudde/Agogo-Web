@@ -29,7 +29,6 @@ import { GradientEditorDialog } from "@/components/gradient-editor";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import {
-  hexToRgba,
   BrushToolIcon,
   ClipboardIcon,
   CopyIcon,
@@ -71,7 +70,7 @@ import {
   type ShortcutTool,
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
-import { rgbaToCss, rgbaToHex, snapToWebSafeColor, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
+import { hexToRgba, rgbaToCss, rgbaToHex, snapToWebSafeColor, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";

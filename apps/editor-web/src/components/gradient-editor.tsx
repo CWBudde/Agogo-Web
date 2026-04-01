@@ -3,7 +3,7 @@ import type { GradientStopCommand } from "@agogo/proto";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ColorPickerDialog, type ColorChannelMode } from "@/components/brush-color-panels";
-import { clampUnit, rgbaToCss, rgbaToHex, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
+import { clampByte, clampUnit, rgbaToCss, rgbaToHex, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
 
 type GradientEditorProps = {
   open: boolean;
