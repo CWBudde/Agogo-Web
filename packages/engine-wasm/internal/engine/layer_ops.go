@@ -189,22 +189,24 @@ type SetMaskEditModePayload struct {
 }
 
 type LayerNodeMeta struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	LayerType     LayerType       `json:"layerType"`
-	ParentID      string          `json:"parentId,omitempty"`
-	Visible       bool            `json:"visible"`
-	LockMode      LayerLockMode   `json:"lockMode"`
-	Opacity       float64         `json:"opacity"`
-	FillOpacity   float64         `json:"fillOpacity"`
-	BlendMode     BlendMode       `json:"blendMode"`
-	ClipToBelow   bool            `json:"clipToBelow"`
-	ClippingBase  bool            `json:"clippingBase"`
-	HasMask       bool            `json:"hasMask"`
-	MaskEnabled   bool            `json:"maskEnabled"`
-	HasVectorMask bool            `json:"hasVectorMask"`
-	Isolated      bool            `json:"isolated,omitempty"`
-	Children      []LayerNodeMeta `json:"children,omitempty"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	LayerType      LayerType       `json:"layerType"`
+	AdjustmentKind string          `json:"adjustmentKind,omitempty"`
+	Params         json.RawMessage `json:"params,omitempty"`
+	ParentID       string          `json:"parentId,omitempty"`
+	Visible        bool            `json:"visible"`
+	LockMode       LayerLockMode   `json:"lockMode"`
+	Opacity        float64         `json:"opacity"`
+	FillOpacity    float64         `json:"fillOpacity"`
+	BlendMode      BlendMode       `json:"blendMode"`
+	ClipToBelow    bool            `json:"clipToBelow"`
+	ClippingBase   bool            `json:"clippingBase"`
+	HasMask        bool            `json:"hasMask"`
+	MaskEnabled    bool            `json:"maskEnabled"`
+	HasVectorMask  bool            `json:"hasVectorMask"`
+	Isolated       bool            `json:"isolated,omitempty"`
+	Children       []LayerNodeMeta `json:"children,omitempty"`
 }
 
 func (doc *Document) ensureLayerRoot() *GroupLayer {
@@ -362,6 +364,29 @@ func (doc *Document) SetLayerBlendMode(layerID string, mode BlendMode) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetBlendMode(mode)
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) SetAdjustmentLayerParams(layerID, adjustmentKind string, params json.RawMessage) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	typed, ok := layer.(*AdjustmentLayer)
+	if !ok {
+		return fmt.Errorf("layer %q is not an adjustment layer", layer.Name())
+	}
+	if adjustmentKind != "" {
+		typed.AdjustmentKind = adjustmentKind
+	}
+	if typed.AdjustmentKind == "" {
+		return fmt.Errorf("adjustment layer %q requires adjustmentKind", layer.Name())
+	}
+	typed.Params = cloneJSONRawMessage(params)
 	doc.touchModifiedAt()
 	return nil
 }
@@ -938,6 +963,9 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 }
 
 func (doc *Document) rasterizeAsPixelLayer(layer LayerNode, name string) (*PixelLayer, error) {
+	if _, ok := layer.(*AdjustmentLayer); ok {
+		return nil, fmt.Errorf("layer %q cannot be flattened without raster content", layer.Name())
+	}
 	buffer, err := doc.renderLayerToSurface(layer)
 	if err != nil {
 		return nil, err
@@ -979,6 +1007,10 @@ func (doc *Document) renderLayersToSurface(layers []LayerNode) ([]byte, error) {
 	return buffer, nil
 }
 
+// compositeLayerOnto is retained for test coverage and delegates to the
+// clip-aware compositor used by production code.
+//
+//nolint:unused
 func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
 	return doc.compositeLayerOntoWithClip(dest, layer, nil)
 }
@@ -998,7 +1030,7 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 	case *VectorLayer:
 		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
 	case *AdjustmentLayer:
-		return fmt.Errorf("adjustment layer %q cannot be flattened before compositing is implemented", typed.Name())
+		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha)
 	case *GroupLayer:
 		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
 			return doc.compositeLayerStackOnto(dest, typed.Children(), clipAlpha)
@@ -1034,7 +1066,11 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 		if index+1 >= len(layers) || !layers[index+1].ClipToBelow() {
 			continue
 		}
-		baseSurface, err := doc.renderLayerToSurface(layer)
+		baseIndex := clippingBaseRenderableIndex(layers, index)
+		if baseIndex < 0 {
+			continue
+		}
+		baseSurface, err := doc.renderLayerToSurface(layers[baseIndex])
 		if err != nil {
 			return err
 		}
@@ -1267,9 +1303,32 @@ func clippingBaseIndex(children []LayerNode, index int) int {
 		if children[candidate] == nil {
 			continue
 		}
+		if _, ok := children[candidate].(*AdjustmentLayer); ok {
+			continue
+		}
 		if !children[candidate].ClipToBelow() {
 			return candidate
 		}
+	}
+	return -1
+}
+
+func clippingBaseRenderableIndex(children []LayerNode, index int) int {
+	if index < 0 || index >= len(children) {
+		return -1
+	}
+	if _, ok := children[index].(*AdjustmentLayer); !ok {
+		return index
+	}
+	for candidate := index - 1; candidate >= 0; candidate-- {
+		layer := children[candidate]
+		if layer == nil || layer.ClipToBelow() {
+			continue
+		}
+		if _, ok := layer.(*AdjustmentLayer); ok {
+			continue
+		}
+		return candidate
 	}
 	return -1
 }
@@ -1328,6 +1387,10 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		HasMask:       mask != nil,
 		MaskEnabled:   mask != nil && mask.Enabled,
 		HasVectorMask: layer.VectorMask() != nil,
+	}
+	if adjustment, ok := layer.(*AdjustmentLayer); ok {
+		meta.AdjustmentKind = adjustment.AdjustmentKind
+		meta.Params = cloneJSONRawMessage(adjustment.Params)
 	}
 	if parent := layer.Parent(); parent != nil {
 		meta.ParentID = parent.ID()

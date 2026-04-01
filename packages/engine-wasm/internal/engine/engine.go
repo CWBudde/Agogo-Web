@@ -305,14 +305,20 @@ const (
 )
 
 type ApplyGradientPayload struct {
-	StartX      float64      `json:"startX"`
-	StartY      float64      `json:"startY"`
-	EndX        float64      `json:"endX"`
-	EndY        float64      `json:"endY"`
-	Type        GradientType `json:"type"`
-	Reverse     bool         `json:"reverse,omitempty"`
-	Dither      bool         `json:"dither,omitempty"`
-	CreateLayer bool         `json:"createLayer,omitempty"`
+	StartX      float64               `json:"startX"`
+	StartY      float64               `json:"startY"`
+	EndX        float64               `json:"endX"`
+	EndY        float64               `json:"endY"`
+	Type        GradientType          `json:"type"`
+	Reverse     bool                  `json:"reverse,omitempty"`
+	Dither      bool                  `json:"dither,omitempty"`
+	CreateLayer bool                  `json:"createLayer,omitempty"`
+	Stops       []GradientStopPayload `json:"stops,omitempty"`
+}
+
+type GradientStopPayload struct {
+	Position float64  `json:"position"`
+	Color    [4]uint8 `json:"color"`
 }
 
 type BeginPaintStrokePayload struct {
@@ -358,6 +364,18 @@ type activePaintStroke struct {
 	dirtyMax         [2]int // max corner of painted dirty rect (layer-local)
 	hasDirty         bool
 	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
+	mixerSource      []byte   // sampled once at stroke begin for mixer brush
+	mixerSourceW     int
+	mixerSourceH     int
+	mixerSourceX     int
+	mixerSourceY     int
+	cloneSource      []byte // sampled once at stroke begin for clone stamp
+	cloneSourceW     int
+	cloneSourceH     int
+	cloneSourceX     int
+	cloneSourceY     int
+	cloneOffsetX     float64
+	cloneOffsetY     float64
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
@@ -2777,6 +2795,14 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	// Pre-create the AGG renderer for the stroke's layer so dab rendering
 	// reuses the rasterizer's allocated cell blocks instead of re-allocating.
 	stroke.renderer = agglib.NewAgg2D()
+	if brushParams.MixerBrush {
+		stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY = captureStrokeSourceSurface(doc, layer, brushParams.SampleMerged)
+	}
+	if brushParams.CloneStamp {
+		stroke.cloneSource, stroke.cloneSourceW, stroke.cloneSourceH, stroke.cloneSourceX, stroke.cloneSourceY = captureStrokeSourceSurface(doc, layer, brushParams.SampleMerged)
+		stroke.cloneOffsetX = brushParams.CloneSourceX - p.X
+		stroke.cloneOffsetY = brushParams.CloneSourceY - p.Y
+	}
 
 	inst.paintStroke = stroke
 
@@ -2790,11 +2816,17 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
+		dabParams := effective
 		stroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
 		if brushParams.EraseBackground {
-			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
+			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+		} else if dabParams.CloneStamp {
+			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY)
 		} else {
-			paintDabReuse(stroke.renderer, layer, dx, dy, effective, azimuth, squish)
+			if dabParams.MixerBrush {
+				dabParams.Color = resolveMixerBrushColor(stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)
+			}
+			paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
@@ -2823,11 +2855,17 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
+		dabParams := effective
 		inst.paintStroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
 		if inst.paintStroke.params.EraseBackground {
-			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
+			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+		} else if dabParams.CloneStamp {
+			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY)
 		} else {
-			paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, effective, azimuth, squish)
+			if dabParams.MixerBrush {
+				dabParams.Color = resolveMixerBrushColor(inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)
+			}
+			paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}

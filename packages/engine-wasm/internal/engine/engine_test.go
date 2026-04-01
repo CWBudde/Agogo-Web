@@ -229,6 +229,59 @@ func TestRenderCompositeSurfaceAppliesRasterMask(t *testing.T) {
 	}
 }
 
+func TestRenderCompositeSurfaceAppliesAdjustmentLayersNonDestructively(t *testing.T) {
+	RegisterAdjustmentTransform("test-lift-red", func(r, g, b, a uint8, params json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		var payload struct {
+			Add [4]int `json:"add"`
+		}
+		if len(params) > 0 {
+			if err := json.Unmarshal(params, &payload); err != nil {
+				return 0, 0, 0, 0, err
+			}
+		}
+		return clampByteInt(int(r) + payload.Add[0]), clampByteInt(int(g) + payload.Add[1]), clampByteInt(int(b) + payload.Add[2]), clampByteInt(int(a) + payload.Add[3]), nil
+	})
+	defer RegisterAdjustmentTransform("test-lift-red", nil)
+
+	doc := &Document{
+		Width:      1,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Adjusted",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{10, 20, 30, 255})
+	adjustment := NewAdjustmentLayer("Lift Red", "test-lift-red", json.RawMessage(`{"add":[20,0,0,0]}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	adjusted := doc.renderCompositeSurface()
+	if got := adjusted[:4]; got[0] != 30 || got[1] != 20 || got[2] != 30 || got[3] != 255 {
+		t.Fatalf("adjusted pixel = %v, want [30 20 30 255]", got)
+	}
+
+	versionBefore := doc.ContentVersion
+	if err := doc.SetAdjustmentLayerParams(adjustment.ID(), "test-lift-red", json.RawMessage(`{"add":[40,0,0,0]}`)); err != nil {
+		t.Fatalf("SetAdjustmentLayerParams: %v", err)
+	}
+	if doc.ContentVersion <= versionBefore {
+		t.Fatalf("content version did not advance after adjustment params change: before=%d after=%d", versionBefore, doc.ContentVersion)
+	}
+
+	changed := doc.renderCompositeSurface()
+	if got := changed[:4]; got[0] != 50 || got[1] != 20 || got[2] != 30 || got[3] != 255 {
+		t.Fatalf("changed adjusted pixel = %v, want [50 20 30 255]", got)
+	}
+
+	adjustment.SetVisible(false)
+	hidden := doc.renderCompositeSurface()
+	if got := hidden[:4]; got[0] != 10 || got[1] != 20 || got[2] != 30 || got[3] != 255 {
+		t.Fatalf("hidden adjustment pixel = %v, want original [10 20 30 255]", got)
+	}
+}
+
 func TestLayerMaskCommandsUpdateMetadataAndUndo(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)
@@ -397,6 +450,16 @@ func filledPixels(width, height int, color [4]byte) []byte {
 		copy(pixels[index:index+4], color[:])
 	}
 	return pixels
+}
+
+func clampByteInt(value int) uint8 {
+	if value < 0 {
+		return 0
+	}
+	if value > 255 {
+		return 255
+	}
+	return uint8(value)
 }
 
 func pixelAt(pixels []byte, width, x, y int) (byte, byte, byte, byte) {

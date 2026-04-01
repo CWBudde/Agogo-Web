@@ -23,6 +23,11 @@ type BrushParams struct {
 	Erase           bool     `json:"erase,omitempty"`           // Erase to transparency (uses dst-out compositing)
 	EraseBackground bool     `json:"eraseBackground,omitempty"` // Erase only pixels matching the sampled base color
 	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
+	MixerBrush      bool     `json:"mixerBrush,omitempty"`      // Mix the brush color with sampled canvas color before painting
+	MixerMix        float64  `json:"mixerMix,omitempty"`        // Sampled-color mix strength, 0–1
+	CloneStamp      bool     `json:"cloneStamp,omitempty"`      // Clone pixels from a source point
+	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`    // Source point X in document space
+	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`    // Source point Y in document space
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -292,6 +297,128 @@ func applyPressure(p BrushParams, pressure float64) BrushParams {
 	p.Size = p.Size * (0.5 + 0.5*pressure)
 	p.Flow = clampFloat(p.Flow*pressure, 0, 1)
 	return p
+}
+
+func captureStrokeSourceSurface(doc *Document, layer *PixelLayer, sampleMerged bool) ([]byte, int, int, int, int) {
+	if sampleMerged {
+		if doc == nil {
+			return nil, 0, 0, 0, 0
+		}
+		surface := doc.renderCompositeSurface()
+		if len(surface) == 0 {
+			return nil, 0, 0, 0, 0
+		}
+		return surface, doc.Width, doc.Height, 0, 0
+	}
+	if layer == nil || len(layer.Pixels) == 0 {
+		return nil, 0, 0, 0, 0
+	}
+	return append([]byte(nil), layer.Pixels...), layer.Bounds.W, layer.Bounds.H, layer.Bounds.X, layer.Bounds.Y
+}
+
+// CloneStampDab copies pixels from a sampled source surface into the dab area
+// using the same brush mask profile as PaintDab. This is the first-pass clone
+// stamp implementation: it clones a fixed source offset and applies the current
+// brush opacity/shape, but it does not yet model Photoshop-style paint load.
+func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, sourceOffsetX, sourceOffsetY float64) {
+	w := layer.Bounds.W
+	h := layer.Bounds.H
+	if w <= 0 || h <= 0 || sourceW <= 0 || sourceH <= 0 || len(source) == 0 {
+		return
+	}
+
+	lx := cx - float64(layer.Bounds.X)
+	ly := cy - float64(layer.Bounds.Y)
+	radius := p.Size * 0.5
+	if radius < 0.5 {
+		radius = 0.5
+	}
+	flow := clampFloat(p.Flow, 0, 1)
+
+	x0 := int(lx-radius) - 1
+	y0 := int(ly-radius) - 1
+	x1 := int(lx+radius) + 2
+	y1 := int(ly+radius) + 2
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > w {
+		x1 = w
+	}
+	if y1 > h {
+		y1 = h
+	}
+
+	hardness := clampFloat(p.Hardness, 0, 1)
+	for py := y0; py < y1; py++ {
+		for px := x0; px < x1; px++ {
+			dx := float64(px) - lx
+			dy := float64(py) - ly
+			dist := math.Sqrt(dx*dx+dy*dy) / radius
+			if dist > 1.0 {
+				continue
+			}
+
+			var maskAlpha float64
+			if hardness >= 1.0 || dist <= hardness {
+				maskAlpha = 1.0
+			} else {
+				maskAlpha = 1.0 - (dist-hardness)/(1.0-hardness)
+			}
+			if maskAlpha <= 0 {
+				continue
+			}
+
+			sx := int(math.Round(float64(px)+sourceOffsetX)) - sourceOriginX
+			sy := int(math.Round(float64(py)+sourceOffsetY)) - sourceOriginY
+			if sx < 0 || sy < 0 || sx >= sourceW || sy >= sourceH {
+				continue
+			}
+			srcIndex := (sy*sourceW + sx) * 4
+			if srcIndex < 0 || srcIndex+3 >= len(source) {
+				continue
+			}
+			if source[srcIndex+3] == 0 {
+				continue
+			}
+
+			destIndex := (py*w + px) * 4
+			opacity := maskAlpha * flow
+			if opacity <= 0 {
+				continue
+			}
+
+			srcPixel := source[srcIndex : srcIndex+4]
+			compositePixelWithBlend(layer.Pixels[destIndex:destIndex+4], srcPixel, BlendMode(p.BlendMode), opacity, 0)
+		}
+	}
+}
+
+func resolveMixerBrushColor(source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, baseColor [4]uint8, mix float64) [4]uint8 {
+	if len(source) == 0 || sourceW <= 0 || sourceH <= 0 {
+		return baseColor
+	}
+	px := int(math.Round(cx)) - sourceX
+	py := int(math.Round(cy)) - sourceY
+	sampled, ok := sampleSurfaceColor(source, sourceW, sourceH, px, py)
+	if !ok || sampled[3] == 0 {
+		return baseColor
+	}
+	mix = clampFloat(mix, 0, 1)
+	mix *= float64(sampled[3]) / 255
+	if mix <= 0 {
+		return baseColor
+	}
+	inv := 1 - mix
+	return [4]uint8{
+		uint8(math.Round(float64(baseColor[0])*inv + float64(sampled[0])*mix)),
+		uint8(math.Round(float64(baseColor[1])*inv + float64(sampled[1])*mix)),
+		uint8(math.Round(float64(baseColor[2])*inv + float64(sampled[2])*mix)),
+		uint8(math.Round(float64(baseColor[3])*inv + float64(sampled[3])*mix)),
+	}
 }
 
 // saveRowsBeforeDab saves the original (pre-paint) pixel rows that the dab at

@@ -66,6 +66,8 @@ export interface LayerNodeMeta {
 	id: string;
 	name: string;
 	layerType: "pixel" | "group" | "adjustment" | "text" | "vector";
+	adjustmentKind?: string;
+	params?: unknown;
 	parentId?: string;
 	visible: boolean;
 	lockMode: "none" | "pixels" | "position" | "all";
