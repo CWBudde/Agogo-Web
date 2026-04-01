@@ -93,6 +93,8 @@ const (
 	commandSetBackgroundColor       = 0x0411
 	commandSampleMergedColor        = 0x0412
 	commandMagicErase               = 0x0413
+	commandFill                     = 0x0414
+	commandApplyGradient            = 0x0415
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -265,8 +267,10 @@ type SetColorPayload struct {
 // SampleMergedColorPayload requests the RGBA color of the composite at a
 // document-space position. The result is returned in RenderResult.SampledColor.
 type SampleMergedColorPayload struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
+	X            float64 `json:"x"`
+	Y            float64 `json:"y"`
+	SampleSize   int     `json:"sampleSize,omitempty"`
+	SampleMerged bool    `json:"sampleMerged,omitempty"`
 }
 
 // MagicErasePayload describes a one-click flood-clear by color similarity.
@@ -276,6 +280,39 @@ type MagicErasePayload struct {
 	Tolerance    float64 `json:"tolerance"`    // 0–255 Euclidean RGB distance
 	Contiguous   bool    `json:"contiguous"`   // true = flood-fill, false = all matching pixels
 	SampleMerged bool    `json:"sampleMerged"` // sample composite instead of active layer
+}
+
+type FillPayload struct {
+	HasPoint     bool     `json:"hasPoint,omitempty"`
+	X            float64  `json:"x,omitempty"`
+	Y            float64  `json:"y,omitempty"`
+	Tolerance    float64  `json:"tolerance,omitempty"`
+	Contiguous   bool     `json:"contiguous,omitempty"`
+	SampleMerged bool     `json:"sampleMerged,omitempty"`
+	Source       string   `json:"source,omitempty"`
+	Color        [4]uint8 `json:"color,omitempty"`
+	CreateLayer  bool     `json:"createLayer,omitempty"`
+}
+
+type GradientType string
+
+const (
+	GradientTypeLinear    GradientType = "linear"
+	GradientTypeRadial    GradientType = "radial"
+	GradientTypeAngle     GradientType = "angle"
+	GradientTypeReflected GradientType = "reflected"
+	GradientTypeDiamond   GradientType = "diamond"
+)
+
+type ApplyGradientPayload struct {
+	StartX      float64      `json:"startX"`
+	StartY      float64      `json:"startY"`
+	EndX        float64      `json:"endX"`
+	EndY        float64      `json:"endY"`
+	Type        GradientType `json:"type"`
+	Reverse     bool         `json:"reverse,omitempty"`
+	Dither      bool         `json:"dither,omitempty"`
+	CreateLayer bool         `json:"createLayer,omitempty"`
 }
 
 type BeginPaintStrokePayload struct {
@@ -2400,16 +2437,33 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		}
 		doc := inst.manager.Active()
 		if doc != nil {
-			surface := inst.compositeSurface(doc)
+			var surface []byte
+			var width, height int
+			var offsetX, offsetY int
+			if payload.SampleMerged {
+				surface = inst.compositeSurface(doc)
+				width, height = doc.Width, doc.Height
+			} else if layer := findPixelLayer(doc, doc.ActiveLayerID); layer != nil {
+				surface = layer.Pixels
+				width, height = layer.Bounds.W, layer.Bounds.H
+				offsetX = layer.Bounds.X
+				offsetY = layer.Bounds.Y
+			}
 			px := int(math.Round(payload.X))
 			py := int(math.Round(payload.Y))
-			if px >= 0 && py >= 0 && px < doc.Width && py < doc.Height {
-				idx := (py*doc.Width + px) * 4
-				color := [4]uint8{surface[idx], surface[idx+1], surface[idx+2], surface[idx+3]}
-				result := inst.render()
-				result.SuggestedPath = suggestedPath
-				result.SampledColor = &color
-				return result, nil
+			px -= offsetX
+			py -= offsetY
+			if surface != nil && px >= 0 && py >= 0 && px < width && py < height {
+				sampleSize := payload.SampleSize
+				if sampleSize <= 0 {
+					sampleSize = 1
+				}
+				if color, ok := sampleSurfaceColorAverage(surface, width, height, px, py, sampleSize); ok {
+					result := inst.render()
+					result.SuggestedPath = suggestedPath
+					result.SampledColor = &color
+					return result, nil
+				}
 			}
 		}
 
@@ -2425,6 +2479,30 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 				if err := inst.handleMagicErase(payload, doc, layer); err != nil {
 					return RenderResult{}, err
 				}
+			}
+		}
+
+	case commandFill:
+		var payload FillPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc != nil {
+			if err := inst.handleFill(payload); err != nil {
+				return RenderResult{}, err
+			}
+		}
+
+	case commandApplyGradient:
+		var payload ApplyGradientPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		doc := inst.manager.Active()
+		if doc != nil {
+			if err := inst.handleApplyGradient(payload); err != nil {
+				return RenderResult{}, err
 			}
 		}
 

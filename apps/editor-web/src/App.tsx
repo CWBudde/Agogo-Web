@@ -3,12 +3,27 @@ import {
   type CreateDocumentCommand,
   type FreeTransformMeta,
   type InterpolMode,
+  type FillCommand,
+  type FillSource,
+  type GradientType,
   type LayerNodeMeta,
   type SetColorCommand,
   type ThumbnailEntry,
 } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { EditorCanvas } from "@/components/editor-canvas";
+import {
+  BRUSH_PRESETS,
+  BrushPresetPicker,
+  BrushSettingsPanel,
+  type BrushControlSource,
+  type BrushPreset,
+  type BrushTipShape,
+  ColorPickerDialog,
+  ColorPanel,
+  SwatchesPanel,
+  type ColorChannelMode,
+} from "@/components/brush-color-panels";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import {
@@ -17,7 +32,10 @@ import {
   CopyIcon,
   CropToolIcon,
   EraserToolIcon,
+  EyedropperToolIcon,
   FitScreenIcon,
+  FillToolIcon,
+  GradientToolIcon,
   HandToolIcon,
   InfoIcon,
   LassoToolIcon,
@@ -50,6 +68,7 @@ import {
   type ShortcutTool,
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
+import { rgbaToCss, snapToWebSafeColor, type Rgba } from "@/lib/color";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -74,6 +93,7 @@ type MenuActionId =
   | "transform-rotate-cw"
   | "transform-rotate-ccw"
   | "transform-rotate-180"
+  | "edit-fill"
   | "select-all"
   | "select-deselect"
   | "select-reselect"
@@ -158,6 +178,12 @@ const menuItems: MenuPreviewMenu[] = [
           { label: "Cut", shortcut: "Ctrl+X" },
           { label: "Copy", shortcut: "Ctrl+C" },
           { label: "Paste", shortcut: "Ctrl+V" },
+        ],
+      },
+      {
+        title: "Fill",
+        items: [
+          { label: "Fill...", shortcut: "Shift+F5", actionId: "edit-fill" as const, tone: "accent" },
         ],
       },
       {
@@ -362,6 +388,9 @@ const toolItems: {
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
   { id: "pencil", label: "Pencil", Icon: PencilToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
+  { id: "fill", label: "Fill", Icon: FillToolIcon },
+  { id: "gradient", label: "Gradient", Icon: GradientToolIcon },
+  { id: "eyedropper", label: "Eyedropper", Icon: EyedropperToolIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
   { id: "shape", label: "Shape", Icon: ShapeToolIcon },
   { id: "transform", label: "Transform", Icon: SlidersIcon },
@@ -387,7 +416,7 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "history" | "navigator" | "channels";
+type AuxPanel = "properties" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches";
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -395,6 +424,9 @@ const unitSteps: Record<DocumentUnit, number> = {
   cm: 0.1,
   mm: 1,
 };
+
+const RECENT_COLORS_KEY = "agogo:recent-colors";
+const CUSTOM_SWATCHES_KEY = "agogo:custom-swatches";
 
 function pixelsToUnit(pixels: number, resolution: number, unit: DocumentUnit) {
   switch (unit) {
@@ -427,6 +459,37 @@ function formatDimension(value: number, unit: DocumentUnit) {
     return Math.round(value).toString();
   }
   return value.toFixed(2);
+}
+
+function loadColorList(key: string, fallback: Rgba[]): Rgba[] {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return fallback;
+    }
+    return parsed
+      .map((entry) => {
+        if (!Array.isArray(entry) || entry.length < 4) {
+          return null;
+        }
+        return [
+          Number(entry[0]),
+          Number(entry[1]),
+          Number(entry[2]),
+          Number(entry[3]),
+        ] as Rgba;
+      })
+      .filter((entry): entry is Rgba => entry !== null);
+  } catch {
+    return fallback;
+  }
 }
 
 export default function App() {
@@ -496,12 +559,56 @@ export default function App() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [foregroundColor, setForegroundColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
   const [backgroundColor, setBackgroundColor] = useState<[number, number, number, number]>([255, 255, 255, 255]);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [colorPickerTarget, setColorPickerTarget] = useState<"foreground" | "background">("foreground");
+  const [colorChannelMode, setColorChannelMode] = useState<ColorChannelMode>("rgb");
+  const [onlyWebColors, setOnlyWebColors] = useState(false);
+  const [recentColors, setRecentColors] = useState<Rgba[]>(() =>
+    loadColorList(RECENT_COLORS_KEY, [
+      [0, 0, 0, 255],
+      [255, 255, 255, 255],
+      [56, 189, 248, 255],
+      [244, 63, 94, 255],
+    ]),
+  );
+  const [swatches, setSwatches] = useState<Rgba[]>(() =>
+    loadColorList(CUSTOM_SWATCHES_KEY, [
+      [0, 0, 0, 255],
+      [255, 255, 255, 255],
+      [244, 114, 182, 255],
+      [59, 130, 246, 255],
+      [34, 197, 94, 255],
+      [251, 191, 36, 255],
+    ]),
+  );
   const [brushSize, setBrushSize] = useState(20);
   const [brushHardness, setBrushHardness] = useState(0.8);
+  const [brushAngle, setBrushAngle] = useState(0);
+  const [brushRoundness, setBrushRoundness] = useState(0.75);
+  const [brushSpacing, setBrushSpacing] = useState(0.14);
+  const [brushTipShape, setBrushTipShape] = useState<BrushTipShape>("round");
+  const [brushPresetId, setBrushPresetId] = useState(BRUSH_PRESETS[0].id);
+  const [brushSizeJitter, setBrushSizeJitter] = useState(0);
+  const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
+  const [brushFlowJitter, setBrushFlowJitter] = useState(0);
+  const [brushControlSource, setBrushControlSource] = useState<BrushControlSource>("pressure");
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
   const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
   const [eraserTolerance, setEraserTolerance] = useState(30);
   const [brushFlow, setBrushFlow] = useState(1.0);
+  const [fillSource, setFillSource] = useState<FillSource>("foreground");
+  const [fillTolerance, setFillTolerance] = useState(24);
+  const [fillContiguous, setFillContiguous] = useState(true);
+  const [fillSampleMerged, setFillSampleMerged] = useState(false);
+  const [fillCreateLayer, setFillCreateLayer] = useState(false);
+  const [fillDialogOpen, setFillDialogOpen] = useState(false);
+  const [gradientType, setGradientType] = useState<GradientType>("linear");
+  const [gradientReverse, setGradientReverse] = useState(false);
+  const [gradientDither, setGradientDither] = useState(false);
+  const [gradientCreateLayer, setGradientCreateLayer] = useState(true);
+  const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
+  const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
+  const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -557,6 +664,22 @@ export default function App() {
     } satisfies SetColorCommand);
   }, [engine.handle, engine.dispatchCommand, backgroundColor]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(recentColors));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [recentColors]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CUSTOM_SWATCHES_KEY, JSON.stringify(swatches));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [swatches]);
+
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -572,7 +695,35 @@ export default function App() {
     projectInputRef.current?.click();
   };
 
+  const pushRecentColor = (color: Rgba) => {
+    const normalized = color;
+    setRecentColors((current) => {
+      const withoutDuplicate = current.filter((entry) => !entry.every((value, index) => value === normalized[index]));
+      return [normalized, ...withoutDuplicate].slice(0, 10);
+    });
+  };
+
+  const applyColorToTarget = (target: "foreground" | "background", color: Rgba) => {
+    const next = onlyWebColors ? snapToWebSafeColor(color) : color;
+    if (target === "foreground") {
+      setForegroundColor(next);
+    } else {
+      setBackgroundColor(next);
+    }
+    pushRecentColor(next);
+  };
+
+  const openColorPicker = (target: "foreground" | "background") => {
+    setColorPickerTarget(target);
+    setColorPickerOpen(true);
+  };
+
   const activateTool = (tool: EditorTool) => {
+    if (tool === "fill" && activeTool === "fill") {
+      tool = "gradient";
+    } else if (tool === "gradient" && activeTool === "gradient") {
+      tool = "fill";
+    }
     if (tool === activeTool) {
       return;
     }
@@ -765,6 +916,8 @@ export default function App() {
       case "select-color-range":
       case "select-and-mask":
         return !render;
+      case "edit-fill":
+        return !render?.uiMeta.activeLayerId;
       default:
         return false;
     }
@@ -921,6 +1074,9 @@ export default function App() {
       case "select-and-mask":
         setSelectAndMaskOpen(true);
         break;
+      case "edit-fill":
+        setFillDialogOpen(true);
+        break;
       case "view-toggle-guides": {
         const next = !showGuides;
         setShowGuides(next);
@@ -1016,6 +1172,14 @@ export default function App() {
         Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100)),
       );
     },
+    onSwapColors() {
+      setForegroundColor(backgroundColor);
+      setBackgroundColor(foregroundColor);
+    },
+    onResetColors() {
+      setForegroundColor([0, 0, 0, 255]);
+      setBackgroundColor([255, 255, 255, 255]);
+    },
   });
 
   useEffect(() => {
@@ -1078,6 +1242,8 @@ export default function App() {
     pixelsToUnit(draft.height, draft.resolution, documentUnit),
     documentUnit,
   );
+  const activeColor = colorPickerTarget === "foreground" ? foregroundColor : backgroundColor;
+  const setActiveColor = (next: Rgba) => applyColorToTarget(colorPickerTarget, next);
   const selectionToolOptions =
     activeTool === "move" ? (
       <ToolChoiceButton
@@ -1491,8 +1657,18 @@ export default function App() {
           Click a layer to begin free transform · Enter to commit · Esc to cancel
         </span>
       )
-    ) : activeTool === "pencil" ? (
+    ) : activeTool === "brush" || activeTool === "pencil" ? (
       <>
+        <BrushPresetPicker
+          selectedPresetId={brushPresetId}
+          onSelectPreset={(preset) => {
+            setBrushPresetId(preset.id);
+            setBrushTipShape(preset.tipShape);
+            setBrushHardness(preset.hardness);
+            setBrushSpacing(preset.spacing);
+            setBrushAngle(preset.angle);
+          }}
+        />
         <ToolNumberField
           label="Size"
           min={1}
@@ -1512,6 +1688,16 @@ export default function App() {
       </>
     ) : activeTool === "eraser" ? (
       <>
+        <BrushPresetPicker
+          selectedPresetId={brushPresetId}
+          onSelectPreset={(preset) => {
+            setBrushPresetId(preset.id);
+            setBrushTipShape(preset.tipShape);
+            setBrushHardness(preset.hardness);
+            setBrushSpacing(preset.spacing);
+            setBrushAngle(preset.angle);
+          }}
+        />
         <ToolOptionGroup label="Mode">
           <ToolChoiceButton
             active={eraserMode === "normal"}
@@ -1562,6 +1748,81 @@ export default function App() {
             onChange={setEraserTolerance}
           />
         ) : null}
+      </>
+    ) : activeTool === "fill" ? (
+      <>
+        <ToolOptionGroup label="Source">
+          <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
+            Foreground
+          </ToolChoiceButton>
+          <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
+            Background
+          </ToolChoiceButton>
+          <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
+            Pattern
+          </ToolChoiceButton>
+        </ToolOptionGroup>
+        <ToolNumberField
+          label="Tolerance"
+          min={0}
+          max={255}
+          step={1}
+          value={fillTolerance}
+          onChange={setFillTolerance}
+        />
+        <ToolChoiceButton active={fillContiguous} onClick={() => setFillContiguous((v) => !v)}>
+          Contiguous
+        </ToolChoiceButton>
+        <ToolChoiceButton active={fillSampleMerged} onClick={() => setFillSampleMerged((v) => !v)}>
+          Sample Merged
+        </ToolChoiceButton>
+        <ToolChoiceButton active={fillCreateLayer} onClick={() => setFillCreateLayer((v) => !v)}>
+          New Layer
+        </ToolChoiceButton>
+        <button
+          type="button"
+          className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
+          onClick={() => setFillDialogOpen(true)}
+        >
+          Fill Dialog
+        </button>
+      </>
+    ) : activeTool === "gradient" ? (
+      <>
+        <ToolOptionGroup label="Type">
+          {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
+            <ToolChoiceButton key={type} active={gradientType === type} onClick={() => setGradientType(type)}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </ToolChoiceButton>
+          ))}
+        </ToolOptionGroup>
+        <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
+          Reverse
+        </ToolChoiceButton>
+        <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
+          Dither
+        </ToolChoiceButton>
+        <ToolChoiceButton active={gradientCreateLayer} onClick={() => setGradientCreateLayer((v) => !v)}>
+          New Layer
+        </ToolChoiceButton>
+        <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
+      </>
+    ) : activeTool === "eyedropper" ? (
+      <>
+        <ToolOptionGroup label="Sample">
+          {[1, 3, 5, 11, 31, 51, 101].map((size) => (
+            <ToolChoiceButton key={size} active={eyedropperSampleSize === size} onClick={() => setEyedropperSampleSize(size)}>
+              {size === 1 ? "Point" : `${size}x${size}`}
+            </ToolChoiceButton>
+          ))}
+        </ToolOptionGroup>
+        <ToolChoiceButton active={eyedropperSampleMerged} onClick={() => setEyedropperSampleMerged((v) => !v)}>
+          Sample Merged
+        </ToolChoiceButton>
+        <ToolChoiceButton active={eyedropperSampleAllLayersNoAdj} onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}>
+          No Adj
+        </ToolChoiceButton>
+        <span className="text-[11px] text-slate-400">Click sets foreground; Alt+click sets background.</span>
       </>
     ) : null;
 
@@ -1752,17 +2013,17 @@ export default function App() {
                 <button
                   type="button"
                   className="absolute bottom-0 right-0 h-6 w-6 rounded-sm border border-border"
-                  style={{ backgroundColor: `rgba(${backgroundColor.join(",")})` }}
+                  style={{ backgroundColor: rgbaToCss(backgroundColor) }}
                   title="Background color"
-                  onClick={() => setBackgroundColor([255, 255, 255, 255])}
+                  onClick={() => openColorPicker("background")}
                 />
                 {/* Foreground swatch (front) */}
                 <button
                   type="button"
                   className="absolute left-0 top-0 h-6 w-6 rounded-sm border border-border"
-                  style={{ backgroundColor: `rgba(${foregroundColor.join(",")})` }}
-                  title="Foreground color (click to reset to black)"
-                  onClick={() => setForegroundColor([0, 0, 0, 255])}
+                  style={{ backgroundColor: rgbaToCss(foregroundColor) }}
+                  title="Foreground color"
+                  onClick={() => openColorPicker("foreground")}
                 />
               </div>
             </aside>
@@ -1805,6 +2066,19 @@ export default function App() {
                     eraserMode={eraserMode}
                     eraserTolerance={eraserTolerance}
                     foregroundColor={foregroundColor}
+                    onForegroundColorChange={setForegroundColor}
+                    fillSource={fillSource}
+                    fillTolerance={fillTolerance}
+                    fillContiguous={fillContiguous}
+                    fillSampleMerged={fillSampleMerged}
+                    fillCreateLayer={fillCreateLayer}
+                    gradientType={gradientType}
+                    gradientReverse={gradientReverse}
+                    gradientDither={gradientDither}
+                    gradientCreateLayer={gradientCreateLayer}
+                    eyedropperSampleSize={eyedropperSampleSize}
+                    eyedropperSampleMerged={eyedropperSampleMerged}
+                    eyedropperSampleAllLayersNoAdj={eyedropperSampleAllLayersNoAdj}
                     cropDeletePixels={cropDeletePixels}
                     transformSelectionActive={transformSelectionActive}
                     onTransformSelectionCommit={(a, b, c, d, tx, ty) => {
@@ -1883,6 +2157,9 @@ export default function App() {
                       <div className="flex items-center gap-[var(--ui-gap-1)]">
                         {[
                           ["properties", "Properties"],
+                          ["brush", "Brush"],
+                          ["color", "Color"],
+                          ["swatches", "Swatches"],
                           ["channels", "Channels"],
                           ["history", "History"],
                           ["navigator", "Navigator"],
@@ -1940,6 +2217,103 @@ export default function App() {
                             onChange={(value) => engine.setRotation(value)}
                           />
                         </div>
+                      ) : null}
+
+                      {activeAuxPanel === "brush" ? (
+                        <BrushSettingsPanel
+                          selectedPresetId={brushPresetId}
+                          onSelectPreset={(preset: BrushPreset) => {
+                            setBrushPresetId(preset.id);
+                            setBrushTipShape(preset.tipShape);
+                            setBrushHardness(preset.hardness);
+                            setBrushSpacing(preset.spacing);
+                            setBrushAngle(preset.angle);
+                          }}
+                          tipShape={brushTipShape}
+                          onTipShapeChange={setBrushTipShape}
+                          size={brushSize}
+                          onSizeChange={setBrushSize}
+                          hardness={brushHardness}
+                          onHardnessChange={setBrushHardness}
+                          angle={brushAngle}
+                          onAngleChange={setBrushAngle}
+                          roundness={brushRoundness}
+                          onRoundnessChange={setBrushRoundness}
+                          spacing={brushSpacing}
+                          onSpacingChange={setBrushSpacing}
+                          sizeJitter={brushSizeJitter}
+                          onSizeJitterChange={setBrushSizeJitter}
+                          opacityJitter={brushOpacityJitter}
+                          onOpacityJitterChange={setBrushOpacityJitter}
+                          flowJitter={brushFlowJitter}
+                          onFlowJitterChange={setBrushFlowJitter}
+                          controlSource={brushControlSource}
+                          onControlSourceChange={setBrushControlSource}
+                        />
+                      ) : null}
+
+                      {activeAuxPanel === "color" ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className={[
+                                  "rounded-[var(--ui-radius-sm)] border px-2 py-1 text-[11px] transition",
+                                  colorPickerTarget === "foreground"
+                                    ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
+                                    : "border-white/8 text-slate-400 hover:bg-white/5",
+                                ].join(" ")}
+                                onClick={() => setColorPickerTarget("foreground")}
+                              >
+                                Foreground
+                              </button>
+                              <button
+                                type="button"
+                                className={[
+                                  "rounded-[var(--ui-radius-sm)] border px-2 py-1 text-[11px] transition",
+                                  colorPickerTarget === "background"
+                                    ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
+                                    : "border-white/8 text-slate-400 hover:bg-white/5",
+                                ].join(" ")}
+                                onClick={() => setColorPickerTarget("background")}
+                              >
+                                Background
+                              </button>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => setColorPickerOpen(true)}
+                            >
+                              Open picker
+                            </Button>
+                          </div>
+                          <ColorPanel
+                            color={activeColor}
+                            onChange={setActiveColor}
+                            channelMode={colorChannelMode}
+                            onChannelModeChange={setColorChannelMode}
+                            onlyWebColors={onlyWebColors}
+                            onOnlyWebColorsChange={setOnlyWebColors}
+                            recentColors={recentColors}
+                            onRecentColorSelect={(color) => setActiveColor(color)}
+                          />
+                        </div>
+                      ) : null}
+
+                      {activeAuxPanel === "swatches" ? (
+                        <SwatchesPanel
+                          swatches={swatches}
+                          activeColor={activeColor}
+                          onPickForeground={(color) => applyColorToTarget("foreground", color)}
+                          onPickBackground={(color) => applyColorToTarget("background", color)}
+                          onAddSwatch={() => setSwatches((current) => [foregroundColor, ...current].slice(0, 24))}
+                          onDeleteSwatch={(index) =>
+                            setSwatches((current) => current.filter((_, swatchIndex) => swatchIndex !== index))
+                          }
+                        />
                       ) : null}
 
                       {activeAuxPanel === "history" ? (
@@ -2484,6 +2858,86 @@ export default function App() {
         </div>
       </Dialog>
 
+      <Dialog
+        open={fillDialogOpen}
+        title="Fill"
+        description="Fill the current selection or the whole active layer."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <ToolOptionGroup label="Source">
+            <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
+              Foreground
+            </ToolChoiceButton>
+            <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
+              Background
+            </ToolChoiceButton>
+            <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
+              Pattern
+            </ToolChoiceButton>
+          </ToolOptionGroup>
+          <ToolNumberField
+            label="Tolerance"
+            min={0}
+            max={255}
+            step={1}
+            value={fillTolerance}
+            onChange={setFillTolerance}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1 text-[10px]">
+              <input
+                type="checkbox"
+                checked={fillContiguous}
+                onChange={(e) => setFillContiguous(e.target.checked)}
+              />
+              Contiguous
+            </label>
+            <label className="flex items-center gap-1 text-[10px]">
+              <input
+                type="checkbox"
+                checked={fillSampleMerged}
+                onChange={(e) => setFillSampleMerged(e.target.checked)}
+              />
+              Sample Merged
+            </label>
+            <label className="flex items-center gap-1 text-[10px]">
+              <input
+                type="checkbox"
+                checked={fillCreateLayer}
+                onChange={(e) => setFillCreateLayer(e.target.checked)}
+              />
+              New Layer
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setFillDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                const activeLayer = render?.uiMeta.activeLayerId;
+                if (activeLayer) {
+                  engine.dispatchCommand(CommandID.Fill, {
+                    hasPoint: false,
+                    tolerance: fillTolerance,
+                    contiguous: fillContiguous,
+                    sampleMerged: fillSampleMerged,
+                    source: fillSource,
+                    color: fillSource === "background" ? backgroundColor : foregroundColor,
+                    createLayer: fillCreateLayer,
+                  } satisfies FillCommand);
+                }
+                setFillDialogOpen(false);
+              }}
+            >
+              Fill
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
       <SelectAndMaskWorkspace
         open={selectAndMaskOpen}
         onClose={() => setSelectAndMaskOpen(false)}
@@ -2503,7 +2957,12 @@ export default function App() {
               type="color"
               className="h-8 w-full cursor-pointer rounded border border-white/10 bg-transparent"
               value={rgbaToHex(colorRangeColor)}
-              onChange={(e) => setColorRangeColor(hexToRgba(e.target.value))}
+              onChange={(e) => {
+                const next = hexToRgba(e.target.value);
+                if (next) {
+                  setColorRangeColor(next);
+                }
+              }}
             />
           </Field>
           <Field label={`Fuzziness: ${colorRangeFuzziness}`}>
@@ -2535,6 +2994,22 @@ export default function App() {
           </div>
         </div>
       </Dialog>
+
+      <ColorPickerDialog
+        open={colorPickerOpen}
+        title={colorPickerTarget === "foreground" ? "Foreground Color" : "Background Color"}
+        description="Pick a color using RGB or HSB controls. The picker updates the active swatch live."
+        color={activeColor}
+        onChange={setActiveColor}
+        onCommit={() => setColorPickerOpen(false)}
+        onClose={() => setColorPickerOpen(false)}
+        channelMode={colorChannelMode}
+        onChannelModeChange={setColorChannelMode}
+        onlyWebColors={onlyWebColors}
+        onOnlyWebColorsChange={setOnlyWebColors}
+        recentColors={recentColors}
+        onRecentColorSelect={setActiveColor}
+      />
     </div>
   );
 }
@@ -3017,6 +3492,12 @@ function CompactRange({
 
 function dockTitle(panel: AuxPanel) {
   switch (panel) {
+    case "brush":
+      return "Brush Settings";
+    case "color":
+      return "Color";
+    case "swatches":
+      return "Swatches";
     case "history":
       return "History";
     case "navigator":

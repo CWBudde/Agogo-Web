@@ -1,4 +1,4 @@
-import { CommandID, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FreeTransformMeta, type InterpolMode, type MagicEraseCommand } from "@agogo/proto";
+import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FillCommand, type FreeTransformMeta, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -22,6 +22,9 @@ type EditorCanvasProps = {
     | "brush"
     | "pencil"
     | "eraser"
+    | "fill"
+    | "gradient"
+    | "eyedropper"
     | "type"
     | "shape"
     | "hand"
@@ -55,6 +58,20 @@ type EditorCanvasProps = {
   eraserMode: "normal" | "background" | "magic";
   eraserTolerance: number;
   foregroundColor: [number, number, number, number];
+  onForegroundColorChange(color: [number, number, number, number]): void;
+  onBackgroundColorChange(color: [number, number, number, number]): void;
+  fillSource: "foreground" | "background" | "color" | "pattern";
+  fillTolerance: number;
+  fillContiguous: boolean;
+  fillSampleMerged: boolean;
+  fillCreateLayer: boolean;
+  gradientType: "linear" | "radial" | "angle" | "reflected" | "diamond";
+  gradientReverse: boolean;
+  gradientDither: boolean;
+  gradientCreateLayer: boolean;
+  eyedropperSampleSize: number;
+  eyedropperSampleMerged: boolean;
+  eyedropperSampleAllLayersNoAdj: boolean;
   cropDeletePixels: boolean;
   transformSelectionActive: boolean;
   onTransformSelectionCommit: (a: number, b: number, c: number, d: number, tx: number, ty: number) => void;
@@ -563,6 +580,20 @@ export function EditorCanvas({
   eraserMode,
   eraserTolerance,
   foregroundColor,
+  onForegroundColorChange,
+  onBackgroundColorChange,
+  fillSource,
+  fillTolerance,
+  fillContiguous,
+  fillSampleMerged,
+  fillCreateLayer,
+  gradientType,
+  gradientReverse,
+  gradientDither,
+  gradientCreateLayer,
+  eyedropperSampleSize,
+  eyedropperSampleMerged,
+  eyedropperSampleAllLayersNoAdj,
   cropDeletePixels,
   transformSelectionActive,
   onTransformSelectionCommit,
@@ -1530,6 +1561,50 @@ export function EditorCanvas({
           } satisfies MagicEraseCommand);
           return;
         }
+        if (activeTool === "fill" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.Fill, {
+            hasPoint: true,
+            x: docPoint.x,
+            y: docPoint.y,
+            tolerance: fillTolerance,
+            contiguous: fillContiguous,
+            sampleMerged: fillSampleMerged,
+            source: fillSource,
+            createLayer: fillCreateLayer,
+          } satisfies FillCommand);
+          return;
+        }
+        if (activeTool === "gradient" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          setGradientDragStart({ x: docPoint.x, y: docPoint.y });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
+        if (activeTool === "eyedropper" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const result = engine.dispatchCommand(CommandID.SampleMergedColor, {
+            x: docPoint.x,
+            y: docPoint.y,
+            sampleSize: eyedropperSampleSize,
+            sampleMerged: eyedropperSampleMerged || eyedropperSampleAllLayersNoAdj,
+          } satisfies SampleMergedColorCommand);
+          const sampled = result?.sampledColor;
+          if (sampled) {
+            if (event.altKey) {
+              onBackgroundColorChange(sampled);
+            } else {
+              onForegroundColorChange(sampled);
+            }
+          }
+          return;
+        }
         if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
@@ -2145,6 +2220,23 @@ export function EditorCanvas({
         }
         if (cropDraft && cropDraft.pointerId === event.pointerId) {
           setCropDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
+        if (gradientDragStart && activeTool === "gradient" && event.button === 0) {
+          const point = clientPointToDocument(event.clientX, event.clientY);
+          const end = point ?? gradientDragStart;
+          engine.dispatchCommand(CommandID.ApplyGradient, {
+            startX: gradientDragStart.x,
+            startY: gradientDragStart.y,
+            endX: end.x,
+            endY: end.y,
+            type: gradientType,
+            reverse: gradientReverse,
+            dither: gradientDither,
+            createLayer: gradientCreateLayer,
+          } satisfies ApplyGradientCommand);
+          setGradientDragStart(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }

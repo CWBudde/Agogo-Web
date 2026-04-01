@@ -86,6 +86,8 @@ export enum CommandID {
   SetBackgroundColor = 0x0411,
   SampleMergedColor = 0x0412,
   MagicErase = 0x0413,
+  Fill = 0x0414,
+  ApplyGradient = 0x0415,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -545,6 +547,8 @@ export interface ContinuePaintStrokeCommand {
 export interface SampleMergedColorCommand {
   x: number;
   y: number;
+  sampleSize?: number;
+  sampleMerged?: boolean;
 }
 
 /** Flood-erase pixels by color similarity (Magic Eraser tool). */
@@ -554,4 +558,31 @@ export interface MagicEraseCommand {
   tolerance: number;   // 0–255 Euclidean RGB distance
   contiguous: boolean; // true = flood-fill, false = erase all matching pixels in layer
   sampleMerged: boolean;
+}
+
+export type FillSource = "foreground" | "background" | "color" | "pattern";
+
+export interface FillCommand {
+  hasPoint?: boolean;
+  x?: number;
+  y?: number;
+  tolerance?: number;
+  contiguous?: boolean;
+  sampleMerged?: boolean;
+  source?: FillSource;
+  color?: [number, number, number, number];
+  createLayer?: boolean;
+}
+
+export type GradientType = "linear" | "radial" | "angle" | "reflected" | "diamond";
+
+export interface ApplyGradientCommand {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  type: GradientType;
+  reverse?: boolean;
+  dither?: boolean;
+  createLayer?: boolean;
 }

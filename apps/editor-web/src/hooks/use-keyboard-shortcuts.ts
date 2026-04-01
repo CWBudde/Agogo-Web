@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
-export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "pencil" | "eraser";
+export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "pencil" | "eraser" | "fill" | "gradient" | "eyedropper";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
@@ -22,6 +22,8 @@ type KeyboardActions = {
   onNudgeLayer(dx: number, dy: number): void;
   onBrushSizeChange(delta: number): void;
   onBrushHardnessChange(delta: number): void;
+  onSwapColors(): void;
+  onResetColors(): void;
 };
 
 function isEditableTarget(target: EventTarget | null) {
@@ -105,9 +107,25 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
           event.preventDefault();
           actions.onToolSelect("brush");
           return;
+        case "x":
+          event.preventDefault();
+          actions.onSwapColors();
+          return;
+        case "d":
+          event.preventDefault();
+          actions.onResetColors();
+          return;
         case "e":
           event.preventDefault();
           actions.onToolSelect("eraser");
+          return;
+        case "g":
+          event.preventDefault();
+          actions.onToolSelect("fill");
+          return;
+        case "i":
+          event.preventDefault();
+          actions.onToolSelect("eyedropper");
           return;
         case "Mod+t":
           event.preventDefault();
