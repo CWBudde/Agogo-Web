@@ -11,6 +11,7 @@ import (
 	"time"
 	"unsafe"
 
+	agglib "github.com/MeKo-Christian/agg_go"
 	aggrender "github.com/MeKo-Tech/agogo-web/packages/engine-wasm/internal/agg"
 )
 
@@ -321,6 +322,10 @@ type activePaintStroke struct {
 	dirtyMax         [2]int // max corner of painted dirty rect (layer-local)
 	hasDirty         bool
 	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
+	// renderer is a reusable AGG context for the stroke's layer. Created once at
+	// stroke begin and reused across all dabs so the rasterizer's internal cell
+	// blocks stay allocated instead of being re-allocated per dab.
+	renderer *agglib.Agg2D
 }
 
 type pointerDragState struct {
@@ -2686,6 +2691,10 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		}
 	}
 
+	// Pre-create the AGG renderer for the stroke's layer so dab rendering
+	// reuses the rasterizer's allocated cell blocks instead of re-allocating.
+	stroke.renderer = agglib.NewAgg2D()
+
 	inst.paintStroke = stroke
 
 	pressure := p.Pressure
@@ -2701,7 +2710,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		if brushParams.EraseBackground {
 			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
 		} else {
-			PaintDab(layer, dx, dy, effective, azimuth, squish)
+			paintDabReuse(stroke.renderer, layer, dx, dy, effective, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
@@ -2733,7 +2742,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 		if inst.paintStroke.params.EraseBackground {
 			EraseBackgroundDab(layer, dx, dy, effective, inst.paintStroke.bgEraseBaseColor)
 		} else {
-			PaintDab(layer, dx, dy, effective, azimuth, squish)
+			paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, effective, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}

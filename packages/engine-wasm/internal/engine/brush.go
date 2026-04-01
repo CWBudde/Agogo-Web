@@ -84,6 +84,14 @@ func applyScatter(cx, cy float64, p BrushParams) (float64, float64) {
 // The transform applied is: Scale(1,squish) → Rotate(azimuth) → Translate(lx,ly)
 // so the dab elongates along the azimuth direction (the stylus lean).
 func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish float64) {
+	paintDabReuse(agglib.NewAgg2D(), layer, cx, cy, p, azimuth, squish)
+}
+
+// paintDabReuse renders a dab using a pre-allocated AGG renderer. The renderer
+// is Attach'd to the layer buffer on every call (which resets transforms and
+// state) but its rasterizer keeps pre-allocated cell blocks, avoiding the
+// dominant allocation cost of creating a fresh Agg2D per dab.
+func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish float64) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 {
@@ -100,7 +108,6 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish 
 	}
 	flow := clampFloat(p.Flow, 0, 1)
 
-	renderer := agglib.NewAgg2D()
 	renderer.Attach(layer.Pixels, w, h, w*4)
 	renderer.NoLine()
 
