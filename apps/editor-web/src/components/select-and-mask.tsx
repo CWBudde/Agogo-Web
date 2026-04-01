@@ -4,7 +4,7 @@ import {
 } from "@agogo/proto";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { EngineHandle } from "@/wasm/types";
+import type { EngineContextValue } from "@/wasm/types";
 
 type OutputMode = "selection" | "layer-mask";
 
@@ -16,7 +16,7 @@ export function SelectAndMaskWorkspace({
 }: {
   open: boolean;
   onClose: () => void;
-  engine: EngineHandle;
+  engine: EngineContextValue;
   activeLayerId: string | null;
 }) {
   const [smooth, setSmooth] = useState(0);

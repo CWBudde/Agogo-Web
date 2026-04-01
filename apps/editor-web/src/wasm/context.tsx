@@ -111,7 +111,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
       if (!handle) {
         return null;
       }
-      const result = handle.dispatch(commandId, payload);
+      const result = handle.dispatchCommand(commandId, payload);
       dispatch({ type: "render", render: result });
       return result;
     };

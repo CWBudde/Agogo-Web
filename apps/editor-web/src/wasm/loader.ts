@@ -147,7 +147,7 @@ export async function loadEngine({
   return {
     handle,
     memory,
-    dispatch(commandId: number, payload?: unknown) {
+    dispatchCommand(commandId: number, payload?: unknown) {
       return parseRenderResult(dispatch(handle, commandId, JSON.stringify(payload ?? {})));
     },
     renderFrame() {
