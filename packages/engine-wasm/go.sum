@@ -1,4 +1,6 @@
 github.com/MeKo-Christian/agg_go v0.2.9 h1:Bi2II5fB8y8h20FlE+QYwYaUaQNJRE+RWYRlMEzd5Rc=
 github.com/MeKo-Christian/agg_go v0.2.9/go.mod h1:G0hjnR1ZdeDF5v2DS3vcF6M+3s/ZPSaoIFP9F9OMk3Q=
+github.com/MeKo-Christian/agg_go v0.2.10 h1:5xT+dWW8HWQ10tVZm9Ubk0a0mK/bvyXMXEr2BFmLrRo=
+github.com/MeKo-Christian/agg_go v0.2.10/go.mod h1:G0hjnR1ZdeDF5v2DS3vcF6M+3s/ZPSaoIFP9F9OMk3Q=
 golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=
 golang.org/x/sys v0.40.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
