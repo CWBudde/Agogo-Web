@@ -749,12 +749,27 @@ type viewportBaseKey struct {
 	CanvasH    int
 }
 
+type rawFrameKey struct {
+	DocID            string
+	ContentVersion   int64
+	CenterX          float64
+	CenterY          float64
+	Zoom             float64
+	Rotation         float64
+	CanvasW          int
+	CanvasH          int
+	DevicePixelRatio float64
+	ShowGuides       bool
+}
+
 type instance struct {
 	pixels                  []byte
 	manager                 *DocumentManager
 	viewport                ViewportState
 	cachedViewportBase      []byte
 	cachedViewportBaseKey   viewportBaseKey
+	cachedRawFrameKey       rawFrameKey
+	hasCachedRawFrame       bool
 	history                 *HistoryStack
 	frameID                 int64
 	pointer                 pointerDragState
@@ -2680,19 +2695,59 @@ func (inst *instance) renderRaw() RawRenderResult {
 	doc := inst.manager.Active()
 	if doc == nil {
 		inst.pixels = inst.pixels[:0]
+		inst.hasCachedRawFrame = false
 		return RawRenderResult{FrameID: frameID, Viewport: inst.viewport}
+	}
+
+	key := rawFrameKey{
+		DocID:            doc.ID,
+		ContentVersion:   doc.ContentVersion,
+		CenterX:          inst.viewport.CenterX,
+		CenterY:          inst.viewport.CenterY,
+		Zoom:             inst.viewport.Zoom,
+		Rotation:         inst.viewport.Rotation,
+		CanvasW:          inst.viewport.CanvasW,
+		CanvasH:          inst.viewport.CanvasH,
+		DevicePixelRatio: inst.viewport.DevicePixelRatio,
+		ShowGuides:       inst.viewport.ShowGuides,
+	}
+	if inst.canReuseRawFrame(doc) && inst.hasCachedRawFrame && inst.cachedRawFrameKey == key && len(inst.pixels) > 0 {
+		return RawRenderResult{
+			FrameID:   frameID,
+			Viewport:  inst.viewport,
+			BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+			BufferLen: int32(len(inst.pixels)),
+		}
 	}
 
 	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
 	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
 	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
 	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
+	inst.cachedRawFrameKey = key
+	inst.hasCachedRawFrame = inst.canReuseRawFrame(doc)
 	return RawRenderResult{
-		FrameID:     frameID,
-		Viewport:    inst.viewport,
-		BufferPtr:   int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
-		BufferLen:   int32(len(inst.pixels)),
+		FrameID:   frameID,
+		Viewport:  inst.viewport,
+		BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+		BufferLen: int32(len(inst.pixels)),
 	}
+}
+
+func (inst *instance) canReuseRawFrame(doc *Document) bool {
+	if doc == nil || len(inst.pixels) == 0 {
+		return false
+	}
+	if doc.Selection != nil {
+		return false
+	}
+	if inst.freeTransform != nil && inst.freeTransform.Active {
+		return false
+	}
+	if inst.crop != nil && inst.crop.Active {
+		return false
+	}
+	return true
 }
 
 func (inst *instance) renderUIMeta() UIMeta {
