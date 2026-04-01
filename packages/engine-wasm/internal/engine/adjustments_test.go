@@ -111,6 +111,123 @@ func TestCoreAdjustmentKindsAffectPixels(t *testing.T) {
 	}
 }
 
+func TestLevelsAutoStretchesCoveredRange(t *testing.T) {
+	doc := &Document{
+		Width:      3,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Auto Levels",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 3, H: 1}, []byte{
+		40, 40, 40, 255,
+		80, 80, 80, 255,
+		120, 120, 120, 255,
+	})
+	adjustment := NewAdjustmentLayer("Levels", "levels", json.RawMessage(`{"auto":true,"channel":"rgb"}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	surface := doc.renderCompositeSurface()
+	if got := surface[:4]; got[0] != 0 || got[1] != 0 || got[2] != 0 {
+		t.Fatalf("shadow pixel = %v, want stretched black", got)
+	}
+	if got := surface[8:12]; got[0] != 255 || got[1] != 255 || got[2] != 255 {
+		t.Fatalf("highlight pixel = %v, want stretched white", got)
+	}
+	mid := surface[4:8]
+	if mid[0] <= 80 || mid[0] >= 180 {
+		t.Fatalf("midtone pixel = %v, want stretched midpoint", mid)
+	}
+}
+
+func TestLevelsAutoClipPercentRejectsOutlier(t *testing.T) {
+	doc := &Document{
+		Width:      4,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Auto Levels Clip",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 4, H: 1}, []byte{
+		0, 0, 0, 255,
+		50, 50, 50, 255,
+		100, 100, 100, 255,
+		110, 110, 110, 255,
+	})
+	adjustment := NewAdjustmentLayer("Levels", "levels", json.RawMessage(`{"auto":true,"channel":"rgb","shadowClipPercent":26}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	surface := doc.renderCompositeSurface()
+	if got := surface[:4]; got[0] != 0 || got[1] != 0 || got[2] != 0 {
+		t.Fatalf("outlier pixel = %v, want clipped to black", got)
+	}
+	if got := surface[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 {
+		t.Fatalf("first kept shadow pixel = %v, want clipped black after shadow clipping", got)
+	}
+}
+
+func TestHueSaturationPerColorRangeTargetsMatchingHue(t *testing.T) {
+	doc := &Document{
+		Width:      2,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Hue/Sat Ranges",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		220, 40, 40, 255,
+		40, 40, 220, 255,
+	})
+	adjustment := NewAdjustmentLayer("Hue/Sat", "huesat", json.RawMessage(`{"reds":{"hueShift":120}}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	surface := doc.renderCompositeSurface()
+	if surface[1] <= surface[0] {
+		t.Fatalf("shifted red pixel = %v, want reds range to rotate toward green", surface[:4])
+	}
+	if surface[6] <= surface[4] || surface[6] <= surface[5] {
+		t.Fatalf("blue pixel = %v, want non-targeted blue pixel to stay blue-dominant", surface[4:8])
+	}
+}
+
+func TestBlackWhiteAutoSeparatesHueBuckets(t *testing.T) {
+	doc := &Document{
+		Width:      2,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Auto B&W",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+		220, 40, 40, 255,
+		40, 40, 220, 255,
+	})
+	adjustment := NewAdjustmentLayer("Black & White", "black-white", json.RawMessage(`{"auto":true}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	surface := doc.renderCompositeSurface()
+	left := surface[0]
+	right := surface[4]
+	if left == right {
+		t.Fatalf("auto black-white produced equal tones for red and blue pixels: %v", surface)
+	}
+	if surface[0] != surface[1] || surface[1] != surface[2] || surface[4] != surface[5] || surface[5] != surface[6] {
+		t.Fatalf("auto black-white output = %v, want grayscale pixels", surface)
+	}
+}
+
 func TestAdjustmentLayerParamsSerializeInLayerMeta(t *testing.T) {
 	doc := &Document{
 		Width:      1,

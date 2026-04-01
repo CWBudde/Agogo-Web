@@ -8,12 +8,15 @@ import (
 )
 
 type levelsParams struct {
-	Channel     string  `json:"channel,omitempty"`
-	InputBlack  float64 `json:"inputBlack,omitempty"`
-	InputWhite  float64 `json:"inputWhite,omitempty"`
-	Gamma       float64 `json:"gamma,omitempty"`
-	OutputBlack float64 `json:"outputBlack,omitempty"`
-	OutputWhite float64 `json:"outputWhite,omitempty"`
+	Channel              string  `json:"channel,omitempty"`
+	InputBlack           float64 `json:"inputBlack,omitempty"`
+	InputWhite           float64 `json:"inputWhite,omitempty"`
+	Gamma                float64 `json:"gamma,omitempty"`
+	OutputBlack          float64 `json:"outputBlack,omitempty"`
+	OutputWhite          float64 `json:"outputWhite,omitempty"`
+	Auto                 bool    `json:"auto,omitempty"`
+	ShadowClipPercent    float64 `json:"shadowClipPercent,omitempty"`
+	HighlightClipPercent float64 `json:"highlightClipPercent,omitempty"`
 }
 
 type curvePoint struct {
@@ -27,10 +30,22 @@ type curvesParams struct {
 }
 
 type hueSatParams struct {
+	HueShift   float64            `json:"hueShift,omitempty"`
+	Saturation float64            `json:"saturation,omitempty"`
+	Lightness  float64            `json:"lightness,omitempty"`
+	Colorize   bool               `json:"colorize,omitempty"`
+	Reds       *hueSatRangeParams `json:"reds,omitempty"`
+	Yellows    *hueSatRangeParams `json:"yellows,omitempty"`
+	Greens     *hueSatRangeParams `json:"greens,omitempty"`
+	Cyans      *hueSatRangeParams `json:"cyans,omitempty"`
+	Blues      *hueSatRangeParams `json:"blues,omitempty"`
+	Magentas   *hueSatRangeParams `json:"magentas,omitempty"`
+}
+
+type hueSatRangeParams struct {
 	HueShift   float64 `json:"hueShift,omitempty"`
 	Saturation float64 `json:"saturation,omitempty"`
 	Lightness  float64 `json:"lightness,omitempty"`
-	Colorize   bool    `json:"colorize,omitempty"`
 }
 
 type colorBalanceTone struct {
@@ -167,12 +182,17 @@ func hueSatAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error
 		rf, gf, bf := rgbBytesToUnit(r, g, b)
 		h, s, l := rgbToHsl(rf, gf, bf)
 
+		rangeShift, rangeSat, rangeLight := hueSatRangeAdjustments(h, s, cfg)
 		h = wrapUnit(h + cfg.HueShift/360.0)
 		s = clamp01(s + cfg.Saturation/100.0)
 		l = clamp01(l + cfg.Lightness/100.0)
 		if cfg.Colorize {
 			h = wrapUnit(cfg.HueShift / 360.0)
 			s = clamp01(0.75 + cfg.Saturation/100.0)
+		} else {
+			h = wrapUnit(h + rangeShift/360.0)
+			s = clamp01(s + rangeSat/100.0)
+			l = clamp01(l + rangeLight/100.0)
 		}
 
 		rr, gg, bb := hslToRGBBytes(h, s, l)
@@ -279,7 +299,7 @@ func blackWhiteAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, e
 		rf, gf, bf := rgbBytesToUnit(r, g, b)
 		h, _, _ := rgbToHsl(rf, gf, bf)
 		lum := colorLuminance([3]float64{rf, gf, bf})
-		gray := lum + blackWhiteHueOffset(h, cfg)/100.0
+		gray := lum + blackWhiteHueOffset(h*360, cfg)/100.0
 		gray = clamp01(gray)
 
 		if cfg.Tint {
@@ -310,6 +330,58 @@ func decodeAdjustmentParams[T any](params json.RawMessage) (T, error) {
 	return cfg, nil
 }
 
+func resolveLevelsParamsForSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) (json.RawMessage, error) {
+	cfg, err := decodeAdjustmentParams[levelsParams](layer.Params)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Auto {
+		return layer.Params, nil
+	}
+
+	black, white, ok := autoLevelsRange(surface, docW, docH, layer.Mask(), clipAlpha, normalizeChannelSelector(cfg.Channel), cfg.ShadowClipPercent, cfg.HighlightClipPercent)
+	if !ok {
+		return layer.Params, nil
+	}
+	cfg.InputBlack = float64(black)
+	cfg.InputWhite = float64(white)
+	if cfg.Gamma <= 0 {
+		cfg.Gamma = 1
+	}
+	if cfg.OutputWhite <= 0 && cfg.OutputBlack == 0 {
+		cfg.OutputWhite = 255
+	}
+	resolved, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+func resolveBlackWhiteParamsForSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) (json.RawMessage, error) {
+	cfg, err := decodeAdjustmentParams[blackWhiteParams](layer.Params)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Auto {
+		return layer.Params, nil
+	}
+
+	auto := autoBlackWhiteOffsets(surface, docW, docH, layer.Mask(), clipAlpha)
+	cfg.Reds += auto[0]
+	cfg.Yellows += auto[1]
+	cfg.Greens += auto[2]
+	cfg.Cyans += auto[3]
+	cfg.Blues += auto[4]
+	cfg.Magentas += auto[5]
+
+	resolved, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
 func normalizeChannelSelector(channel string) string {
 	switch strings.ToLower(strings.TrimSpace(channel)) {
 	case "r":
@@ -323,6 +395,74 @@ func normalizeChannelSelector(channel string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(channel))
 	}
+}
+
+func autoLevelsRange(surface []byte, docW, docH int, mask *LayerMask, clipAlpha []byte, channel string, shadowClipPercent, highlightClipPercent float64) (uint8, uint8, bool) {
+	if len(surface) == 0 || docW <= 0 || docH <= 0 {
+		return 0, 0, false
+	}
+
+	shadowClipPercent = clampRange(shadowClipPercent, 0, 100)
+	highlightClipPercent = clampRange(highlightClipPercent, 0, 100)
+	if shadowClipPercent == 0 && highlightClipPercent == 0 {
+		shadowClipPercent = 0.1
+		highlightClipPercent = 0.1
+	}
+
+	var histogram [256]float64
+	var totalWeight float64
+	for y := 0; y < docH; y++ {
+		for x := 0; x < docW; x++ {
+			index := (y*docW + x) * 4
+			if index < 0 || index+3 >= len(surface) {
+				continue
+			}
+
+			coverage := scaleMaskedAlpha(clipSurfaceAlphaAt(clipAlpha, docW, x, y), layerMaskAlphaAt(mask, x, y))
+			if coverage == 0 || surface[index+3] == 0 {
+				continue
+			}
+
+			weight := float64(coverage) / 255.0 * float64(surface[index+3]) / 255.0
+			if weight <= 0 {
+				continue
+			}
+
+			value := histogramChannelValue(surface[index], surface[index+1], surface[index+2], channel)
+			histogram[value] += weight
+			totalWeight += weight
+		}
+	}
+	if totalWeight <= 0 {
+		return 0, 0, false
+	}
+
+	shadowTarget := totalWeight * shadowClipPercent / 100.0
+	highlightTarget := totalWeight * highlightClipPercent / 100.0
+
+	black := 0
+	var cumulative float64
+	for value, weight := range histogram {
+		cumulative += weight
+		if cumulative >= shadowTarget {
+			black = value
+			break
+		}
+	}
+
+	white := 255
+	cumulative = 0
+	for value := len(histogram) - 1; value >= 0; value-- {
+		cumulative += histogram[value]
+		if cumulative >= highlightTarget {
+			white = value
+			break
+		}
+	}
+	if white <= black {
+		return 0, 0, false
+	}
+	return uint8(black), uint8(white), true
 }
 
 func applyLevelsToRGB(r, g, b uint8, cfg levelsParams) (uint8, uint8, uint8) {
@@ -425,6 +565,48 @@ func toneWeights(lum float64) (shadow, midtone, highlight float64) {
 	return shadow, clamp01(midtone), highlight
 }
 
+func histogramChannelValue(r, g, b uint8, channel string) uint8 {
+	switch channel {
+	case "red":
+		return r
+	case "green":
+		return g
+	case "blue":
+		return b
+	default:
+		lum := colorLuminance([3]float64{float64(r) / 255, float64(g) / 255, float64(b) / 255})
+		return clampByte(lum * 255)
+	}
+}
+
+func hueSatRangeAdjustments(hue, saturation float64, cfg hueSatParams) (float64, float64, float64) {
+	if saturation <= 0.01 {
+		return 0, 0, 0
+	}
+
+	hue = wrapDegrees(hue * 360)
+	ranges := [6]*hueSatRangeParams{cfg.Reds, cfg.Yellows, cfg.Greens, cfg.Cyans, cfg.Blues, cfg.Magentas}
+	centers := [6]float64{0, 60, 120, 180, 240, 300}
+	chromaWeight := clampRange(saturation/0.25, 0, 1)
+
+	var hueShift float64
+	var satShift float64
+	var lightShift float64
+	for index, center := range centers {
+		if ranges[index] == nil {
+			continue
+		}
+		weight := hueSectorWeight(hue, center) * chromaWeight
+		if weight <= 0 {
+			continue
+		}
+		hueShift += ranges[index].HueShift * weight
+		satShift += ranges[index].Saturation * weight
+		lightShift += ranges[index].Lightness * weight
+	}
+	return hueShift, satShift, lightShift
+}
+
 func blackWhiteHueOffset(hue float64, cfg blackWhiteParams) float64 {
 	weights := [6]float64{
 		hueSectorWeight(hue, 0),
@@ -444,6 +626,72 @@ func hueSectorWeight(hue, center float64) float64 {
 		dist = 360 - dist
 	}
 	return clamp01(1 - dist/60)
+}
+
+func autoBlackWhiteOffsets(surface []byte, docW, docH int, mask *LayerMask, clipAlpha []byte) [6]float64 {
+	if len(surface) == 0 || docW <= 0 || docH <= 0 {
+		return [6]float64{}
+	}
+
+	var hueWeight [6]float64
+	var hueLum [6]float64
+	var totalLum float64
+	var totalWeight float64
+
+	for y := 0; y < docH; y++ {
+		for x := 0; x < docW; x++ {
+			index := (y*docW + x) * 4
+			if index < 0 || index+3 >= len(surface) {
+				continue
+			}
+
+			coverage := scaleMaskedAlpha(clipSurfaceAlphaAt(clipAlpha, docW, x, y), layerMaskAlphaAt(mask, x, y))
+			if coverage == 0 || surface[index+3] == 0 {
+				continue
+			}
+
+			rf, gf, bf := rgbBytesToUnit(surface[index], surface[index+1], surface[index+2])
+			h, s, _ := rgbToHsl(rf, gf, bf)
+			h = wrapDegrees(h * 360)
+			lum := colorLuminance([3]float64{rf, gf, bf})
+			pixelWeight := float64(coverage) / 255.0 * float64(surface[index+3]) / 255.0
+			if pixelWeight <= 0 {
+				continue
+			}
+
+			totalLum += lum * pixelWeight
+			totalWeight += pixelWeight
+
+			chromaWeight := clampRange(s/0.2, 0, 1)
+			if chromaWeight <= 0 {
+				continue
+			}
+
+			for sector, center := range [...]float64{0, 60, 120, 180, 240, 300} {
+				weight := hueSectorWeight(h, center) * chromaWeight * pixelWeight
+				if weight <= 0 {
+					continue
+				}
+				hueWeight[sector] += weight
+				hueLum[sector] += lum * weight
+			}
+		}
+	}
+
+	if totalWeight <= 0 {
+		return [6]float64{}
+	}
+
+	globalLum := totalLum / totalWeight
+	var offsets [6]float64
+	for sector := range offsets {
+		if hueWeight[sector] <= 0 {
+			continue
+		}
+		avgLum := hueLum[sector] / hueWeight[sector]
+		offsets[sector] = clampRange((globalLum-avgLum)*160, -40, 40)
+	}
+	return offsets
 }
 
 func mixRGB(a, b [3]float64, amount float64) [3]float64 {
