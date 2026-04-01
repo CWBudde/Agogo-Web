@@ -617,15 +617,15 @@ func (m *DocumentManager) CloseActive() error {
 // (checkerboard/solid fill, document shell). When unchanged between frames,
 // the cached background buffer is memcpy'd instead of re-rendered through AGG.
 type viewportBaseKey struct {
-	DocWidth      int
-	DocHeight     int
-	Background    string
-	CenterX       float64
-	CenterY       float64
-	Zoom          float64
-	Rotation      float64
-	CanvasW       int
-	CanvasH       int
+	DocWidth   int
+	DocHeight  int
+	Background string
+	CenterX    float64
+	CenterY    float64
+	Zoom       float64
+	Rotation   float64
+	CanvasW    int
+	CanvasH    int
 }
 
 type instance struct {

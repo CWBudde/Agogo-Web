@@ -498,17 +498,17 @@ func (fixture *renderBenchmarkFixture) perspectiveTransformState(interp Interpol
 		{x0 - w*0.05, y0 + h*0.98}, // BL
 	}
 	return &FreeTransformState{
-		Active:          true,
-		LayerID:         fixture.layer.ID(),
-		OriginalPixels:  fixture.layer.Pixels,
-		OriginalBounds:  bounds,
-		A:               1, B: 0, C: 0, D: 1,
-		TX:              x0,
-		TY:              y0,
-		PivotX:          x0 + w*0.5,
-		PivotY:          y0 + h*0.5,
-		Interpolation:   interp,
-		DistortCorners:  corners,
+		Active:         true,
+		LayerID:        fixture.layer.ID(),
+		OriginalPixels: fixture.layer.Pixels,
+		OriginalBounds: bounds,
+		A:              1, B: 0, C: 0, D: 1,
+		TX:             x0,
+		TY:             y0,
+		PivotX:         x0 + w*0.5,
+		PivotY:         y0 + h*0.5,
+		Interpolation:  interp,
+		DistortCorners: corners,
 	}
 }
 
@@ -528,12 +528,12 @@ func (fixture *renderBenchmarkFixture) warpTransformState(interp InterpolMode) *
 		OriginalPixels: fixture.layer.Pixels,
 		OriginalBounds: bounds,
 		A:              1, B: 0, C: 0, D: 1,
-		TX:             x0,
-		TY:             y0,
-		PivotX:         x0 + w*0.5,
-		PivotY:         y0 + h*0.5,
-		Interpolation:  interp,
-		WarpGrid:       grid,
+		TX:            x0,
+		TY:            y0,
+		PivotX:        x0 + w*0.5,
+		PivotY:        y0 + h*0.5,
+		Interpolation: interp,
+		WarpGrid:      grid,
 	}
 }
 

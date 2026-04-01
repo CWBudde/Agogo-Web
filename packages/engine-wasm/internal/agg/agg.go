@@ -14,13 +14,13 @@ type Document struct {
 }
 
 type Viewport struct {
-	CenterX     float64
-	CenterY     float64
-	Zoom        float64
-	Rotation    float64
-	CanvasW     int
-	CanvasH     int
-	ShowGuides  bool
+	CenterX    float64
+	CenterY    float64
+	Zoom       float64
+	Rotation   float64
+	CanvasW    int
+	CanvasH    int
+	ShowGuides bool
 }
 
 const checkerTile = 24
