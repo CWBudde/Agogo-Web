@@ -6,6 +6,7 @@ import type {
   PickLayerAtPointCommand,
   PointerEventCommand,
   QuickSelectCommand,
+  RawRenderResult,
   RenderResult,
   TransformSelectionCommand,
   TranslateLayerCommand,
@@ -23,9 +24,10 @@ export interface EngineHandle {
   readonly memory: WebAssembly.Memory;
   dispatchCommand(commandId: number, payload?: unknown): RenderResult;
   renderFrame(): RenderResult;
+  renderFrameRaw(): RawRenderResult;
   exportProject(): string;
   importProject(projectJSON: string): RenderResult;
-  readPixels(render: RenderResult): Uint8ClampedArray;
+  readPixels(render: { bufferPtr: number; bufferLen: number }): Uint8ClampedArray;
   free(pointer: number): void;
 }
 

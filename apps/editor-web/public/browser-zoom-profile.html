@@ -139,6 +139,7 @@
         ctx: null,
         sampleViewport: null,
         samplePixels: null,
+        sampleRenderJSON: "",
 
         dispatch(commandId, payload) {
           return parseJSON(window.DispatchCommand(this.handle, commandId, JSON.stringify(payload ?? {})));
@@ -146,6 +147,14 @@
 
         renderFrame() {
           return parseJSON(window.RenderFrame(this.handle));
+        },
+
+        renderFrameRaw() {
+          return window.RenderFrame(this.handle);
+        },
+
+        renderFrameHot() {
+          return parseJSON(window.RenderFrameRaw(this.handle));
         },
 
         freeBuffer(ptr) {
@@ -222,6 +231,7 @@
           this.samplePixels = new Uint8ClampedArray(bytes.length);
           this.samplePixels.set(bytes);
           this.sampleViewport = frame.viewport;
+          this.sampleRenderJSON = JSON.stringify(frame);
           this.freeBuffer(frame.bufferPtr);
           this.ready = true;
 
@@ -231,6 +241,7 @@
             zoom: benchmarkZoom,
             warmupIterations,
             viewport: this.sampleViewport,
+            sampleRenderJSONBytes: this.sampleRenderJSON.length,
           };
           setStatus(`${JSON.stringify(summary, null, 2)}\n\nReady.`);
           document.title = "ready";
@@ -245,6 +256,34 @@
             this.freeBuffer(frame.bufferPtr);
           }
           return { iterations, viewport };
+        },
+
+        renderFrameRawOnly(iterations) {
+          let lastLength = 0;
+          for (let i = 0; i < iterations; i += 1) {
+            const payload = this.renderFrameRaw();
+            lastLength = payload.length;
+          }
+          return { iterations, bytes: lastLength };
+        },
+
+        renderFrameHotOnly(iterations) {
+          let viewport = this.sampleViewport;
+          for (let i = 0; i < iterations; i += 1) {
+            const frame = this.renderFrameHot();
+            viewport = frame.viewport;
+            this.freeBuffer(frame.bufferPtr);
+          }
+          return { iterations, viewport };
+        },
+
+        jsonParseOnly(iterations) {
+          let viewport = this.sampleViewport;
+          for (let i = 0; i < iterations; i += 1) {
+            const parsed = JSON.parse(this.sampleRenderJSON);
+            viewport = parsed.viewport;
+          }
+          return { iterations, viewport, bytes: this.sampleRenderJSON.length };
         },
 
         pixelCopyOnly(iterations) {
@@ -271,7 +310,7 @@
         endToEnd(iterations) {
           let viewport = this.sampleViewport;
           for (let i = 0; i < iterations; i += 1) {
-            const frame = this.renderFrame();
+            const frame = this.renderFrameHot();
             const bytes = new Uint8ClampedArray(this.memory.buffer, frame.bufferPtr, frame.bufferLen);
             this.ctx.putImageData(
               new ImageData(bytes, frame.viewport.canvasW, frame.viewport.canvasH),

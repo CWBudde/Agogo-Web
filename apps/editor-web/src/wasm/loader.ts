@@ -1,4 +1,4 @@
-import type { RenderResult } from "@agogo/proto";
+import type { RawRenderResult, RenderResult } from "@agogo/proto";
 import type { EngineConfig, EngineHandle } from "./types";
 
 declare global {
@@ -10,6 +10,7 @@ declare global {
     EngineInit?: (configJSON: string) => number;
     DispatchCommand?: (handle: number, commandId: number, payloadJSON?: string) => string;
     RenderFrame?: (handle: number) => string;
+    RenderFrameRaw?: (handle: number) => string;
     ExportProject?: (handle: number) => string;
     ImportProject?: (handle: number, payloadJSON?: string) => string;
     Free?: (pointer: number) => void;
@@ -98,6 +99,26 @@ function parseRenderResult(payload: string): RenderResult {
   return parsed as RenderResult;
 }
 
+function parseRawRenderResult(payload: string): RawRenderResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch (error) {
+    throw new WasmEngineLoadError("The engine returned invalid JSON.", error);
+  }
+
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "error" in parsed &&
+    typeof parsed.error === "string"
+  ) {
+    throw new WasmEngineLoadError(parsed.error);
+  }
+
+  return parsed as RawRenderResult;
+}
+
 export async function loadEngine({
   wasmUrl = DEFAULT_WASM_URL,
   wasmExecUrl = DEFAULT_WASM_EXEC_URL,
@@ -122,10 +143,11 @@ export async function loadEngine({
   const init = window.EngineInit;
   const dispatch = window.DispatchCommand;
   const renderFrame = window.RenderFrame;
+  const renderFrameRaw = window.RenderFrameRaw;
   const exportProject = window.ExportProject;
   const importProject = window.ImportProject;
 
-  if (!init || !dispatch || !renderFrame || !exportProject || !importProject) {
+  if (!init || !dispatch || !renderFrame || !renderFrameRaw || !exportProject || !importProject) {
     throw new WasmEngineLoadError("The Go runtime did not register the expected engine functions.");
   }
 
@@ -152,6 +174,9 @@ export async function loadEngine({
     },
     renderFrame() {
       return parseRenderResult(renderFrame(handle));
+    },
+    renderFrameRaw() {
+      return parseRawRenderResult(renderFrameRaw(handle));
     },
     exportProject() {
       return exportProject(handle);

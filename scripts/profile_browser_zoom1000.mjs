@@ -160,7 +160,10 @@ async function main() {
       returnByValue: true,
     });
 
+    const renderRaw = await timeEval(client, `window.__agogoProfile.renderFrameRawOnly(${iterations})`);
+    const parseOnly = await timeEval(client, `window.__agogoProfile.jsonParseOnly(${iterations})`);
     const render = await timeEval(client, `window.__agogoProfile.renderFrameOnly(${iterations})`);
+    const renderHot = await timeEval(client, `window.__agogoProfile.renderFrameHotOnly(${iterations})`);
     const copy = await timeEval(client, `window.__agogoProfile.pixelCopyOnly(${iterations})`);
     const blit = await timeEval(client, `window.__agogoProfile.putImageDataOnly(${iterations})`);
     const endToEnd = await timeEval(client, `window.__agogoProfile.endToEnd(${iterations})`);
@@ -172,9 +175,21 @@ async function main() {
       },
       setup: setup.result?.value ?? ready,
       timings: {
+        renderFrameRawOnly: {
+          totalMs: Number(renderRaw.elapsedMs.toFixed(3)),
+          perOpMs: Number((renderRaw.elapsedMs / iterations).toFixed(6)),
+        },
+        jsonParseOnly: {
+          totalMs: Number(parseOnly.elapsedMs.toFixed(3)),
+          perOpMs: Number((parseOnly.elapsedMs / iterations).toFixed(6)),
+        },
         renderFrameOnly: {
           totalMs: Number(render.elapsedMs.toFixed(3)),
           perOpMs: Number((render.elapsedMs / iterations).toFixed(6)),
+        },
+        renderFrameHotOnly: {
+          totalMs: Number(renderHot.elapsedMs.toFixed(3)),
+          perOpMs: Number((renderHot.elapsedMs / iterations).toFixed(6)),
         },
         pixelCopyOnly: {
           totalMs: Number(copy.elapsedMs.toFixed(3)),

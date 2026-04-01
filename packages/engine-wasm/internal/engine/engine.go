@@ -210,6 +210,13 @@ type RenderResult struct {
 	SampledColor *[4]uint8 `json:"sampledColor,omitempty"`
 }
 
+type RawRenderResult struct {
+	FrameID   int64         `json:"frameId"`
+	Viewport  ViewportState `json:"viewport"`
+	BufferPtr int32         `json:"bufferPtr"`
+	BufferLen int32         `json:"bufferLen"`
+}
+
 type EngineConfig struct {
 	DocumentWidth  int     `json:"documentWidth"`
 	DocumentHeight int     `json:"documentHeight"`
@@ -2592,6 +2599,18 @@ func RenderFrame(handle int32) (RenderResult, error) {
 	return inst.render(), nil
 }
 
+func RenderFrameRaw(handle int32) (RawRenderResult, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return RawRenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	return inst.renderRaw(), nil
+}
+
 // ExportProject returns the current active document as a JSON project archive.
 func ExportProject(handle int32) (string, error) {
 	mu.Lock()
@@ -2643,24 +2662,50 @@ func GetBufferLen(handle int32) int32 {
 }
 
 func (inst *instance) render() RenderResult {
+	raw := inst.renderRaw()
+	uiMeta := inst.renderUIMeta()
+	return RenderResult{
+		FrameID:     raw.FrameID,
+		Viewport:    raw.Viewport,
+		DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
+		PixelFormat: "rgba8-premultiplied",
+		BufferPtr:   raw.BufferPtr,
+		BufferLen:   raw.BufferLen,
+		UIMeta:      uiMeta,
+	}
+}
+
+func (inst *instance) renderRaw() RawRenderResult {
 	frameID := inst.nextFrameID()
 	doc := inst.manager.Active()
 	if doc == nil {
 		inst.pixels = inst.pixels[:0]
-		return RenderResult{
-			FrameID:     frameID,
-			Viewport:    inst.viewport,
-			DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
-			PixelFormat: "rgba8-premultiplied",
-			UIMeta: UIMeta{
-				CursorType:          "default",
-				StatusText:          "No active document",
-				History:             inst.history.Entries(),
-				CurrentHistoryIndex: inst.history.CurrentIndex(),
-				CanUndo:             inst.history.CanUndo(),
-				CanRedo:             inst.history.CanRedo(),
-				MaskEditLayerID:     inst.maskEditLayerID,
-			},
+		return RawRenderResult{FrameID: frameID, Viewport: inst.viewport}
+	}
+
+	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
+	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
+	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
+	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
+	return RawRenderResult{
+		FrameID:     frameID,
+		Viewport:    inst.viewport,
+		BufferPtr:   int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+		BufferLen:   int32(len(inst.pixels)),
+	}
+}
+
+func (inst *instance) renderUIMeta() UIMeta {
+	doc := inst.manager.Active()
+	if doc == nil {
+		return UIMeta{
+			CursorType:          "default",
+			StatusText:          "No active document",
+			History:             inst.history.Entries(),
+			CurrentHistoryIndex: inst.history.CurrentIndex(),
+			CanUndo:             inst.history.CanUndo(),
+			CanRedo:             inst.history.CanRedo(),
+			MaskEditLayerID:     inst.maskEditLayerID,
 		}
 	}
 
@@ -2669,40 +2714,28 @@ func (inst *instance) render() RenderResult {
 		activeLayerName = activeLayer.Name()
 	}
 
-	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
-	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
-	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
-	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
-	return RenderResult{
-		FrameID:     frameID,
-		Viewport:    inst.viewport,
-		DirtyRects:  []DirtyRect{{X: 0, Y: 0, W: inst.viewport.CanvasW, H: inst.viewport.CanvasH}},
-		PixelFormat: "rgba8-premultiplied",
-		BufferPtr:   int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
-		BufferLen:   int32(len(inst.pixels)),
-		UIMeta: UIMeta{
-			ActiveLayerID:       doc.ActiveLayerID,
-			ActiveLayerName:     activeLayerName,
-			CursorType:          inst.cursorType(),
-			StatusText:          inst.statusText(doc),
-			RulerOriginX:        0,
-			RulerOriginY:        0,
-			History:             inst.history.Entries(),
-			CurrentHistoryIndex: inst.history.CurrentIndex(),
-			CanUndo:             inst.history.CanUndo(),
-			CanRedo:             inst.history.CanRedo(),
-			ActiveDocumentID:    doc.ID,
-			ActiveDocumentName:  doc.Name,
-			DocumentWidth:       doc.Width,
-			DocumentHeight:      doc.Height,
-			DocumentBackground:  doc.Background.Kind,
-			Layers:              doc.LayerMeta(),
-			ContentVersion:      doc.ContentVersion,
-			MaskEditLayerID:     inst.maskEditLayerID,
-			Selection:           doc.selectionMeta(),
-			FreeTransform:       inst.freeTransform.meta(),
-			Crop:                inst.crop.meta(),
-		},
+	return UIMeta{
+		ActiveLayerID:       doc.ActiveLayerID,
+		ActiveLayerName:     activeLayerName,
+		CursorType:          inst.cursorType(),
+		StatusText:          inst.statusText(doc),
+		RulerOriginX:        0,
+		RulerOriginY:        0,
+		History:             inst.history.Entries(),
+		CurrentHistoryIndex: inst.history.CurrentIndex(),
+		CanUndo:             inst.history.CanUndo(),
+		CanRedo:             inst.history.CanRedo(),
+		ActiveDocumentID:    doc.ID,
+		ActiveDocumentName:  doc.Name,
+		DocumentWidth:       doc.Width,
+		DocumentHeight:      doc.Height,
+		DocumentBackground:  doc.Background.Kind,
+		Layers:              doc.LayerMeta(),
+		ContentVersion:      doc.ContentVersion,
+		MaskEditLayerID:     inst.maskEditLayerID,
+		Selection:           doc.selectionMeta(),
+		FreeTransform:       inst.freeTransform.meta(),
+		Crop:                inst.crop.meta(),
 	}
 }
 

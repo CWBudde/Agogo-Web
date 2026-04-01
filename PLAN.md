@@ -341,6 +341,32 @@
     - [x] Current conclusion:
       - [x] Removing the JS copy cut the browser end-to-end cost by roughly **18%**
       - [x] Browser overhead is now much closer to pure Wasm `RenderFrame()` cost, which confirms the copied RGBA staging buffer was a real but tractable frontend tax
+  - [x] Browser `RenderFrame()` bridge overhead profiled directly
+    - [x] Browser profiling helpers now split:
+      - [x] raw `window.RenderFrame(handle)` string-return path
+      - [x] `JSON.parse` on a representative `RenderResult`
+      - [x] wrapped `handle.renderFrame()` path
+    - [x] Headless Chrome / Linux bridge-stage baseline at `1000%` zoom:
+      - [x] `renderFrameRawOnly`: **~3.83 ms/op**
+      - [x] `jsonParseOnly`: **~0.003 ms/op**
+      - [x] `renderFrameOnly`: **~4.03 ms/op**
+      - [x] `endToEnd`: **~4.53 ms/op**
+    - [x] Current conclusion:
+      - [x] `JSON.parse` is negligible here; it is not the remaining bottleneck
+      - [x] The dominant browser/Wasm tax is the raw `RenderFrame` bridge itself: Go `render()` + Go `json.Marshal` + `syscall/js` string transfer back into JS
+      - [x] The next serious browser-side optimization target is reducing or eliminating the per-frame JSON/string bridge, for example by exposing a compact raw metadata ABI for steady-state `RenderFrame()` calls
+  - [x] Added a compact steady-state `RenderFrameRaw` ABI for the hot canvas loop
+    - [x] Go engine now exposes `RenderFrameRaw(handle)` returning only `frameId`, `viewport`, `bufferPtr`, and `bufferLen`
+    - [x] The raw path skips `UIMeta` construction in the engine and avoids sending the full `RenderResult` JSON on steady-state frames
+    - [x] Frontend continuous render loop now uses `handle.renderFrameRaw()` while command responses and initial load still use the full `RenderResult`
+    - [x] Browser/Wasm measurements after the ABI split:
+      - [x] legacy full `renderFrameOnly`: **~4.08 ms/op**
+      - [x] hot-path `renderFrameHotOnly`: **~3.97 ms/op**
+      - [x] hot-path `endToEnd`: **~4.03 ms/op**
+    - [x] Current conclusion:
+      - [x] The compact raw ABI provides a real but modest improvement for this scenario, bringing browser end-to-end cost down from the previous ~4.53 ms/op to ~4.03 ms/op
+      - [x] The remaining cost is still mostly inside the Go/Wasm render call itself rather than frontend parsing or blitting
+      - [x] Larger wins from here will require reducing engine work on steady-state frames or moving more frame metadata off the JSON/string bridge entirely
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
 ---
