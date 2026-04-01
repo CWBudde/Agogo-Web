@@ -152,9 +152,23 @@
   - [x] Shared interpolation/filter selection now lives in one AGG setup path inside `applyPixelTransform`
   - [x] Shared destination quad/parallelogram conversion helpers now exist via `tileQuad` / `affineParallelogram` on the render target helper
   - [x] Shared output-bounds and tile-relative coordinate helpers now exist via `computeTransformRenderTarget`
-- [ ] Make interpolation behavior consistent across transform modes
-- [ ] Eliminate duplicated AGG wiring between affine, distort, and warp branches where practical
-- [ ] Keep clear separation between transform data-model math and pixel-rendering implementation
+- [x] Make interpolation behavior consistent across transform modes
+  - [x] Added a direct `agg_go` reproducer in `internal/engine/agg_affine_repro_test.go` to separate engine-wrapper behavior from AGG behavior
+  - [x] The reproducer currently shows `TransformImageSimple` and `TransformImageParallelogram` producing byte-identical nearest, bilinear, and bicubic outputs for the tested affine destinations even when called outside the engine wrapper
+  - [x] After switching `packages/engine-wasm` to a local `agg_go` replace for debugging, the reproducer still shows nearest and bilinear collapsing in the AGG affine `NoResample` path for both smooth-gradient and high-frequency fixtures
+  - [x] The same reproducer shows `ResampleAlways` is sufficient to separate bilinear and bicubic, which narrows the remaining issue to nearest/bilinear semantics and the non-resampling affine path
+  - [x] Local `agg_go` trace logging now shows nearest and bilinear receive the same raw interpolated coordinates in the affine `NoResample` path; bilinear then subtracts the half-pixel filter offset, frequently shifting the base cell to negative or edge-adjacent coordinates where clamped edge samples dominate the weights
+  - [x] Temporary engine-side mitigation: affine commits now keep nearest on `NoResample` but route bilinear and bicubic through `ResampleAlways`, leaving warp/distort unchanged while the underlying AGG nearest-vs-bilinear `NoResample` semantics are still under investigation
+  - [x] Resolved: `agg_go` v0.2.10 added `AffineImageResamplePolicy` with `PreferFiltered` mode; the engine uses this via `affineTransformResamplePolicy()` so bilinear/bicubic route through the filtered resampler while nearest uses the original `Agg2D` path — reproducer confirms all three modes now produce distinct output in both `NoResample` and `ResampleAlways`
+- [x] Eliminate duplicated AGG wiring between affine, distort, and warp branches where practical
+  - [x] Introduced `transformStrategy` struct pairing per-mode resample config with a render function
+  - [x] `selectTransformStrategy` returns the right config (warp/distort use `AffineImageResampleAgg2D`; affine uses `PreferFiltered` for non-nearest)
+  - [x] Render functions (`renderWarpQuads`, `renderDistortQuad`, `renderAffineImage`) now receive a pre-configured `Agg2D` renderer — no setup logic inside
+  - [x] `applyPixelTransform` uses a single setup-then-render path; affine fast-paths (degenerate det, pure integer translate) are checked before AGG setup
+- [x] Keep clear separation between transform data-model math and pixel-rendering implementation
+  - [x] Data-model math (matrix operations, corners, AABB, meta, record/replay) lives on `FreeTransformState` methods and standalone helpers
+  - [x] Pixel rendering is in the three strategy render functions, dispatched via `selectTransformStrategy`
+  - [x] Manual samplers (`sampleBilinear`, etc.) remain for viewport compositing and crop — these are orthogonal to the transform commit pipeline
 
 ### Phase X.7: Discrete Transform & Overlay Policy
 
@@ -188,6 +202,8 @@
   - [x] Output bounds stability now has direct regression coverage for integer-translate and negative-offset axis-aligned affine cases
   - [x] Add explicit interpolation-parity fixtures across nearest, bilinear, and bicubic at the sampler level using a representative fixture and multiple subpixel sample coordinates
   - [x] Transform-level tests now verify that nearest, bilinear, and bicubic preserve bounds/output shape stability for both axis-aligned and general affine AGG-backed paths
+  - [x] Added a direct AGG reproducer test for affine image transforms so interpolation collapse can be verified without going through the engine wrapper
+  - [x] Added an engine-side regression that requires affine bilinear and bicubic outputs to diverge for at least one representative candidate under the temporary `ResampleAlways` mitigation
 - [x] Capture CPU and allocation profiles before and after AGG affine migration
 - [x] Record whether AGG affine replacement is actually faster than the previous manual path
   - [x] Result so far: the main win is allocation reduction and path simplification; general-affine CPU time remains dominated by AGG internals

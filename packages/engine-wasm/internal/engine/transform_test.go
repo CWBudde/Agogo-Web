@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"math"
 	"testing"
 )
@@ -274,6 +275,55 @@ func TestApplyPixelTransform_InterpolationModes_GeneralAffine(t *testing.T) {
 		if center[3] == 0 {
 			t.Fatal("expected general-affine bilinear output centre to remain non-transparent")
 		}
+	}
+}
+
+func TestApplyPixelTransform_AffineHigherQualityModesDiverge(t *testing.T) {
+	pixels := makeHighFrequencyFixturePixels()
+	candidates := []struct {
+		name      string
+		configure func(*FreeTransformState)
+	}{
+		{
+			name: "axis-aligned-scale",
+			configure: func(s *FreeTransformState) {
+				s.A = 1.6
+				s.D = 1.35
+				s.TX = 0.35
+				s.TY = 0.4
+			},
+		},
+		{
+			name: "general-affine",
+			configure: func(s *FreeTransformState) {
+				s.A = 1.18
+				s.B = 0.42
+				s.C = -0.33
+				s.D = 1.27
+				s.TX = 0.6
+				s.TY = -0.15
+			},
+		},
+	}
+	foundDifference := false
+	for _, candidate := range candidates {
+		newState := func() *FreeTransformState {
+			s := identityState(4, 4, pixels)
+			candidate.configure(s)
+			return s
+		}
+		bilinearPixels, bilinearBounds := applyPixelTransform(newState(), InterpolBilinear)
+		bicubicPixels, bicubicBounds := applyPixelTransform(newState(), InterpolBicubic)
+		if bilinearBounds != bicubicBounds {
+			t.Fatalf("%s bounds mismatch: bilinear=%+v bicubic=%+v", candidate.name, bilinearBounds, bicubicBounds)
+		}
+		if !bytes.Equal(bilinearPixels, bicubicPixels) {
+			foundDifference = true
+			t.Logf("bilinear and bicubic differ for %s", candidate.name)
+		}
+	}
+	if !foundDifference {
+		t.Fatal("expected affine bilinear and bicubic outputs to diverge for at least one candidate")
 	}
 }
 

@@ -130,8 +130,8 @@ func initWarpGridFromBounds(b LayerBounds) *[4][4][2]float64 {
 	w := float64(b.W)
 	h := float64(b.H)
 	var g [4][4][2]float64
-	for row := 0; row < 4; row++ {
-		for col := 0; col < 4; col++ {
+	for row := range 4 {
+		for col := range 4 {
 			g[row][col] = [2]float64{
 				x0 + w*float64(col)/3,
 				y0 + h*float64(row)/3,
@@ -542,14 +542,22 @@ func (target transformRenderTarget) affineParallelogram(corners [4][2]float64) [
 	}
 }
 
-func acquireTransformAGGResources(s *FreeTransformState, target transformRenderTarget, origW, origH int, interp InterpolMode) (*agglib.Agg2D, *agglib.Image) {
+func affineTransformResamplePolicy(interp InterpolMode) agglib.AffineImageResamplePolicy {
+	if interp == InterpolNearest {
+		return agglib.AffineImageResampleAgg2D
+	}
+	return agglib.AffineImageResamplePreferFiltered
+}
+
+func acquireTransformAGGResources(s *FreeTransformState, target transformRenderTarget, origW, origH int, interp InterpolMode, resample agglib.ImageResample, affinePolicy agglib.AffineImageResamplePolicy) (*agglib.Agg2D, *agglib.Image) {
 	renderer := s.ScratchRenderer
 	if renderer == nil {
 		renderer = agglib.NewAgg2D()
 		s.ScratchRenderer = renderer
 	}
 	renderer.Attach(target.pixels, target.outW, target.outH, target.outW*4)
-	renderer.ImageResample(agglib.NoResample)
+	renderer.ImageResample(resample)
+	renderer.AffineImageResamplePolicy(affinePolicy)
 	switch interp {
 	case InterpolNearest:
 		renderer.ImageFilter(agglib.NoFilter)
@@ -568,8 +576,32 @@ func acquireTransformAGGResources(s *FreeTransformState, target transformRenderT
 	return renderer, srcImg
 }
 
-func renderWarpTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
-	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
+// ---------------------------------------------------------------------------
+// Transform strategy dispatch
+// ---------------------------------------------------------------------------
+
+// transformStrategy pairs per-mode AGG configuration (resample policy) with a
+// render function so that applyPixelTransform uses a single setup path for all
+// transform modes. The render function receives a fully-configured AGG renderer
+// and source image — it only contains AGG draw calls, not setup logic.
+type transformStrategy struct {
+	resample     agglib.ImageResample
+	affinePolicy agglib.AffineImageResamplePolicy
+	render       func(renderer *agglib.Agg2D, src *agglib.Image, s *FreeTransformState, target transformRenderTarget, origW, origH int)
+}
+
+func selectTransformStrategy(s *FreeTransformState, interp InterpolMode) transformStrategy {
+	switch {
+	case s.WarpGrid != nil:
+		return transformStrategy{agglib.NoResample, agglib.AffineImageResampleAgg2D, renderWarpQuads}
+	case s.DistortCorners != nil:
+		return transformStrategy{agglib.NoResample, agglib.AffineImageResampleAgg2D, renderDistortQuad}
+	default:
+		return transformStrategy{agglib.NoResample, affineTransformResamplePolicy(interp), renderAffineImage}
+	}
+}
+
+func renderWarpQuads(renderer *agglib.Agg2D, src *agglib.Image, s *FreeTransformState, target transformRenderTarget, origW, origH int) {
 	g := *s.WarpGrid
 	const cells = 3
 	for row := range cells {
@@ -584,30 +616,21 @@ func renderWarpTransform(s *FreeTransformState, target transformRenderTarget, in
 				g[row+1][col+1],
 				g[row+1][col],
 			})
-			_ = renderer.TransformImageQuad(srcImg, srcX1, srcY1, srcX2, srcY2, quad)
+			_ = renderer.TransformImageQuad(src, srcX1, srcY1, srcX2, srcY2, quad)
 		}
 	}
 }
 
-func renderDistortTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
-	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
+func renderDistortQuad(renderer *agglib.Agg2D, src *agglib.Image, s *FreeTransformState, target transformRenderTarget, origW, origH int) {
 	quad := target.tileQuad(*s.DistortCorners)
-	_ = renderer.TransformImageQuad(srcImg, 0, 0, origW, origH, quad)
+	_ = renderer.TransformImageQuad(src, 0, 0, origW, origH, quad)
 }
 
-func renderAffineTransform(s *FreeTransformState, target transformRenderTarget, interp InterpolMode, origW, origH int) {
-	if math.Abs(s.det()) < 1e-10 {
-		return
-	}
+func renderAffineImage(renderer *agglib.Agg2D, src *agglib.Image, s *FreeTransformState, target transformRenderTarget, origW, origH int) {
 	corners := s.transformedCorners()
-	if isPureIntegerTranslate(s) && target.outW == origW && target.outH == origH {
-		copy(target.pixels, s.OriginalPixels)
-		return
-	}
-	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp)
 	if isAxisAlignedPositiveScale(s) {
 		_ = renderer.TransformImageSimple(
-			srcImg,
+			src,
 			corners[0][0]-float64(target.outX),
 			corners[0][1]-float64(target.outY),
 			corners[2][0]-float64(target.outX),
@@ -615,17 +638,13 @@ func renderAffineTransform(s *FreeTransformState, target transformRenderTarget, 
 		)
 		return
 	}
-	_ = renderer.TransformImageParallelogram(srcImg, 0, 0, origW, origH, target.affineParallelogram(corners))
+	_ = renderer.TransformImageParallelogram(src, 0, 0, origW, origH, target.affineParallelogram(corners))
 }
 
-// applyPixelTransform creates new pixel data by applying the affine transform
-// (or perspective warp when DistortCorners is set) stored in s. The new layer
-// bounds (in document space) are returned alongside the pixel buffer. interp
-// selects the resampling quality.
-//
-// Affine, perspective, and mesh-warp paths all render through AGG image
-// transforms so the commit path uses one interpolation pipeline rather than a
-// mix of manual sampling and AGG-based warping.
+// applyPixelTransform creates new pixel data by applying the current transform
+// (affine, perspective distort, or mesh warp) stored in s. All modes render
+// through AGG image transforms via a shared setup path — the per-mode
+// transformStrategy selects only the resample policy and the AGG draw calls.
 func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels []byte, newBounds LayerBounds) {
 	origW := s.OriginalBounds.W
 	origH := s.OriginalBounds.H
@@ -633,18 +652,23 @@ func applyPixelTransform(s *FreeTransformState, interp InterpolMode) (newPixels 
 		return s.OriginalPixels, s.OriginalBounds
 	}
 	target := computeTransformRenderTarget(s)
-	newPixels = target.pixels
 
-	if s.WarpGrid != nil {
-		renderWarpTransform(s, target, interp, origW, origH)
-	} else if s.DistortCorners != nil {
-		renderDistortTransform(s, target, interp, origW, origH)
-	} else {
-		renderAffineTransform(s, target, interp, origW, origH)
+	// Affine fast-paths that bypass AGG entirely.
+	if s.WarpGrid == nil && s.DistortCorners == nil {
+		if math.Abs(s.det()) < 1e-10 {
+			return target.pixels, target.bounds()
+		}
+		if isPureIntegerTranslate(s) && target.outW == origW && target.outH == origH {
+			copy(target.pixels, s.OriginalPixels)
+			return target.pixels, target.bounds()
+		}
 	}
 
-	newBounds = target.bounds()
-	return newPixels, newBounds
+	mode := selectTransformStrategy(s, interp)
+	renderer, srcImg := acquireTransformAGGResources(s, target, origW, origH, interp, mode.resample, mode.affinePolicy)
+	mode.render(renderer, srcImg, s, target, origW, origH)
+
+	return target.pixels, target.bounds()
 }
 
 // ---------------------------------------------------------------------------
