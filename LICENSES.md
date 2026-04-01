@@ -8,7 +8,7 @@ All original code in this repository (apps/editor-web, packages/proto, packages/
 
 ---
 
-## Key Dependency: agg_go (`github.com/MeKo-Christian/agg_go`)
+## Key Dependency: agg_go (`github.com/CWBudde/agg_go`)
 
 - **What it is:** A Go port of the Anti-Grain Geometry (AGG) 2.6 rendering library, providing the 2D rasterization pipeline used by the WebAssembly engine.
 - **Author:** MeKo-Christian (same GitHub organization as this project).
