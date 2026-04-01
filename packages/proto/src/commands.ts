@@ -528,6 +528,7 @@ export interface BrushParams {
   cloneStamp?: boolean;      // paint from a sampled source point
   cloneSourceX?: number;     // source point X in document space
   cloneSourceY?: number;     // source point Y in document space
+  historyBrush?: boolean;    // paint from the previous history state
 }
 
 export interface BeginPaintStrokeCommand {

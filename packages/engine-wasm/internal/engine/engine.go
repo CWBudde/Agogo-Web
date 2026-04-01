@@ -376,6 +376,11 @@ type activePaintStroke struct {
 	cloneSourceY     int
 	cloneOffsetX     float64
 	cloneOffsetY     float64
+	historySource    []byte // sampled once at stroke begin for history brush
+	historySourceW   int
+	historySourceH   int
+	historySourceX   int
+	historySourceY   int
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
@@ -568,6 +573,48 @@ func (h *HistoryStack) Entries() []HistoryEntry {
 
 func (h *HistoryStack) CurrentIndex() int {
 	return len(h.undo)
+}
+
+func (h *HistoryStack) SnapshotAt(historyIndex int) (snapshot, bool) {
+	if historyIndex < 0 || historyIndex > len(h.undo) {
+		return snapshot{}, false
+	}
+	if historyIndex == 0 {
+		return snapshot{}, false
+	}
+	command := h.undo[historyIndex-1]
+	switch typed := command.(type) {
+	case *snapshotCommand:
+		return typed.after, true
+	case *groupedCommand:
+		return typed.after, true
+	default:
+		return snapshot{}, false
+	}
+}
+
+func (h *HistoryStack) PreviousSnapshot(inst *instance) (snapshot, bool) {
+	if len(h.undo) == 0 || inst == nil {
+		return snapshot{}, false
+	}
+	active := inst.manager.Active()
+	if active == nil {
+		return snapshot{}, false
+	}
+
+	cloneInst := &instance{
+		manager:  newDocumentManager(),
+		viewport: inst.viewport,
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	cloneInst.manager.Create(active)
+	if inst.manager.ActiveID() != "" {
+		cloneInst.manager.activeID = inst.manager.ActiveID()
+	}
+	if err := h.undo[len(h.undo)-1].Undo(cloneInst); err != nil {
+		return snapshot{}, false
+	}
+	return cloneInst.captureSnapshot(), true
 }
 
 func (h *HistoryStack) CanUndo() bool { return len(h.undo) > 0 }
@@ -2803,6 +2850,11 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		stroke.cloneOffsetX = brushParams.CloneSourceX - p.X
 		stroke.cloneOffsetY = brushParams.CloneSourceY - p.Y
 	}
+	if brushParams.HistoryBrush {
+		if state, ok := inst.history.PreviousSnapshot(inst); ok {
+			stroke.historySource, stroke.historySourceW, stroke.historySourceH, stroke.historySourceX, stroke.historySourceY = captureHistorySourceSurface(state, brushParams.SampleMerged)
+		}
+	}
 
 	inst.paintStroke = stroke
 
@@ -2822,6 +2874,8 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
 		} else if dabParams.CloneStamp {
 			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY)
+		} else if dabParams.HistoryBrush {
+			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
 				dabParams.Color = resolveMixerBrushColor(stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)
@@ -2861,6 +2915,8 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
 		} else if dabParams.CloneStamp {
 			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY)
+		} else if dabParams.HistoryBrush {
+			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
 				dabParams.Color = resolveMixerBrushColor(inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)

@@ -602,8 +602,15 @@
   - [ ] Missing: source cloning from arbitrary history states
   - [ ] Missing: fade/opacity and paint-load style controls
   - [ ] Missing: more exact Photoshop-style edge behavior and transform-aware source handling
-- [ ] **History Brush (later, Phase 4.2b):**
-  - [ ] Paint from a specific history state
+- [x] **History Brush (later, Phase 4.2b):**
+  - [x] Tool exists in the frontend and can be selected from the toolrail / `Y` shortcut
+  - [x] Paint strokes restore pixels from the previous history state
+  - [x] Supports `Sample Merged` for history-state source sampling
+  - [ ] Missing: user-selectable history source state
+  - [ ] Missing: source overlay / crosshair preview and source-state UI
+  - [ ] Missing: arbitrary non-destructive history-state painting from older checkpoints
+  - [ ] Missing: fade / opacity-style controls and paint-load behavior
+  - [ ] Missing: persistence rules when the document history is truncated or branched
 
 ### Phase 4.3: Fill & Gradient Tools
 
@@ -668,52 +675,53 @@
 
 ### Phase 5.1: Adjustment Layer Framework
 
-- [ ] `AdjustmentLayer` base type:
-  - [ ] `Type` enum (Levels, Curves, HueSat, ColorBalance, etc.)
-  - [ ] `Params` (JSON-serializable, type-specific struct)
-  - [ ] `Mask *LayerMask` (optional — restrict adjustment to masked area)
-  - [ ] `Clip bool` (clip to layer below, like any layer)
-- [ ] Render pipeline integration:
-  - [ ] Before compositing a layer, walk up the stack to apply all adjustment layers above it (that are clipped or affect the composite group)
-  - [ ] Apply adjustment as a pixel-space color transform function: `adjustPixel(r, g, b, a, params) -> (r, g, b, a)`
+- [x] `AdjustmentLayer` base type:
+  - [x] `Type` enum (Levels, Curves, HueSat, ColorBalance, etc.)
+  - [x] `Params` (JSON-serializable, type-specific struct)
+  - [x] `Mask *LayerMask` (optional — restrict adjustment to masked area)
+  - [x] `Clip bool` (clip to layer below, like any layer)
+- [x] Render pipeline integration:
+  - [x] Before compositing a layer, walk up the stack to apply all adjustment layers above it (that are clipped or affect the composite group)
+  - [x] Apply adjustment as a pixel-space color transform function: `adjustPixel(r, g, b, a, params) -> (r, g, b, a)`
   - [ ] Cache adjustment result per dirty region; invalidate only when params or input change
-- [ ] Invalidation propagation:
-  - [ ] Change to adjustment layer params → re-render all layers below in the composite
+- [x] Invalidation propagation:
+  - [x] Change to adjustment layer params → re-render all layers below in the composite
   - [ ] Upstream invalidation: only dirty the region that needs re-compositing
-- [ ] Non-destructive guarantee: deleting or hiding adjustment layer returns composite to original state
-- [ ] Serialize/deserialize adjustment params in `.agp` format
+- [x] Non-destructive guarantee: deleting or hiding adjustment layer returns composite to original state
+- [x] Serialize/deserialize adjustment params in `.agp` format
 
 ### Phase 5.2: Core Adjustment Layers
 
 - [ ] **Levels:**
-  - [ ] Input black point, white point, midtone gamma (per channel: R/G/B/RGB)
-  - [ ] Output black point, white point
+  - [x] Input black point, white point, midtone gamma (per channel: R/G/B/RGB)
+  - [x] Output black point, white point
   - [ ] Auto-calculate (stretch to full range), Auto Options (clipping %)
   - [ ] Histogram display inside properties panel
 - [ ] **Curves:**
-  - [ ] Curve editor: click+drag to add/move control points on the curve
-  - [ ] Per channel: RGB composite + R/G/B individual
+  - [x] Curve editor: click+drag to add/move control points on the curve
+  - [x] Per channel: RGB composite + R/G/B individual
   - [ ] Input/Output numeric readout at cursor
   - [ ] Presets (save/load named curves)
   - [ ] Eyedropper: click image to set black/white/gray point from sample
 - [ ] **Hue/Saturation:**
   - [ ] Master + per-color-range (Reds, Yellows, Greens, Cyans, Blues, Magentas)
-  - [ ] Hue shift (−180 to +180), Saturation (−100 to +100), Lightness (−100 to +100)
-  - [ ] Colorize mode (monochromatic)
+  - [x] Hue shift (−180 to +180), Saturation (−100 to +100), Lightness (−100 to +100)
+  - [x] Colorize mode (monochromatic)
   - [ ] Color range selector eyedropper (click color in image to target that range)
 - [ ] **Color Balance:**
-  - [ ] Shadows, Midtones, Highlights sliders (Cyan-Red, Magenta-Green, Yellow-Blue)
-  - [ ] Preserve Luminosity checkbox
+  - [x] Shadows, Midtones, Highlights sliders (Cyan-Red, Magenta-Green, Yellow-Blue)
+  - [x] Preserve Luminosity checkbox
 - [ ] **Brightness/Contrast:**
-  - [ ] Simple Brightness (−150 to +150), Contrast (−50 to +100)
-  - [ ] Legacy mode checkbox
+  - [x] Simple Brightness (−150 to +150), Contrast (−50 to +100)
+  - [x] Legacy mode checkbox
 - [ ] **Exposure:**
-  - [ ] Exposure (f-stops), Offset, Gamma Correction
+  - [x] Exposure (f-stops), Offset, Gamma Correction
 - [ ] **Vibrance:**
-  - [ ] Vibrance (smart saturation boost), Saturation
+  - [x] Vibrance (smart saturation boost), Saturation
 - [ ] **Black & White:**
-  - [ ] Six color-range sliders (Reds/Yellows/Greens/Cyans/Blues/Magentas)
-  - [ ] Auto, Tint option (adds color overlay on grayscale)
+  - [x] Six color-range sliders (Reds/Yellows/Greens/Cyans/Blues/Magentas)
+  - [x] Tint option (adds color overlay on grayscale)
+  - [ ] Auto
 
 ### Phase 5.3: Extended Adjustment Layers
 

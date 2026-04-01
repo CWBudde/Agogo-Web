@@ -28,6 +28,7 @@ type BrushParams struct {
 	CloneStamp      bool     `json:"cloneStamp,omitempty"`      // Clone pixels from a source point
 	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`    // Source point X in document space
 	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`    // Source point Y in document space
+	HistoryBrush    bool     `json:"historyBrush,omitempty"`    // Restore pixels from a previous history state
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -311,6 +312,25 @@ func captureStrokeSourceSurface(doc *Document, layer *PixelLayer, sampleMerged b
 		return surface, doc.Width, doc.Height, 0, 0
 	}
 	if layer == nil || len(layer.Pixels) == 0 {
+		return nil, 0, 0, 0, 0
+	}
+	return append([]byte(nil), layer.Pixels...), layer.Bounds.W, layer.Bounds.H, layer.Bounds.X, layer.Bounds.Y
+}
+
+func captureHistorySourceSurface(state snapshot, sampleMerged bool) ([]byte, int, int, int, int) {
+	doc := state.Document
+	if doc == nil {
+		return nil, 0, 0, 0, 0
+	}
+	if sampleMerged {
+		surface := doc.renderCompositeSurface()
+		if len(surface) == 0 {
+			return nil, 0, 0, 0, 0
+		}
+		return surface, doc.Width, doc.Height, 0, 0
+	}
+	layer := findPixelLayer(doc, doc.ActiveLayerID)
+	if layer == nil {
 		return nil, 0, 0, 0, 0
 	}
 	return append([]byte(nil), layer.Pixels...), layer.Bounds.W, layer.Bounds.H, layer.Bounds.X, layer.Bounds.Y

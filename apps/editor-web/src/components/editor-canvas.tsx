@@ -22,6 +22,7 @@ type EditorCanvasProps = {
     | "brush"
     | "mixerBrush"
     | "cloneStamp"
+    | "historyBrush"
     | "pencil"
     | "eraser"
     | "fill"
@@ -61,6 +62,7 @@ type EditorCanvasProps = {
   cloneStampSampleMerged: boolean;
   cloneStampSource: { x: number; y: number } | null;
   onCloneStampSourceChange(source: { x: number; y: number } | null): void;
+  historyBrushSampleMerged: boolean;
   pencilAutoErase: boolean;
   eraserMode: "normal" | "background" | "magic";
   eraserTolerance: number;
@@ -589,6 +591,7 @@ export function EditorCanvas({
   cloneStampSampleMerged,
   cloneStampSource,
   onCloneStampSourceChange,
+  historyBrushSampleMerged,
   pencilAutoErase,
   eraserMode,
   eraserTolerance,
@@ -1654,6 +1657,26 @@ export function EditorCanvas({
           } satisfies BeginPaintStrokeCommand);
           return;
         }
+        if (activeTool === "historyBrush" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          brushActiveRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.BeginPaintStroke, {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+            brush: {
+              size: brushSize,
+              hardness: brushHardness,
+              flow: brushFlow,
+              color: foregroundColor,
+              historyBrush: true,
+              sampleMerged: historyBrushSampleMerged,
+            },
+          } satisfies BeginPaintStrokeCommand);
+          return;
+        }
         if ((activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
@@ -2229,7 +2252,7 @@ export function EditorCanvas({
           });
           return;
         }
-        if ((activeTool === "cloneStamp" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if ((activeTool === "cloneStamp" || activeTool === "historyBrush" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
@@ -2302,7 +2325,7 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
-        if ((activeTool === "cloneStamp" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if ((activeTool === "cloneStamp" || activeTool === "historyBrush" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           brushActiveRef.current = false;
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;
