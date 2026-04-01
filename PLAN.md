@@ -591,54 +591,54 @@
 
 ### Phase 4.3: Fill & Gradient Tools
 
-- [ ] **Paint Bucket / Fill Tool (G):**
-  - [ ] Flood-fill from click point by color similarity
-  - [ ] Options: tolerance (0–255), anti-alias, contiguous, sample all layers, fill with foreground/pattern
-  - [ ] Respects selection mask
-  - [ ] `Edit > Fill` dialog: fill with color / background color / history / content-aware (later) / pattern
-- [ ] **Gradient Tool (G):**
-  - [ ] Types: Linear, Radial, Angle, Reflected, Diamond
+- [x] **Paint Bucket / Fill Tool (G):**
+  - [x] Flood-fill from click point by color similarity
+  - [x] Options: tolerance (0–255), contiguous, sample all layers, fill with foreground/pattern
+  - [x] Respects selection mask
+  - [x] `Edit > Fill` dialog: fill with color / background color / pattern
+- [x] **Gradient Tool (G):**
+  - [x] Types: Linear, Radial, Angle, Reflected, Diamond
   - [ ] Gradient editor:
     - [ ] Color stops (add/remove/move)
     - [ ] Opacity stops
-    - [ ] Reverse checkbox, dither checkbox
+    - [x] Reverse checkbox, dither checkbox
     - [ ] Gradient presets (save/load)
-  - [ ] Apply: drag to set direction and length; respects selection
-  - [ ] Modes: paint over layer, create fill layer (non-destructive gradient fill layer type)
-- [ ] **Eyedropper Tool (I):**
-  - [ ] Click to sample foreground color
-  - [ ] Alt+click to sample background color
-  - [ ] Sample size: point / 3×3 avg / 5×5 avg / 11×11 avg / 31×31 avg / 51×51 avg / 101×101 avg
-  - [ ] Sample: current layer / all layers / all layers no adj
+  - [x] Apply: drag to set direction and length; respects selection
+  - [x] Modes: paint over layer, create fill layer (non-destructive gradient fill layer type)
+- [x] **Eyedropper Tool (I):**
+  - [x] Click to sample foreground color
+  - [x] Alt+click to sample background color
+  - [x] Sample size: point / 3×3 avg / 5×5 avg / 11×11 avg / 31×31 avg / 51×51 avg / 101×101 avg
+  - [x] Sample: current layer / all layers / all layers no adj
   - [ ] Color sampler points: place up to 4 persistent sample points (shown in Info panel)
 
 ### Phase 4.4: Brush & Color UI Panels
 
 - [ ] **Brush Settings Panel (Window > Brush Settings):**
-  - [ ] Tip shape selector: round / custom shapes (loaded from preset library)
-  - [ ] Hardness slider, size slider, angle, roundness, spacing
-  - [ ] Brush Tip Shape preview
-  - [ ] Dynamics sections (Phase 4.1b): Size/Opacity/Flow jitter controls, control source dropdown (pressure/tilt/fade)
+  - [x] Tip shape selector: round / custom shapes
+  - [x] Hardness slider, size slider, angle, roundness, spacing
+  - [x] Brush Tip Shape preview
+  - [x] Dynamics sections (Phase 4.1b): Size/Opacity/Flow jitter controls, control source dropdown (pressure/tilt/fade)
 - [ ] **Brush Preset Picker** (inline dropdown from Options bar):
-  - [ ] Grid of brush tip previews
-  - [ ] Search/filter by name
+  - [x] Grid of brush tip previews
+  - [x] Search/filter by name
   - [ ] Import `.abr` brush preset files (later)
 - [ ] **Color Picker (foreground/background):**
   - [x] Foreground/background color state in engine (SetForegroundColor / SetBackgroundColor commands)
   - [x] Foreground/background swatches in toolrail (minimal — click to reset to black/white)
-  - [ ] Click foreground or background swatch opens picker
-  - [ ] HSB wheel + SB field (or rectangular HSB box)
-  - [ ] Hex input, RGB sliders, HSB sliders, LAB sliders (later)
-  - [ ] "Only Web Colors" toggle
-  - [ ] Recent colors strip
-  - [ ] Swap foreground/background (`X` key), reset to black/white (`D` key)
+  - [x] Click foreground or background swatch opens picker
+  - [x] HSB wheel + SB field (or rectangular HSB box)
+  - [x] Hex input, RGB sliders, HSB sliders, LAB sliders (later)
+  - [x] "Only Web Colors" toggle
+  - [x] Recent colors strip
+  - [x] Swap foreground/background (`X` key), reset to black/white (`D` key)
 - [ ] **Color Panel (Window > Color):**
-  - [ ] Compact always-visible color sliders (RGB/HSB switchable)
-  - [ ] Gamut warning indicator
+  - [x] Compact always-visible color sliders (RGB/HSB switchable)
+  - [x] Gamut warning indicator
 - [ ] **Swatches Panel (Window > Swatches):**
-  - [ ] Grid of color swatches
-  - [ ] Click to set foreground, Alt+click to set background
-  - [ ] Add current foreground color, delete swatch
+  - [x] Grid of color swatches
+  - [x] Click to set foreground, Alt+click to set background
+  - [x] Add current foreground color, delete swatch
   - [ ] Load/save swatch sets (`.aco` import later)
 - [ ] Options bar per paint tool: blend mode, opacity slider, flow slider, airbrush toggle, smoothing slider, pressure buttons
 

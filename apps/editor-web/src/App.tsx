@@ -690,6 +690,11 @@ export default function App() {
   };
 
   const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
+  const fillSourceName =
+    fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
+  const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
+  const gradientModeSummary = `${gradientType.charAt(0).toUpperCase() + gradientType.slice(1)} · ${gradientReverse ? "reversed" : "forward"} · ${gradientDither ? "dither" : "no dither"} · ${gradientCreateLayer ? "new layer" : "paint in place"}`;
+  const eyedropperModeSummary = `${eyedropperSampleSize === 1 ? "Point sample" : `${eyedropperSampleSize}x${eyedropperSampleSize} average`} · ${eyedropperSampleMerged ? "sample merged" : "active layer"} · ${eyedropperSampleAllLayersNoAdj ? "no adjustments" : "with adjustments"}`;
 
   const openProjectPicker = () => {
     projectInputRef.current?.click();
@@ -1749,19 +1754,19 @@ export default function App() {
           />
         ) : null}
       </>
-    ) : activeTool === "fill" ? (
-      <>
-        <ToolOptionGroup label="Source">
-          <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
-            Foreground
-          </ToolChoiceButton>
-          <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
-            Background
-          </ToolChoiceButton>
-          <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
-            Pattern
-          </ToolChoiceButton>
-        </ToolOptionGroup>
+        ) : activeTool === "fill" ? (
+          <>
+            <ToolOptionGroup label="Source">
+              <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
+                Color
+              </ToolChoiceButton>
+              <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
+                Background
+              </ToolChoiceButton>
+              <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
+                Pattern
+              </ToolChoiceButton>
+            </ToolOptionGroup>
         <ToolNumberField
           label="Tolerance"
           min={0}
@@ -1779,6 +1784,28 @@ export default function App() {
         <ToolChoiceButton active={fillCreateLayer} onClick={() => setFillCreateLayer((v) => !v)}>
           New Layer
         </ToolChoiceButton>
+        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
+          <span
+            className="h-4 w-12 rounded border border-white/10"
+            style={
+              fillSource === "pattern"
+                ? {
+                    backgroundColor: "rgba(15, 23, 42, 1)",
+                    backgroundImage:
+                      "linear-gradient(45deg, rgba(148, 163, 184, 0.35) 25%, transparent 25%, transparent 50%, rgba(148, 163, 184, 0.35) 50%, rgba(148, 163, 184, 0.35) 75%, transparent 75%, transparent)",
+                    backgroundSize: "10px 10px",
+                  }
+                : {
+                    backgroundColor:
+                      fillSource === "background"
+                        ? rgbaToCss(backgroundColor)
+                        : rgbaToCss(foregroundColor),
+                  }
+            }
+          />
+          <span>{fillModeSummary}</span>
+        </div>
         <button
           type="button"
           className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
@@ -1787,44 +1814,62 @@ export default function App() {
           Fill Dialog
         </button>
       </>
-    ) : activeTool === "gradient" ? (
-      <>
-        <ToolOptionGroup label="Type">
-          {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
-            <ToolChoiceButton key={type} active={gradientType === type} onClick={() => setGradientType(type)}>
-              {type.charAt(0).toUpperCase() + type.slice(1)}
+        ) : activeTool === "gradient" ? (
+          <>
+            <ToolOptionGroup label="Type">
+              {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
+                <ToolChoiceButton key={type} active={gradientType === type} onClick={() => setGradientType(type)}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </ToolChoiceButton>
+              ))}
+            </ToolOptionGroup>
+            <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
+              Reverse
             </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
-          Reverse
-        </ToolChoiceButton>
-        <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
-          Dither
-        </ToolChoiceButton>
-        <ToolChoiceButton active={gradientCreateLayer} onClick={() => setGradientCreateLayer((v) => !v)}>
-          New Layer
-        </ToolChoiceButton>
-        <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
-      </>
-    ) : activeTool === "eyedropper" ? (
-      <>
-        <ToolOptionGroup label="Sample">
+            <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
+              Dither
+            </ToolChoiceButton>
+            <ToolChoiceButton active={gradientCreateLayer} onClick={() => setGradientCreateLayer((v) => !v)}>
+              New Layer
+            </ToolChoiceButton>
+            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+              <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
+              <span
+                className="h-4 w-24 rounded border border-white/10"
+                style={{
+                  backgroundImage:
+                    gradientType === "radial"
+                      ? `radial-gradient(circle, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
+                      : gradientType === "angle"
+                        ? `conic-gradient(from 90deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
+                        : gradientType === "diamond"
+                          ? `linear-gradient(135deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
+                          : `linear-gradient(90deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`,
+                }}
+              />
+              <span>{gradientModeSummary}</span>
+            </div>
+            <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
+          </>
+        ) : activeTool === "eyedropper" ? (
+          <>
+            <ToolOptionGroup label="Sample">
           {[1, 3, 5, 11, 31, 51, 101].map((size) => (
             <ToolChoiceButton key={size} active={eyedropperSampleSize === size} onClick={() => setEyedropperSampleSize(size)}>
               {size === 1 ? "Point" : `${size}x${size}`}
             </ToolChoiceButton>
           ))}
-        </ToolOptionGroup>
-        <ToolChoiceButton active={eyedropperSampleMerged} onClick={() => setEyedropperSampleMerged((v) => !v)}>
-          Sample Merged
-        </ToolChoiceButton>
-        <ToolChoiceButton active={eyedropperSampleAllLayersNoAdj} onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}>
-          No Adj
-        </ToolChoiceButton>
-        <span className="text-[11px] text-slate-400">Click sets foreground; Alt+click sets background.</span>
-      </>
-    ) : null;
+            </ToolOptionGroup>
+            <ToolChoiceButton active={eyedropperSampleMerged} onClick={() => setEyedropperSampleMerged((v) => !v)}>
+              Sample Merged
+            </ToolChoiceButton>
+            <ToolChoiceButton active={eyedropperSampleAllLayersNoAdj} onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}>
+              No Adj
+            </ToolChoiceButton>
+            <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
+            <span className="text-[11px] text-slate-400">Click sets foreground; Alt+click sets background.</span>
+          </>
+        ) : null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
@@ -2861,13 +2906,13 @@ export default function App() {
       <Dialog
         open={fillDialogOpen}
         title="Fill"
-        description="Fill the current selection or the whole active layer."
+        description={fillModeSummary}
         className="max-w-sm"
       >
         <div className="space-y-4">
           <ToolOptionGroup label="Source">
             <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
-              Foreground
+              Color
             </ToolChoiceButton>
             <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
               Background
