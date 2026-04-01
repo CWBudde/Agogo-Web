@@ -104,3 +104,10 @@ export interface RenderResult {
 	/** RGBA color returned only by SampleMergedColor command. */
 	sampledColor?: [number, number, number, number];
 }
+
+export interface RawRenderResult {
+	frameId: number;
+	viewport: ViewportMeta;
+	bufferPtr: number;
+	bufferLen: number;
+}

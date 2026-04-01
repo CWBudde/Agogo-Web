@@ -29,6 +29,7 @@ import { GradientEditorDialog } from "@/components/gradient-editor";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import {
+  hexToRgba,
   BrushToolIcon,
   ClipboardIcon,
   CopyIcon,
@@ -70,7 +71,7 @@ import {
   type ShortcutTool,
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
-import { rgbaToCss, snapToWebSafeColor, type Rgba } from "@/lib/color";
+import { rgbaToCss, rgbaToHex, snapToWebSafeColor, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -526,12 +527,7 @@ function loadGradientStops(key: string, fallback: GradientStopCommand[]): Gradie
         }
         return {
           position: candidate.position,
-          color: [
-            Number(candidate.color[0]),
-            Number(candidate.color[1]),
-            Number(candidate.color[2]),
-            Number(candidate.color[3]),
-          ] as [number, number, number, number],
+          color: toMutableRgba(candidate.color),
         } satisfies GradientStopCommand;
       })
       .filter((entry): entry is GradientStopCommand => entry !== null);
@@ -553,7 +549,7 @@ function gradientStopsToCss(stops: GradientStopCommand[]) {
   return `linear-gradient(90deg, ${normalized
     .map(
       (stop) =>
-        `${rgbaToCss(stop.color as Rgba)} ${Math.round(stop.position * 100)}%`,
+        `${rgbaToCss(toRgba(stop.color))} ${Math.round(stop.position * 100)}%`,
     )
     .join(", ")})`;
 }
@@ -594,7 +590,7 @@ export default function App() {
   const openModifyDialog = (kind: ModifyKind) =>
     setModifyDialog({ open: true, kind, value: kind === "smooth" ? 2 : 4 });
   const [colorRangeOpen, setColorRangeOpen] = useState(false);
-  const [colorRangeColor, setColorRangeColor] = useState<[number, number, number, number]>([128, 128, 128, 255]);
+  const [colorRangeColor, setColorRangeColor] = useState<Rgba>([128, 128, 128, 255]);
   const [colorRangeFuzziness, setColorRangeFuzziness] = useState(40);
   const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
   const [transformSelectionActive, setTransformSelectionActive] = useState(false);
@@ -623,8 +619,8 @@ export default function App() {
     Record<string, ThumbnailEntry>
   >({});
   const [isDragOver, setIsDragOver] = useState(false);
-  const [foregroundColor, setForegroundColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
-  const [backgroundColor, setBackgroundColor] = useState<[number, number, number, number]>([255, 255, 255, 255]);
+  const [foregroundColor, setForegroundColor] = useState<Rgba>([0, 0, 0, 255]);
+  const [backgroundColor, setBackgroundColor] = useState<Rgba>([255, 255, 255, 255]);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [colorPickerTarget, setColorPickerTarget] = useState<"foreground" | "background">("foreground");
   const [colorChannelMode, setColorChannelMode] = useState<ColorChannelMode>("rgb");
@@ -679,8 +675,8 @@ export default function App() {
   const [gradientCreateLayer, setGradientCreateLayer] = useState(true);
   const [gradientStops, setGradientStops] = useState<GradientStopCommand[]>(() =>
     loadGradientStops(GRADIENT_STOPS_KEY, [
-      { position: 0, color: foregroundColor },
-      { position: 1, color: backgroundColor },
+      { position: 0, color: toMutableRgba(foregroundColor) },
+      { position: 1, color: toMutableRgba(backgroundColor) },
     ]),
   );
   const [gradientEditorOpen, setGradientEditorOpen] = useState(false);
@@ -731,14 +727,14 @@ export default function App() {
   useEffect(() => {
     if (!engine.handle) return;
     engine.dispatchCommand(CommandID.SetForegroundColor, {
-      color: foregroundColor,
+      color: toMutableRgba(foregroundColor),
     } satisfies SetColorCommand);
   }, [engine.handle, engine.dispatchCommand, foregroundColor]);
 
   useEffect(() => {
     if (!engine.handle) return;
     engine.dispatchCommand(CommandID.SetBackgroundColor, {
-      color: backgroundColor,
+      color: toMutableRgba(backgroundColor),
     } satisfies SetColorCommand);
   }, [engine.handle, engine.dispatchCommand, backgroundColor]);
 
@@ -1027,16 +1023,6 @@ export default function App() {
     return isMenuActionDisabled(item.actionId);
   };
 
-  const hexToRgba = (hex: string): [number, number, number, number] => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return [r, g, b, 255];
-  };
-
-  const rgbaToHex = ([r, g, b]: [number, number, number, number]) =>
-    `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
-
   const commitFeather = () => {
     engine.dispatchCommand(CommandID.FeatherSelection, { radius: featherDialogValue });
     setFeatherDialogOpen(false);
@@ -1063,7 +1049,7 @@ export default function App() {
 
   const commitColorRange = () => {
     engine.dispatchCommand(CommandID.SelectColorRange, {
-      targetColor: colorRangeColor,
+      targetColor: toMutableRgba(colorRangeColor),
       fuzziness: colorRangeFuzziness,
       sampleMerged: colorRangeSampleMerged,
       mode: "replace",
@@ -2251,6 +2237,7 @@ export default function App() {
                     eraserTolerance={eraserTolerance}
                     foregroundColor={foregroundColor}
                     onForegroundColorChange={setForegroundColor}
+                    onBackgroundColorChange={setBackgroundColor}
                     fillSource={fillSource}
                     fillTolerance={fillTolerance}
                     fillContiguous={fillContiguous}
@@ -3171,7 +3158,7 @@ export default function App() {
                     contiguous: fillContiguous,
                     sampleMerged: fillSampleMerged,
                     source: fillSource,
-                    color: fillSource === "background" ? backgroundColor : foregroundColor,
+                    color: toMutableRgba(fillSource === "background" ? backgroundColor : foregroundColor),
                     createLayer: fillCreateLayer,
                   } satisfies FillCommand);
                 }

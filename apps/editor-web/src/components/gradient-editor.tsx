@@ -3,7 +3,7 @@ import type { GradientStopCommand } from "@agogo/proto";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ColorPickerDialog, type ColorChannelMode } from "@/components/brush-color-panels";
-import { clampByte, clampUnit, rgbaToCss, rgbaToHex, type Rgba } from "@/lib/color";
+import { clampUnit, rgbaToCss, rgbaToHex, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
 
 type GradientEditorProps = {
   open: boolean;
@@ -20,7 +20,8 @@ type GradientEditorProps = {
   onClose(): void;
 };
 
-type GradientEditorStop = GradientStopCommand & {
+type GradientEditorStop = Omit<GradientStopCommand, "color"> & {
+  color: Rgba;
   id: string;
 };
 
@@ -71,14 +72,14 @@ function clampPosition(value: number) {
 
 function normalizeStops(stops: GradientStopCommand[]) {
   const normalized = stops.length > 0 ? stops : [
-    { position: 0, color: [0, 0, 0, 255] as Rgba },
-    { position: 1, color: [255, 255, 255, 255] as Rgba },
+    { position: 0, color: [0, 0, 0, 255] },
+    { position: 1, color: [255, 255, 255, 255] },
   ];
   const sorted = normalized
     .map((stop, index) => ({
       id: makeStopId(),
       position: clampPosition(stop.position),
-      color: stop.color.slice(0, 4).map((component) => clampByte(component)) as Rgba,
+      color: toRgba(stop.color),
       order: index,
     }))
     .sort((a, b) => a.position - b.position || a.order - b.order);
@@ -97,7 +98,7 @@ function serializeStops(stops: GradientEditorStop[]): GradientStopCommand[] {
   return stops
     .map((stop) => ({
       position: clampPosition(stop.position),
-      color: stop.color.slice(0, 4).map((component) => clampByte(component)) as Rgba,
+      color: toMutableRgba(stop.color),
     }))
     .sort((a, b) => a.position - b.position);
 }
@@ -137,7 +138,7 @@ function gradientToCss(stops: GradientStopCommand[]) {
   const normalized = stops
     .map((stop) => ({
       position: clampPosition(stop.position),
-      color: stop.color.slice(0, 4).map((component) => clampByte(component)) as Rgba,
+      color: toRgba(stop.color),
     }))
     .sort((a, b) => a.position - b.position);
   return `linear-gradient(90deg, ${normalized
@@ -226,7 +227,7 @@ export function GradientEditorDialog({
       .map((stop) => ({
         ...stop,
         position: clampPosition(stop.position),
-        color: stop.color.slice(0, 4).map((component) => clampByte(component)) as Rgba,
+        color: toRgba(stop.color),
       }))
       .sort((a, b) => a.position - b.position);
     if (normalized.length === 1) {

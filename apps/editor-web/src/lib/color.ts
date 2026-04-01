@@ -2,6 +2,24 @@ export type Rgba = readonly [number, number, number, number];
 export type Rgb = readonly [number, number, number];
 export type Hsv = readonly [number, number, number];
 
+export function toRgba(value: ArrayLike<number>): Rgba {
+  return [
+    clampByte(value[0] ?? 0),
+    clampByte(value[1] ?? 0),
+    clampByte(value[2] ?? 0),
+    clampByte(value[3] ?? 255),
+  ];
+}
+
+export function toMutableRgba(value: ArrayLike<number>): [number, number, number, number] {
+  return [
+    clampByte(value[0] ?? 0),
+    clampByte(value[1] ?? 0),
+    clampByte(value[2] ?? 0),
+    clampByte(value[3] ?? 255),
+  ];
+}
+
 export function clampByte(value: number): number {
   if (Number.isNaN(value)) {
     return 0;
@@ -125,13 +143,12 @@ export function isWebSafeColor(color: Rgba): boolean {
 }
 
 export function snapToWebSafeColor(color: Rgba): Rgba {
-  return color.map((component, index) => {
-    if (index === 3) {
-      return clampByte(component);
-    }
-    const snapped = Math.round(clampByte(component) / 51) * 51;
-    return Math.max(0, Math.min(255, snapped));
-  }) as Rgba;
+  return [
+    Math.max(0, Math.min(255, Math.round(clampByte(color[0]) / 51) * 51)),
+    Math.max(0, Math.min(255, Math.round(clampByte(color[1]) / 51) * 51)),
+    Math.max(0, Math.min(255, Math.round(clampByte(color[2]) / 51) * 51)),
+    clampByte(color[3]),
+  ];
 }
 
 export function rgbaToCss(color: Rgba): string {

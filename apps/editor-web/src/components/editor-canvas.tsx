@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toMutableRgba, toRgba, type Rgba } from "@/lib/color";
 import { useEngine } from "@/wasm/context";
 
 type CursorPosition = {
@@ -66,9 +67,9 @@ type EditorCanvasProps = {
   pencilAutoErase: boolean;
   eraserMode: "normal" | "background" | "magic";
   eraserTolerance: number;
-  foregroundColor: [number, number, number, number];
-  onForegroundColorChange(color: [number, number, number, number]): void;
-  onBackgroundColorChange(color: [number, number, number, number]): void;
+  foregroundColor: Rgba;
+  onForegroundColorChange(color: Rgba): void;
+  onBackgroundColorChange(color: Rgba): void;
   fillSource: "foreground" | "background" | "color" | "pattern";
   fillTolerance: number;
   fillContiguous: boolean;
@@ -923,7 +924,7 @@ export function EditorCanvas({
       const canvas = canvasRef.current;
       const handle = engine.handle;
       if (canvas && handle) {
-        const result = handle.renderFrame();
+        const result = handle.renderFrameRaw();
         if (result.bufferLen > 0) {
           const ctx = canvas.getContext("2d");
           if (ctx) {
@@ -1784,9 +1785,9 @@ export function EditorCanvas({
           const sampled = result?.sampledColor;
           if (sampled) {
             if (event.altKey) {
-              onBackgroundColorChange(sampled);
+              onBackgroundColorChange(toRgba(sampled));
             } else {
-              onForegroundColorChange(sampled);
+              onForegroundColorChange(toRgba(sampled));
             }
           }
           return;
@@ -1809,7 +1810,7 @@ export function EditorCanvas({
               size: brushSize,
               hardness: brushHardness,
               flow: brushFlow,
-              color: foregroundColor,
+              color: toMutableRgba(foregroundColor),
               cloneStamp: true,
               cloneSourceX: cloneStampSource?.x ?? docPoint.x,
               cloneSourceY: cloneStampSource?.y ?? docPoint.y,
@@ -1831,7 +1832,7 @@ export function EditorCanvas({
               size: brushSize,
               hardness: brushHardness,
               flow: brushFlow,
-              color: foregroundColor,
+              color: toMutableRgba(foregroundColor),
               historyBrush: true,
               sampleMerged: historyBrushSampleMerged,
             },
@@ -1851,7 +1852,7 @@ export function EditorCanvas({
               size: brushSize,
               hardness: activeTool === "pencil" ? 1.0 : brushHardness,
               flow: brushFlow,
-              color: foregroundColor,
+              color: toMutableRgba(foregroundColor),
               autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
               mixerBrush: activeTool === "mixerBrush" ? true : undefined,
               mixerMix: activeTool === "mixerBrush" ? mixerBrushMix : undefined,
@@ -2479,7 +2480,10 @@ export function EditorCanvas({
             reverse: gradientReverse,
             dither: gradientDither,
             createLayer: gradientCreateLayer,
-            stops: gradientStops,
+            stops: gradientStops.map((stop) => ({
+              ...stop,
+              color: toMutableRgba(stop.color),
+            })),
           } satisfies ApplyGradientCommand);
           setGradientDragStart(null);
           setGradientDragCurrent(null);

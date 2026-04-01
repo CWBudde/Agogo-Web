@@ -47,6 +47,15 @@ func main() {
 		return encodeResult(result)
 	}))
 
+	js.Global().Set("RenderFrameRaw", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		handle := int32(args[0].Int())
+		result, err := engine.RenderFrameRaw(handle)
+		if err != nil {
+			return encodeResult(map[string]string{"error": err.Error()})
+		}
+		return encodeResult(result)
+	}))
+
 	js.Global().Set("ExportProject", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		handle := int32(args[0].Int())
 		result, err := engine.ExportProject(handle)
