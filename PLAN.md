@@ -581,11 +581,27 @@
   - [x] Normal mode: paints transparency (clears alpha) on pixel layers
   - [x] Background Eraser: erases to background color (or transparency based on sampling)
   - [x] Magic Eraser: one-click flood-clear by color similarity (like Paint Bucket but erases)
-- [ ] **Mixer Brush (later, Phase 4.2b):**
-  - [ ] Simulates wet paint mixing; deferred
-- [ ] **Clone Stamp (S) (later, Phase 4.2b):**
-  - [ ] Alt+click to define source point, paint to clone from source
-  - [ ] Aligned/non-aligned mode
+- [x] **Mixer Brush (later, Phase 4.2b):**
+  - [x] Tool exists in the frontend and can be selected from the toolrail
+  - [x] Stroke payload now carries mixer-specific parameters through the existing paint ABI
+  - [x] Engine samples the underlying canvas at stroke start and blends the sampled color into each dab before AGG rasterization
+  - [x] Supports a `Mix` strength control and a `Sample Merged` toggle
+  - [ ] Missing: true wet-paint simulation
+  - [ ] Missing: brush-load / paint-load state, cleanup/clean-brush behavior, and wetness decay over time
+  - [ ] Missing: sampling from the full dab footprint rather than a center-point sample
+  - [ ] Missing: directional smear / bristle streaking and edge accumulation specific to Photoshop-style Mixer Brush
+  - [ ] Missing: interaction tuning with pressure, flow, scatter, and tilt for more natural paint pickup
+  - [ ] Missing: Mixer Brush-specific presets and options-bar polish
+- [x] **Clone Stamp (S) (later, Phase 4.2b):**
+  - [x] Tool exists in the frontend and can be selected from the toolrail / `S` shortcut
+  - [x] Alt+click on the canvas defines a clone source point
+  - [x] Paint strokes clone from the captured source location with a fixed aligned offset
+  - [x] Supports `Sample Merged` for source sampling
+  - [ ] Missing: non-aligned mode
+  - [ ] Missing: source overlays/crosshair preview and source-offset UI
+  - [ ] Missing: source cloning from arbitrary history states
+  - [ ] Missing: fade/opacity and paint-load style controls
+  - [ ] Missing: more exact Photoshop-style edge behavior and transform-aware source handling
 - [ ] **History Brush (later, Phase 4.2b):**
   - [ ] Paint from a specific history state
 
@@ -598,9 +614,9 @@
   - [x] `Edit > Fill` dialog: fill with color / background color / pattern
 - [x] **Gradient Tool (G):**
   - [x] Types: Linear, Radial, Angle, Reflected, Diamond
-  - [ ] Gradient editor:
-    - [ ] Color stops (add/remove/move)
-    - [ ] Opacity stops
+  - [x] Gradient editor:
+    - [x] Color stops (add/remove/move)
+    - [x] Opacity stops
     - [x] Reverse checkbox, dither checkbox
     - [ ] Gradient presets (save/load)
   - [x] Apply: drag to set direction and length; respects selection
@@ -614,16 +630,16 @@
 
 ### Phase 4.4: Brush & Color UI Panels
 
-- [ ] **Brush Settings Panel (Window > Brush Settings):**
+- [x] **Brush Settings Panel (Window > Brush Settings):**
   - [x] Tip shape selector: round / custom shapes
   - [x] Hardness slider, size slider, angle, roundness, spacing
   - [x] Brush Tip Shape preview
   - [x] Dynamics sections (Phase 4.1b): Size/Opacity/Flow jitter controls, control source dropdown (pressure/tilt/fade)
-- [ ] **Brush Preset Picker** (inline dropdown from Options bar):
+- [x] **Brush Preset Picker** (inline dropdown from Options bar):
   - [x] Grid of brush tip previews
   - [x] Search/filter by name
   - [ ] Import `.abr` brush preset files (later)
-- [ ] **Color Picker (foreground/background):**
+- [x] **Color Picker (foreground/background):**
   - [x] Foreground/background color state in engine (SetForegroundColor / SetBackgroundColor commands)
   - [x] Foreground/background swatches in toolrail (minimal — click to reset to black/white)
   - [x] Click foreground or background swatch opens picker
@@ -632,10 +648,10 @@
   - [x] "Only Web Colors" toggle
   - [x] Recent colors strip
   - [x] Swap foreground/background (`X` key), reset to black/white (`D` key)
-- [ ] **Color Panel (Window > Color):**
+- [x] **Color Panel (Window > Color):**
   - [x] Compact always-visible color sliders (RGB/HSB switchable)
   - [x] Gamut warning indicator
-- [ ] **Swatches Panel (Window > Swatches):**
+- [x] **Swatches Panel (Window > Swatches):**
   - [x] Grid of color swatches
   - [x] Click to set foreground, Alt+click to set background
   - [x] Add current foreground color, delete swatch

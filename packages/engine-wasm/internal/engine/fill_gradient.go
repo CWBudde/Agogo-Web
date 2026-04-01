@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	agglib "github.com/cwbudde/agg_go"
 )
@@ -329,42 +330,109 @@ func renderGradientSurface(width, height int, p ApplyGradientPayload, startColor
 		return nil
 	}
 	buffer := make([]byte, width*height*4)
-	renderCustomGradient(buffer, width, height, p, startColor, endColor)
+	lut := buildGradientLUT(p.Stops, startColor, endColor)
+	renderCustomGradient(buffer, width, height, p, lut)
 	if p.Dither {
 		applyGradientDither(buffer, width, height)
 	}
 	return buffer
 }
 
-func renderGradientWithAgg(buffer []byte, width, height int, p ApplyGradientPayload, startColor, endColor [4]uint8) {
-	renderer := agglib.NewAgg2D()
-	renderer.Attach(buffer, width, height, width*4)
-	renderer.NoLine()
-	renderer.ResetTransformations()
-	c1 := agglib.NewColor(startColor[0], startColor[1], startColor[2], startColor[3])
-	c2 := agglib.NewColor(endColor[0], endColor[1], endColor[2], endColor[3])
-	if p.Reverse {
-		c1, c2 = c2, c1
+func buildGradientLUT(stops []GradientStopPayload, startColor, endColor [4]uint8) [256]agglib.Color {
+	gradientStops := make([]GradientStopPayload, 0, len(stops)+2)
+	if len(stops) == 0 {
+		gradientStops = append(gradientStops,
+			GradientStopPayload{Position: 0, Color: startColor},
+			GradientStopPayload{Position: 1, Color: endColor},
+		)
+	} else {
+		for _, stop := range stops {
+			gradientStops = append(gradientStops, GradientStopPayload{
+				Position: clampGradientPosition(stop.Position),
+				Color:    clampGradientColor(stop.Color),
+			})
+		}
 	}
 
-	renderer.ResetPath()
-	switch p.Type {
-	case GradientTypeRadial:
-		cx := (p.StartX + p.EndX) * 0.5
-		cy := (p.StartY + p.EndY) * 0.5
-		radius := math.Hypot(p.EndX-p.StartX, p.EndY-p.StartY) * 0.5
-		if radius < 1 {
-			radius = 1
-		}
-		renderer.FillRadialGradient(cx, cy, radius, c1, c2, 1.0)
-	default:
-		renderer.FillLinearGradient(p.StartX, p.StartY, p.EndX, p.EndY, c1, c2, 1.0)
+	sort.SliceStable(gradientStops, func(i, j int) bool {
+		return gradientStops[i].Position < gradientStops[j].Position
+	})
+	if len(gradientStops) == 1 {
+		gradientStops = append(gradientStops, GradientStopPayload{
+			Position: 1,
+			Color:    gradientStops[0].Color,
+		})
 	}
-	renderer.Rectangle(0, 0, float64(width), float64(height))
-	renderer.DrawPath(agglib.FillOnly)
+
+	var lut [256]agglib.Color
+	if len(gradientStops) == 0 {
+		return lut
+	}
+	if len(gradientStops) == 1 {
+		c := gradientStops[0].Color
+		col := agglib.NewColor(c[0], c[1], c[2], c[3])
+		for i := range lut {
+			lut[i] = col
+		}
+		return lut
+	}
+
+	for i := 0; i < 256; i++ {
+		pos := float64(i) / 255.0
+		if pos <= gradientStops[0].Position {
+			c := gradientStops[0].Color
+			lut[i] = agglib.NewColor(c[0], c[1], c[2], c[3])
+			continue
+		}
+		last := gradientStops[len(gradientStops)-1]
+		if pos >= last.Position {
+			c := last.Color
+			lut[i] = agglib.NewColor(c[0], c[1], c[2], c[3])
+			continue
+		}
+		lo, hi := 0, len(gradientStops)-1
+		for hi-lo > 1 {
+			mid := (lo + hi) / 2
+			if gradientStops[mid].Position <= pos {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		}
+		span := gradientStops[hi].Position - gradientStops[lo].Position
+		t := 0.0
+		if span > 0 {
+			t = (pos - gradientStops[lo].Position) / span
+		}
+		l1 := gradientStops[lo].Color
+		l2 := gradientStops[hi].Color
+		c1 := agglib.NewColor(l1[0], l1[1], l1[2], l1[3])
+		c2 := agglib.NewColor(l2[0], l2[1], l2[2], l2[3])
+		lut[i] = c1.Gradient(c2, t)
+	}
+	return lut
 }
 
-func renderCustomGradient(buffer []byte, width, height int, p ApplyGradientPayload, startColor, endColor [4]uint8) {
+func clampGradientPosition(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
+func clampGradientColor(color [4]uint8) [4]uint8 {
+	return [4]uint8{
+		color[0],
+		color[1],
+		color[2],
+		color[3],
+	}
+}
+
+func renderCustomGradient(buffer []byte, width, height int, p ApplyGradientPayload, lut [256]agglib.Color) {
 	dx := p.EndX - p.StartX
 	dy := p.EndY - p.StartY
 	length := math.Hypot(dx, dy)
@@ -404,19 +472,35 @@ func renderCustomGradient(buffer []byte, width, height int, p ApplyGradientPaylo
 				t = 1
 			}
 			idx := (y*width + x) * 4
-			writeGradientPixel(buffer[idx:idx+4], startColor, endColor, t)
+			writeGradientPixel(buffer[idx:idx+4], gradientColorAt(lut, t))
 		}
 	}
 }
 
-func writeGradientPixel(dst []byte, c1, c2 [4]uint8, t float64) {
+func gradientColorAt(lut [256]agglib.Color, t float64) [4]uint8 {
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	index := int(math.Round(t * 255.0))
+	if index < 0 {
+		index = 0
+	} else if index > 255 {
+		index = 255
+	}
+	c := lut[index]
+	return [4]uint8{c.R, c.G, c.B, c.A}
+}
+
+func writeGradientPixel(dst []byte, c [4]uint8) {
 	if len(dst) < 4 {
 		return
 	}
-	dst[0] = uint8(math.Round(float64(c1[0]) + (float64(c2[0])-float64(c1[0]))*t))
-	dst[1] = uint8(math.Round(float64(c1[1]) + (float64(c2[1])-float64(c1[1]))*t))
-	dst[2] = uint8(math.Round(float64(c1[2]) + (float64(c2[2])-float64(c1[2]))*t))
-	dst[3] = uint8(math.Round(float64(c1[3]) + (float64(c2[3])-float64(c1[3]))*t))
+	dst[0] = c[0]
+	dst[1] = c[1]
+	dst[2] = c[2]
+	dst[3] = c[3]
 }
 
 func applyGradientDither(buffer []byte, width, height int) {

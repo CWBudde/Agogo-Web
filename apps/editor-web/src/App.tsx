@@ -1,6 +1,7 @@
 import {
   CommandID,
   type CreateDocumentCommand,
+  type GradientStopCommand,
   type FreeTransformMeta,
   type InterpolMode,
   type FillCommand,
@@ -24,6 +25,7 @@ import {
   SwatchesPanel,
   type ColorChannelMode,
 } from "@/components/brush-color-panels";
+import { GradientEditorDialog } from "@/components/gradient-editor";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import {
@@ -369,7 +371,7 @@ const menuItems: MenuPreviewMenu[] = [
   },
 ];
 
-type EditorTool = ShortcutTool | "type" | "shape" | "transform";
+type EditorTool = ShortcutTool | "mixerBrush" | "type" | "shape" | "transform";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
 type LassoMode = "freehand" | "polygon" | "magnetic";
@@ -386,6 +388,8 @@ const toolItems: {
   { id: "crop", label: "Crop", Icon: CropToolIcon },
   { id: "wand", label: "Wand", Icon: SelectionIcon },
   { id: "brush", label: "Brush", Icon: BrushToolIcon },
+  { id: "mixerBrush", label: "Mixer Brush", Icon: BrushToolIcon },
+  { id: "cloneStamp", label: "Clone Stamp", Icon: CopyIcon },
   { id: "pencil", label: "Pencil", Icon: PencilToolIcon },
   { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
   { id: "fill", label: "Fill", Icon: FillToolIcon },
@@ -427,6 +431,7 @@ const unitSteps: Record<DocumentUnit, number> = {
 
 const RECENT_COLORS_KEY = "agogo:recent-colors";
 const CUSTOM_SWATCHES_KEY = "agogo:custom-swatches";
+const GRADIENT_STOPS_KEY = "agogo:gradient-stops";
 
 function pixelsToUnit(pixels: number, resolution: number, unit: DocumentUnit) {
   switch (unit) {
@@ -490,6 +495,66 @@ function loadColorList(key: string, fallback: Rgba[]): Rgba[] {
   } catch {
     return fallback;
   }
+}
+
+function loadGradientStops(key: string, fallback: GradientStopCommand[]): GradientStopCommand[] {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return fallback;
+    }
+    return parsed
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) {
+          return null;
+        }
+        const candidate = entry as { position?: unknown; color?: unknown };
+        if (
+          typeof candidate.position !== "number" ||
+          !Array.isArray(candidate.color) ||
+          candidate.color.length < 4
+        ) {
+          return null;
+        }
+        return {
+          position: candidate.position,
+          color: [
+            Number(candidate.color[0]),
+            Number(candidate.color[1]),
+            Number(candidate.color[2]),
+            Number(candidate.color[3]),
+          ] as [number, number, number, number],
+        } satisfies GradientStopCommand;
+      })
+      .filter((entry): entry is GradientStopCommand => entry !== null);
+  } catch {
+    return fallback;
+  }
+}
+
+function gradientStopsToCss(stops: GradientStopCommand[]) {
+  const normalized = stops
+    .map((stop) => ({
+      position: Math.max(0, Math.min(1, stop.position)),
+      color: stop.color,
+    }))
+    .sort((a, b) => a.position - b.position);
+  if (normalized.length === 0) {
+    return "linear-gradient(90deg, rgba(0, 0, 0, 1), rgba(255, 255, 255, 1))";
+  }
+  return `linear-gradient(90deg, ${normalized
+    .map(
+      (stop) =>
+        `${rgbaToCss(stop.color as Rgba)} ${Math.round(stop.position * 100)}%`,
+    )
+    .join(", ")})`;
 }
 
 export default function App() {
@@ -592,6 +657,10 @@ export default function App() {
   const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
   const [brushFlowJitter, setBrushFlowJitter] = useState(0);
   const [brushControlSource, setBrushControlSource] = useState<BrushControlSource>("pressure");
+  const [mixerBrushMix, setMixerBrushMix] = useState(0.65);
+  const [mixerBrushSampleMerged, setMixerBrushSampleMerged] = useState(true);
+  const [cloneStampSampleMerged, setCloneStampSampleMerged] = useState(true);
+  const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
   const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
   const [eraserTolerance, setEraserTolerance] = useState(30);
@@ -606,6 +675,13 @@ export default function App() {
   const [gradientReverse, setGradientReverse] = useState(false);
   const [gradientDither, setGradientDither] = useState(false);
   const [gradientCreateLayer, setGradientCreateLayer] = useState(true);
+  const [gradientStops, setGradientStops] = useState<GradientStopCommand[]>(() =>
+    loadGradientStops(GRADIENT_STOPS_KEY, [
+      { position: 0, color: foregroundColor },
+      { position: 1, color: backgroundColor },
+    ]),
+  );
+  const [gradientEditorOpen, setGradientEditorOpen] = useState(false);
   const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
   const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
@@ -680,6 +756,14 @@ export default function App() {
     }
   }, [swatches]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(GRADIENT_STOPS_KEY, JSON.stringify(gradientStops));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [gradientStops]);
+
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -693,8 +777,11 @@ export default function App() {
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
-  const gradientModeSummary = `${gradientType.charAt(0).toUpperCase() + gradientType.slice(1)} · ${gradientReverse ? "reversed" : "forward"} · ${gradientDither ? "dither" : "no dither"} · ${gradientCreateLayer ? "new layer" : "paint in place"}`;
+  const gradientModeSummary = `${gradientType.charAt(0).toUpperCase() + gradientType.slice(1)} · ${gradientStops.length} stops · ${gradientReverse ? "reversed" : "forward"} · ${gradientDither ? "dither" : "no dither"} · ${gradientCreateLayer ? "new layer" : "paint in place"}`;
   const eyedropperModeSummary = `${eyedropperSampleSize === 1 ? "Point sample" : `${eyedropperSampleSize}x${eyedropperSampleSize} average`} · ${eyedropperSampleMerged ? "sample merged" : "active layer"} · ${eyedropperSampleAllLayersNoAdj ? "no adjustments" : "with adjustments"}`;
+  const gradientPreviewStyle = {
+    backgroundImage: gradientStopsToCss(gradientStops),
+  };
 
   const openProjectPicker = () => {
     projectInputRef.current?.click();
@@ -1662,7 +1749,7 @@ export default function App() {
           Click a layer to begin free transform · Enter to commit · Esc to cancel
         </span>
       )
-    ) : activeTool === "brush" || activeTool === "pencil" ? (
+    ) : activeTool === "brush" || activeTool === "pencil" || activeTool === "mixerBrush" || activeTool === "cloneStamp" ? (
       <>
         <BrushPresetPicker
           selectedPresetId={brushPresetId}
@@ -1682,14 +1769,48 @@ export default function App() {
           value={brushSize}
           onChange={setBrushSize}
         />
-        <label className="flex items-center gap-1 text-[10px]">
-          <input
-            type="checkbox"
-            checked={pencilAutoErase}
-            onChange={(e) => setPencilAutoErase(e.target.checked)}
-          />
-          Auto-erase
-        </label>
+        {activeTool === "mixerBrush" ? (
+          <>
+            <ToolNumberField
+              label="Mix"
+              min={0}
+              max={1}
+              step={0.05}
+              value={mixerBrushMix}
+              onChange={setMixerBrushMix}
+            />
+            <ToolChoiceButton
+              active={mixerBrushSampleMerged}
+              onClick={() => setMixerBrushSampleMerged((value) => !value)}
+            >
+              Sample Merged
+            </ToolChoiceButton>
+          </>
+        ) : activeTool === "cloneStamp" ? (
+          <>
+            <ToolChoiceButton
+              active={cloneStampSampleMerged}
+              onClick={() => setCloneStampSampleMerged((value) => !value)}
+            >
+              Sample Merged
+            </ToolChoiceButton>
+            <div className="text-[11px] text-slate-400">
+              {cloneStampSource
+                ? `Source set at ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
+                : "Alt-click the canvas to set a clone source."}
+            </div>
+          </>
+        ) : null}
+        {activeTool === "pencil" ? (
+          <label className="flex items-center gap-1 text-[10px]">
+            <input
+              type="checkbox"
+              checked={pencilAutoErase}
+              onChange={(e) => setPencilAutoErase(e.target.checked)}
+            />
+            Auto-erase
+          </label>
+        ) : null}
       </>
     ) : activeTool === "eraser" ? (
       <>
@@ -1836,19 +1957,17 @@ export default function App() {
               <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
               <span
                 className="h-4 w-24 rounded border border-white/10"
-                style={{
-                  backgroundImage:
-                    gradientType === "radial"
-                      ? `radial-gradient(circle, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
-                      : gradientType === "angle"
-                        ? `conic-gradient(from 90deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
-                        : gradientType === "diamond"
-                          ? `linear-gradient(135deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`
-                          : `linear-gradient(90deg, ${rgbaToCss(foregroundColor)}, ${rgbaToCss(backgroundColor)})`,
-                }}
+                style={gradientPreviewStyle}
               />
               <span>{gradientModeSummary}</span>
             </div>
+            <button
+              type="button"
+              className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
+              onClick={() => setGradientEditorOpen(true)}
+            >
+              Edit Gradient
+            </button>
             <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
           </>
         ) : activeTool === "eyedropper" ? (
@@ -2107,6 +2226,11 @@ export default function App() {
                     brushSize={brushSize}
                     brushHardness={brushHardness}
                     brushFlow={brushFlow}
+                    mixerBrushMix={mixerBrushMix}
+                    mixerBrushSampleMerged={mixerBrushSampleMerged}
+                    cloneStampSampleMerged={cloneStampSampleMerged}
+                    cloneStampSource={cloneStampSource}
+                    onCloneStampSourceChange={setCloneStampSource}
                     pencilAutoErase={pencilAutoErase}
                     eraserMode={eraserMode}
                     eraserTolerance={eraserTolerance}
@@ -2121,6 +2245,7 @@ export default function App() {
                     gradientReverse={gradientReverse}
                     gradientDither={gradientDither}
                     gradientCreateLayer={gradientCreateLayer}
+                    gradientStops={gradientStops}
                     eyedropperSampleSize={eyedropperSampleSize}
                     eyedropperSampleMerged={eyedropperSampleMerged}
                     eyedropperSampleAllLayersNoAdj={eyedropperSampleAllLayersNoAdj}
@@ -2265,36 +2390,80 @@ export default function App() {
                       ) : null}
 
                       {activeAuxPanel === "brush" ? (
-                        <BrushSettingsPanel
-                          selectedPresetId={brushPresetId}
-                          onSelectPreset={(preset: BrushPreset) => {
-                            setBrushPresetId(preset.id);
-                            setBrushTipShape(preset.tipShape);
-                            setBrushHardness(preset.hardness);
-                            setBrushSpacing(preset.spacing);
-                            setBrushAngle(preset.angle);
-                          }}
-                          tipShape={brushTipShape}
-                          onTipShapeChange={setBrushTipShape}
-                          size={brushSize}
-                          onSizeChange={setBrushSize}
-                          hardness={brushHardness}
-                          onHardnessChange={setBrushHardness}
-                          angle={brushAngle}
-                          onAngleChange={setBrushAngle}
-                          roundness={brushRoundness}
-                          onRoundnessChange={setBrushRoundness}
-                          spacing={brushSpacing}
-                          onSpacingChange={setBrushSpacing}
-                          sizeJitter={brushSizeJitter}
-                          onSizeJitterChange={setBrushSizeJitter}
-                          opacityJitter={brushOpacityJitter}
-                          onOpacityJitterChange={setBrushOpacityJitter}
-                          flowJitter={brushFlowJitter}
-                          onFlowJitterChange={setBrushFlowJitter}
-                          controlSource={brushControlSource}
-                          onControlSourceChange={setBrushControlSource}
-                        />
+                        <div className="space-y-3">
+                          <BrushSettingsPanel
+                            selectedPresetId={brushPresetId}
+                            onSelectPreset={(preset: BrushPreset) => {
+                              setBrushPresetId(preset.id);
+                              setBrushTipShape(preset.tipShape);
+                              setBrushHardness(preset.hardness);
+                              setBrushSpacing(preset.spacing);
+                              setBrushAngle(preset.angle);
+                            }}
+                            tipShape={brushTipShape}
+                            onTipShapeChange={setBrushTipShape}
+                            size={brushSize}
+                            onSizeChange={setBrushSize}
+                            hardness={brushHardness}
+                            onHardnessChange={setBrushHardness}
+                            angle={brushAngle}
+                            onAngleChange={setBrushAngle}
+                            roundness={brushRoundness}
+                            onRoundnessChange={setBrushRoundness}
+                            spacing={brushSpacing}
+                            onSpacingChange={setBrushSpacing}
+                            sizeJitter={brushSizeJitter}
+                            onSizeJitterChange={setBrushSizeJitter}
+                            opacityJitter={brushOpacityJitter}
+                            onOpacityJitterChange={setBrushOpacityJitter}
+                            flowJitter={brushFlowJitter}
+                            onFlowJitterChange={setBrushFlowJitter}
+                            controlSource={brushControlSource}
+                            onControlSourceChange={setBrushControlSource}
+                          />
+                          {activeTool === "mixerBrush" ? (
+                            <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/10 p-3">
+                              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                Mixer Brush
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <ToolNumberField
+                                  label="Mix"
+                                  min={0}
+                                  max={1}
+                                  step={0.05}
+                                  value={mixerBrushMix}
+                                  onChange={setMixerBrushMix}
+                                />
+                                <ToolChoiceButton
+                                  active={mixerBrushSampleMerged}
+                                  onClick={() => setMixerBrushSampleMerged((value) => !value)}
+                                >
+                                  Sample Merged
+                                </ToolChoiceButton>
+                              </div>
+                            </div>
+                          ) : activeTool === "cloneStamp" ? (
+                            <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/10 p-3">
+                              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                Clone Stamp
+                              </p>
+                              <div className="space-y-2 text-[11px] text-slate-400">
+                                <div>
+                                  {cloneStampSource
+                                    ? `Source: ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
+                                    : "Alt-click on the canvas to define the source point."}
+                                </div>
+                                <ToolChoiceButton
+                                  active={cloneStampSampleMerged}
+                                  onClick={() => setCloneStampSampleMerged((value) => !value)}
+                                >
+                                  Sample Merged
+                                </ToolChoiceButton>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
 
                       {activeAuxPanel === "color" ? (
@@ -2982,6 +3151,20 @@ export default function App() {
           </div>
         </div>
       </Dialog>
+
+      <GradientEditorDialog
+        open={gradientEditorOpen}
+        description="Edit the stop list, alpha, and reusable presets for the current gradient."
+        stops={gradientStops}
+        onStopsChange={setGradientStops}
+        recentColors={recentColors}
+        onRecentColorSelect={pushRecentColor}
+        channelMode={colorChannelMode}
+        onChannelModeChange={setColorChannelMode}
+        onlyWebColors={onlyWebColors}
+        onOnlyWebColorsChange={setOnlyWebColors}
+        onClose={() => setGradientEditorOpen(false)}
+      />
 
       <SelectAndMaskWorkspace
         open={selectAndMaskOpen}

@@ -86,6 +86,97 @@ func TestPaintStroke_NilLayerIsNoop(t *testing.T) {
 	// If we get here without panic: pass
 }
 
+func TestMixerBrushStroke_SamplesMergedCanvasColor(t *testing.T) {
+	const w, h = 20, 20
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("mixer-test", "Mixer", w, h)
+
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	for i := 0; i < len(background.Pixels); i += 4 {
+		background.Pixels[i] = 255
+		background.Pixels[i+3] = 255
+	}
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         10,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 255, 255},
+		MixerBrush:   true,
+		MixerMix:     0.5,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 10, Y: 10, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after mixer stroke")
+	}
+	idx := (10*20 + 10) * 4
+	if layer.Pixels[idx] < 80 || layer.Pixels[idx+2] < 80 {
+		t.Fatalf("mixed center pixel = RGBA(%d,%d,%d,%d), want blended red+blue", layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3])
+	}
+	if layer.Pixels[idx+1] > 32 {
+		t.Fatalf("mixed center green channel = %d, want near 0", layer.Pixels[idx+1])
+	}
+}
+
+func TestCloneStampStroke_ClonesMergedSourcePixels(t *testing.T) {
+	const w, h = 24, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-test", "Clone", w, h)
+
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	for i := 0; i < len(background.Pixels); i += 4 {
+		background.Pixels[i] = 255
+		background.Pixels[i+3] = 255
+	}
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         10,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 6,
+		CloneSourceY: 6,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 16, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after clone stroke")
+	}
+	idx := (16*24 + 16) * 4
+	if layer.Pixels[idx] < 200 || layer.Pixels[idx+1] != 0 || layer.Pixels[idx+2] != 0 {
+		t.Fatalf("cloned center pixel = RGBA(%d,%d,%d,%d), want red copied from source", layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3])
+	}
+	if layer.Pixels[idx+3] < 200 {
+		t.Fatalf("cloned alpha = %d, want opaque", layer.Pixels[idx+3])
+	}
+}
+
 func TestPaintDab_HardBrush_CenterPixelFilled(t *testing.T) {
 	bounds := LayerBounds{X: 0, Y: 0, W: 20, H: 20}
 	layer := NewPixelLayer("test", bounds, make([]byte, 20*20*4))

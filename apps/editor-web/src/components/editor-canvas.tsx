@@ -1,4 +1,4 @@
-import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FillCommand, type FreeTransformMeta, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
+import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
 import {
   useCallback,
   useEffect,
@@ -20,6 +20,8 @@ type EditorCanvasProps = {
     | "lasso"
     | "wand"
     | "brush"
+    | "mixerBrush"
+    | "cloneStamp"
     | "pencil"
     | "eraser"
     | "fill"
@@ -54,6 +56,11 @@ type EditorCanvasProps = {
   brushSize: number;
   brushHardness: number;
   brushFlow: number;
+  mixerBrushMix: number;
+  mixerBrushSampleMerged: boolean;
+  cloneStampSampleMerged: boolean;
+  cloneStampSource: { x: number; y: number } | null;
+  onCloneStampSourceChange(source: { x: number; y: number } | null): void;
   pencilAutoErase: boolean;
   eraserMode: "normal" | "background" | "magic";
   eraserTolerance: number;
@@ -69,6 +76,7 @@ type EditorCanvasProps = {
   gradientReverse: boolean;
   gradientDither: boolean;
   gradientCreateLayer: boolean;
+  gradientStops: GradientStopCommand[];
   eyedropperSampleSize: number;
   eyedropperSampleMerged: boolean;
   eyedropperSampleAllLayersNoAdj: boolean;
@@ -576,6 +584,11 @@ export function EditorCanvas({
   brushSize,
   brushHardness,
   brushFlow,
+  mixerBrushMix,
+  mixerBrushSampleMerged,
+  cloneStampSampleMerged,
+  cloneStampSource,
+  onCloneStampSourceChange,
   pencilAutoErase,
   eraserMode,
   eraserTolerance,
@@ -591,6 +604,7 @@ export function EditorCanvas({
   gradientReverse,
   gradientDither,
   gradientCreateLayer,
+  gradientStops,
   eyedropperSampleSize,
   eyedropperSampleMerged,
   eyedropperSampleAllLayersNoAdj,
@@ -1613,7 +1627,34 @@ export function EditorCanvas({
           }
           return;
         }
-        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
+        if (activeTool === "cloneStamp" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          if (event.altKey) {
+            onCloneStampSourceChange({ x: docPoint.x, y: docPoint.y });
+            event.preventDefault();
+            return;
+          }
+          brushActiveRef.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.BeginPaintStroke, {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+            brush: {
+              size: brushSize,
+              hardness: brushHardness,
+              flow: brushFlow,
+              color: foregroundColor,
+              cloneStamp: true,
+              cloneSourceX: cloneStampSource?.x ?? docPoint.x,
+              cloneSourceY: cloneStampSource?.y ?? docPoint.y,
+              sampleMerged: cloneStampSampleMerged,
+            },
+          } satisfies BeginPaintStrokeCommand);
+          return;
+        }
+        if ((activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
@@ -1628,6 +1669,9 @@ export function EditorCanvas({
               flow: brushFlow,
               color: foregroundColor,
               autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
+              mixerBrush: activeTool === "mixerBrush" ? true : undefined,
+              mixerMix: activeTool === "mixerBrush" ? mixerBrushMix : undefined,
+              sampleMerged: activeTool === "mixerBrush" ? mixerBrushSampleMerged : undefined,
               erase: activeTool === "eraser" && eraserMode === "normal" ? true : undefined,
               eraseBackground: activeTool === "eraser" && eraserMode === "background" ? true : undefined,
               eraseTolerance: activeTool === "eraser" && eraserMode === "background" ? eraserTolerance : undefined,
@@ -2185,7 +2229,7 @@ export function EditorCanvas({
           });
           return;
         }
-        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if ((activeTool === "cloneStamp" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
@@ -2251,13 +2295,14 @@ export function EditorCanvas({
             reverse: gradientReverse,
             dither: gradientDither,
             createLayer: gradientCreateLayer,
+            stops: gradientStops,
           } satisfies ApplyGradientCommand);
           setGradientDragStart(null);
           setGradientDragCurrent(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
-        if ((activeTool === "brush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if ((activeTool === "cloneStamp" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
           brushActiveRef.current = false;
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;

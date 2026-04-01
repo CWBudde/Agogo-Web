@@ -363,6 +363,8 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 // ---------------------------------------------------------------------------
 
 // txPixelAt returns the RGBA at integer layer-local (px, py), clamped to bounds.
+//
+//nolint:unused
 func txPixelAt(pixels []byte, w, h, px, py int) [4]byte {
 	px = clampInt(px, 0, w-1)
 	py = clampInt(py, 0, h-1)
@@ -370,6 +372,7 @@ func txPixelAt(pixels []byte, w, h, px, py int) [4]byte {
 	return [4]byte{pixels[i], pixels[i+1], pixels[i+2], pixels[i+3]}
 }
 
+//nolint:unused
 func sampleNearest(pixels []byte, w, h int, lx, ly float64) [4]byte {
 	return txPixelAt(pixels, w, h, int(math.Round(lx-0.5)), int(math.Round(ly-0.5)))
 }
@@ -416,10 +419,13 @@ func sampleBilinear(pixels []byte, w, h int, lx, ly float64) [4]byte {
 
 // catmullRomKernel evaluates the Catmull-Rom kernel for parameter t and four
 // control samples p0..p3.
+//
+//nolint:unused
 func catmullRomKernel(t, p0, p1, p2, p3 float64) float64 {
 	return 0.5 * ((2 * p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t*t + (-p0+3*p1-3*p2+p3)*t*t*t)
 }
 
+//nolint:unused
 func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
 	fx := lx - 0.5
 	fy := ly - 0.5

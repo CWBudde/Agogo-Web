@@ -523,6 +523,11 @@ export interface BrushParams {
   erase?: boolean;           // erase to transparency (normal eraser mode)
   eraseBackground?: boolean; // erase only pixels matching the sampled base color (background eraser mode)
   eraseTolerance?: number;   // color tolerance for background eraser, 0–255 Euclidean RGB distance
+  mixerBrush?: boolean;      // mix brush color with sampled canvas color before painting
+  mixerMix?: number;         // 0.0–1.0 mix strength for the sampled color
+  cloneStamp?: boolean;      // paint from a sampled source point
+  cloneSourceX?: number;     // source point X in document space
+  cloneSourceY?: number;     // source point Y in document space
 }
 
 export interface BeginPaintStrokeCommand {
@@ -576,6 +581,11 @@ export interface FillCommand {
 
 export type GradientType = "linear" | "radial" | "angle" | "reflected" | "diamond";
 
+export interface GradientStopCommand {
+  position: number;
+  color: [number, number, number, number];
+}
+
 export interface ApplyGradientCommand {
   startX: number;
   startY: number;
@@ -585,4 +595,5 @@ export interface ApplyGradientCommand {
   reverse?: boolean;
   dither?: boolean;
   createLayer?: boolean;
+  stops?: GradientStopCommand[];
 }

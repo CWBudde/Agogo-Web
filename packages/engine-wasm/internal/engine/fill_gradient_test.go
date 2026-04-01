@@ -74,6 +74,43 @@ func TestHandleApplyGradientCreatesFillLayer(t *testing.T) {
 	}
 }
 
+func TestHandleApplyGradientUsesStops(t *testing.T) {
+	inst, _, _ := newFillGradientTestInstance(t)
+	doc := inst.manager.Active()
+	if doc == nil {
+		t.Fatal("missing active doc")
+	}
+
+	if err := inst.handleApplyGradient(ApplyGradientPayload{
+		StartX: float64(0),
+		StartY: 0,
+		EndX:   float64(doc.Width - 1),
+		EndY:   0,
+		Type:   GradientTypeLinear,
+		Stops: []GradientStopPayload{
+			{Position: 0, Color: [4]uint8{255, 0, 0, 255}},
+			{Position: 0.5, Color: [4]uint8{0, 255, 0, 255}},
+			{Position: 1, Color: [4]uint8{0, 0, 255, 255}},
+		},
+		CreateLayer: true,
+	}); err != nil {
+		t.Fatalf("handleApplyGradient: %v", err)
+	}
+
+	updated := inst.manager.Active()
+	if updated == nil {
+		t.Fatal("active document missing after gradient")
+	}
+	layer := findPixelLayer(updated, updated.ActiveLayerID)
+	if layer == nil {
+		t.Fatal("active gradient layer missing")
+	}
+	mid := layer.Pixels[4:8]
+	if mid[1] <= mid[0] || mid[1] <= mid[2] {
+		t.Fatalf("gradient mid pixel = %v, want green-dominant midpoint", mid)
+	}
+}
+
 func TestSampleMergedColorAverage(t *testing.T) {
 	inst, _, _ := newFillGradientTestInstance(t)
 	handle := int32(98765)
