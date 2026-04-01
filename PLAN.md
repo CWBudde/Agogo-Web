@@ -367,6 +367,16 @@
       - [x] The compact raw ABI provides a real but modest improvement for this scenario, bringing browser end-to-end cost down from the previous ~4.53 ms/op to ~4.03 ms/op
       - [x] The remaining cost is still mostly inside the Go/Wasm render call itself rather than frontend parsing or blitting
       - [x] Larger wins from here will require reducing engine work on steady-state frames or moving more frame metadata off the JSON/string bridge entirely
+  - [x] Added idle-frame reuse in `renderRaw()` for non-animated steady-state frames
+    - [x] When the document content and viewport are unchanged and there is no active selection animation, free-transform overlay, or crop overlay, the engine now reuses the previously rendered final frame instead of rerunning viewport composition and overlays
+    - [x] Post-fix browser/Wasm measurements for the 512×512 painted document at `1000%` zoom:
+      - [x] `renderFrameHotOnly`: **~3.97 ms/op → ~0.026 ms/op**
+      - [x] `endToEnd`: **~4.03 ms/op → ~0.078 ms/op**
+      - [x] legacy full `renderFrameOnly`: **~0.039 ms/op** in the same idle scenario because `render()` now reuses `renderRaw()` and only rebuilds `UIMeta`
+    - [x] Current conclusion:
+      - [x] The remaining steady-state browser cost in the profiled idle scenario is now dominated by the canvas upload (`putImageData`) and any optional JS-side pixel staging, not engine rendering
+      - [x] The large previous Wasm cost was not intrinsic to idle `1000%` frames; it was repeated redundant engine work on unchanged frames
+      - [x] Animated selection marching-ants and active transform/crop overlays still opt out of this reuse path by design
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
 ---
