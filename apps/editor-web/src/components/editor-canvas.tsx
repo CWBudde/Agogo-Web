@@ -945,11 +945,14 @@ export function EditorCanvas({
             if (!canSkipBlit) {
               const bytes = handle.readPixels(result);
               ctx.putImageData(
-                new ImageData(
-                  bytes,
-                  result.viewport.canvasW,
-                  result.viewport.canvasH,
-                ),
+                (() => {
+                  const imageData = ctx.createImageData(
+                    result.viewport.canvasW,
+                    result.viewport.canvasH,
+                  );
+                  imageData.data.set(bytes);
+                  return imageData;
+                })(),
                 0,
                 0,
               );
