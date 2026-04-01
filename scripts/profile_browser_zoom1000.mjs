@@ -167,6 +167,10 @@ async function main() {
     const copy = await timeEval(client, `window.__agogoProfile.pixelCopyOnly(${iterations})`);
     const blit = await timeEval(client, `window.__agogoProfile.putImageDataOnly(${iterations})`);
     const endToEnd = await timeEval(client, `window.__agogoProfile.endToEnd(${iterations})`);
+    const endToEndSkipReused = await timeEval(
+      client,
+      `window.__agogoProfile.endToEndSkipReused(${iterations})`,
+    );
 
     const summary = {
       scenario: {
@@ -202,6 +206,11 @@ async function main() {
         endToEnd: {
           totalMs: Number(endToEnd.elapsedMs.toFixed(3)),
           perOpMs: Number((endToEnd.elapsedMs / iterations).toFixed(6)),
+        },
+        endToEndSkipReused: {
+          totalMs: Number(endToEndSkipReused.elapsedMs.toFixed(3)),
+          perOpMs: Number((endToEndSkipReused.elapsedMs / iterations).toFixed(6)),
+          presentedFrames: endToEndSkipReused.value?.presented ?? null,
         },
       },
     };

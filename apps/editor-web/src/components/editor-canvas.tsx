@@ -625,6 +625,12 @@ export function EditorCanvas({
   const pendingPanRef = useRef<{ centerX: number; centerY: number } | null>(null);
   const panRafRef = useRef<number | null>(null);
   const brushActiveRef = useRef(false);
+  const lastPresentedFrameRef = useRef<{
+    bufferPtr: number;
+    bufferLen: number;
+    canvasW: number;
+    canvasH: number;
+  } | null>(null);
   const lastViewportRef = useRef<{
     width: number;
     height: number;
@@ -928,24 +934,42 @@ export function EditorCanvas({
         if (result.bufferLen > 0) {
           const ctx = canvas.getContext("2d");
           if (ctx) {
-            const bytes = handle.readPixels(result);
-            ctx.putImageData(
-              new ImageData(
-                bytes,
-                result.viewport.canvasW,
-                result.viewport.canvasH,
-              ),
-              0,
-              0,
-            );
+            const lastPresented = lastPresentedFrameRef.current;
+            const canSkipBlit =
+              result.reused &&
+              lastPresented !== null &&
+              lastPresented.bufferPtr === result.bufferPtr &&
+              lastPresented.bufferLen === result.bufferLen &&
+              lastPresented.canvasW === result.viewport.canvasW &&
+              lastPresented.canvasH === result.viewport.canvasH;
+            if (!canSkipBlit) {
+              const bytes = handle.readPixels(result);
+              ctx.putImageData(
+                new ImageData(
+                  bytes,
+                  result.viewport.canvasW,
+                  result.viewport.canvasH,
+                ),
+                0,
+                0,
+              );
+              lastPresentedFrameRef.current = {
+                bufferPtr: result.bufferPtr,
+                bufferLen: result.bufferLen,
+                canvasW: result.viewport.canvasW,
+                canvasH: result.viewport.canvasH,
+              };
+            }
           }
-          handle.free(result.bufferPtr);
         }
       }
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      lastPresentedFrameRef.current = null;
+      cancelAnimationFrame(rafId);
+    };
   }, [engine.handle]);
 
   const canvasPointFromClient = (clientX: number, clientY: number) => {

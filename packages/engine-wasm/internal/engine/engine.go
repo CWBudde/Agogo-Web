@@ -215,6 +215,7 @@ type RawRenderResult struct {
 	Viewport  ViewportState `json:"viewport"`
 	BufferPtr int32         `json:"bufferPtr"`
 	BufferLen int32         `json:"bufferLen"`
+	Reused    bool          `json:"reused"`
 }
 
 type EngineConfig struct {
@@ -2717,6 +2718,7 @@ func (inst *instance) renderRaw() RawRenderResult {
 			Viewport:  inst.viewport,
 			BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
 			BufferLen: int32(len(inst.pixels)),
+			Reused:    true,
 		}
 	}
 
@@ -2731,6 +2733,7 @@ func (inst *instance) renderRaw() RawRenderResult {
 		Viewport:  inst.viewport,
 		BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
 		BufferLen: int32(len(inst.pixels)),
+		Reused:    false,
 	}
 }
 

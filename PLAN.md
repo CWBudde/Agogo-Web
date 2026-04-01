@@ -356,7 +356,7 @@
       - [x] The dominant browser/Wasm tax is the raw `RenderFrame` bridge itself: Go `render()` + Go `json.Marshal` + `syscall/js` string transfer back into JS
       - [x] The next serious browser-side optimization target is reducing or eliminating the per-frame JSON/string bridge, for example by exposing a compact raw metadata ABI for steady-state `RenderFrame()` calls
   - [x] Added a compact steady-state `RenderFrameRaw` ABI for the hot canvas loop
-    - [x] Go engine now exposes `RenderFrameRaw(handle)` returning only `frameId`, `viewport`, `bufferPtr`, and `bufferLen`
+    - [x] Go engine now exposes `RenderFrameRaw(handle)` returning only `frameId`, `viewport`, `bufferPtr`, `bufferLen`, and later an explicit `reused` bit for frontend presentation skipping
     - [x] The raw path skips `UIMeta` construction in the engine and avoids sending the full `RenderResult` JSON on steady-state frames
     - [x] Frontend continuous render loop now uses `handle.renderFrameRaw()` while command responses and initial load still use the full `RenderResult`
     - [x] Browser/Wasm measurements after the ABI split:
@@ -376,6 +376,19 @@
     - [x] Current conclusion:
       - [x] The remaining steady-state browser cost in the profiled idle scenario is now dominated by the canvas upload (`putImageData`) and any optional JS-side pixel staging, not engine rendering
       - [x] The large previous Wasm cost was not intrinsic to idle `1000%` frames; it was repeated redundant engine work on unchanged frames
+  - [x] Added frontend presentation skipping for reused raw frames
+    - [x] `RawRenderResult` now carries a `reused` bit so the frontend can distinguish a genuinely new pixel buffer from an idle engine-cache hit without inferring it from `frameId`
+    - [x] `apps/editor-web/src/components/editor-canvas.tsx` now skips `readPixels()` and `putImageData()` when the engine reports a reused frame with the same buffer pointer, byte length, and canvas size as the frame already on screen
+    - [x] Browser profiling helpers now include `endToEndSkipReused`, which mirrors the production skip-on-reuse presentation path
+    - [x] Updated browser/Wasm measurements for the 512×512 painted document at `1000%` zoom:
+      - [x] `renderFrameHotOnly`: **~0.031 ms/op**
+      - [x] `putImageDataOnly`: **~0.049 ms/op**
+      - [x] baseline idle `endToEnd`: **~0.077 ms/op**
+      - [x] skip-on-reuse `endToEndSkipReused`: **~0.021 ms/op**
+      - [x] `presentedFrames`: **1 / 2000** in the idle benchmark loop
+    - [x] Current conclusion:
+      - [x] Once the engine can prove a frame is unchanged, the right browser optimization is to skip the canvas upload entirely rather than trying to micro-optimize `putImageData`
+      - [x] Idle high-zoom browser cost is now mostly the tiny raw-frame call overhead; the canvas upload only occurs on the first presented frame or when content actually changes
       - [x] Animated selection marching-ants and active transform/crop overlays still opt out of this reuse path by design
 - [ ] Only move on to browser/Wasm-specific tuning once the native-Go bottlenecks above have been reduced and re-measured
 
@@ -833,13 +846,43 @@
 
 ### Phase 5.3: Extended Adjustment Layers
 
-- [ ] **Gradient Map:** map luminance to gradient stops (reuse gradient editor from Phase 4.3)
-- [ ] **Invert:** flip all channels (`255 - v`)
-- [ ] **Threshold:** convert to 1-bit (adjustable threshold slider)
-- [ ] **Posterize:** reduce tonal levels per channel (slider 2–255)
-- [ ] **Channel Mixer:** custom mix of channels into output channels; monochrome output mode
-- [ ] **Selective Color:** adjust CMY+K per named color range (Reds, Yellows, Greens, Cyans, Blues, Magentas, Whites, Neutrals, Blacks); Relative/Absolute mode
-- [ ] **Photo Filter:** simulate gel color filter (color picker + density slider, preserve luminosity)
+- [ ] Shared extended-adjustment plumbing:
+  - [ ] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
+  - [ ] Wire each adjustment into the same non-destructive render path used by Phase 5.1 and make sure layer visibility / masking / clipping semantics stay identical
+  - [ ] Ensure the properties panel can swap between extended adjustment UIs without remounting the editor shell
+  - [ ] Add regression coverage for save/load, undo/redo, and live-preview re-rendering for each new adjustment type
+- [ ] **Gradient Map:**
+  - [ ] Map source luminance to gradient stops across the full 0–255 range
+  - [ ] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
+  - [ ] Support reverse-gradient behavior and preserve alpha handling from the source layer
+  - [ ] Add a preview rendering path that updates as gradient stops are edited
+- [ ] **Invert:**
+  - [ ] Flip all RGB channels with `255 - v`
+  - [ ] Leave alpha unchanged unless the existing adjustment model explicitly treats alpha as part of the transform
+  - [ ] Keep the implementation minimal and deterministic so it is effectively a no-parameter adjustment
+- [ ] **Threshold:**
+  - [ ] Convert the image to a hard black/white split using a single threshold slider
+  - [ ] Define whether threshold is based on luminance or a specific channel and document that choice in the UI copy
+  - [ ] Clamp and validate slider values so preview and committed output always match
+- [ ] **Posterize:**
+  - [ ] Reduce tonal levels per channel with a slider in the 2–255 range
+  - [ ] Preserve alpha and avoid banding artifacts beyond the intended level reduction
+  - [ ] Make the control behave consistently for RGB composite and individual channels if the editor exposes both
+- [ ] **Channel Mixer:**
+  - [ ] Implement per-output-channel mixing coefficients for source R/G/B inputs
+  - [ ] Add monochrome output mode and define how the coefficients contribute to the grayscale result
+  - [ ] Expose a UI that makes the source-to-output relationship clear enough to tune without guesswork
+  - [ ] Validate coefficient normalization / clipping behavior so committed output does not overflow channel bounds
+- [ ] **Selective Color:**
+  - [ ] Adjust CMY+K components per named color range: Reds, Yellows, Greens, Cyans, Blues, Magentas, Whites, Neutrals, Blacks
+  - [ ] Support both Relative and Absolute adjustment modes and document the behavioral difference in the panel
+  - [ ] Define how the selected color range is sampled from the source pixel and how overlapping ranges are resolved
+  - [ ] Add per-range controls in the properties panel with immediate live preview
+- [ ] **Photo Filter:**
+  - [ ] Simulate gel-color filtering with a color picker, density slider, and preserve-luminosity toggle
+  - [ ] Blend the filter in a way that feels like a physical lens filter rather than a flat tint
+  - [ ] Ensure the filter preserves transparency and does not introduce unintended channel shifts outside the configured density
+  - [ ] Add a small set of representative filter presets if that matches the eventual UI design, otherwise keep the control fully custom
 
 ### Phase 5.4: Filter Framework
 
