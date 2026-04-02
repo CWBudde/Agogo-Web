@@ -1,5 +1,7 @@
 import {
   CommandID,
+  type AdjustmentKind,
+  type AdjustmentLayerParams,
   type AddLayerCommand,
   type CreateDocumentCommand,
   type GradientStopCommand,
@@ -912,10 +914,10 @@ export default function App() {
     setNewDocumentOpen(true);
   };
 
-  const createAdjustmentLayer = (
+  const createAdjustmentLayer = <K extends AdjustmentKind>(
     name: string,
-    adjustmentKind: string,
-    params: unknown = {},
+    adjustmentKind: K,
+    params: AdjustmentLayerParams<K> = {} as AdjustmentLayerParams<K>,
   ) => {
     if (!render?.uiMeta.activeLayerId) {
       return;

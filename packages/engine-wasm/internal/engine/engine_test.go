@@ -370,6 +370,75 @@ func TestAdjustmentParamsUndoRedoRestoresRenderAndMetadata(t *testing.T) {
 	}
 }
 
+func TestAdjustmentParamsLivePreviewInvalidatesCachedFrame(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandResize, mustJSON(t, ResizePayload{
+		CanvasW:          1,
+		CanvasH:          1,
+		DevicePixelRatio: 1,
+	})); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{90, 70, 40, 255},
+	})); err != nil {
+		t.Fatalf("add base layer: %v", err)
+	}
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:      LayerTypeAdjustment,
+		Name:           "Threshold",
+		AdjustmentKind: "threshold",
+		Params:         json.RawMessage(`{"threshold":255}`),
+	}))
+	if err != nil {
+		t.Fatalf("add adjustment layer: %v", err)
+	}
+	adjustmentID := added.UIMeta.ActiveLayerID
+
+	doc := instances[h].manager.Active()
+	before := doc.renderCompositeSurface()
+	if got := before[:4]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("initial preview = %v, want black output", got)
+	}
+	versionBefore := doc.ContentVersion
+
+	updated, err := DispatchCommand(h, commandSetAdjustmentParams, mustJSON(t, SetAdjustmentParamsPayload{
+		LayerID:        adjustmentID,
+		AdjustmentKind: "threshold",
+		Params:         json.RawMessage(`{"threshold":0}`),
+	}))
+	if err != nil {
+		t.Fatalf("set adjustment params: %v", err)
+	}
+	if pixel, ok := findLayerMetaByID(updated.UIMeta.Layers, adjustmentID); !ok {
+		t.Fatalf("adjustment layer %q missing after update", adjustmentID)
+	} else if string(pixel.Params) != `{"threshold":0}` {
+		t.Fatalf("updated params = %s, want threshold 0", string(pixel.Params))
+	}
+	if updated.UIMeta.ContentVersion <= versionBefore {
+		t.Fatalf("content version did not advance after adjustment change: before=%d after=%d", versionBefore, updated.UIMeta.ContentVersion)
+	}
+
+	afterRaw, err := RenderFrameRaw(h)
+	if err != nil {
+		t.Fatalf("RenderFrameRaw after change: %v", err)
+	}
+	if afterRaw.BufferLen != 4 {
+		t.Fatalf("render after change length = %d, want 4", afterRaw.BufferLen)
+	}
+	doc = instances[h].manager.Active()
+	pixels := doc.renderCompositeSurface()
+	if got := pixels[:4]; got[0] != 255 || got[1] != 255 || got[2] != 255 || got[3] != 255 {
+		t.Fatalf("render after change = %v, want white output", got)
+	}
+}
+
 func TestLayerMaskCommandsUpdateMetadataAndUndo(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)
