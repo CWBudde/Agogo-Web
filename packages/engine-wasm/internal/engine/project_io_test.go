@@ -167,6 +167,79 @@ func TestSaveAndLoadProjectPreservesComplexLayerTree(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadProjectPreservesExtendedAdjustmentLayerParams(t *testing.T) {
+	doc := &Document{
+		Width:      6,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		ID:         "extended-adjustments",
+		Name:       "Extended Adjustments",
+		CreatedAt:  "2026-03-27T10:00:00Z",
+		CreatedBy:  "agogo-web-test",
+		ModifiedAt: "2026-03-27T10:05:00Z",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	adjustments := []struct {
+		name   string
+		kind   string
+		params string
+	}{
+		{name: "Channel Mixer", kind: "channel-mixer", params: `{"monochrome":true,"red":[0,0,100],"green":[0,100,0],"blue":[100,0,0]}`},
+		{name: "Selective Color", kind: "selective-color", params: `{"mode":"absolute","blues":{"cyanRed":0,"magentaGreen":0,"yellowBlue":50,"black":-20}}`},
+		{name: "Photo Filter", kind: "photo-filter", params: `{"color":[255,190,120,255],"density":40,"preserveLuminosity":true}`},
+		{name: "Threshold", kind: "threshold", params: `{"threshold":70}`},
+		{name: "Posterize", kind: "posterize", params: `{"levels":4}`},
+		{name: "Invert", kind: "invert", params: `{}`},
+		{name: "Gradient Map", kind: "gradient-map", params: `{"stops":[{"position":0,"color":[0,0,0,255]},{"position":1,"color":[255,0,0,255]}],"reverse":true}`},
+	}
+
+	children := make([]LayerNode, 0, len(adjustments))
+	for _, adjustment := range adjustments {
+		children = append(children, NewAdjustmentLayer(adjustment.name, adjustment.kind, json.RawMessage(adjustment.params)))
+	}
+	doc.LayerRoot.SetChildren(children)
+	doc.normalizeClippingState()
+	doc.ActiveLayerID = children[0].ID()
+
+	raw, err := SaveProject(doc, []HistoryEntry{{Description: "save adjustments"}})
+	if err != nil {
+		t.Fatalf("SaveProject: %v", err)
+	}
+
+	restored, history, err := LoadProject(raw)
+	if err != nil {
+		t.Fatalf("LoadProject: %v", err)
+	}
+	if len(history) != 1 || history[0].Description != "save adjustments" {
+		t.Fatalf("restored history = %+v, want one preserved entry", history)
+	}
+	if len(restored.LayerRoot.Children()) != len(adjustments) {
+		t.Fatalf("restored child count = %d, want %d", len(restored.LayerRoot.Children()), len(adjustments))
+	}
+	for index, child := range restored.LayerRoot.Children() {
+		adjustment, ok := child.(*AdjustmentLayer)
+		if !ok {
+			t.Fatalf("restored child %d = %T, want *AdjustmentLayer", index, child)
+		}
+		want := adjustments[index]
+		if adjustment.Name() != want.name {
+			t.Fatalf("restored name[%d] = %q, want %q", index, adjustment.Name(), want.name)
+		}
+		if adjustment.AdjustmentKind != want.kind {
+			t.Fatalf("restored kind[%d] = %q, want %q", index, adjustment.AdjustmentKind, want.kind)
+		}
+		if string(adjustment.Params) != want.params {
+			t.Fatalf("restored params[%d] = %s, want %s", index, string(adjustment.Params), want.params)
+		}
+	}
+
+	assertProjectArchiveEquivalent(t, restored, doc)
+}
+
 func newRenderableProjectFixture() *Document {
 	doc := &Document{
 		Width:      4,

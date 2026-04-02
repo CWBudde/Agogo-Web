@@ -91,6 +91,33 @@ type blackWhiteParams struct {
 	TintStrength float64  `json:"tintStrength,omitempty"`
 }
 
+type channelMixerParams struct {
+	Monochrome bool       `json:"monochrome,omitempty"`
+	Red        [3]float64 `json:"red,omitempty"`
+	Green      [3]float64 `json:"green,omitempty"`
+	Blue       [3]float64 `json:"blue,omitempty"`
+}
+
+type selectiveColorTone struct {
+	CyanRed      float64 `json:"cyanRed,omitempty"`
+	MagentaGreen float64 `json:"magentaGreen,omitempty"`
+	YellowBlue   float64 `json:"yellowBlue,omitempty"`
+	Black        float64 `json:"black,omitempty"`
+}
+
+type selectiveColorParams struct {
+	Mode     string             `json:"mode,omitempty"`
+	Reds     selectiveColorTone `json:"reds,omitempty"`
+	Yellows  selectiveColorTone `json:"yellows,omitempty"`
+	Greens   selectiveColorTone `json:"greens,omitempty"`
+	Cyans    selectiveColorTone `json:"cyans,omitempty"`
+	Blues    selectiveColorTone `json:"blues,omitempty"`
+	Magentas selectiveColorTone `json:"magentas,omitempty"`
+	Whites   selectiveColorTone `json:"whites,omitempty"`
+	Neutrals selectiveColorTone `json:"neutrals,omitempty"`
+	Blacks   selectiveColorTone `json:"blacks,omitempty"`
+}
+
 func init() {
 	registerCoreAdjustmentTransforms()
 }
@@ -113,6 +140,17 @@ func registerCoreAdjustmentTransforms() {
 	RegisterAdjustmentFactory("black & white", blackWhiteAdjustmentFactory)
 	RegisterAdjustmentFactory("black/white", blackWhiteAdjustmentFactory)
 	RegisterAdjustmentFactory("invert", invertAdjustmentFactory)
+	RegisterAdjustmentFactory("channel-mixer", channelMixerAdjustmentFactory)
+	RegisterAdjustmentFactory("channelmixer", channelMixerAdjustmentFactory)
+	RegisterAdjustmentFactory("channel mixer", channelMixerAdjustmentFactory)
+	RegisterAdjustmentFactory("threshold", thresholdAdjustmentFactory)
+	RegisterAdjustmentFactory("posterize", posterizeAdjustmentFactory)
+	RegisterAdjustmentFactory("selective-color", selectiveColorAdjustmentFactory)
+	RegisterAdjustmentFactory("selectivecolor", selectiveColorAdjustmentFactory)
+	RegisterAdjustmentFactory("selective color", selectiveColorAdjustmentFactory)
+	RegisterAdjustmentFactory("photo-filter", photoFilterAdjustmentFactory)
+	RegisterAdjustmentFactory("photofilter", photoFilterAdjustmentFactory)
+	RegisterAdjustmentFactory("photo filter", photoFilterAdjustmentFactory)
 	RegisterAdjustmentFactory("gradient-map", gradientMapAdjustmentFactory)
 	RegisterAdjustmentFactory("gradientmap", gradientMapAdjustmentFactory)
 	RegisterAdjustmentFactory("gradient map", gradientMapAdjustmentFactory)
@@ -333,6 +371,123 @@ func invertAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error
 	}, nil
 }
 
+func channelMixerAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[channelMixerParams](params)
+	if err != nil {
+		return nil, err
+	}
+	matrix := [3][3]float64{
+		cfg.Red,
+		cfg.Green,
+		cfg.Blue,
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		source := [3]float64{
+			float64(r) / 255.0,
+			float64(g) / 255.0,
+			float64(b) / 255.0,
+		}
+		mixed := [3]float64{
+			source[0]*matrix[0][0]/100.0 + source[1]*matrix[0][1]/100.0 + source[2]*matrix[0][2]/100.0,
+			source[0]*matrix[1][0]/100.0 + source[1]*matrix[1][1]/100.0 + source[2]*matrix[1][2]/100.0,
+			source[0]*matrix[2][0]/100.0 + source[1]*matrix[2][1]/100.0 + source[2]*matrix[2][2]/100.0,
+		}
+		if cfg.Monochrome {
+			lum := clamp01(colorLuminance(mixed))
+			rr, gg, bb := unitToRGBBytes(lum, lum, lum)
+			return rr, gg, bb, a, nil
+		}
+		rr, gg, bb := unitToRGBBytes(clamp01(mixed[0]), clamp01(mixed[1]), clamp01(mixed[2]))
+		return rr, gg, bb, a, nil
+	}, nil
+}
+
+type thresholdParams struct {
+	Threshold float64 `json:"threshold,omitempty"`
+}
+
+func thresholdAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[thresholdParams](params)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Threshold < 0 {
+		cfg.Threshold = 0
+	}
+	if cfg.Threshold > 255 {
+		cfg.Threshold = 255
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		lum := colorLuminance([3]float64{
+			float64(r) / 255,
+			float64(g) / 255,
+			float64(b) / 255,
+		}) * 255
+		if lum >= cfg.Threshold {
+			return 255, 255, 255, a, nil
+		}
+		return 0, 0, 0, a, nil
+	}, nil
+}
+
+type posterizeParams struct {
+	Levels float64 `json:"levels,omitempty"`
+}
+
+func posterizeAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[posterizeParams](params)
+	if err != nil {
+		return nil, err
+	}
+	levels := int(math.Round(cfg.Levels))
+	if levels < 2 {
+		levels = 2
+	}
+	if levels > 255 {
+		levels = 255
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		return posterizeByte(r, levels), posterizeByte(g, levels), posterizeByte(b, levels), a, nil
+	}, nil
+}
+
+type photoFilterParams struct {
+	Color              [4]uint8 `json:"color,omitempty"`
+	Density            float64  `json:"density,omitempty"`
+	PreserveLuminosity bool     `json:"preserveLuminosity,omitempty"`
+}
+
+func photoFilterAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[photoFilterParams](params)
+	if err != nil {
+		return nil, err
+	}
+	density := clamp01(cfg.Density / 100.0)
+	filter := [3]float64{
+		float64(cfg.Color[0]) / 255.0,
+		float64(cfg.Color[1]) / 255.0,
+		float64(cfg.Color[2]) / 255.0,
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		source := [3]float64{
+			float64(r) / 255.0,
+			float64(g) / 255.0,
+			float64(b) / 255.0,
+		}
+		filtered := [3]float64{
+			source[0] * filter[0],
+			source[1] * filter[1],
+			source[2] * filter[2],
+		}
+		mixed := mixRGB(source, filtered, density)
+		if cfg.PreserveLuminosity {
+			mixed = setLuminosity(mixed, luminosity(source))
+		}
+		rr, gg, bb := unitToRGBBytes(mixed[0], mixed[1], mixed[2])
+		return rr, gg, bb, a, nil
+	}, nil
+}
+
 type gradientMapParams struct {
 	Stops   []GradientStopPayload `json:"stops,omitempty"`
 	Reverse bool                  `json:"reverse,omitempty"`
@@ -366,6 +521,73 @@ func decodeAdjustmentParams[T any](params json.RawMessage) (T, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func posterizeByte(value uint8, levels int) uint8 {
+	if levels < 2 {
+		return value
+	}
+	step := 255.0 / float64(levels-1)
+	quantized := math.Round(float64(value)/step) * step
+	return clampByte(quantized)
+}
+
+func selectiveColorRangeWeights(hue, saturation, luminance float64) [9]float64 {
+	chromaWeight := clampRange(saturation/0.25, 0, 1)
+	weights := [9]float64{
+		hueSectorWeight(hue, 0) * chromaWeight,
+		hueSectorWeight(hue, 60) * chromaWeight,
+		hueSectorWeight(hue, 120) * chromaWeight,
+		hueSectorWeight(hue, 180) * chromaWeight,
+		hueSectorWeight(hue, 240) * chromaWeight,
+		hueSectorWeight(hue, 300) * chromaWeight,
+		clamp01((luminance-0.72)/0.28) * clamp01(1-saturation*2),
+		clamp01(1-math.Abs(luminance-0.5)/0.45) * clamp01(1-saturation*1.4),
+		clamp01((0.35 - luminance) / 0.35),
+	}
+	var total float64
+	for _, weight := range weights {
+		total += weight
+	}
+	if total <= 0 {
+		weights[7] = 1
+		return weights
+	}
+	for index := range weights {
+		weights[index] = weights[index] / total
+	}
+	return weights
+}
+
+func selectiveColorApplyTone(source [3]float64, tone selectiveColorTone, mode string) [3]float64 {
+	scale := func(value float64, channel float64) float64 {
+		if mode != "absolute" {
+			if value >= 0 {
+				value *= 1 - channel
+			} else {
+				value *= channel
+			}
+		}
+		return value
+	}
+
+	lum := colorLuminance(source)
+	red := scale(tone.CyanRed/100.0, source[0])
+	green := scale(tone.MagentaGreen/100.0, source[1])
+	blue := scale(tone.YellowBlue/100.0, source[2])
+	black := tone.Black / 100.0
+	if mode != "absolute" {
+		if black >= 0 {
+			black *= 1 - lum
+		} else {
+			black *= lum
+		}
+	}
+	return [3]float64{
+		red - black,
+		green - black,
+		blue - black,
+	}
 }
 
 func resolveLevelsParamsForSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) (json.RawMessage, error) {
@@ -433,6 +655,61 @@ func normalizeChannelSelector(channel string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(channel))
 	}
+}
+
+func selectiveColorAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error) {
+	cfg, err := decodeAdjustmentParams[selectiveColorParams](params)
+	if err != nil {
+		return nil, err
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
+	if mode != "absolute" {
+		mode = "relative"
+	}
+	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+		source := [3]float64{
+			float64(r) / 255.0,
+			float64(g) / 255.0,
+			float64(b) / 255.0,
+		}
+		h, s, l := rgbToHsl(source[0], source[1], source[2])
+		hue := wrapDegrees(h * 360)
+		weights := selectiveColorRangeWeights(hue, s, l)
+		ranges := []struct {
+			weight float64
+			tone   selectiveColorTone
+		}{
+			{weights[0], cfg.Reds},
+			{weights[1], cfg.Yellows},
+			{weights[2], cfg.Greens},
+			{weights[3], cfg.Cyans},
+			{weights[4], cfg.Blues},
+			{weights[5], cfg.Magentas},
+			{weights[6], cfg.Whites},
+			{weights[7], cfg.Neutrals},
+			{weights[8], cfg.Blacks},
+		}
+		var total float64
+		var rr, gg, bb float64 = source[0], source[1], source[2]
+		for _, entry := range ranges {
+			if entry.weight <= 0 {
+				continue
+			}
+			total += entry.weight
+			adjustment := selectiveColorApplyTone(source, entry.tone, mode)
+			rr += adjustment[0] * entry.weight
+			gg += adjustment[1] * entry.weight
+			bb += adjustment[2] * entry.weight
+		}
+		if total > 0 {
+			inv := 1.0 / total
+			rr = clamp01(rr * inv)
+			gg = clamp01(gg * inv)
+			bb = clamp01(bb * inv)
+		}
+		ur, ug, ub := unitToRGBBytes(rr, gg, bb)
+		return ur, ug, ub, a, nil
+	}, nil
 }
 
 func autoLevelsRange(surface []byte, docW, docH int, mask *LayerMask, clipAlpha []byte, channel string, shadowClipPercent, highlightClipPercent float64) (uint8, uint8, bool) {
