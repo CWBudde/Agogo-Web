@@ -852,7 +852,7 @@
   - [x] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
   - [x] Add undo/redo regression coverage for extended adjustment parameter edits
   - [x] Add live-preview re-render regression coverage for extended adjustment parameter edits
-  - [ ] Keep all extended adjustments on the same non-destructive render path used by Phase 5.1 and verify layer visibility / masking / clipping semantics stay identical
+  - [x] Keep all extended adjustments on the same non-destructive render path used by Phase 5.1 and verify layer visibility / masking / clipping semantics stay identical
 - [ ] **Gradient Map:**
   - [x] Map source luminance to gradient stops across the full 0–255 range
   - [x] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
