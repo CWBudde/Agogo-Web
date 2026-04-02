@@ -917,11 +917,11 @@
   - [ ] Reduce Noise: `strength`, preserve details, reduce color noise, sharpen details
   - [x] Median: `radius`
   - [x] Despeckle (one-shot)
-- [ ] **Distort category:**
-  - [ ] Ripple: `amount`, size (small/medium/large)
-  - [ ] Twirl: `angle`
-  - [ ] Offset: `horizontal`, `vertical`, wrap/repeat/fold edges
-  - [ ] Polar Coordinates: rectangular-to-polar / polar-to-rectangular
+- [x] **Distort category:**
+  - [x] Ripple: `amount`, size (small/medium/large)
+  - [x] Twirl: `angle`
+  - [x] Offset: `horizontal`, `vertical`, wrap/repeat/fold edges
+  - [x] Polar Coordinates: rectangular-to-polar / polar-to-rectangular
   - [ ] Lens Correction: remove distortion, chromatic aberration, vignette, perspective
 - [x] **Stylize category:**
   - [x] Emboss: `angle`, `height`, `amount`
