@@ -89,6 +89,10 @@ export enum CommandID {
   Fill = 0x0414,
   ApplyGradient = 0x0415,
 
+  // Phase 5.4: Filters
+  ApplyFilter = 0x0500,
+  ReapplyFilter = 0x0501,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,

@@ -209,6 +209,153 @@ func TestApplyFilterNonPixelLayerReturnsError(t *testing.T) {
 	}
 }
 
+func TestDispatchApplyFilterWithUndo(t *testing.T) {
+	// Register a test invert filter.
+	invertDef := FilterDef{ID: "dispatch-invert", Name: "Dispatch Invert", Category: FilterCategoryOther}
+	RegisterFilter(invertDef, func(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+		for i := 0; i < w*h*4; i += 4 {
+			pixels[i+0] = 255 - pixels[i+0] // R
+			pixels[i+1] = 255 - pixels[i+1] // G
+			pixels[i+2] = 255 - pixels[i+2] // B
+		}
+		return nil
+	})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "dispatch-invert"}, nil) })
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	// Add a 2x2 pixel layer filled with red.
+	redPixels := make([]byte, 2*2*4)
+	for i := 0; i < len(redPixels); i += 4 {
+		redPixels[i+0] = 255 // R
+		redPixels[i+1] = 0   // G
+		redPixels[i+2] = 0   // B
+		redPixels[i+3] = 255 // A
+	}
+	_, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: "pixel",
+		Name:      "red-layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    redPixels,
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+
+	// Apply the invert filter via dispatch.
+	_, err = DispatchCommand(h, commandApplyFilter, mustJSON(t, ApplyFilterPayload{
+		FilterID: "dispatch-invert",
+	}))
+	if err != nil {
+		t.Fatalf("apply filter: %v", err)
+	}
+
+	// Verify pixels are now cyan (0, 255, 255, 255).
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	doc := inst.manager.Active()
+	pl := doc.findLayer(doc.ActiveLayerID).(*PixelLayer)
+	for i := 0; i < len(pl.Pixels); i += 4 {
+		if pl.Pixels[i+0] != 0 || pl.Pixels[i+1] != 255 || pl.Pixels[i+2] != 255 {
+			t.Fatalf("pixel[%d] after invert = [%d,%d,%d], want [0,255,255]",
+				i/4, pl.Pixels[i+0], pl.Pixels[i+1], pl.Pixels[i+2])
+		}
+	}
+
+	// Undo and verify pixels are restored to red.
+	_, err = DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+
+	mu.Lock()
+	inst = instances[h]
+	mu.Unlock()
+	doc = inst.manager.Active()
+	pl = doc.findLayer(doc.ActiveLayerID).(*PixelLayer)
+	for i := 0; i < len(pl.Pixels); i += 4 {
+		if pl.Pixels[i+0] != 255 || pl.Pixels[i+1] != 0 || pl.Pixels[i+2] != 0 {
+			t.Fatalf("pixel[%d] after undo = [%d,%d,%d], want [255,0,0]",
+				i/4, pl.Pixels[i+0], pl.Pixels[i+1], pl.Pixels[i+2])
+		}
+	}
+}
+
+func TestDispatchReapplyFilter(t *testing.T) {
+	// Register a test invert filter.
+	invertDef := FilterDef{ID: "reapply-invert", Name: "Reapply Invert", Category: FilterCategoryOther}
+	RegisterFilter(invertDef, func(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+		for i := 0; i < w*h*4; i += 4 {
+			pixels[i+0] = 255 - pixels[i+0]
+			pixels[i+1] = 255 - pixels[i+1]
+			pixels[i+2] = 255 - pixels[i+2]
+		}
+		return nil
+	})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "reapply-invert"}, nil) })
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	// Add a 2x2 pixel layer filled with red.
+	redPixels := make([]byte, 2*2*4)
+	for i := 0; i < len(redPixels); i += 4 {
+		redPixels[i+0] = 255
+		redPixels[i+1] = 0
+		redPixels[i+2] = 0
+		redPixels[i+3] = 255
+	}
+	_, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: "pixel",
+		Name:      "red-layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+		Pixels:    redPixels,
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+
+	// Apply the invert filter (red -> cyan).
+	_, err = DispatchCommand(h, commandApplyFilter, mustJSON(t, ApplyFilterPayload{
+		FilterID: "reapply-invert",
+	}))
+	if err != nil {
+		t.Fatalf("apply filter: %v", err)
+	}
+
+	// Reapply the same filter (cyan -> red again via double invert).
+	_, err = DispatchCommand(h, commandReapplyFilter, "")
+	if err != nil {
+		t.Fatalf("reapply filter: %v", err)
+	}
+
+	// Verify pixels are back to red.
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	doc := inst.manager.Active()
+	pl := doc.findLayer(doc.ActiveLayerID).(*PixelLayer)
+	for i := 0; i < len(pl.Pixels); i += 4 {
+		if pl.Pixels[i+0] != 255 || pl.Pixels[i+1] != 0 || pl.Pixels[i+2] != 0 {
+			t.Fatalf("pixel[%d] after double invert = [%d,%d,%d], want [255,0,0]",
+				i/4, pl.Pixels[i+0], pl.Pixels[i+1], pl.Pixels[i+2])
+		}
+	}
+}
+
+func TestDispatchReapplyFilterWithoutPriorFilter(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	// ReapplyFilter without a prior ApplyFilter should return an error.
+	_, err := DispatchCommand(h, commandReapplyFilter, "")
+	if err == nil {
+		t.Fatal("expected error for reapply without prior filter, got nil")
+	}
+}
+
 func TestFilterRegistryDeregister(t *testing.T) {
 	def := FilterDef{
 		ID:       "sharpen-test",
