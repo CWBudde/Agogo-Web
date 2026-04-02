@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -73,6 +74,54 @@ func lookupFilter(id string) *registeredFilter {
 	defer filterRegistry.RUnlock()
 
 	return filterRegistry.entries[key]
+}
+
+// ApplyFilter applies a registered filter to the pixel layer identified by layerID.
+// The document's selection (if any) is converted into a per-pixel alpha mask
+// clipped to the layer's bounds and passed to the filter function.
+func (doc *Document) ApplyFilter(layerID, filterID string, params json.RawMessage) error {
+	node := doc.findLayer(layerID)
+	if node == nil {
+		return fmt.Errorf("apply filter: layer %q not found", layerID)
+	}
+
+	pl, ok := node.(*PixelLayer)
+	if !ok {
+		return fmt.Errorf("apply filter: layer %q is %s, not a pixel layer", layerID, node.LayerType())
+	}
+
+	rf := lookupFilter(filterID)
+	if rf == nil {
+		return fmt.Errorf("apply filter: unknown filter %q", filterID)
+	}
+
+	selMask := doc.selectionMaskForLayer(pl)
+
+	if err := rf.Fn(pl.Pixels, pl.Bounds.W, pl.Bounds.H, selMask, params); err != nil {
+		return fmt.Errorf("apply filter %q: %w", filterID, err)
+	}
+
+	doc.ContentVersion++
+	doc.touchModifiedAt()
+	return nil
+}
+
+// selectionMaskForLayer extracts a single-channel alpha mask from the document's
+// selection, clipped to the given pixel layer's bounds. Returns nil when there
+// is no active selection (meaning the filter should affect the entire layer).
+func (doc *Document) selectionMaskForLayer(pl *PixelLayer) []byte {
+	if doc.Selection == nil || len(doc.Selection.Mask) == 0 {
+		return nil
+	}
+
+	w, h := pl.Bounds.W, pl.Bounds.H
+	mask := make([]byte, w*h)
+	for y := range h {
+		for x := range w {
+			mask[y*w+x] = selectionAlphaAt(doc.Selection, pl.Bounds.X+x, pl.Bounds.Y+y)
+		}
+	}
+	return mask
 }
 
 func normalizeFilterID(id string) string {
