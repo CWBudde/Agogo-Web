@@ -379,3 +379,304 @@ func TestFilterRegistryDeregister(t *testing.T) {
 		t.Errorf("expected nil after deregister, got %+v", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Filter Preview tests
+// ---------------------------------------------------------------------------
+
+func registerTestInvertFilter(t *testing.T, id string) {
+	t.Helper()
+	RegisterFilter(FilterDef{ID: id, Name: "Test Invert " + id, Category: FilterCategoryOther},
+		func(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+			for i := 0; i < w*h*4; i += 4 {
+				pixels[i+0] = 255 - pixels[i+0]
+				pixels[i+1] = 255 - pixels[i+1]
+				pixels[i+2] = 255 - pixels[i+2]
+			}
+			return nil
+		})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: id}, nil) })
+}
+
+func addRedPixelLayer(t *testing.T, h int32) {
+	t.Helper()
+	redPixels := make([]byte, 4*4*4)
+	for i := 0; i < len(redPixels); i += 4 {
+		redPixels[i] = 255
+		redPixels[i+3] = 255
+	}
+	_, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: "pixel",
+		Name:      "red-layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    redPixels,
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+}
+
+func getActivePixelLayer(t *testing.T, h int32) *PixelLayer {
+	t.Helper()
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	doc := inst.manager.Active()
+	return doc.findLayer(doc.ActiveLayerID).(*PixelLayer)
+}
+
+func TestPreviewFilterAppliesWithoutUndo(t *testing.T) {
+	registerTestInvertFilter(t, "preview-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// Preview the filter.
+	_, err := DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "preview-invert",
+		Scale:    1,
+	}))
+	if err != nil {
+		t.Fatalf("preview filter: %v", err)
+	}
+
+	// Pixels should be inverted (cyan).
+	pl := getActivePixelLayer(t, h)
+	if pl.Pixels[0] != 0 || pl.Pixels[1] != 255 || pl.Pixels[2] != 255 {
+		t.Errorf("preview should invert: got [%d,%d,%d]", pl.Pixels[0], pl.Pixels[1], pl.Pixels[2])
+	}
+}
+
+func TestPreviewFilterRestoresOnCancel(t *testing.T) {
+	registerTestInvertFilter(t, "cancel-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// Preview.
+	_, err := DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "cancel-invert",
+		Scale:    1,
+	}))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	// Cancel.
+	_, err = DispatchCommand(h, commandCancelFilterPreview, "")
+	if err != nil {
+		t.Fatalf("cancel preview: %v", err)
+	}
+
+	// Pixels should be restored to red.
+	pl := getActivePixelLayer(t, h)
+	if pl.Pixels[0] != 255 || pl.Pixels[1] != 0 || pl.Pixels[2] != 0 {
+		t.Errorf("cancel should restore red: got [%d,%d,%d]", pl.Pixels[0], pl.Pixels[1], pl.Pixels[2])
+	}
+}
+
+func TestPreviewFilterUpdatesOnParamChange(t *testing.T) {
+	// Register a filter that reads a param to decide behavior.
+	RegisterFilter(FilterDef{ID: "param-filter", Name: "Param Filter", Category: FilterCategoryOther},
+		func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+			var p struct{ Value byte `json:"value"` }
+			if params != nil {
+				_ = json.Unmarshal(params, &p)
+			}
+			for i := 0; i < len(pixels); i += 4 {
+				pixels[i] = p.Value
+			}
+			return nil
+		})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "param-filter"}, nil) })
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// First preview with value=50.
+	params1, _ := json.Marshal(map[string]any{"value": 50})
+	_, err := DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "param-filter",
+		Scale:    1,
+		Params:   params1,
+	}))
+	if err != nil {
+		t.Fatalf("preview 1: %v", err)
+	}
+	pl := getActivePixelLayer(t, h)
+	if pl.Pixels[0] != 50 {
+		t.Errorf("first preview: R=%d, want 50", pl.Pixels[0])
+	}
+
+	// Second preview with value=100 — should restore from original first.
+	params2, _ := json.Marshal(map[string]any{"value": 100})
+	_, err = DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "param-filter",
+		Scale:    1,
+		Params:   params2,
+	}))
+	if err != nil {
+		t.Fatalf("preview 2: %v", err)
+	}
+	pl = getActivePixelLayer(t, h)
+	if pl.Pixels[0] != 100 {
+		t.Errorf("second preview: R=%d, want 100", pl.Pixels[0])
+	}
+}
+
+func TestPreviewFilterReducedResolution(t *testing.T) {
+	registerTestInvertFilter(t, "scale-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// Preview at scale=2 (half resolution).
+	_, err := DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "scale-invert",
+		Scale:    2,
+	}))
+	if err != nil {
+		t.Fatalf("preview scaled: %v", err)
+	}
+
+	// Pixels should be modified (inverted, though at lower quality).
+	pl := getActivePixelLayer(t, h)
+	// Due to upscaling, values won't be exact cyan but should be clearly not red.
+	if pl.Pixels[0] > 128 {
+		t.Errorf("scaled preview should invert away from red: R=%d", pl.Pixels[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Filter Fade tests
+// ---------------------------------------------------------------------------
+
+func TestFadeFilterBlends(t *testing.T) {
+	registerTestInvertFilter(t, "fade-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// Apply invert: red → cyan.
+	_, err := DispatchCommand(h, commandApplyFilter, mustJSON(t, ApplyFilterPayload{
+		FilterID: "fade-invert",
+	}))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	// Fade at 50% opacity, normal blend.
+	_, err = DispatchCommand(h, commandFadeFilter, mustJSON(t, FadeFilterPayload{
+		Opacity:   50,
+		BlendMode: BlendModeNormal,
+	}))
+	if err != nil {
+		t.Fatalf("fade: %v", err)
+	}
+
+	// Result should be ~50% between red (255,0,0) and cyan (0,255,255).
+	pl := getActivePixelLayer(t, h)
+	r := pl.Pixels[0]
+	g := pl.Pixels[1]
+	// Allow tolerance for rounding.
+	if r < 100 || r > 160 {
+		t.Errorf("faded R=%d, expected ~128", r)
+	}
+	if g < 100 || g > 160 {
+		t.Errorf("faded G=%d, expected ~128", g)
+	}
+}
+
+func TestFadeFilterWithoutPriorFilter(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	_, err := DispatchCommand(h, commandFadeFilter, mustJSON(t, FadeFilterPayload{
+		Opacity: 50,
+	}))
+	if err == nil {
+		t.Fatal("expected error for fade without prior filter")
+	}
+}
+
+func TestFadeFilterZeroOpacity(t *testing.T) {
+	registerTestInvertFilter(t, "fade-zero-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// Apply invert: red → cyan.
+	_, err := DispatchCommand(h, commandApplyFilter, mustJSON(t, ApplyFilterPayload{
+		FilterID: "fade-zero-invert",
+	}))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	// Fade at 0% opacity should restore to original red.
+	_, err = DispatchCommand(h, commandFadeFilter, mustJSON(t, FadeFilterPayload{
+		Opacity:   0,
+		BlendMode: BlendModeNormal,
+	}))
+	if err != nil {
+		t.Fatalf("fade: %v", err)
+	}
+
+	pl := getActivePixelLayer(t, h)
+	if pl.Pixels[0] != 255 || pl.Pixels[1] != 0 || pl.Pixels[2] != 0 {
+		t.Errorf("fade 0%% should restore red: got [%d,%d,%d]", pl.Pixels[0], pl.Pixels[1], pl.Pixels[2])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Smart Filter placeholder test
+// ---------------------------------------------------------------------------
+
+func TestApplyFilterToNonPixelLayerShowsSmartFilterHint(t *testing.T) {
+	registerTestInvertFilter(t, "smart-hint-invert")
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	// Add an adjustment layer.
+	_, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:      "adjustment",
+		Name:           "levels-adj",
+		AdjustmentKind: "levels",
+	}))
+	if err != nil {
+		t.Fatalf("add adjustment layer: %v", err)
+	}
+
+	// Try to apply filter to the adjustment layer.
+	_, err = DispatchCommand(h, commandApplyFilter, mustJSON(t, ApplyFilterPayload{
+		FilterID: "smart-hint-invert",
+	}))
+	if err == nil {
+		t.Fatal("expected error for non-pixel layer")
+	}
+	// Error should mention Smart Filters / Phase 7.
+	errMsg := err.Error()
+	if !containsSubstring(errMsg, "pixel layer") {
+		t.Errorf("error should mention pixel layer requirement: %s", errMsg)
+	}
+}
+
+func containsSubstring(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && searchSubstring(s, sub))
+}
+
+func searchSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

@@ -94,6 +94,10 @@ const (
 	commandApplyGradient            = 0x0415
 	commandApplyFilter              = 0x0500
 	commandReapplyFilter            = 0x0501
+	commandPreviewFilter            = 0x0502
+	commandCancelFilterPreview      = 0x0503
+	commandCommitFilterPreview      = 0x0504
+	commandFadeFilter               = 0x0505
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -799,6 +803,11 @@ type instance struct {
 	// lastFilter records the most recently applied destructive filter so
 	// that ReapplyFilter can replay it on the active layer.
 	lastFilter *lastFilterState
+	// filterPreview holds the live preview state while a filter dialog is open.
+	filterPreview *filterPreviewState
+	// preFadeSnapshot stores pixel data before the last filter was applied,
+	// enabling Filter > Fade to blend the result back with the original.
+	preFadeSnapshot *fadeSnapshot
 }
 
 var (
@@ -935,7 +944,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			// selection/paint handlers generally fall through to the normal render.
 		}
 
-	case commandApplyFilter, commandReapplyFilter:
+	case commandApplyFilter, commandReapplyFilter, commandPreviewFilter,
+		commandCancelFilterPreview, commandCommitFilterPreview, commandFadeFilter:
 		if handled, err := inst.dispatchFilterCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err

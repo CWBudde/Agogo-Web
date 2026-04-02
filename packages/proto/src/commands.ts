@@ -92,6 +92,10 @@ export enum CommandID {
   // Phase 5.4: Filters
   ApplyFilter = 0x0500,
   ReapplyFilter = 0x0501,
+  PreviewFilter = 0x0502,
+  CancelFilterPreview = 0x0503,
+  CommitFilterPreview = 0x0504,
+  FadeFilter = 0x0505,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
