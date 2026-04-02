@@ -893,12 +893,12 @@
   - [x] Category menu structure: Blur, Sharpen, Noise, Distort, Stylize, Render, Other
 - [x] Filter dialog system:
   - [x] Immediate filters: apply directly (e.g. Invert)
-  - [ ] Dialog filters: open parameter dialog with live preview before committing
-  - [ ] Preview: backend renders filter preview at reduced resolution for speed
+  - [x] Dialog filters: open parameter dialog with live preview before committing
+  - [x] Preview: backend renders filter preview at reduced resolution for speed
   - [x] "Last Filter" shortcut (`Ctrl+F`) to re-apply last used filter with same params
-  - [ ] `Filter > Fade` after applying: blend filtered result with original (opacity + blend mode)
+  - [x] `Filter > Fade` after applying: blend filtered result with original (opacity + blend mode)
 - [x] Filter applied destructively to pixel layer (vs Smart Filter on Smart Objects — Phase 7+)
-- [ ] Smart Filter placeholder: if layer is Smart Object, filter is stored non-destructively in style stack
+- [x] Smart Filter placeholder: if layer is Smart Object, filter is stored non-destructively in style stack
 
 ### Phase 5.5: Core Filters
 
