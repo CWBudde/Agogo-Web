@@ -142,6 +142,48 @@ func init() {
 		Category:  FilterCategoryDistort,
 		HasDialog: true,
 	}, filterPolarCoordinates)
+
+	RegisterFilter(FilterDef{
+		ID:        "motion-blur",
+		Name:      "Motion Blur",
+		Category:  FilterCategoryBlur,
+		HasDialog: true,
+	}, filterMotionBlur)
+
+	RegisterFilter(FilterDef{
+		ID:        "radial-blur",
+		Name:      "Radial Blur",
+		Category:  FilterCategoryBlur,
+		HasDialog: true,
+	}, filterRadialBlur)
+
+	RegisterFilter(FilterDef{
+		ID:        "surface-blur",
+		Name:      "Surface Blur",
+		Category:  FilterCategoryBlur,
+		HasDialog: true,
+	}, filterSurfaceBlur)
+
+	RegisterFilter(FilterDef{
+		ID:        "smart-sharpen",
+		Name:      "Smart Sharpen",
+		Category:  FilterCategorySharpen,
+		HasDialog: true,
+	}, filterSmartSharpen)
+
+	RegisterFilter(FilterDef{
+		ID:        "reduce-noise",
+		Name:      "Reduce Noise",
+		Category:  FilterCategoryNoise,
+		HasDialog: true,
+	}, filterReduceNoise)
+
+	RegisterFilter(FilterDef{
+		ID:        "lens-correction",
+		Name:      "Lens Correction",
+		Category:  FilterCategoryDistort,
+		HasDialog: true,
+	}, filterLensCorrection)
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,6 +1104,502 @@ func filterPolarCoordinates(pixels []byte, w, h int, selMask []byte, params json
 		sx := angle / (2 * math.Pi) * float64(w)
 		sy := radius / maxRadius * float64(h)
 		return bilinearSample(orig, sx, sy, w, h)
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Motion Blur
+// ---------------------------------------------------------------------------
+
+type motionBlurParams struct {
+	Angle    int `json:"angle"`    // degrees, 0-360
+	Distance int `json:"distance"` // pixels
+}
+
+func filterMotionBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p motionBlurParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Distance <= 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	rad := float64(p.Angle) * math.Pi / 180.0
+	dx := math.Cos(rad)
+	dy := math.Sin(rad)
+	dist := p.Distance
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		px := (i / 4) % w
+		py := (i / 4) / w
+		var sumR, sumG, sumB float64
+		count := 0
+		for s := -dist; s <= dist; s++ {
+			sx := float64(px) + float64(s)*dx
+			sy := float64(py) + float64(s)*dy
+			ix := int(math.Round(sx))
+			iy := int(math.Round(sy))
+			if ix < 0 {
+				ix = 0
+			} else if ix >= w {
+				ix = w - 1
+			}
+			if iy < 0 {
+				iy = 0
+			} else if iy >= h {
+				iy = h - 1
+			}
+			si := (iy*w + ix) * 4
+			sumR += float64(orig[si])
+			sumG += float64(orig[si+1])
+			sumB += float64(orig[si+2])
+			count++
+		}
+		inv := 1.0 / float64(count)
+		return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Radial Blur (spin / zoom)
+// ---------------------------------------------------------------------------
+
+type radialBlurParams struct {
+	Type    string `json:"type"`    // "spin" or "zoom"
+	Amount  int    `json:"amount"`  // 1-100
+	Quality int    `json:"quality"` // 1 (draft) to 3 (best), controls sample count
+}
+
+func filterRadialBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p radialBlurParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Amount <= 0 {
+		return nil
+	}
+	if p.Quality <= 0 {
+		p.Quality = 1
+	}
+
+	orig := append([]byte(nil), pixels...)
+	cx := float64(w) / 2
+	cy := float64(h) / 2
+
+	// Sample count scales with quality: 8, 16, 32.
+	samples := 8 << (p.Quality - 1)
+	if samples > 32 {
+		samples = 32
+	}
+
+	if p.Type == "zoom" {
+		// Zoom blur: sample along radial line from center through pixel.
+		scale := float64(p.Amount) / 100.0 * 0.2 // max 20% zoom range
+		applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+			px := (i / 4) % w
+			py := (i / 4) / w
+			var sumR, sumG, sumB float64
+			for s := range samples {
+				t := -scale/2 + scale*float64(s)/float64(samples-1)
+				sx := cx + (float64(px)-cx)*(1+t)
+				sy := cy + (float64(py)-cy)*(1+t)
+				r, g, b := bilinearSample(orig, sx, sy, w, h)
+				sumR += float64(r)
+				sumG += float64(g)
+				sumB += float64(b)
+			}
+			inv := 1.0 / float64(samples)
+			return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+		})
+	} else {
+		// Spin blur: sample along arc around center.
+		maxAngle := float64(p.Amount) / 100.0 * math.Pi / 4 // max 45 degrees
+		applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+			px := (i / 4) % w
+			py := (i / 4) / w
+			dx := float64(px) - cx
+			dy := float64(py) - cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			baseAngle := math.Atan2(dy, dx)
+			var sumR, sumG, sumB float64
+			for s := range samples {
+				a := baseAngle - maxAngle/2 + maxAngle*float64(s)/float64(samples-1)
+				sx := cx + dist*math.Cos(a)
+				sy := cy + dist*math.Sin(a)
+				r, g, b := bilinearSample(orig, sx, sy, w, h)
+				sumR += float64(r)
+				sumG += float64(g)
+				sumB += float64(b)
+			}
+			inv := 1.0 / float64(samples)
+			return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+		})
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Surface Blur (edge-preserving)
+// ---------------------------------------------------------------------------
+
+type surfaceBlurParams struct {
+	Radius    int `json:"radius"`    // 1-100
+	Threshold int `json:"threshold"` // 0-255
+}
+
+func filterSurfaceBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p surfaceBlurParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 || p.Threshold <= 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	result := make([]byte, len(pixels))
+	copy(result, pixels)
+	thresh := float64(p.Threshold)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			ci := (y*w + x) * 4
+			cr, cg, cb := float64(orig[ci]), float64(orig[ci+1]), float64(orig[ci+2])
+			var sumR, sumG, sumB, sumW float64
+
+			for ky := -p.Radius; ky <= p.Radius; ky++ {
+				for kx := -p.Radius; kx <= p.Radius; kx++ {
+					nr := float64(clampedSample(orig, x+kx, y+ky, 0, w, h))
+					ng := float64(clampedSample(orig, x+kx, y+ky, 1, w, h))
+					nb := float64(clampedSample(orig, x+kx, y+ky, 2, w, h))
+
+					// Weight based on color similarity — large difference = low weight.
+					diff := (math.Abs(nr-cr) + math.Abs(ng-cg) + math.Abs(nb-cb)) / 3
+					if diff > thresh {
+						continue
+					}
+					weight := 1.0 - diff/thresh
+					sumR += nr * weight
+					sumG += ng * weight
+					sumB += nb * weight
+					sumW += weight
+				}
+			}
+
+			if sumW > 0 {
+				result[ci] = clamp8(sumR / sumW)
+				result[ci+1] = clamp8(sumG / sumW)
+				result[ci+2] = clamp8(sumB / sumW)
+			}
+			result[ci+3] = orig[ci+3]
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return result[i], result[i+1], result[i+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Smart Sharpen
+// ---------------------------------------------------------------------------
+
+type smartSharpenParams struct {
+	Amount        int    `json:"amount"`         // 1-500 percent
+	Radius        int    `json:"radius"`          // 1-64
+	Remove        string `json:"remove"`          // "gaussian", "lens", "motion"
+	Angle         int    `json:"angle"`           // for motion remove only
+	ShadowFade    int    `json:"shadow_fade"`     // 0-100, reduce sharpening in shadows
+	HighlightFade int    `json:"highlight_fade"`  // 0-100, reduce sharpening in highlights
+}
+
+func filterSmartSharpen(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p smartSharpenParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 || p.Amount <= 0 {
+		return nil
+	}
+
+	// Create blurred version using the selected blur type.
+	blurred := append([]byte(nil), pixels...)
+
+	switch p.Remove {
+	case "motion":
+		// Use motion blur kernel for deconvolution-style sharpening.
+		_ = filterMotionBlur(blurred, w, h, nil, marshalFilterParams(motionBlurParams{
+			Angle:    p.Angle,
+			Distance: p.Radius,
+		}))
+	case "lens":
+		// Lens blur approximation: use box blur (more uniform than gaussian).
+		_ = filterBoxBlur(blurred, w, h, nil, marshalFilterParams(boxBlurParams{
+			Radius: p.Radius,
+		}))
+	default:
+		// Gaussian (default).
+		sb := agglib.NewStackBlur()
+		sb.BlurRGBA8(blurred, w, h, p.Radius)
+	}
+
+	amt := float64(p.Amount) / 100.0
+	shadowFade := float64(p.ShadowFade) / 100.0
+	highlightFade := float64(p.HighlightFade) / 100.0
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		r, g, b := float64(pixels[i]), float64(pixels[i+1]), float64(pixels[i+2])
+		br, bg, bb := float64(blurred[i]), float64(blurred[i+1]), float64(blurred[i+2])
+
+		// Luminance for fade calculation (BT.709).
+		lum := (r*0.2126 + g*0.7152 + b*0.0722) / 255.0
+
+		// Reduce sharpening in shadows and highlights.
+		fadeAmount := amt
+		if shadowFade > 0 && lum < 0.5 {
+			fade := shadowFade * (1 - lum*2) // stronger fade in deeper shadows
+			fadeAmount *= (1 - fade)
+		}
+		if highlightFade > 0 && lum > 0.5 {
+			fade := highlightFade * ((lum - 0.5) * 2) // stronger fade in brighter highlights
+			fadeAmount *= (1 - fade)
+		}
+
+		nr := clamp8(r + fadeAmount*(r-br))
+		ng := clamp8(g + fadeAmount*(g-bg))
+		nb := clamp8(b + fadeAmount*(b-bb))
+		return nr, ng, nb
+	})
+	return nil
+}
+
+// marshalFilterParams marshals v to JSON, panicking on failure (only used for internal filter params).
+func marshalFilterParams(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// ---------------------------------------------------------------------------
+// Reduce Noise
+// ---------------------------------------------------------------------------
+
+type reduceNoiseParams struct {
+	Strength        int  `json:"strength"`         // 0-10
+	PreserveDetails int  `json:"preserve_details"`  // 0-100 percent
+	ReduceColorNoise int `json:"reduce_color_noise"` // 0-100 percent
+	SharpenDetails  int  `json:"sharpen_details"`    // 0-100 percent
+}
+
+func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p reduceNoiseParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Strength <= 0 {
+		return nil
+	}
+
+	// Step 1: Luminance denoising via edge-aware bilateral-style filter.
+	// Use strength as radius, preserve_details controls edge threshold.
+	radius := p.Strength
+	if radius > 5 {
+		radius = 5 // cap for performance
+	}
+	edgeThresh := float64(25 + (100-p.PreserveDetails)*2) // higher preserve = lower threshold = less blur
+
+	orig := append([]byte(nil), pixels...)
+	denoised := make([]byte, len(pixels))
+	copy(denoised, pixels)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			ci := (y*w + x) * 4
+			cr, cg, cb := float64(orig[ci]), float64(orig[ci+1]), float64(orig[ci+2])
+			var sumR, sumG, sumB, sumW float64
+
+			for ky := -radius; ky <= radius; ky++ {
+				for kx := -radius; kx <= radius; kx++ {
+					nr := float64(clampedSample(orig, x+kx, y+ky, 0, w, h))
+					ng := float64(clampedSample(orig, x+kx, y+ky, 1, w, h))
+					nb := float64(clampedSample(orig, x+kx, y+ky, 2, w, h))
+
+					diff := (math.Abs(nr-cr) + math.Abs(ng-cg) + math.Abs(nb-cb)) / 3
+					weight := math.Exp(-(diff * diff) / (2 * edgeThresh * edgeThresh))
+					sumR += nr * weight
+					sumG += ng * weight
+					sumB += nb * weight
+					sumW += weight
+				}
+			}
+
+			if sumW > 0 {
+				denoised[ci] = clamp8(sumR / sumW)
+				denoised[ci+1] = clamp8(sumG / sumW)
+				denoised[ci+2] = clamp8(sumB / sumW)
+			}
+			denoised[ci+3] = orig[ci+3]
+		}
+	}
+
+	// Step 2: Color noise reduction — blur chroma while keeping luminance.
+	if p.ReduceColorNoise > 0 {
+		chromaStrength := float64(p.ReduceColorNoise) / 100.0
+		// Simple approach: blend each pixel's color toward the local luminance-weighted average.
+		for i := 0; i < len(denoised); i += 4 {
+			r, g, b := float64(denoised[i]), float64(denoised[i+1]), float64(denoised[i+2])
+			lum := r*0.2126 + g*0.7152 + b*0.0722
+			denoised[i] = clamp8(r + chromaStrength*(lum-r))
+			denoised[i+1] = clamp8(g + chromaStrength*(lum-g))
+			denoised[i+2] = clamp8(b + chromaStrength*(lum-b))
+		}
+	}
+
+	// Step 3: Sharpen details — apply mild unsharp mask to denoised result.
+	if p.SharpenDetails > 0 {
+		sharpAmt := float64(p.SharpenDetails) / 100.0 * 0.5 // mild
+		blurred := append([]byte(nil), denoised...)
+		sb := agglib.NewStackBlur()
+		sb.BlurRGBA8(blurred, w, h, 1)
+		for i := 0; i < len(denoised); i += 4 {
+			denoised[i] = clamp8(float64(denoised[i]) + sharpAmt*float64(int(denoised[i])-int(blurred[i])))
+			denoised[i+1] = clamp8(float64(denoised[i+1]) + sharpAmt*float64(int(denoised[i+1])-int(blurred[i+1])))
+			denoised[i+2] = clamp8(float64(denoised[i+2]) + sharpAmt*float64(int(denoised[i+2])-int(blurred[i+2])))
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return denoised[i], denoised[i+1], denoised[i+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Lens Correction
+// ---------------------------------------------------------------------------
+
+type lensCorrectionParams struct {
+	Distortion          float64 `json:"distortion"`            // -100 to +100
+	ChromaticAberration float64 `json:"chromatic_aberration"`  // 0-100 (fringe offset in pixels)
+	Vignette            float64 `json:"vignette"`              // -100 to +100
+	PerspectiveV        float64 `json:"perspective_vertical"`  // -100 to +100
+	PerspectiveH        float64 `json:"perspective_horizontal"` // -100 to +100
+}
+
+func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p lensCorrectionParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Distortion == 0 && p.ChromaticAberration == 0 && p.Vignette == 0 &&
+		p.PerspectiveV == 0 && p.PerspectiveH == 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	result := make([]byte, len(pixels))
+	// Initialize to transparent black.
+	for i := 3; i < len(result); i += 4 {
+		result[i] = 255
+	}
+
+	cx := float64(w) / 2
+	cy := float64(h) / 2
+	maxR := math.Sqrt(cx*cx + cy*cy)
+	distK := p.Distortion / 100.0 * 0.5 // barrel/pincushion coefficient
+	caOffset := p.ChromaticAberration / 100.0 * 3.0 // max 3px fringe
+	vigAmount := p.Vignette / 100.0
+	perspH := p.PerspectiveH / 100.0 * 0.3
+	perspV := p.PerspectiveV / 100.0 * 0.3
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			di := (y*w + x) * 4
+
+			// Normalized coordinates [-1, 1].
+			nx := (float64(x) - cx) / cx
+			ny := (float64(y) - cy) / cy
+
+			// Perspective correction.
+			if perspH != 0 || perspV != 0 {
+				nx *= 1.0 + perspH*ny
+				ny *= 1.0 + perspV*nx
+			}
+
+			// Barrel/pincushion distortion.
+			r2 := nx*nx + ny*ny
+			distFactor := 1.0 + distK*r2
+
+			// Green channel (reference).
+			gx := cx + nx*distFactor*cx
+			gy := cy + ny*distFactor*cy
+			_, gVal, _ := bilinearSample(orig, gx, gy, w, h)
+
+			if caOffset != 0 {
+				// Red and blue channels with chromatic aberration offset.
+				caFactor := caOffset * math.Sqrt(r2) / maxR
+				rDistFactor := distFactor * (1.0 + caFactor*0.01)
+				bDistFactor := distFactor * (1.0 - caFactor*0.01)
+
+				rx := cx + nx*rDistFactor*cx
+				ry := cy + ny*rDistFactor*cy
+				rVal, _, _ := bilinearSample(orig, rx, ry, w, h)
+
+				bx := cx + nx*bDistFactor*cx
+				by := cy + ny*bDistFactor*cy
+				_, _, bVal := bilinearSample(orig, bx, by, w, h)
+
+				result[di] = rVal
+				result[di+1] = gVal
+				result[di+2] = bVal
+			} else {
+				rVal, _, bVal := bilinearSample(orig, gx, gy, w, h)
+				result[di] = rVal
+				result[di+1] = gVal
+				result[di+2] = bVal
+			}
+
+			// Vignette.
+			if vigAmount != 0 {
+				dist := math.Sqrt(r2)
+				// Cosine-based vignette falloff.
+				vig := 1.0 - vigAmount*dist*dist
+				if vig < 0 {
+					vig = 0
+				}
+				if vig > 2 {
+					vig = 2
+				}
+				result[di] = clamp8(float64(result[di]) * vig)
+				result[di+1] = clamp8(float64(result[di+1]) * vig)
+				result[di+2] = clamp8(float64(result[di+2]) * vig)
+			}
+
+			result[di+3] = orig[di+3]
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return result[i], result[i+1], result[i+2]
 	})
 	return nil
 }

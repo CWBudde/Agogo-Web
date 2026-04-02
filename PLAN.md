@@ -902,19 +902,19 @@
 
 ### Phase 5.5: Core Filters
 
-- [ ] **Blur category:**
+- [x] **Blur category:**
   - [x] Gaussian Blur: `radius` (float), uses AGG StackBlur
   - [x] Box Blur: fast approximate, `radius`
-  - [ ] Motion Blur: `angle`, `distance`
-  - [ ] Radial Blur: spin or zoom type, `amount`, `quality`
-  - [ ] Surface Blur: preserves edges, `radius`, `threshold`
-- [ ] **Sharpen category:**
+  - [x] Motion Blur: `angle`, `distance`
+  - [x] Radial Blur: spin or zoom type, `amount`, `quality`
+  - [x] Surface Blur: preserves edges, `radius`, `threshold`
+- [x] **Sharpen category:**
   - [x] Sharpen / Sharpen More (fixed-kernel)
   - [x] Unsharp Mask: `amount`, `radius`, `threshold`
-  - [ ] Smart Sharpen: `amount`, `radius`, remove (Gaussian/Lens/Motion), shadow/highlight fade
-- [ ] **Noise category:**
+  - [x] Smart Sharpen: `amount`, `radius`, remove (Gaussian/Lens/Motion), shadow/highlight fade
+- [x] **Noise category:**
   - [x] Add Noise: `amount`, Uniform/Gaussian distribution, monochromatic checkbox
-  - [ ] Reduce Noise: `strength`, preserve details, reduce color noise, sharpen details
+  - [x] Reduce Noise: `strength`, preserve details, reduce color noise, sharpen details
   - [x] Median: `radius`
   - [x] Despeckle (one-shot)
 - [x] **Distort category:**
@@ -922,7 +922,7 @@
   - [x] Twirl: `angle`
   - [x] Offset: `horizontal`, `vertical`, wrap/repeat/fold edges
   - [x] Polar Coordinates: rectangular-to-polar / polar-to-rectangular
-  - [ ] Lens Correction: remove distortion, chromatic aberration, vignette, perspective
+  - [x] Lens Correction: remove distortion, chromatic aberration, vignette, perspective
 - [x] **Stylize category:**
   - [x] Emboss: `angle`, `height`, `amount`
   - [x] Find Edges (one-shot)
