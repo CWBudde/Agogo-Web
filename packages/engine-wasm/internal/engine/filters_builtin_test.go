@@ -1,0 +1,353 @@
+package engine
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestFilterInvert(t *testing.T) {
+	// 4 pixels: red, green (half-alpha), black, white
+	pixels := []byte{
+		255, 0, 0, 255, // red, full alpha
+		0, 255, 0, 128, // green, half alpha
+		0, 0, 0, 255, // black
+		255, 255, 255, 255, // white
+	}
+
+	err := filterInvert(pixels, 4, 1, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// red → cyan (0,255,255), alpha unchanged
+	if pixels[0] != 0 || pixels[1] != 255 || pixels[2] != 255 || pixels[3] != 255 {
+		t.Errorf("red→cyan: got %v", pixels[0:4])
+	}
+	// green → magenta (255,0,255), alpha unchanged at 128
+	if pixels[4] != 255 || pixels[5] != 0 || pixels[6] != 255 || pixels[7] != 128 {
+		t.Errorf("green→magenta: got %v", pixels[4:8])
+	}
+	// black → white
+	if pixels[8] != 255 || pixels[9] != 255 || pixels[10] != 255 || pixels[11] != 255 {
+		t.Errorf("black→white: got %v", pixels[8:12])
+	}
+	// white → black
+	if pixels[12] != 0 || pixels[13] != 0 || pixels[14] != 0 || pixels[15] != 255 {
+		t.Errorf("white→black: got %v", pixels[12:16])
+	}
+}
+
+func TestFilterInvertWithSelectionMask(t *testing.T) {
+	// 2 pixels: both red
+	pixels := []byte{
+		255, 0, 0, 255,
+		255, 0, 0, 255,
+	}
+	// First pixel fully selected, second not selected
+	selMask := []byte{255, 0}
+
+	err := filterInvert(pixels, 2, 1, selMask, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// First pixel inverted: red → cyan
+	if pixels[0] != 0 || pixels[1] != 255 || pixels[2] != 255 || pixels[3] != 255 {
+		t.Errorf("selected pixel: expected cyan, got %v", pixels[0:4])
+	}
+	// Second pixel unchanged: still red
+	if pixels[4] != 255 || pixels[5] != 0 || pixels[6] != 0 || pixels[7] != 255 {
+		t.Errorf("unselected pixel: expected red, got %v", pixels[4:8])
+	}
+}
+
+func TestFilterInvertPartialSelection(t *testing.T) {
+	// 1 pixel: white (255,255,255)
+	pixels := []byte{255, 255, 255, 255}
+	// 50% selection
+	selMask := []byte{128}
+
+	err := filterInvert(pixels, 1, 1, selMask, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Inverted target is (0,0,0). Blending white with black at 128/255 ≈ 50%.
+	// blendByte(255, 0, 128) = (255*127 + 0*128 + 127) / 255 ≈ 127
+	expected := blendByte(255, 0, 128)
+	if pixels[0] != expected || pixels[1] != expected || pixels[2] != expected {
+		t.Errorf("partial selection: expected ~%d, got %v", expected, pixels[0:3])
+	}
+	// Alpha unchanged
+	if pixels[3] != 255 {
+		t.Errorf("alpha should be unchanged, got %d", pixels[3])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gaussian Blur
+// ---------------------------------------------------------------------------
+
+func TestFilterGaussianBlur(t *testing.T) {
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for i := 3; i < len(pixels); i += 4 {
+		pixels[i] = 255
+	}
+	// Single white pixel at center.
+	idx := (2*w + 2) * 4
+	pixels[idx] = 255
+	pixels[idx+1] = 255
+	pixels[idx+2] = 255
+
+	params, _ := json.Marshal(map[string]any{"radius": 1})
+	if err := filterGaussianBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	if pixels[idx] == 255 && pixels[idx+1] == 255 && pixels[idx+2] == 255 {
+		t.Error("center pixel should have been spread by blur")
+	}
+	nIdx := (2*w + 3) * 4
+	if pixels[nIdx] == 0 && pixels[nIdx+1] == 0 && pixels[nIdx+2] == 0 {
+		t.Error("neighbour should have received blur spread")
+	}
+}
+
+func TestFilterGaussianBlurZeroRadiusIsNoop(t *testing.T) {
+	pixels := []byte{255, 0, 0, 255, 0, 255, 0, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"radius": 0})
+	if err := filterGaussianBlur(pixels, 2, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with radius 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Brightness / Contrast
+// ---------------------------------------------------------------------------
+
+func TestFilterBrightnessContrast(t *testing.T) {
+	tests := []struct {
+		name       string
+		brightness int
+		contrast   int
+		input      byte
+		wantR      byte
+		tolerance  int
+	}{
+		{"brightness +50", 50, 0, 100, 150, 1},
+		{"brightness -50", -50, 0, 100, 50, 1},
+		{"brightness clamps high", 200, 0, 200, 255, 0},
+		{"brightness clamps low", -200, 0, 50, 0, 0},
+		{"no change", 0, 0, 100, 100, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pixels := []byte{tt.input, tt.input, tt.input, 255}
+			params, _ := json.Marshal(map[string]any{
+				"brightness": tt.brightness,
+				"contrast":   tt.contrast,
+			})
+			if err := filterBrightnessContrast(pixels, 1, 1, nil, params); err != nil {
+				t.Fatal(err)
+			}
+			diff := int(pixels[0]) - int(tt.wantR)
+			if diff < -tt.tolerance || diff > tt.tolerance {
+				t.Errorf("R = %d, want ~%d (tolerance %d)", pixels[0], tt.wantR, tt.tolerance)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Unsharp Mask
+// ---------------------------------------------------------------------------
+
+func TestFilterUnsharpMask(t *testing.T) {
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if x < 3 {
+				pixels[i], pixels[i+1], pixels[i+2] = 50, 50, 50
+			} else {
+				pixels[i], pixels[i+1], pixels[i+2] = 200, 200, 200
+			}
+			pixels[i+3] = 255
+		}
+	}
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"amount": 100, "radius": 1, "threshold": 0})
+	if err := filterUnsharpMask(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check pixel right at the edge boundary (column 2, which borders 3).
+	darkIdx := (2*w + 2) * 4  // last dark column
+	brightIdx := (2*w + 3) * 4 // first bright column
+	if pixels[darkIdx] >= orig[darkIdx] {
+		t.Errorf("dark edge pixel should be darker: was %d, now %d", orig[darkIdx], pixels[darkIdx])
+	}
+	if pixels[brightIdx] <= orig[brightIdx] {
+		t.Errorf("bright edge pixel should be brighter: was %d, now %d", orig[brightIdx], pixels[brightIdx])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Add Noise
+// ---------------------------------------------------------------------------
+
+func TestFilterAddNoise(t *testing.T) {
+	w, h := 100, 100
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 128
+		pixels[i+1] = 128
+		pixels[i+2] = 128
+		pixels[i+3] = 255
+	}
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"amount": 25, "distribution": "gaussian", "monochromatic": false})
+	if err := filterAddNoise(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] || pixels[i+2] != orig[i+2] {
+			changed++
+		}
+	}
+	if changed < 100 {
+		t.Errorf("expected many changed pixels, got %d", changed)
+	}
+}
+
+func TestFilterAddNoiseMonochromatic(t *testing.T) {
+	pixels := []byte{128, 128, 128, 255}
+	params, _ := json.Marshal(map[string]any{"amount": 50, "distribution": "uniform", "monochromatic": true})
+	if err := filterAddNoise(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	dr := int(pixels[0]) - 128
+	dg := int(pixels[1]) - 128
+	db := int(pixels[2]) - 128
+	if dr != dg || dg != db {
+		t.Errorf("monochromatic noise should shift all channels equally: dr=%d dg=%d db=%d", dr, dg, db)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// High Pass
+// ---------------------------------------------------------------------------
+
+func TestFilterHighPass(t *testing.T) {
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 100
+		pixels[i+1] = 100
+		pixels[i+2] = 100
+		pixels[i+3] = 255
+	}
+
+	params, _ := json.Marshal(map[string]any{"radius": 2})
+	if err := filterHighPass(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := (2*w + 2) * 4
+	diff := int(pixels[idx]) - 128
+	if diff < -2 || diff > 2 {
+		t.Errorf("uniform area should be ~128, got %d", pixels[idx])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Emboss
+// ---------------------------------------------------------------------------
+
+func TestFilterEmboss(t *testing.T) {
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 50
+		pixels[i+1] = 50
+		pixels[i+2] = 50
+		pixels[i+3] = 255
+	}
+	idx := (1*w + 1) * 4
+	pixels[idx] = 200
+	pixels[idx+1] = 200
+	pixels[idx+2] = 200
+
+	params, _ := json.Marshal(map[string]any{"angle": 135, "height": 1, "amount": 100})
+	if err := filterEmboss(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	allSame := true
+	first := pixels[0]
+	for i := 4; i < len(pixels); i += 4 {
+		if pixels[i] != first {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		t.Error("emboss should produce varying pixel values at edges")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Solarize
+// ---------------------------------------------------------------------------
+
+func TestFilterSolarize(t *testing.T) {
+	pixels := []byte{
+		200, 200, 200, 255,
+		50, 50, 50, 255,
+	}
+	if err := filterSolarize(pixels, 2, 1, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[0] != 55 {
+		t.Errorf("R = %d, want 55 (255-200)", pixels[0])
+	}
+	if pixels[4] != 50 {
+		t.Errorf("R = %d, want 50 (unchanged)", pixels[4])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Find Edges
+// ---------------------------------------------------------------------------
+
+func TestFilterFindEdges(t *testing.T) {
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 128
+		pixels[i+1] = 128
+		pixels[i+2] = 128
+		pixels[i+3] = 255
+	}
+
+	if err := filterFindEdges(pixels, w, h, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := (1*w + 1) * 4
+	if pixels[idx] > 10 {
+		t.Errorf("uniform area edge = %d, want ~0", pixels[idx])
+	}
+}
