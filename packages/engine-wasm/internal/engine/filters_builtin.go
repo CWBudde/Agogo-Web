@@ -68,6 +68,52 @@ func init() {
 		Name:     "Find Edges",
 		Category: FilterCategoryStylize,
 	}, filterFindEdges)
+
+	RegisterFilter(FilterDef{
+		ID:        "box-blur",
+		Name:      "Box Blur",
+		Category:  FilterCategoryBlur,
+		HasDialog: true,
+	}, filterBoxBlur)
+
+	RegisterFilter(FilterDef{
+		ID:       "sharpen",
+		Name:     "Sharpen",
+		Category: FilterCategorySharpen,
+	}, filterSharpen)
+
+	RegisterFilter(FilterDef{
+		ID:       "sharpen-more",
+		Name:     "Sharpen More",
+		Category: FilterCategorySharpen,
+	}, filterSharpenMore)
+
+	RegisterFilter(FilterDef{
+		ID:        "median",
+		Name:      "Median",
+		Category:  FilterCategoryNoise,
+		HasDialog: true,
+	}, filterMedian)
+
+	RegisterFilter(FilterDef{
+		ID:       "despeckle",
+		Name:     "Despeckle",
+		Category: FilterCategoryNoise,
+	}, filterDespeckle)
+
+	RegisterFilter(FilterDef{
+		ID:        "minimum",
+		Name:      "Minimum",
+		Category:  FilterCategoryOther,
+		HasDialog: true,
+	}, filterMinimum)
+
+	RegisterFilter(FilterDef{
+		ID:        "maximum",
+		Name:      "Maximum",
+		Category:  FilterCategoryOther,
+		HasDialog: true,
+	}, filterMaximum)
 }
 
 // ---------------------------------------------------------------------------
@@ -432,4 +478,338 @@ func sobelSample(pixels []byte, x, y, c, w, h int) int {
 		y = h - 1
 	}
 	return int(pixels[(y*w+x)*4+c])
+}
+
+// clampedSample returns the pixel value at (x,y) channel c with edge clamping.
+func clampedSample(buf []byte, x, y, c, w, h int) byte {
+	if x < 0 {
+		x = 0
+	} else if x >= w {
+		x = w - 1
+	}
+	if y < 0 {
+		y = 0
+	} else if y >= h {
+		y = h - 1
+	}
+	return buf[(y*w+x)*4+c]
+}
+
+// ---------------------------------------------------------------------------
+// Box Blur (separable two-pass)
+// ---------------------------------------------------------------------------
+
+type boxBlurParams struct {
+	Radius int `json:"radius"`
+}
+
+func filterBoxBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p boxBlurParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	tmp := make([]byte, len(pixels))
+
+	r := p.Radius
+	diam := 2*r + 1
+
+	// Horizontal pass: orig → tmp
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			var sumR, sumG, sumB int
+			for kx := -r; kx <= r; kx++ {
+				sx := x + kx
+				if sx < 0 {
+					sx = 0
+				} else if sx >= w {
+					sx = w - 1
+				}
+				si := (y*w + sx) * 4
+				sumR += int(orig[si])
+				sumG += int(orig[si+1])
+				sumB += int(orig[si+2])
+			}
+			di := (y*w + x) * 4
+			tmp[di] = byte(sumR / diam)
+			tmp[di+1] = byte(sumG / diam)
+			tmp[di+2] = byte(sumB / diam)
+			tmp[di+3] = orig[di+3]
+		}
+	}
+
+	// Vertical pass: tmp → apply via mask
+	vert := make([]byte, len(pixels))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			var sumR, sumG, sumB int
+			for ky := -r; ky <= r; ky++ {
+				sy := y + ky
+				if sy < 0 {
+					sy = 0
+				} else if sy >= h {
+					sy = h - 1
+				}
+				si := (sy*w + x) * 4
+				sumR += int(tmp[si])
+				sumG += int(tmp[si+1])
+				sumB += int(tmp[si+2])
+			}
+			di := (y*w + x) * 4
+			vert[di] = byte(sumR / diam)
+			vert[di+1] = byte(sumG / diam)
+			vert[di+2] = byte(sumB / diam)
+			vert[di+3] = tmp[di+3]
+		}
+	}
+
+	// Apply result with mask blending
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return vert[i], vert[i+1], vert[i+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Sharpen (fixed 3x3 kernel)
+// ---------------------------------------------------------------------------
+
+func applyKernel3x3(pixels []byte, w, h int, selMask []byte, kernel [9]int) {
+	orig := append([]byte(nil), pixels...)
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		px := (i / 4) % w
+		py := (i / 4) / w
+		var result [3]byte
+		for c := range 3 {
+			var sum int
+			k := 0
+			for ky := -1; ky <= 1; ky++ {
+				for kx := -1; kx <= 1; kx++ {
+					sum += int(clampedSample(orig, px+kx, py+ky, c, w, h)) * kernel[k]
+					k++
+				}
+			}
+			result[c] = clamp8(float64(sum))
+		}
+		return result[0], result[1], result[2]
+	})
+}
+
+func filterSharpen(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+	kernel := [9]int{
+		0, -1, 0,
+		-1, 5, -1,
+		0, -1, 0,
+	}
+	applyKernel3x3(pixels, w, h, selMask, kernel)
+	return nil
+}
+
+func filterSharpenMore(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+	kernel := [9]int{
+		-1, -1, -1,
+		-1, 9, -1,
+		-1, -1, -1,
+	}
+	applyKernel3x3(pixels, w, h, selMask, kernel)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Median
+// ---------------------------------------------------------------------------
+
+type medianParams struct {
+	Radius int `json:"radius"`
+}
+
+func filterMedian(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p medianParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 {
+		return nil
+	}
+	return applyMedian(pixels, w, h, selMask, p.Radius)
+}
+
+func applyMedian(pixels []byte, w, h int, selMask []byte, radius int) error {
+	orig := append([]byte(nil), pixels...)
+	diam := 2*radius + 1
+	area := diam * diam
+
+	// Pre-allocate sort buffers.
+	bufR := make([]byte, area)
+	bufG := make([]byte, area)
+	bufB := make([]byte, area)
+
+	med := make([]byte, len(pixels))
+	copy(med, pixels)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			n := 0
+			for ky := -radius; ky <= radius; ky++ {
+				for kx := -radius; kx <= radius; kx++ {
+					bufR[n] = clampedSample(orig, x+kx, y+ky, 0, w, h)
+					bufG[n] = clampedSample(orig, x+kx, y+ky, 1, w, h)
+					bufB[n] = clampedSample(orig, x+kx, y+ky, 2, w, h)
+					n++
+				}
+			}
+			mid := n / 2
+			di := (y*w + x) * 4
+			med[di] = selectMedian(bufR[:n], mid)
+			med[di+1] = selectMedian(bufG[:n], mid)
+			med[di+2] = selectMedian(bufB[:n], mid)
+			med[di+3] = orig[di+3]
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return med[i], med[i+1], med[i+2]
+	})
+	return nil
+}
+
+// selectMedian returns the median value from buf using a counting sort (0-255 range).
+func selectMedian(buf []byte, mid int) byte {
+	var counts [256]int
+	for _, v := range buf {
+		counts[v]++
+	}
+	sum := 0
+	for i := range 256 {
+		sum += counts[i]
+		if sum > mid {
+			return byte(i)
+		}
+	}
+	return 255
+}
+
+// ---------------------------------------------------------------------------
+// Despeckle (median radius=1)
+// ---------------------------------------------------------------------------
+
+func filterDespeckle(pixels []byte, w, h int, selMask []byte, _ json.RawMessage) error {
+	return applyMedian(pixels, w, h, selMask, 1)
+}
+
+// ---------------------------------------------------------------------------
+// Minimum (morphological erosion)
+// ---------------------------------------------------------------------------
+
+type minMaxParams struct {
+	Radius int `json:"radius"`
+}
+
+func filterMinimum(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p minMaxParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	result := make([]byte, len(pixels))
+	copy(result, pixels)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			var minR, minG, minB byte = 255, 255, 255
+			for ky := -p.Radius; ky <= p.Radius; ky++ {
+				for kx := -p.Radius; kx <= p.Radius; kx++ {
+					r := clampedSample(orig, x+kx, y+ky, 0, w, h)
+					g := clampedSample(orig, x+kx, y+ky, 1, w, h)
+					b := clampedSample(orig, x+kx, y+ky, 2, w, h)
+					if r < minR {
+						minR = r
+					}
+					if g < minG {
+						minG = g
+					}
+					if b < minB {
+						minB = b
+					}
+				}
+			}
+			di := (y*w + x) * 4
+			result[di] = minR
+			result[di+1] = minG
+			result[di+2] = minB
+			result[di+3] = orig[di+3]
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return result[i], result[i+1], result[i+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Maximum (morphological dilation)
+// ---------------------------------------------------------------------------
+
+func filterMaximum(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p minMaxParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Radius <= 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	result := make([]byte, len(pixels))
+	copy(result, pixels)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			var maxR, maxG, maxB byte
+			for ky := -p.Radius; ky <= p.Radius; ky++ {
+				for kx := -p.Radius; kx <= p.Radius; kx++ {
+					r := clampedSample(orig, x+kx, y+ky, 0, w, h)
+					g := clampedSample(orig, x+kx, y+ky, 1, w, h)
+					b := clampedSample(orig, x+kx, y+ky, 2, w, h)
+					if r > maxR {
+						maxR = r
+					}
+					if g > maxG {
+						maxG = g
+					}
+					if b > maxB {
+						maxB = b
+					}
+				}
+			}
+			di := (y*w + x) * 4
+			result[di] = maxR
+			result[di+1] = maxG
+			result[di+2] = maxB
+			result[di+3] = orig[di+3]
+		}
+	}
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		return result[i], result[i+1], result[i+2]
+	})
+	return nil
 }
