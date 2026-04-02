@@ -351,3 +351,289 @@ func TestFilterFindEdges(t *testing.T) {
 		t.Errorf("uniform area edge = %d, want ~0", pixels[idx])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Box Blur
+// ---------------------------------------------------------------------------
+
+func TestFilterBoxBlur(t *testing.T) {
+	// Single white pixel on black background should spread.
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for i := 3; i < len(pixels); i += 4 {
+		pixels[i] = 255
+	}
+	idx := (2*w + 2) * 4
+	pixels[idx] = 255
+	pixels[idx+1] = 255
+	pixels[idx+2] = 255
+
+	params, _ := json.Marshal(map[string]any{"radius": 1})
+	if err := filterBoxBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Center pixel should no longer be pure white.
+	if pixels[idx] == 255 && pixels[idx+1] == 255 && pixels[idx+2] == 255 {
+		t.Error("center pixel should have been averaged down")
+	}
+	// Neighbour should have received some spread.
+	nIdx := (2*w + 3) * 4
+	if pixels[nIdx] == 0 && pixels[nIdx+1] == 0 && pixels[nIdx+2] == 0 {
+		t.Error("neighbour should have received blur spread")
+	}
+}
+
+func TestFilterBoxBlurZeroRadiusIsNoop(t *testing.T) {
+	pixels := []byte{255, 0, 0, 255, 0, 255, 0, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"radius": 0})
+	if err := filterBoxBlur(pixels, 2, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with radius 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sharpen
+// ---------------------------------------------------------------------------
+
+func TestFilterSharpen(t *testing.T) {
+	// Create a 5x5 image with a dark/bright boundary at column 3.
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if x < 3 {
+				pixels[i], pixels[i+1], pixels[i+2] = 50, 50, 50
+			} else {
+				pixels[i], pixels[i+1], pixels[i+2] = 200, 200, 200
+			}
+			pixels[i+3] = 255
+		}
+	}
+	orig := append([]byte(nil), pixels...)
+
+	if err := filterSharpen(pixels, w, h, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dark side of edge should be darker or equal.
+	darkIdx := (2*w + 2) * 4
+	if pixels[darkIdx] > orig[darkIdx] {
+		t.Errorf("dark edge pixel got brighter: was %d, now %d", orig[darkIdx], pixels[darkIdx])
+	}
+	// Bright side of edge should be brighter or equal.
+	brightIdx := (2*w + 3) * 4
+	if pixels[brightIdx] < orig[brightIdx] {
+		t.Errorf("bright edge pixel got darker: was %d, now %d", orig[brightIdx], pixels[brightIdx])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sharpen More
+// ---------------------------------------------------------------------------
+
+func TestFilterSharpenMore(t *testing.T) {
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	pixelsSharpen := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if x < 3 {
+				pixels[i], pixels[i+1], pixels[i+2] = 50, 50, 50
+			} else {
+				pixels[i], pixels[i+1], pixels[i+2] = 200, 200, 200
+			}
+			pixels[i+3] = 255
+		}
+	}
+	copy(pixelsSharpen, pixels)
+	orig := append([]byte(nil), pixels...)
+
+	_ = filterSharpen(pixelsSharpen, w, h, nil, nil)
+	if err := filterSharpenMore(pixels, w, h, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sharpen More should produce a stronger effect than Sharpen.
+	darkIdx := (2*w + 2) * 4
+	brightIdx := (2*w + 3) * 4
+
+	sharpenDark := int(orig[darkIdx]) - int(pixelsSharpen[darkIdx])
+	moreSharpDark := int(orig[darkIdx]) - int(pixels[darkIdx])
+	if moreSharpDark < sharpenDark {
+		t.Errorf("sharpen-more should be stronger: sharpen dark diff=%d, more=%d", sharpenDark, moreSharpDark)
+	}
+
+	sharpenBright := int(pixelsSharpen[brightIdx]) - int(orig[brightIdx])
+	moreSharpBright := int(pixels[brightIdx]) - int(orig[brightIdx])
+	if moreSharpBright < sharpenBright {
+		t.Errorf("sharpen-more should be stronger: sharpen bright diff=%d, more=%d", sharpenBright, moreSharpBright)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Median
+// ---------------------------------------------------------------------------
+
+func TestFilterMedian(t *testing.T) {
+	// 5x5 uniform grey with one salt pixel.
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 100
+		pixels[i+1] = 100
+		pixels[i+2] = 100
+		pixels[i+3] = 255
+	}
+	// Salt pixel at center.
+	idx := (2*w + 2) * 4
+	pixels[idx] = 255
+	pixels[idx+1] = 255
+	pixels[idx+2] = 255
+
+	params, _ := json.Marshal(map[string]any{"radius": 1})
+	if err := filterMedian(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// The outlier should be replaced by the median of its neighbours (100).
+	if pixels[idx] != 100 {
+		t.Errorf("median should remove salt pixel: got R=%d, want 100", pixels[idx])
+	}
+}
+
+func TestFilterMedianZeroRadiusIsNoop(t *testing.T) {
+	pixels := []byte{255, 0, 0, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"radius": 0})
+	if err := filterMedian(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with radius 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Despeckle
+// ---------------------------------------------------------------------------
+
+func TestFilterDespeckle(t *testing.T) {
+	// Same setup as median r=1: salt pixel should be removed.
+	w, h := 5, 5
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 100
+		pixels[i+1] = 100
+		pixels[i+2] = 100
+		pixels[i+3] = 255
+	}
+	idx := (2*w + 2) * 4
+	pixels[idx] = 255
+	pixels[idx+1] = 255
+	pixels[idx+2] = 255
+
+	if err := filterDespeckle(pixels, w, h, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if pixels[idx] != 100 {
+		t.Errorf("despeckle should remove salt pixel: got R=%d, want 100", pixels[idx])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Minimum (erosion)
+// ---------------------------------------------------------------------------
+
+func TestFilterMinimum(t *testing.T) {
+	// Bright pixel surrounded by dark → becomes dark.
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 50
+		pixels[i+1] = 50
+		pixels[i+2] = 50
+		pixels[i+3] = 255
+	}
+	idx := (1*w + 1) * 4
+	pixels[idx] = 200
+	pixels[idx+1] = 200
+	pixels[idx+2] = 200
+
+	params, _ := json.Marshal(map[string]any{"radius": 1})
+	if err := filterMinimum(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	if pixels[idx] != 50 {
+		t.Errorf("minimum should erode bright pixel to 50, got %d", pixels[idx])
+	}
+}
+
+func TestFilterMinimumZeroRadiusIsNoop(t *testing.T) {
+	pixels := []byte{255, 0, 0, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"radius": 0})
+	if err := filterMinimum(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with radius 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Maximum (dilation)
+// ---------------------------------------------------------------------------
+
+func TestFilterMaximum(t *testing.T) {
+	// Dark pixel surrounded by bright → becomes bright.
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 200
+		pixels[i+1] = 200
+		pixels[i+2] = 200
+		pixels[i+3] = 255
+	}
+	idx := (1*w + 1) * 4
+	pixels[idx] = 50
+	pixels[idx+1] = 50
+	pixels[idx+2] = 50
+
+	params, _ := json.Marshal(map[string]any{"radius": 1})
+	if err := filterMaximum(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	if pixels[idx] != 200 {
+		t.Errorf("maximum should dilate dark pixel to 200, got %d", pixels[idx])
+	}
+}
+
+func TestFilterMaximumZeroRadiusIsNoop(t *testing.T) {
+	pixels := []byte{255, 0, 0, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"radius": 0})
+	if err := filterMaximum(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with radius 0", i)
+		}
+	}
+}
