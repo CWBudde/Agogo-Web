@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -345,6 +346,111 @@ func TestAdjustmentLayerParamsSerializeInLayerMeta(t *testing.T) {
 	if string(meta[0].Params) != `{"inputBlack":10,"inputWhite":200}` {
 		t.Fatalf("Params = %s, want original JSON", string(meta[0].Params))
 	}
+}
+
+func TestExtendedAdjustmentLayersUseNonDestructiveCompositePath(t *testing.T) {
+	t.Run("visibility and masks", func(t *testing.T) {
+		doc := &Document{
+			Width:      2,
+			Height:     1,
+			Resolution: 72,
+			ColorMode:  "rgb",
+			BitDepth:   8,
+			Background: parseBackground("transparent"),
+			Name:       "Visibility",
+			LayerRoot:  NewGroupLayer("Root"),
+		}
+		basePixels := []byte{
+			10, 20, 30, 255,
+			40, 50, 60, 255,
+		}
+		base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, append([]byte(nil), basePixels...))
+		adjustment := NewAdjustmentLayer("Invert", "invert", nil)
+		doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+		original := append([]byte(nil), base.Pixels...)
+		visible := doc.renderCompositeSurface()
+		if !bytes.Equal(base.Pixels, original) {
+			t.Fatalf("base pixels mutated during render: got %v want %v", base.Pixels, original)
+		}
+		wantVisible := []byte{
+			245, 235, 225, 255,
+			215, 205, 195, 255,
+		}
+		if !bytes.Equal(visible[:8], wantVisible) {
+			t.Fatalf("visible composite = %v, want %v", visible[:8], wantVisible)
+		}
+
+		adjustment.SetVisible(false)
+		hidden := doc.renderCompositeSurface()
+		if !bytes.Equal(hidden[:8], basePixels) {
+			t.Fatalf("hidden composite = %v, want original base pixels %v", hidden[:8], basePixels)
+		}
+
+		adjustment.SetVisible(true)
+		adjustment.SetMask(&LayerMask{
+			Enabled: true,
+			Width:   2,
+			Height:  1,
+			Data:    []byte{255, 0},
+		})
+		masked := doc.renderCompositeSurface()
+		wantMasked := []byte{
+			245, 235, 225, 255,
+			40, 50, 60, 255,
+		}
+		if !bytes.Equal(masked[:8], wantMasked) {
+			t.Fatalf("masked composite = %v, want %v", masked[:8], wantMasked)
+		}
+	})
+
+	t.Run("clip to below", func(t *testing.T) {
+		doc := &Document{
+			Width:      2,
+			Height:     1,
+			Resolution: 72,
+			ColorMode:  "rgb",
+			BitDepth:   8,
+			Background: parseBackground("transparent"),
+			Name:       "Clip",
+			LayerRoot:  NewGroupLayer("Root"),
+		}
+		bottom := NewPixelLayer("Bottom", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+			0, 0, 255, 255,
+			0, 0, 255, 255,
+		})
+		base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
+			255, 0, 0, 255,
+			255, 0, 0, 0,
+		})
+		adjustment := NewAdjustmentLayer("Invert", "invert", nil)
+		doc.LayerRoot.SetChildren([]LayerNode{bottom, base, adjustment})
+
+		unclipped := doc.renderCompositeSurface()
+		wantUnclipped := []byte{
+			0, 255, 255, 255,
+			255, 255, 0, 255,
+		}
+		if !bytes.Equal(unclipped[:8], wantUnclipped) {
+			t.Fatalf("unclipped composite = %v, want %v", unclipped[:8], wantUnclipped)
+		}
+
+		if err := doc.SetLayerClipToBelow(adjustment.ID(), true); err != nil {
+			t.Fatalf("set clip to below: %v", err)
+		}
+		if !base.ClippingBase() || !adjustment.ClipToBelow() {
+			t.Fatalf("unexpected clip flags: base=%v adjustment=%v", base.ClippingBase(), adjustment.ClipToBelow())
+		}
+
+		clipped := doc.renderCompositeSurface()
+		wantClipped := []byte{
+			0, 255, 255, 255,
+			0, 0, 255, 255,
+		}
+		if !bytes.Equal(clipped[:8], wantClipped) {
+			t.Fatalf("clipped composite = %v, want %v", clipped[:8], wantClipped)
+		}
+	})
 }
 
 func renderAdjustmentTestPixel(t *testing.T, kind, params string, base [4]byte) [4]byte {
