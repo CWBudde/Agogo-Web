@@ -888,32 +888,32 @@
 
 ### Phase 5.4: Filter Framework
 
-- [ ] Filter registry:
-  - [ ] Each filter: `ID`, `Name`, `Category`, `HasDialog bool`, `Apply(layer, params, selection) -> modified_layer`
-  - [ ] Category menu structure: Blur, Sharpen, Noise, Distort, Stylize, Render, Other
-- [ ] Filter dialog system:
-  - [ ] Immediate filters: apply directly (e.g. Invert)
+- [x] Filter registry:
+  - [x] Each filter: `ID`, `Name`, `Category`, `HasDialog bool`, `Apply(layer, params, selection) -> modified_layer`
+  - [x] Category menu structure: Blur, Sharpen, Noise, Distort, Stylize, Render, Other
+- [x] Filter dialog system:
+  - [x] Immediate filters: apply directly (e.g. Invert)
   - [ ] Dialog filters: open parameter dialog with live preview before committing
   - [ ] Preview: backend renders filter preview at reduced resolution for speed
-  - [ ] "Last Filter" shortcut (`Ctrl+F`) to re-apply last used filter with same params
+  - [x] "Last Filter" shortcut (`Ctrl+F`) to re-apply last used filter with same params
   - [ ] `Filter > Fade` after applying: blend filtered result with original (opacity + blend mode)
-- [ ] Filter applied destructively to pixel layer (vs Smart Filter on Smart Objects — Phase 7+)
+- [x] Filter applied destructively to pixel layer (vs Smart Filter on Smart Objects — Phase 7+)
 - [ ] Smart Filter placeholder: if layer is Smart Object, filter is stored non-destructively in style stack
 
 ### Phase 5.5: Core Filters
 
 - [ ] **Blur category:**
-  - [ ] Gaussian Blur: `radius` (float), uses AGG or pure Go convolution
+  - [x] Gaussian Blur: `radius` (float), uses AGG StackBlur
   - [ ] Box Blur: fast approximate, `radius`
   - [ ] Motion Blur: `angle`, `distance`
   - [ ] Radial Blur: spin or zoom type, `amount`, `quality`
   - [ ] Surface Blur: preserves edges, `radius`, `threshold`
 - [ ] **Sharpen category:**
   - [ ] Sharpen / Sharpen More (fixed-kernel)
-  - [ ] Unsharp Mask: `amount`, `radius`, `threshold`
+  - [x] Unsharp Mask: `amount`, `radius`, `threshold`
   - [ ] Smart Sharpen: `amount`, `radius`, remove (Gaussian/Lens/Motion), shadow/highlight fade
 - [ ] **Noise category:**
-  - [ ] Add Noise: `amount`, Uniform/Gaussian distribution, monochromatic checkbox
+  - [x] Add Noise: `amount`, Uniform/Gaussian distribution, monochromatic checkbox
   - [ ] Reduce Noise: `strength`, preserve details, reduce color noise, sharpen details
   - [ ] Median: `radius`
   - [ ] Despeckle (one-shot)
@@ -924,11 +924,11 @@
   - [ ] Polar Coordinates: rectangular-to-polar / polar-to-rectangular
   - [ ] Lens Correction: remove distortion, chromatic aberration, vignette, perspective
 - [ ] **Stylize category:**
-  - [ ] Emboss: `angle`, `height`, `amount`
-  - [ ] Find Edges (one-shot)
-  - [ ] Solarize (one-shot — partial inversion)
+  - [x] Emboss: `angle`, `height`, `amount`
+  - [x] Find Edges (one-shot)
+  - [x] Solarize (one-shot — partial inversion)
 - [ ] **Other category:**
-  - [ ] High Pass: `radius` (extracts edges — useful with overlay blend mode)
+  - [x] High Pass: `radius` (extracts edges — useful with overlay blend mode)
   - [ ] Minimum / Maximum: morphological erosion/dilation, `radius`
 
 ### Phase 5.6: Adjustments & Properties Panel UI
