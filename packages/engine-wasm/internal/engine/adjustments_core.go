@@ -690,7 +690,7 @@ func selectiveColorAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFun
 			{weights[8], cfg.Blacks},
 		}
 		var total float64
-		var rr, gg, bb float64 = source[0], source[1], source[2]
+		rr, gg, bb := source[0], source[1], source[2]
 		for _, entry := range ranges {
 			if entry.weight <= 0 {
 				continue

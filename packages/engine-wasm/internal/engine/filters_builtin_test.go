@@ -191,7 +191,7 @@ func TestFilterUnsharpMask(t *testing.T) {
 	}
 
 	// Check pixel right at the edge boundary (column 2, which borders 3).
-	darkIdx := (2*w + 2) * 4  // last dark column
+	darkIdx := (2*w + 2) * 4   // last dark column
 	brightIdx := (2*w + 3) * 4 // first bright column
 	if pixels[darkIdx] >= orig[darkIdx] {
 		t.Errorf("dark edge pixel should be darker: was %d, now %d", orig[darkIdx], pixels[darkIdx])
@@ -635,5 +635,253 @@ func TestFilterMaximumZeroRadiusIsNoop(t *testing.T) {
 		if pixels[i] != orig[i] {
 			t.Errorf("pixel[%d] changed with radius 0", i)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Ripple (Distort)
+// ---------------------------------------------------------------------------
+
+func TestFilterRipple(t *testing.T) {
+	// Create a 20x20 horizontal gradient image.
+	w, h := 20, 20
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			v := byte(x * 255 / (w - 1))
+			pixels[i] = v
+			pixels[i+1] = v
+			pixels[i+2] = v
+			pixels[i+3] = 255
+		}
+	}
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"amount": 3, "size": "small"})
+	if err := filterRipple(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// At least some pixels should have been displaced from the original.
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] || pixels[i+2] != orig[i+2] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("ripple should displace some pixels")
+	}
+}
+
+func TestFilterRippleZeroAmountIsNoop(t *testing.T) {
+	pixels := []byte{128, 64, 32, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"amount": 0, "size": "medium"})
+	if err := filterRipple(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with amount 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Twirl (Distort)
+// ---------------------------------------------------------------------------
+
+func TestFilterTwirl(t *testing.T) {
+	// Create a 21x21 asymmetric image: left half dark, right half bright.
+	w, h := 21, 21
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if x < w/2 {
+				pixels[i], pixels[i+1], pixels[i+2] = 30, 30, 30
+			} else {
+				pixels[i], pixels[i+1], pixels[i+2] = 220, 220, 220
+			}
+			pixels[i+3] = 255
+		}
+	}
+
+	// Save center pixel value before twirl.
+	cx, cy := w/2, h/2
+	centerIdx := (cy*w + cx) * 4
+	centerOrig := pixels[centerIdx]
+
+	params, _ := json.Marshal(map[string]any{"angle": 90})
+	if err := filterTwirl(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Center pixel should stay roughly the same (it's the pivot).
+	centerDiff := int(pixels[centerIdx]) - int(centerOrig)
+	if centerDiff < -10 || centerDiff > 10 {
+		t.Errorf("center pixel shifted too much: was %d, now %d", centerOrig, pixels[centerIdx])
+	}
+
+	// Edge pixels outside maxDist should be unchanged — check corners.
+	cornerIdx := 0 // top-left
+	// Top-left is dark (30), it should remain 30 since it's outside the twirl radius.
+	if pixels[cornerIdx] != 30 {
+		t.Errorf("corner pixel should be unchanged: was 30, now %d", pixels[cornerIdx])
+	}
+}
+
+func TestFilterTwirlZeroAngleIsNoop(t *testing.T) {
+	pixels := []byte{128, 64, 32, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"angle": 0})
+	if err := filterTwirl(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with angle 0", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Offset (Distort)
+// ---------------------------------------------------------------------------
+
+func TestFilterOffset(t *testing.T) {
+	// 4x1 strip: R, G, B, W
+	w, h := 4, 1
+	pixels := []byte{
+		255, 0, 0, 255, // R
+		0, 255, 0, 255, // G
+		0, 0, 255, 255, // B
+		255, 255, 255, 255, // W
+	}
+
+	// Shift right by 1 with wrap: each pixel's source is one to the left.
+	params, _ := json.Marshal(map[string]any{"horizontal": 1, "vertical": 0, "wrap": "wrap"})
+	if err := filterOffset(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// After shifting right by 1 with wrap:
+	// pixel[0] sources from x=-1 → wraps to x=3 (W)
+	// pixel[1] sources from x=0 (R)
+	// pixel[2] sources from x=1 (G)
+	// pixel[3] sources from x=2 (B)
+	if pixels[0] != 255 || pixels[1] != 255 || pixels[2] != 255 {
+		t.Errorf("pixel 0 should be W(255,255,255), got (%d,%d,%d)", pixels[0], pixels[1], pixels[2])
+	}
+	if pixels[4] != 255 || pixels[5] != 0 || pixels[6] != 0 {
+		t.Errorf("pixel 1 should be R(255,0,0), got (%d,%d,%d)", pixels[4], pixels[5], pixels[6])
+	}
+	if pixels[8] != 0 || pixels[9] != 255 || pixels[10] != 0 {
+		t.Errorf("pixel 2 should be G(0,255,0), got (%d,%d,%d)", pixels[8], pixels[9], pixels[10])
+	}
+	if pixels[12] != 0 || pixels[13] != 0 || pixels[14] != 255 {
+		t.Errorf("pixel 3 should be B(0,0,255), got (%d,%d,%d)", pixels[12], pixels[13], pixels[14])
+	}
+}
+
+func TestFilterOffsetRepeat(t *testing.T) {
+	// 3x1 strip: 10, 20, 30
+	w, h := 3, 1
+	pixels := []byte{
+		10, 10, 10, 255,
+		20, 20, 20, 255,
+		30, 30, 30, 255,
+	}
+
+	// Shift right by 2 with repeat (clamp): source for pixel 0 is x=-2 → clamped to 0.
+	params, _ := json.Marshal(map[string]any{"horizontal": 2, "vertical": 0, "wrap": "repeat"})
+	if err := filterOffset(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// pixel[0] sources from x=-2 → clamped to 0 → value 10
+	// pixel[1] sources from x=-1 → clamped to 0 → value 10
+	// pixel[2] sources from x=0 → value 10
+	if pixels[0] != 10 || pixels[4] != 10 || pixels[8] != 10 {
+		t.Errorf("all pixels should be 10 with repeat clamp, got %d %d %d", pixels[0], pixels[4], pixels[8])
+	}
+}
+
+func TestFilterOffsetZeroIsNoop(t *testing.T) {
+	pixels := []byte{128, 64, 32, 255}
+	orig := append([]byte(nil), pixels...)
+	params, _ := json.Marshal(map[string]any{"horizontal": 0, "vertical": 0, "wrap": "wrap"})
+	if err := filterOffset(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pixels {
+		if pixels[i] != orig[i] {
+			t.Errorf("pixel[%d] changed with zero offset", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Polar Coordinates (Distort)
+// ---------------------------------------------------------------------------
+
+func TestFilterPolarCoordinates(t *testing.T) {
+	// Round-trip test: rect-to-polar then polar-to-rect should approximately recover original.
+	w, h := 32, 32
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			pixels[i] = byte(x * 255 / (w - 1))
+			pixels[i+1] = byte(y * 255 / (h - 1))
+			pixels[i+2] = 128
+			pixels[i+3] = 255
+		}
+	}
+	orig := append([]byte(nil), pixels...)
+
+	// Forward: rectangular-to-polar
+	params1, _ := json.Marshal(map[string]any{"mode": "rectangular-to-polar"})
+	if err := filterPolarCoordinates(pixels, w, h, nil, params1); err != nil {
+		t.Fatal(err)
+	}
+
+	// The image should have changed.
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("polar coordinates should change the image")
+	}
+
+	// Reverse: polar-to-rectangular
+	params2, _ := json.Marshal(map[string]any{"mode": "polar-to-rectangular"})
+	if err := filterPolarCoordinates(pixels, w, h, nil, params2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check center region pixels are approximately recovered (edges lose precision).
+	tolerance := 30
+	recovered := 0
+	total := 0
+	for y := h / 4; y < 3*h/4; y++ {
+		for x := w / 4; x < 3*w/4; x++ {
+			i := (y*w + x) * 4
+			total++
+			dr := int(pixels[i]) - int(orig[i])
+			dg := int(pixels[i+1]) - int(orig[i+1])
+			if dr >= -tolerance && dr <= tolerance && dg >= -tolerance && dg <= tolerance {
+				recovered++
+			}
+		}
+	}
+	recoveryRate := float64(recovered) / float64(total)
+	if recoveryRate < 0.3 {
+		t.Errorf("round-trip recovery too low: %.1f%% of center pixels within tolerance", recoveryRate*100)
 	}
 }
