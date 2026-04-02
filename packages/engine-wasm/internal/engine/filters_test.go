@@ -48,6 +48,167 @@ func TestFilterRegistryRegisterAndLookup(t *testing.T) {
 	}
 }
 
+func TestApplyFilterInvertsPixels(t *testing.T) {
+	// Register a test invert filter.
+	invertDef := FilterDef{ID: "test-invert", Name: "Test Invert", Category: FilterCategoryOther}
+	RegisterFilter(invertDef, func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+		for i := 0; i < w*h*4; i += 4 {
+			alpha := byte(255)
+			if selMask != nil {
+				alpha = selMask[i/4]
+			}
+			if alpha == 0 {
+				continue
+			}
+			pixels[i+0] = 255 - pixels[i+0]
+			pixels[i+1] = 255 - pixels[i+1]
+			pixels[i+2] = 255 - pixels[i+2]
+			// leave alpha channel alone
+		}
+		return nil
+	})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "test-invert"}, nil) })
+
+	// Create a 2x2 document with a pixel layer containing known pixels.
+	layer := NewPixelLayer("bg", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, []byte{
+		255, 0, 0, 255, // red
+		0, 255, 0, 255, // green
+		0, 0, 255, 255, // blue
+		128, 128, 128, 255, // grey
+	})
+	root := NewGroupLayer("Root")
+	root.SetChildren([]LayerNode{layer})
+	doc := &Document{
+		Width: 2, Height: 2, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "filter-test", Name: "Filter Test",
+		LayerRoot:     root,
+		ActiveLayerID: layer.ID(),
+	}
+
+	versionBefore := doc.ContentVersion
+	if err := doc.ApplyFilter(layer.ID(), "test-invert", nil); err != nil {
+		t.Fatalf("ApplyFilter failed: %v", err)
+	}
+
+	// Verify pixels were inverted.
+	want := []byte{
+		0, 255, 255, 255,
+		255, 0, 255, 255,
+		255, 255, 0, 255,
+		127, 127, 127, 255,
+	}
+	for i, b := range layer.Pixels {
+		if b != want[i] {
+			t.Errorf("pixel[%d] = %d, want %d", i, b, want[i])
+		}
+	}
+
+	// Content version must have advanced.
+	if doc.ContentVersion <= versionBefore {
+		t.Errorf("ContentVersion did not advance: before=%d after=%d", versionBefore, doc.ContentVersion)
+	}
+}
+
+func TestApplyFilterWithSelectionMask(t *testing.T) {
+	// Register a test invert filter.
+	invertDef := FilterDef{ID: "test-invert-sel", Name: "Test Invert Sel", Category: FilterCategoryOther}
+	RegisterFilter(invertDef, func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+		for i := 0; i < w*h*4; i += 4 {
+			alpha := byte(255)
+			if selMask != nil {
+				alpha = selMask[i/4]
+			}
+			if alpha == 0 {
+				continue
+			}
+			pixels[i+0] = 255 - pixels[i+0]
+			pixels[i+1] = 255 - pixels[i+1]
+			pixels[i+2] = 255 - pixels[i+2]
+		}
+		return nil
+	})
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "test-invert-sel"}, nil) })
+
+	// 2x2 layer at origin, all white.
+	layer := NewPixelLayer("bg", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, []byte{
+		255, 255, 255, 255,
+		255, 255, 255, 255,
+		255, 255, 255, 255,
+		255, 255, 255, 255,
+	})
+	root := NewGroupLayer("Root")
+	root.SetChildren([]LayerNode{layer})
+
+	// Selection covers only top-left pixel.
+	sel := &Selection{Width: 2, Height: 2, Mask: []byte{255, 0, 0, 0}}
+
+	doc := &Document{
+		Width: 2, Height: 2, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "filter-sel-test", Name: "Filter Sel Test",
+		LayerRoot:     root,
+		ActiveLayerID: layer.ID(),
+		Selection:     sel,
+	}
+
+	if err := doc.ApplyFilter(layer.ID(), "test-invert-sel", nil); err != nil {
+		t.Fatalf("ApplyFilter failed: %v", err)
+	}
+
+	// Only the top-left pixel should be inverted.
+	if layer.Pixels[0] != 0 || layer.Pixels[1] != 0 || layer.Pixels[2] != 0 {
+		t.Errorf("top-left pixel should be inverted to black, got %v", layer.Pixels[0:4])
+	}
+	// Other pixels should remain white.
+	for i := 4; i < 16; i += 4 {
+		if layer.Pixels[i] != 255 || layer.Pixels[i+1] != 255 || layer.Pixels[i+2] != 255 {
+			t.Errorf("pixel at offset %d should remain white, got %v", i, layer.Pixels[i:i+4])
+		}
+	}
+}
+
+func TestApplyFilterUnknownFilterReturnsError(t *testing.T) {
+	layer := NewPixelLayer("bg", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{0, 0, 0, 255})
+	root := NewGroupLayer("Root")
+	root.SetChildren([]LayerNode{layer})
+	doc := &Document{
+		Width: 1, Height: 1, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "err-test", Name: "Err Test",
+		LayerRoot:     root,
+		ActiveLayerID: layer.ID(),
+	}
+
+	err := doc.ApplyFilter(layer.ID(), "nonexistent-filter", nil)
+	if err == nil {
+		t.Fatal("expected error for unknown filter, got nil")
+	}
+}
+
+func TestApplyFilterNonPixelLayerReturnsError(t *testing.T) {
+	adj := NewAdjustmentLayer("levels", "levels", nil)
+	root := NewGroupLayer("Root")
+	root.SetChildren([]LayerNode{adj})
+	doc := &Document{
+		Width: 1, Height: 1, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "nonpx-test", Name: "NonPx Test",
+		LayerRoot:     root,
+		ActiveLayerID: adj.ID(),
+	}
+
+	// Register a dummy filter so we get past the lookup.
+	RegisterFilter(FilterDef{ID: "dummy-for-nonpx", Name: "Dummy", Category: FilterCategoryOther},
+		func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error { return nil })
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "dummy-for-nonpx"}, nil) })
+
+	err := doc.ApplyFilter(adj.ID(), "dummy-for-nonpx", nil)
+	if err == nil {
+		t.Fatal("expected error for non-pixel layer, got nil")
+	}
+}
+
 func TestFilterRegistryDeregister(t *testing.T) {
 	def := FilterDef{
 		ID:       "sharpen-test",
