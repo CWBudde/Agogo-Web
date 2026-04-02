@@ -1541,7 +1541,7 @@ function containsLayerId(layers: LayerNodeMeta[], targetId: string): boolean {
   return false;
 }
 
-function LayerPropertiesDialog({
+export function LayerPropertiesDialog({
   layer,
   colorTag,
   onRename,
@@ -1555,6 +1555,10 @@ function LayerPropertiesDialog({
   onClose: () => void;
 }) {
   const [name, setName] = useState(layer?.name ?? "");
+
+  useEffect(() => {
+    setName(layer?.name ?? "");
+  }, [layer]);
 
   if (!layer) {
     return null;

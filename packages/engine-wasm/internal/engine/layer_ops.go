@@ -125,6 +125,12 @@ type SetLayerNamePayload struct {
 	Name    string `json:"name"`
 }
 
+type SetAdjustmentParamsPayload struct {
+	LayerID        string          `json:"layerId"`
+	AdjustmentKind string          `json:"adjustmentKind,omitempty"`
+	Params         json.RawMessage `json:"params,omitempty"`
+}
+
 type TranslateLayerPayload struct {
 	LayerID string `json:"layerId"`
 	DX      int    `json:"dx"`

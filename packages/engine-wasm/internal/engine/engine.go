@@ -56,6 +56,7 @@ const (
 	commandOpenImageFile            = 0x0118
 	commandTranslateLayer           = 0x0119
 	commandPickLayerAtPoint         = 0x011a
+	commandSetAdjustmentParams      = 0x011b
 	commandNewSelection             = 0x0200
 	commandSelectAll                = 0x0201
 	commandDeselect                 = 0x0202
@@ -1431,6 +1432,30 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 					return snapshot{}, fmt.Errorf("no active document")
 				}
 				if err := doc.SetLayerName(payload.LayerID, payload.Name); err != nil {
+					return snapshot{}, err
+				}
+				if err := inst.manager.ReplaceActive(doc); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return RenderResult{}, err
+		}
+	case commandSetAdjustmentParams:
+		var payload SetAdjustmentParamsPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		command := &snapshotCommand{
+			description: "Set adjustment params",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := doc.SetAdjustmentLayerParams(payload.LayerID, payload.AdjustmentKind, payload.Params); err != nil {
 					return snapshot{}, err
 				}
 				if err := inst.manager.ReplaceActive(doc); err != nil {

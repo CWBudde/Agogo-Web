@@ -98,6 +98,11 @@ type MenuActionId =
   | "transform-rotate-180"
   | "edit-fill"
   | "image-invert"
+  | "image-channel-mixer"
+  | "image-threshold"
+  | "image-posterize"
+  | "image-selective-color"
+  | "image-photo-filter"
   | "image-gradient-map"
   | "select-all"
   | "select-deselect"
@@ -221,6 +226,11 @@ const menuItems: MenuPreviewMenu[] = [
           { label: "Curves..." },
           { label: "Hue/Saturation..." },
           { label: "Invert", actionId: "image-invert" as const },
+          { label: "Channel Mixer...", actionId: "image-channel-mixer" as const },
+          { label: "Threshold...", actionId: "image-threshold" as const },
+          { label: "Posterize...", actionId: "image-posterize" as const },
+          { label: "Selective Color...", actionId: "image-selective-color" as const },
+          { label: "Photo Filter...", actionId: "image-photo-filter" as const },
           { label: "Gradient Map...", actionId: "image-gradient-map" as const },
         ],
       },
@@ -684,6 +694,34 @@ export default function App() {
     ]),
   );
   const [gradientEditorOpen, setGradientEditorOpen] = useState(false);
+  const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
+  const [thresholdValue, setThresholdValue] = useState(128);
+  const [posterizeDialogOpen, setPosterizeDialogOpen] = useState(false);
+  const [posterizeLevels, setPosterizeLevels] = useState(6);
+  const [channelMixerDialogOpen, setChannelMixerDialogOpen] = useState(false);
+  const [channelMixerMonochrome, setChannelMixerMonochrome] = useState(false);
+  const [channelMixerMatrix, setChannelMixerMatrix] = useState({
+    red: [100, 0, 0],
+    green: [0, 100, 0],
+    blue: [0, 0, 100],
+  });
+  const [selectiveColorDialogOpen, setSelectiveColorDialogOpen] = useState(false);
+  const [selectiveColorMode, setSelectiveColorMode] = useState<"relative" | "absolute">("relative");
+  const [selectiveColorAdjustments, setSelectiveColorAdjustments] = useState({
+    reds: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    yellows: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    greens: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    cyans: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    blues: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    magentas: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    whites: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    neutrals: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+    blacks: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
+  });
+  const [photoFilterDialogOpen, setPhotoFilterDialogOpen] = useState(false);
+  const [photoFilterColor, setPhotoFilterColor] = useState<[number, number, number, number]>([255, 190, 120, 255]);
+  const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
+  const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
   const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
   const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
   const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
@@ -785,6 +823,33 @@ export default function App() {
   const gradientPreviewStyle = {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
+  const channelMixerRows = [
+    { key: "red", label: "Red Output" },
+    { key: "green", label: "Green Output" },
+    { key: "blue", label: "Blue Output" },
+  ] as const;
+  const channelMixerColumns = [
+    { index: 0, label: "Source Red" },
+    { index: 1, label: "Source Green" },
+    { index: 2, label: "Source Blue" },
+  ] as const;
+  const selectiveColorRanges = [
+    { key: "reds", label: "Reds" },
+    { key: "yellows", label: "Yellows" },
+    { key: "greens", label: "Greens" },
+    { key: "cyans", label: "Cyans" },
+    { key: "blues", label: "Blues" },
+    { key: "magentas", label: "Magentas" },
+    { key: "whites", label: "Whites" },
+    { key: "neutrals", label: "Neutrals" },
+    { key: "blacks", label: "Blacks" },
+  ] as const;
+  const selectiveColorFields = [
+    { key: "cyanRed", label: "Cyan / Red" },
+    { key: "magentaGreen", label: "Magenta / Green" },
+    { key: "yellowBlue", label: "Yellow / Blue" },
+    { key: "black", label: "Black" },
+  ] as const;
 
   const openProjectPicker = () => {
     projectInputRef.current?.click();
@@ -1010,6 +1075,11 @@ export default function App() {
       case "canvas-size":
         return !render || actionId === "generate-assets";
       case "image-invert":
+      case "image-channel-mixer":
+      case "image-threshold":
+      case "image-posterize":
+      case "image-selective-color":
+      case "image-photo-filter":
       case "image-gradient-map":
         return !render?.uiMeta.activeLayerId;
       case "transform-free":
@@ -1192,6 +1262,21 @@ export default function App() {
         break;
       case "image-invert":
         createAdjustmentLayer("Invert", "invert");
+        break;
+      case "image-channel-mixer":
+        setChannelMixerDialogOpen(true);
+        break;
+      case "image-threshold":
+        setThresholdDialogOpen(true);
+        break;
+      case "image-posterize":
+        setPosterizeDialogOpen(true);
+        break;
+      case "image-selective-color":
+        setSelectiveColorDialogOpen(true);
+        break;
+      case "image-photo-filter":
+        setPhotoFilterDialogOpen(true);
         break;
       case "image-gradient-map":
         setGradientMapDialogOpen(true);
@@ -3224,6 +3309,353 @@ export default function App() {
         onClose={() => setGradientEditorOpen(false)}
       />
 
+      <Dialog
+        open={thresholdDialogOpen}
+        title="Threshold"
+        description="Threshold uses Rec. 601 luminance: pixels at or above the slider become white, below become black."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Preview</p>
+            <div className="mt-2 h-5 overflow-hidden rounded border border-white/10 bg-slate-950">
+              <div className="flex h-full w-full">
+                <div className="h-full bg-black" style={{ width: `${thresholdValue / 255 * 100}%` }} />
+                <div className="h-full flex-1 bg-white" />
+              </div>
+            </div>
+            <div
+              className="mt-2 h-1 rounded-full bg-gradient-to-r from-black via-slate-500 to-white"
+              style={{
+                backgroundImage:
+                  "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 45%, rgba(255,255,255,1) 55%, rgba(255,255,255,1) 100%)",
+              }}
+            />
+          </div>
+          <label className="block">
+            <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              <span>Threshold</span>
+              <span className="text-slate-300">{thresholdValue}</span>
+            </div>
+            <input
+              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              type="range"
+              min={0}
+              max={255}
+              step={1}
+              value={thresholdValue}
+              onChange={(event) => setThresholdValue(Number(event.target.value))}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            <span>Threshold Value</span>
+            <input
+              className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-2 text-[12px] text-slate-100 outline-none"
+              type="number"
+              min={0}
+              max={255}
+              step={1}
+              value={thresholdValue}
+              onChange={(event) => setThresholdValue(Math.max(0, Math.min(255, Number(event.target.value) || 0)))}
+            />
+          </label>
+          <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setThresholdDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                createAdjustmentLayer("Threshold", "threshold", { threshold: thresholdValue });
+                setThresholdDialogOpen(false);
+              }}
+            >
+              Create Adjustment Layer
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={posterizeDialogOpen}
+        title="Posterize"
+        description="Posterize reduces each RGB channel to a fixed number of levels. Alpha is preserved."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Preview</p>
+            <div
+              className="mt-2 h-5 rounded border border-white/10"
+              style={{
+                backgroundImage:
+                  "linear-gradient(90deg, rgb(0,0,0) 0%, rgb(0,0,0) 14%, rgb(85,85,85) 14%, rgb(85,85,85) 28%, rgb(170,170,170) 28%, rgb(170,170,170) 42%, rgb(255,255,255) 42%, rgb(255,255,255) 100%)",
+              }}
+            />
+          </div>
+          <label className="block">
+            <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              <span>Levels</span>
+              <span className="text-slate-300">{posterizeLevels}</span>
+            </div>
+            <input
+              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              type="range"
+              min={2}
+              max={255}
+              step={1}
+              value={posterizeLevels}
+              onChange={(event) => setPosterizeLevels(Number(event.target.value))}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            <span>Levels Value</span>
+            <input
+              className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-2 text-[12px] text-slate-100 outline-none"
+              type="number"
+              min={2}
+              max={255}
+              step={1}
+              value={posterizeLevels}
+              onChange={(event) => setPosterizeLevels(Math.max(2, Math.min(255, Number(event.target.value) || 2)))}
+            />
+          </label>
+          <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setPosterizeDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                createAdjustmentLayer("Posterize", "posterize", { levels: posterizeLevels });
+                setPosterizeDialogOpen(false);
+              }}
+            >
+              Create Adjustment Layer
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={photoFilterDialogOpen}
+        title="Photo Filter"
+        description="Simulate a gel filter by blending the image toward a tinted filter color. Preserve luminosity keeps the original brightness."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Filter Color</p>
+            <div className="mt-2 flex items-center gap-3">
+              <input
+                type="color"
+                className="h-10 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
+                value={rgbaToHex(photoFilterColor)}
+                onChange={(event) => {
+                  const next = hexToRgba(event.target.value);
+                  if (next) {
+                    setPhotoFilterColor(next);
+                  }
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                <div
+                  className="h-10 rounded border border-white/10"
+                  style={{ backgroundColor: rgbaToCss(photoFilterColor) }}
+                />
+                <div className="mt-1 text-[11px] text-slate-500">{rgbaToHex(photoFilterColor).toUpperCase()}</div>
+              </div>
+            </div>
+          </div>
+          <label className="block">
+            <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              <span>Density</span>
+              <span className="text-slate-300">{photoFilterDensity}</span>
+            </div>
+            <input
+              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={photoFilterDensity}
+              onChange={(event) => setPhotoFilterDensity(Number(event.target.value))}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-slate-300">
+            <input
+              type="checkbox"
+              checked={photoFilterPreserveLuminosity}
+              onChange={(event) => setPhotoFilterPreserveLuminosity(event.target.checked)}
+            />
+            Preserve luminosity
+          </label>
+          <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setPhotoFilterDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                createAdjustmentLayer("Photo Filter", "photo-filter", {
+                  color: photoFilterColor,
+                  density: photoFilterDensity,
+                  preserveLuminosity: photoFilterPreserveLuminosity,
+                });
+                setPhotoFilterDialogOpen(false);
+              }}
+            >
+              Create Adjustment Layer
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={channelMixerDialogOpen}
+        title="Channel Mixer"
+        description="Mix source RGB into each output channel. Monochrome collapses the mixed result to grayscale."
+        className="max-w-4xl"
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            {channelMixerRows.map((row) => (
+              <div
+                key={row.key}
+                className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3"
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {row.label}
+                </p>
+                <div className="mt-3 space-y-3">
+                  {channelMixerColumns.map((column) => (
+                    <CompactRange
+                      key={column.index}
+                      id={`channel-mixer-${row.key}-${column.index}`}
+                      label={column.label}
+                      min={-200}
+                      max={200}
+                      step={1}
+                      value={channelMixerMatrix[row.key][column.index]}
+                      onChange={(next) =>
+                        setChannelMixerMatrix((current) => ({
+                          ...current,
+                          [row.key]: current[row.key].map((entry, index) =>
+                            index === column.index ? next : entry,
+                          ),
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-slate-300">
+            <input
+              type="checkbox"
+              checked={channelMixerMonochrome}
+              onChange={(event) => setChannelMixerMonochrome(event.target.checked)}
+            />
+            Monochrome output
+          </label>
+          <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setChannelMixerDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                createAdjustmentLayer("Channel Mixer", "channel-mixer", {
+                  monochrome: channelMixerMonochrome,
+                  red: channelMixerMatrix.red,
+                  green: channelMixerMatrix.green,
+                  blue: channelMixerMatrix.blue,
+                });
+                setChannelMixerDialogOpen(false);
+              }}
+            >
+              Create Adjustment Layer
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={selectiveColorDialogOpen}
+        title="Selective Color"
+        description="Adjust CMYK-style components inside named color ranges. Relative mode scales the effect by pixel strength; Absolute applies the full offsets."
+        className="max-w-6xl"
+      >
+        <div className="space-y-4">
+          <ToolOptionGroup label="Mode">
+            <ToolChoiceButton
+              active={selectiveColorMode === "relative"}
+              onClick={() => setSelectiveColorMode("relative")}
+            >
+              Relative
+            </ToolChoiceButton>
+            <ToolChoiceButton
+              active={selectiveColorMode === "absolute"}
+              onClick={() => setSelectiveColorMode("absolute")}
+            >
+              Absolute
+            </ToolChoiceButton>
+          </ToolOptionGroup>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {selectiveColorRanges.map((range) => (
+              <div
+                key={range.key}
+                className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3"
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {range.label}
+                </p>
+                <div className="mt-3 space-y-3">
+                  {selectiveColorFields.map((field) => (
+                    <CompactRange
+                      key={field.key}
+                      id={`selective-color-${range.key}-${field.key}`}
+                      label={field.label}
+                      min={-100}
+                      max={100}
+                      step={1}
+                      value={selectiveColorAdjustments[range.key][field.key]}
+                      onChange={(next) =>
+                        setSelectiveColorAdjustments((current) => ({
+                          ...current,
+                          [range.key]: {
+                            ...current[range.key],
+                            [field.key]: next,
+                          },
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setSelectiveColorDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                createAdjustmentLayer("Selective Color", "selective-color", {
+                  mode: selectiveColorMode,
+                  ...selectiveColorAdjustments,
+                });
+                setSelectiveColorDialogOpen(false);
+              }}
+            >
+              Create Adjustment Layer
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
       <GradientEditorDialog
         open={gradientMapDialogOpen}
         title="Gradient Map"
@@ -3727,6 +4159,11 @@ function iconForMenuItem(label: string) {
     lower.includes("curves") ||
     lower.includes("hue") ||
     lower.includes("invert") ||
+    lower.includes("channel mixer") ||
+    lower.includes("threshold") ||
+    lower.includes("posterize") ||
+    lower.includes("selective color") ||
+    lower.includes("photo filter") ||
     lower.includes("gradient") ||
     lower.includes("blur") ||
     lower.includes("noise") ||

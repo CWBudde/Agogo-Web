@@ -106,6 +106,72 @@ func TestCoreAdjustmentKindsAffectPixels(t *testing.T) {
 			},
 		},
 		{
+			name:   "channel-mixer",
+			kind:   "channel-mixer",
+			params: `{"red":[0,0,100],"green":[0,100,0],"blue":[100,0,0]}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				want := [4]byte{base[2], base[1], base[0], base[3]}
+				if got != want {
+					t.Fatalf("channel-mixer pixel = %v, want %v", got, want)
+				}
+			},
+		},
+		{
+			name:   "threshold",
+			kind:   "threshold",
+			params: `{"threshold":70}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				want := [4]byte{255, 255, 255, base[3]}
+				if got != want {
+					t.Fatalf("threshold pixel = %v, want %v", got, want)
+				}
+			},
+		},
+		{
+			name:   "posterize",
+			kind:   "posterize",
+			params: `{"levels":4}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				if got[3] != base[3] {
+					t.Fatalf("posterize alpha = %d, want %d", got[3], base[3])
+				}
+				if got[0] == base[0] && got[1] == base[1] && got[2] == base[2] {
+					t.Fatalf("posterize pixel = %v, want quantized channels", got)
+				}
+				for _, channel := range got[:3] {
+					if channel != 0 && channel != 85 && channel != 170 && channel != 255 {
+						t.Fatalf("posterize channel = %d, want 4-level quantized value", channel)
+					}
+				}
+			},
+		},
+		{
+			name:   "photo-filter",
+			kind:   "photo-filter",
+			params: `{"color":[255,128,0,255],"density":100,"preserveLuminosity":false}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				if got[0] <= got[1] || got[1] <= got[2] {
+					t.Fatalf("photo-filter pixel = %v, want warm filter tint", got)
+				}
+				if got[3] != base[3] {
+					t.Fatalf("photo-filter alpha = %d, want %d", got[3], base[3])
+				}
+			},
+		},
+		{
+			name:   "selective-color",
+			kind:   "selective-color",
+			params: `{"mode":"absolute","blues":{"cyanRed":0,"magentaGreen":0,"yellowBlue":50,"black":-20}}`,
+			check: func(t *testing.T, got, base [4]byte) {
+				if got[2] <= base[2] {
+					t.Fatalf("selective-color blue = %d, want > %d", got[2], base[2])
+				}
+				if got[3] != base[3] {
+					t.Fatalf("selective-color alpha = %d, want %d", got[3], base[3])
+				}
+			},
+		},
+		{
 			name:   "gradient-map",
 			kind:   "gradient-map",
 			params: `{"stops":[{"position":0,"color":[0,0,0,255]},{"position":1,"color":[255,0,0,255]}]}`,
@@ -128,6 +194,9 @@ func TestCoreAdjustmentKindsAffectPixels(t *testing.T) {
 			}
 			if tc.kind == "vibrance" {
 				base = [4]byte{120, 100, 100, 255}
+			}
+			if tc.kind == "selective-color" {
+				base = [4]byte{40, 70, 220, 255}
 			}
 			got := renderAdjustmentTestPixel(t, tc.kind, tc.params, base)
 			tc.check(t, got, base)

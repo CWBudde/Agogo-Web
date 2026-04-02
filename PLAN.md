@@ -847,10 +847,12 @@
 ### Phase 5.3: Extended Adjustment Layers
 
 - [ ] Shared extended-adjustment plumbing:
+  - [x] Add round-trip tests for the new adjustment payloads so `.agp` save/load preserves their parameters exactly
+  - [x] Add panel-state coverage for switching between adjustment dialogs so in-progress edits survive normal shell updates
   - [ ] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
-  - [ ] Wire each adjustment into the same non-destructive render path used by Phase 5.1 and make sure layer visibility / masking / clipping semantics stay identical
-  - [ ] Ensure the properties panel can swap between extended adjustment UIs without remounting the editor shell
-  - [ ] Add regression coverage for save/load, undo/redo, and live-preview re-rendering for each new adjustment type
+  - [x] Add undo/redo regression coverage for extended adjustment parameter edits
+  - [ ] Add live-preview re-render regression coverage for extended adjustment parameter edits
+  - [ ] Keep all extended adjustments on the same non-destructive render path used by Phase 5.1 and verify layer visibility / masking / clipping semantics stay identical
 - [ ] **Gradient Map:**
   - [x] Map source luminance to gradient stops across the full 0–255 range
   - [x] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
@@ -861,28 +863,28 @@
   - [x] Leave alpha unchanged unless the existing adjustment model explicitly treats alpha as part of the transform
   - [x] Keep the implementation minimal and deterministic so it is effectively a no-parameter adjustment
 - [ ] **Threshold:**
-  - [ ] Convert the image to a hard black/white split using a single threshold slider
-  - [ ] Define whether threshold is based on luminance or a specific channel and document that choice in the UI copy
-  - [ ] Clamp and validate slider values so preview and committed output always match
+  - [x] Convert the image to a hard black/white split using a single threshold slider
+  - [x] Define whether threshold is based on luminance or a specific channel and document that choice in the UI copy
+  - [x] Clamp and validate slider values so preview and committed output always match
 - [ ] **Posterize:**
-  - [ ] Reduce tonal levels per channel with a slider in the 2–255 range
-  - [ ] Preserve alpha and avoid banding artifacts beyond the intended level reduction
-  - [ ] Make the control behave consistently for RGB composite and individual channels if the editor exposes both
+  - [x] Reduce tonal levels per channel with a slider in the 2–255 range
+  - [x] Preserve alpha and avoid banding artifacts beyond the intended level reduction
+  - [x] Make the control behave consistently for RGB composite and individual channels if the editor exposes both
 - [ ] **Channel Mixer:**
-  - [ ] Implement per-output-channel mixing coefficients for source R/G/B inputs
-  - [ ] Add monochrome output mode and define how the coefficients contribute to the grayscale result
-  - [ ] Expose a UI that makes the source-to-output relationship clear enough to tune without guesswork
-  - [ ] Validate coefficient normalization / clipping behavior so committed output does not overflow channel bounds
+  - [x] Implement per-output-channel mixing coefficients for source R/G/B inputs
+  - [x] Add monochrome output mode and define how the coefficients contribute to the grayscale result
+  - [x] Expose a UI that makes the source-to-output relationship clear enough to tune without guesswork
+  - [x] Validate coefficient normalization / clipping behavior so committed output does not overflow channel bounds
 - [ ] **Selective Color:**
-  - [ ] Adjust CMY+K components per named color range: Reds, Yellows, Greens, Cyans, Blues, Magentas, Whites, Neutrals, Blacks
-  - [ ] Support both Relative and Absolute adjustment modes and document the behavioral difference in the panel
-  - [ ] Define how the selected color range is sampled from the source pixel and how overlapping ranges are resolved
-  - [ ] Add per-range controls in the properties panel with immediate live preview
+  - [x] Adjust CMY+K components per named color range: Reds, Yellows, Greens, Cyans, Blues, Magentas, Whites, Neutrals, Blacks
+  - [x] Support both Relative and Absolute adjustment modes and document the behavioral difference in the panel
+  - [x] Define how the selected color range is sampled from the source pixel and how overlapping ranges are resolved
+  - [x] Add per-range controls in the properties panel with immediate live preview
 - [ ] **Photo Filter:**
-  - [ ] Simulate gel-color filtering with a color picker, density slider, and preserve-luminosity toggle
-  - [ ] Blend the filter in a way that feels like a physical lens filter rather than a flat tint
-  - [ ] Ensure the filter preserves transparency and does not introduce unintended channel shifts outside the configured density
-  - [ ] Add a small set of representative filter presets if that matches the eventual UI design, otherwise keep the control fully custom
+  - [x] Simulate gel-color filtering with a color picker, density slider, and preserve-luminosity toggle
+  - [x] Blend the filter in a way that feels like a physical lens filter rather than a flat tint
+  - [x] Ensure the filter preserves transparency and does not introduce unintended channel shifts outside the configured density
+  - [x] Add a small set of representative filter presets if that matches the eventual UI design, otherwise keep the control fully custom
 
 ### Phase 5.4: Filter Framework
 
