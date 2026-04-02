@@ -885,3 +885,452 @@ func TestFilterPolarCoordinates(t *testing.T) {
 		t.Errorf("round-trip recovery too low: %.1f%% of center pixels within tolerance", recoveryRate*100)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Motion Blur
+// ---------------------------------------------------------------------------
+
+func TestFilterMotionBlur(t *testing.T) {
+	// 5x1 strip: black, white alternating → horizontal motion blur should average.
+	w, h := 5, 1
+	pixels := make([]byte, w*h*4)
+	for x := 0; x < w; x++ {
+		i := x * 4
+		if x%2 == 0 {
+			pixels[i], pixels[i+1], pixels[i+2] = 0, 0, 0
+		} else {
+			pixels[i], pixels[i+1], pixels[i+2] = 255, 255, 255
+		}
+		pixels[i+3] = 255
+	}
+
+	params, _ := json.Marshal(map[string]any{"angle": 0, "distance": 1})
+	if err := filterMotionBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Middle pixel (index 2) should be averaged toward gray.
+	mid := pixels[2*4]
+	if mid < 50 || mid > 200 {
+		t.Errorf("middle pixel expected near gray, got %d", mid)
+	}
+}
+
+func TestFilterMotionBlurAngled(t *testing.T) {
+	w, h := 8, 8
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"angle": 45, "distance": 2})
+	if err := filterMotionBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] || pixels[i+2] != orig[i+2] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("angled motion blur should modify pixels")
+	}
+}
+
+func TestFilterMotionBlurZeroDistance(t *testing.T) {
+	pixels := []byte{100, 100, 100, 255}
+	params, _ := json.Marshal(map[string]any{"angle": 0, "distance": 0})
+	if err := filterMotionBlur(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[0] != 100 {
+		t.Errorf("zero distance should be no-op, got %d", pixels[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Radial Blur
+// ---------------------------------------------------------------------------
+
+func TestFilterRadialBlurSpin(t *testing.T) {
+	w, h := 16, 16
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"type": "spin", "amount": 50, "quality": 1})
+	if err := filterRadialBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("spin radial blur should modify pixels")
+	}
+}
+
+func TestFilterRadialBlurZoom(t *testing.T) {
+	w, h := 16, 16
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"type": "zoom", "amount": 50, "quality": 2})
+	if err := filterRadialBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("zoom radial blur should modify pixels")
+	}
+}
+
+func TestFilterRadialBlurZeroAmount(t *testing.T) {
+	pixels := []byte{100, 100, 100, 255}
+	params, _ := json.Marshal(map[string]any{"type": "spin", "amount": 0})
+	if err := filterRadialBlur(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[0] != 100 {
+		t.Errorf("zero amount should be no-op, got %d", pixels[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Surface Blur
+// ---------------------------------------------------------------------------
+
+func TestFilterSurfaceBlur(t *testing.T) {
+	// 3x3 image: center pixel is very different from surroundings.
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 100
+		pixels[i+1] = 100
+		pixels[i+2] = 100
+		pixels[i+3] = 255
+	}
+	// Center pixel is bright.
+	ci := (1*w + 1) * 4
+	pixels[ci] = 200
+	pixels[ci+1] = 200
+	pixels[ci+2] = 200
+
+	params, _ := json.Marshal(map[string]any{"radius": 1, "threshold": 50})
+	if err := filterSurfaceBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Center should remain close to 200 because diff (100) > threshold (50), so neighbors are excluded.
+	if pixels[ci] < 180 {
+		t.Errorf("edge-preserving blur should keep bright center, got %d", pixels[ci])
+	}
+}
+
+func TestFilterSurfaceBlurSmooths(t *testing.T) {
+	// 3x3 image with similar values → should smooth.
+	w, h := 3, 3
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 100
+		pixels[i+1] = 100
+		pixels[i+2] = 100
+		pixels[i+3] = 255
+	}
+	// Center is only slightly different.
+	ci := (1*w + 1) * 4
+	pixels[ci] = 110
+	pixels[ci+1] = 110
+	pixels[ci+2] = 110
+
+	params, _ := json.Marshal(map[string]any{"radius": 1, "threshold": 50})
+	if err := filterSurfaceBlur(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Center should be pulled toward 100 since diff (10) < threshold (50).
+	if pixels[ci] >= 110 {
+		t.Errorf("surface blur should smooth similar values, center still %d", pixels[ci])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Smart Sharpen
+// ---------------------------------------------------------------------------
+
+func TestFilterSmartSharpenGaussian(t *testing.T) {
+	w, h := 8, 1
+	pixels := make([]byte, w*h*4)
+	// Sharp edge at column 4.
+	for x := 0; x < w; x++ {
+		i := x * 4
+		if x < 4 {
+			pixels[i], pixels[i+1], pixels[i+2] = 50, 50, 50
+		} else {
+			pixels[i], pixels[i+1], pixels[i+2] = 200, 200, 200
+		}
+		pixels[i+3] = 255
+	}
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{
+		"amount": 200, "radius": 1, "remove": "gaussian",
+	})
+	if err := filterSmartSharpen(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Edge pixels should be pushed further apart (sharpened).
+	if pixels[3*4] >= orig[3*4] {
+		t.Errorf("dark side of edge should get darker: was %d, now %d", orig[3*4], pixels[3*4])
+	}
+	if pixels[4*4] <= orig[4*4] {
+		t.Errorf("bright side of edge should get brighter: was %d, now %d", orig[4*4], pixels[4*4])
+	}
+}
+
+func TestFilterSmartSharpenWithFade(t *testing.T) {
+	w, h := 4, 1
+	// All dark pixels — shadow fade should reduce sharpening.
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 20
+		pixels[i+1] = 20
+		pixels[i+2] = 20
+		pixels[i+3] = 255
+	}
+	pixels[2*4] = 30 // slight variation
+
+	params, _ := json.Marshal(map[string]any{
+		"amount": 300, "radius": 1, "remove": "gaussian",
+		"shadow_fade": 100,
+	})
+	if err := filterSmartSharpen(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	// With full shadow fade, dark pixels should barely change.
+	if abs8diff(pixels[0], 20) > 5 {
+		t.Errorf("shadow fade should limit sharpening in shadows, got %d", pixels[0])
+	}
+}
+
+func TestFilterSmartSharpenMotionRemove(t *testing.T) {
+	w, h := 8, 8
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{
+		"amount": 150, "radius": 2, "remove": "motion", "angle": 0,
+	})
+	if err := filterSmartSharpen(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("smart sharpen with motion remove should modify pixels")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reduce Noise
+// ---------------------------------------------------------------------------
+
+func TestFilterReduceNoise(t *testing.T) {
+	w, h := 8, 8
+	pixels := make([]byte, w*h*4)
+	// Fill with uniform color + noise.
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 128
+		pixels[i+1] = 128
+		pixels[i+2] = 128
+		pixels[i+3] = 255
+	}
+	// Add noise to some pixels.
+	for _, idx := range []int{0, 3, 5, 7} {
+		i := (idx*w + idx) * 4
+		pixels[i] = 180
+		pixels[i+1] = 80
+		pixels[i+2] = 170
+	}
+
+	params, _ := json.Marshal(map[string]any{
+		"strength": 3, "preserve_details": 50,
+		"reduce_color_noise": 50, "sharpen_details": 25,
+	})
+	if err := filterReduceNoise(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Noisy pixels should move toward 128.
+	for _, idx := range []int{0, 3, 5, 7} {
+		i := (idx*w + idx) * 4
+		if pixels[i] >= 180 {
+			t.Errorf("noisy pixel R at (%d,%d) should be reduced, got %d", idx, idx, pixels[i])
+		}
+	}
+}
+
+func TestFilterReduceNoiseZeroStrength(t *testing.T) {
+	pixels := []byte{100, 150, 200, 255}
+	params, _ := json.Marshal(map[string]any{"strength": 0})
+	if err := filterReduceNoise(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[0] != 100 || pixels[1] != 150 || pixels[2] != 200 {
+		t.Errorf("zero strength should be no-op, got %v", pixels[:3])
+	}
+}
+
+func TestFilterReduceNoiseColorReduction(t *testing.T) {
+	// Colorful pixel — reduce_color_noise should desaturate.
+	pixels := []byte{255, 0, 0, 255} // pure red
+	params, _ := json.Marshal(map[string]any{
+		"strength": 1, "reduce_color_noise": 100,
+	})
+	if err := filterReduceNoise(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	// With 100% color noise reduction, channels should converge toward luminance.
+	if pixels[0] == 255 && pixels[1] == 0 && pixels[2] == 0 {
+		t.Error("color noise reduction should shift channels toward luminance")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Lens Correction
+// ---------------------------------------------------------------------------
+
+func TestFilterLensCorrectionDistortion(t *testing.T) {
+	w, h := 16, 16
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"distortion": 50.0})
+	if err := filterLensCorrection(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("barrel distortion should modify pixels")
+	}
+}
+
+func TestFilterLensCorrectionVignette(t *testing.T) {
+	w, h := 8, 8
+	pixels := make([]byte, w*h*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = 200
+		pixels[i+1] = 200
+		pixels[i+2] = 200
+		pixels[i+3] = 255
+	}
+
+	params, _ := json.Marshal(map[string]any{"vignette": 80.0})
+	if err := filterLensCorrection(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corner pixel should be darker than center.
+	corner := pixels[0]
+	center := pixels[(4*w+4)*4]
+	if corner >= center {
+		t.Errorf("vignette should darken corners: corner=%d center=%d", corner, center)
+	}
+}
+
+func TestFilterLensCorrectionChromaticAberration(t *testing.T) {
+	w, h := 16, 16
+	pixels := makeGradientPixels(w, h)
+
+	params, _ := json.Marshal(map[string]any{"chromatic_aberration": 80.0})
+	if err := filterLensCorrection(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	// At the edges, R and B channels should differ (chromatic fringe).
+	edgeIdx := (0*w + 0) * 4
+	// With CA, the R/G/B channels are sampled at different positions,
+	// so they should show some divergence at corners.
+	r, g, b := pixels[edgeIdx], pixels[edgeIdx+1], pixels[edgeIdx+2]
+	if r == g && g == b {
+		// On a gradient, channels should diverge with CA.
+		t.Logf("corner pixel R=%d G=%d B=%d — checking further", r, g, b)
+		// Check a non-corner edge pixel.
+		edgeIdx2 := (0*w + w - 1) * 4
+		r2, g2, b2 := pixels[edgeIdx2], pixels[edgeIdx2+1], pixels[edgeIdx2+2]
+		if r2 == g2 && g2 == b2 {
+			t.Error("chromatic aberration should cause channel divergence at edges")
+		}
+	}
+}
+
+func TestFilterLensCorrectionPerspective(t *testing.T) {
+	w, h := 32, 32
+	pixels := makeGradientPixels(w, h)
+	orig := append([]byte(nil), pixels...)
+
+	params, _ := json.Marshal(map[string]any{"perspective_vertical": 100.0, "perspective_horizontal": 100.0})
+	if err := filterLensCorrection(pixels, w, h, nil, params); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i] != orig[i] || pixels[i+1] != orig[i+1] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Error("perspective correction should modify pixels")
+	}
+}
+
+func TestFilterLensCorrectionNoParams(t *testing.T) {
+	pixels := []byte{100, 150, 200, 255}
+	params, _ := json.Marshal(map[string]any{})
+	if err := filterLensCorrection(pixels, 1, 1, nil, params); err != nil {
+		t.Fatal(err)
+	}
+	if pixels[0] != 100 || pixels[1] != 150 || pixels[2] != 200 {
+		t.Errorf("no params should be no-op, got %v", pixels[:3])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helper: gradient test image
+// ---------------------------------------------------------------------------
+
+func makeGradientPixels(w, h int) []byte {
+	pixels := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			pixels[i] = byte(x * 255 / max(w-1, 1))
+			pixels[i+1] = byte(y * 255 / max(h-1, 1))
+			pixels[i+2] = byte((x + y) * 255 / max(w+h-2, 1))
+			pixels[i+3] = 255
+		}
+	}
+	return pixels
+}
