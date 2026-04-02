@@ -904,32 +904,32 @@
 
 - [ ] **Blur category:**
   - [x] Gaussian Blur: `radius` (float), uses AGG StackBlur
-  - [ ] Box Blur: fast approximate, `radius`
+  - [x] Box Blur: fast approximate, `radius`
   - [ ] Motion Blur: `angle`, `distance`
   - [ ] Radial Blur: spin or zoom type, `amount`, `quality`
   - [ ] Surface Blur: preserves edges, `radius`, `threshold`
 - [ ] **Sharpen category:**
-  - [ ] Sharpen / Sharpen More (fixed-kernel)
+  - [x] Sharpen / Sharpen More (fixed-kernel)
   - [x] Unsharp Mask: `amount`, `radius`, `threshold`
   - [ ] Smart Sharpen: `amount`, `radius`, remove (Gaussian/Lens/Motion), shadow/highlight fade
 - [ ] **Noise category:**
   - [x] Add Noise: `amount`, Uniform/Gaussian distribution, monochromatic checkbox
   - [ ] Reduce Noise: `strength`, preserve details, reduce color noise, sharpen details
-  - [ ] Median: `radius`
-  - [ ] Despeckle (one-shot)
+  - [x] Median: `radius`
+  - [x] Despeckle (one-shot)
 - [ ] **Distort category:**
   - [ ] Ripple: `amount`, size (small/medium/large)
   - [ ] Twirl: `angle`
   - [ ] Offset: `horizontal`, `vertical`, wrap/repeat/fold edges
   - [ ] Polar Coordinates: rectangular-to-polar / polar-to-rectangular
   - [ ] Lens Correction: remove distortion, chromatic aberration, vignette, perspective
-- [ ] **Stylize category:**
+- [x] **Stylize category:**
   - [x] Emboss: `angle`, `height`, `amount`
   - [x] Find Edges (one-shot)
   - [x] Solarize (one-shot — partial inversion)
-- [ ] **Other category:**
+- [x] **Other category:**
   - [x] High Pass: `radius` (extracts edges — useful with overlay blend mode)
-  - [ ] Minimum / Maximum: morphological erosion/dilation, `radius`
+  - [x] Minimum / Maximum: morphological erosion/dilation, `radius`
 
 ### Phase 5.6: Adjustments & Properties Panel UI
 
