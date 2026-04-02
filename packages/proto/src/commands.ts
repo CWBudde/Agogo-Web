@@ -130,6 +130,173 @@ export type LayerBlendMode =
   | "color"
   | "luminosity";
 
+export type AdjustmentKind =
+  | "levels"
+  | "curves"
+  | "hue-sat"
+  | "color-balance"
+  | "brightness-contrast"
+  | "exposure"
+  | "vibrance"
+  | "black-white"
+  | "invert"
+  | "channel-mixer"
+  | "threshold"
+  | "posterize"
+  | "photo-filter"
+  | "selective-color"
+  | "gradient-map";
+
+export interface LevelsAdjustmentParams {
+  channel?: string;
+  inputBlack?: number;
+  inputWhite?: number;
+  gamma?: number;
+  outputBlack?: number;
+  outputWhite?: number;
+  auto?: boolean;
+  shadowClipPercent?: number;
+  highlightClipPercent?: number;
+}
+
+export interface CurvesPointCommand {
+  x: number;
+  y: number;
+}
+
+export interface CurvesAdjustmentParams {
+  channel?: string;
+  points?: CurvesPointCommand[];
+}
+
+export interface HueSatRangeAdjustmentParams {
+  hueShift?: number;
+  saturation?: number;
+  lightness?: number;
+}
+
+export interface HueSatAdjustmentParams {
+  hueShift?: number;
+  saturation?: number;
+  lightness?: number;
+  colorize?: boolean;
+  reds?: HueSatRangeAdjustmentParams;
+  yellows?: HueSatRangeAdjustmentParams;
+  greens?: HueSatRangeAdjustmentParams;
+  cyans?: HueSatRangeAdjustmentParams;
+  blues?: HueSatRangeAdjustmentParams;
+  magentas?: HueSatRangeAdjustmentParams;
+}
+
+export interface ColorBalanceToneAdjustmentParams {
+  cyanRed?: number;
+  magentaGreen?: number;
+  yellowBlue?: number;
+}
+
+export interface ColorBalanceAdjustmentParams {
+  shadows?: ColorBalanceToneAdjustmentParams;
+  midtones?: ColorBalanceToneAdjustmentParams;
+  highlights?: ColorBalanceToneAdjustmentParams;
+  preserveLuminosity?: boolean;
+}
+
+export interface BrightnessContrastAdjustmentParams {
+  brightness?: number;
+  contrast?: number;
+  legacy?: boolean;
+}
+
+export interface ExposureAdjustmentParams {
+  exposure?: number;
+  offset?: number;
+  gamma?: number;
+}
+
+export interface VibranceAdjustmentParams {
+  vibrance?: number;
+  saturation?: number;
+}
+
+export interface BlackWhiteAdjustmentParams {
+  reds?: number;
+  yellows?: number;
+  greens?: number;
+  cyans?: number;
+  blues?: number;
+  magentas?: number;
+  auto?: boolean;
+  tint?: boolean;
+  tintColor?: [number, number, number];
+  tintStrength?: number;
+}
+
+export interface ChannelMixerAdjustmentParams {
+  monochrome?: boolean;
+  red?: [number, number, number];
+  green?: [number, number, number];
+  blue?: [number, number, number];
+}
+
+export interface ThresholdAdjustmentParams {
+  threshold?: number;
+}
+
+export interface PosterizeAdjustmentParams {
+  levels?: number;
+}
+
+export interface PhotoFilterAdjustmentParams {
+  color?: [number, number, number, number];
+  density?: number;
+  preserveLuminosity?: boolean;
+}
+
+export interface SelectiveColorToneAdjustmentParams {
+  cyanRed?: number;
+  magentaGreen?: number;
+  yellowBlue?: number;
+  black?: number;
+}
+
+export interface SelectiveColorAdjustmentParams {
+  mode?: "relative" | "absolute" | string;
+  reds?: SelectiveColorToneAdjustmentParams;
+  yellows?: SelectiveColorToneAdjustmentParams;
+  greens?: SelectiveColorToneAdjustmentParams;
+  cyans?: SelectiveColorToneAdjustmentParams;
+  blues?: SelectiveColorToneAdjustmentParams;
+  magentas?: SelectiveColorToneAdjustmentParams;
+  whites?: SelectiveColorToneAdjustmentParams;
+  neutrals?: SelectiveColorToneAdjustmentParams;
+  blacks?: SelectiveColorToneAdjustmentParams;
+}
+
+export interface GradientMapAdjustmentParams {
+  stops?: GradientStopCommand[];
+  reverse?: boolean;
+}
+
+export interface AdjustmentParamsByKind {
+  levels: LevelsAdjustmentParams;
+  curves: CurvesAdjustmentParams;
+  "hue-sat": HueSatAdjustmentParams;
+  "color-balance": ColorBalanceAdjustmentParams;
+  "brightness-contrast": BrightnessContrastAdjustmentParams;
+  exposure: ExposureAdjustmentParams;
+  vibrance: VibranceAdjustmentParams;
+  "black-white": BlackWhiteAdjustmentParams;
+  invert: Record<string, never>;
+  "channel-mixer": ChannelMixerAdjustmentParams;
+  threshold: ThresholdAdjustmentParams;
+  posterize: PosterizeAdjustmentParams;
+  "photo-filter": PhotoFilterAdjustmentParams;
+  "selective-color": SelectiveColorAdjustmentParams;
+  "gradient-map": GradientMapAdjustmentParams;
+}
+
+export type AdjustmentLayerParams<K extends AdjustmentKind = AdjustmentKind> = AdjustmentParamsByKind[K];
+
 export interface CreateDocumentCommand {
   name: string;
   width: number;
@@ -216,8 +383,8 @@ export interface AddLayerCommand {
   index?: number;
   bounds?: LayerBoundsCommand;
   pixels?: number[];
-  adjustmentKind?: string;
-  params?: unknown;
+  adjustmentKind?: AdjustmentKind;
+  params?: AdjustmentLayerParams;
   text?: string;
   fontFamily?: string;
   fontSize?: number;

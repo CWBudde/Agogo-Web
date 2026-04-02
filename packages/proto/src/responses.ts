@@ -1,7 +1,7 @@
 // RenderResult — returned by the engine after each command dispatch.
 // bufferPtr and bufferLen reference a region inside the Wasm linear memory.
 
-import type { FreeTransformMeta } from "./commands.js";
+import type { AdjustmentKind, AdjustmentLayerParams, FreeTransformMeta } from "./commands.js";
 
 export interface DirtyRect {
 	x: number;
@@ -66,8 +66,8 @@ export interface LayerNodeMeta {
 	id: string;
 	name: string;
 	layerType: "pixel" | "group" | "adjustment" | "text" | "vector";
-	adjustmentKind?: string;
-	params?: unknown;
+	adjustmentKind?: AdjustmentKind;
+	params?: AdjustmentLayerParams;
 	parentId?: string;
 	visible: boolean;
 	lockMode: "none" | "pixels" | "position" | "all";

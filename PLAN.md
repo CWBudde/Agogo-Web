@@ -849,9 +849,9 @@
 - [ ] Shared extended-adjustment plumbing:
   - [x] Add round-trip tests for the new adjustment payloads so `.agp` save/load preserves their parameters exactly
   - [x] Add panel-state coverage for switching between adjustment dialogs so in-progress edits survive normal shell updates
-  - [ ] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
+  - [x] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
   - [x] Add undo/redo regression coverage for extended adjustment parameter edits
-  - [ ] Add live-preview re-render regression coverage for extended adjustment parameter edits
+  - [x] Add live-preview re-render regression coverage for extended adjustment parameter edits
   - [ ] Keep all extended adjustments on the same non-destructive render path used by Phase 5.1 and verify layer visibility / masking / clipping semantics stay identical
 - [ ] **Gradient Map:**
   - [x] Map source luminance to gradient stops across the full 0–255 range
