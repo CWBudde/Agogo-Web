@@ -11,13 +11,13 @@ import (
 type FilterCategory string
 
 const (
-	FilterCategoryBlur     FilterCategory = "blur"
-	FilterCategorySharpen  FilterCategory = "sharpen"
-	FilterCategoryNoise    FilterCategory = "noise"
-	FilterCategoryDistort  FilterCategory = "distort"
-	FilterCategoryStylize  FilterCategory = "stylize"
-	FilterCategoryRender   FilterCategory = "render"
-	FilterCategoryOther    FilterCategory = "other"
+	FilterCategoryBlur    FilterCategory = "blur"
+	FilterCategorySharpen FilterCategory = "sharpen"
+	FilterCategoryNoise   FilterCategory = "noise"
+	FilterCategoryDistort FilterCategory = "distort"
+	FilterCategoryStylize FilterCategory = "stylize"
+	FilterCategoryRender  FilterCategory = "render"
+	FilterCategoryOther   FilterCategory = "other"
 )
 
 // FilterDef describes a registered filter for UI discovery.

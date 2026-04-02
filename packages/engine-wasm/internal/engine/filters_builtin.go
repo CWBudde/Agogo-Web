@@ -114,6 +114,34 @@ func init() {
 		Category:  FilterCategoryOther,
 		HasDialog: true,
 	}, filterMaximum)
+
+	RegisterFilter(FilterDef{
+		ID:        "ripple",
+		Name:      "Ripple",
+		Category:  FilterCategoryDistort,
+		HasDialog: true,
+	}, filterRipple)
+
+	RegisterFilter(FilterDef{
+		ID:        "twirl",
+		Name:      "Twirl",
+		Category:  FilterCategoryDistort,
+		HasDialog: true,
+	}, filterTwirl)
+
+	RegisterFilter(FilterDef{
+		ID:        "offset",
+		Name:      "Offset",
+		Category:  FilterCategoryDistort,
+		HasDialog: true,
+	}, filterOffset)
+
+	RegisterFilter(FilterDef{
+		ID:        "polar-coordinates",
+		Name:      "Polar Coordinates",
+		Category:  FilterCategoryDistort,
+		HasDialog: true,
+	}, filterPolarCoordinates)
 }
 
 // ---------------------------------------------------------------------------
@@ -297,8 +325,8 @@ func filterUnsharpMask(pixels []byte, w, h int, selMask []byte, params json.RawM
 // ---------------------------------------------------------------------------
 
 type addNoiseParams struct {
-	Amount        int    `json:"amount"`        // 0-400
-	Distribution  string `json:"distribution"`  // "uniform" or "gaussian"
+	Amount        int    `json:"amount"`       // 0-400
+	Distribution  string `json:"distribution"` // "uniform" or "gaussian"
 	Monochromatic bool   `json:"monochromatic"`
 }
 
@@ -406,9 +434,9 @@ func filterEmboss(pixels []byte, w, h int, selMask []byte, params json.RawMessag
 		sy := py + int(math.Round(dy))
 		si := samplePixelIdx(sx, sy, w, h)
 		if si >= 0 {
-			return clamp8(float64(orig[i])-float64(orig[si])*scale + 128),
-				clamp8(float64(orig[i+1])-float64(orig[si+1])*scale + 128),
-				clamp8(float64(orig[i+2])-float64(orig[si+2])*scale + 128)
+			return clamp8(float64(orig[i]) - float64(orig[si])*scale + 128),
+				clamp8(float64(orig[i+1]) - float64(orig[si+1])*scale + 128),
+				clamp8(float64(orig[i+2]) - float64(orig[si+2])*scale + 128)
 		}
 		return 128, 128, 128
 	})
@@ -810,6 +838,230 @@ func filterMaximum(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 
 	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
 		return result[i], result[i+1], result[i+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Bilinear sampling helper for coordinate-remapping filters
+// ---------------------------------------------------------------------------
+
+func bilinearSample(orig []byte, sx, sy float64, w, h int) (byte, byte, byte) {
+	x0 := int(math.Floor(sx))
+	y0 := int(math.Floor(sy))
+	fx := sx - float64(x0)
+	fy := sy - float64(y0)
+
+	// Clamp coordinates
+	x0c := max(0, min(x0, w-1))
+	x1c := max(0, min(x0+1, w-1))
+	y0c := max(0, min(y0, h-1))
+	y1c := max(0, min(y0+1, h-1))
+
+	var r, g, b float64
+	for c := range 3 {
+		v00 := float64(orig[(y0c*w+x0c)*4+c])
+		v10 := float64(orig[(y0c*w+x1c)*4+c])
+		v01 := float64(orig[(y1c*w+x0c)*4+c])
+		v11 := float64(orig[(y1c*w+x1c)*4+c])
+		v := v00*(1-fx)*(1-fy) + v10*fx*(1-fy) + v01*(1-fx)*fy + v11*fx*fy
+		switch c {
+		case 0:
+			r = v
+		case 1:
+			g = v
+		case 2:
+			b = v
+		}
+	}
+	return clamp8(r), clamp8(g), clamp8(b)
+}
+
+// ---------------------------------------------------------------------------
+// Ripple (Distort)
+// ---------------------------------------------------------------------------
+
+type rippleParams struct {
+	Amount int    `json:"amount"` // displacement in pixels
+	Size   string `json:"size"`   // "small", "medium", "large"
+}
+
+func filterRipple(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p rippleParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Amount == 0 {
+		return nil
+	}
+
+	var period float64
+	switch p.Size {
+	case "large":
+		period = 60
+	case "medium":
+		period = 30
+	default:
+		period = 10
+	}
+
+	orig := append([]byte(nil), pixels...)
+	amt := float64(p.Amount)
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		x := (i / 4) % w
+		y := (i / 4) / w
+		sx := float64(x) + amt*math.Sin(2*math.Pi*float64(y)/period)
+		sy := float64(y) + amt*math.Sin(2*math.Pi*float64(x)/period)
+		return bilinearSample(orig, sx, sy, w, h)
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Twirl (Distort)
+// ---------------------------------------------------------------------------
+
+type twirlParams struct {
+	Angle int `json:"angle"` // degrees at center
+}
+
+func filterTwirl(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p twirlParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Angle == 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+	cx := float64(w) / 2
+	cy := float64(h) / 2
+	maxDist := math.Min(cx, cy)
+	maxAngle := float64(p.Angle) * math.Pi / 180.0
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		x := (i / 4) % w
+		y := (i / 4) / w
+		dx := float64(x) - cx
+		dy := float64(y) - cy
+		dist := math.Sqrt(dx*dx + dy*dy)
+		if dist >= maxDist {
+			return orig[i], orig[i+1], orig[i+2]
+		}
+		angle := maxAngle * (1 - dist/maxDist)
+		cosA := math.Cos(angle)
+		sinA := math.Sin(angle)
+		sx := cx + dx*cosA - dy*sinA
+		sy := cy + dx*sinA + dy*cosA
+		return bilinearSample(orig, sx, sy, w, h)
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Offset (Distort)
+// ---------------------------------------------------------------------------
+
+type offsetParams struct {
+	Horizontal int    `json:"horizontal"`
+	Vertical   int    `json:"vertical"`
+	Wrap       string `json:"wrap"` // "wrap" or "repeat"
+}
+
+func filterOffset(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p offsetParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+	if p.Horizontal == 0 && p.Vertical == 0 {
+		return nil
+	}
+
+	orig := append([]byte(nil), pixels...)
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		x := (i / 4) % w
+		y := (i / 4) / w
+		sx := x - p.Horizontal
+		sy := y - p.Vertical
+
+		if p.Wrap == "wrap" {
+			sx = ((sx % w) + w) % w
+			sy = ((sy % h) + h) % h
+		} else {
+			// repeat: clamp to edge
+			if sx < 0 {
+				sx = 0
+			} else if sx >= w {
+				sx = w - 1
+			}
+			if sy < 0 {
+				sy = 0
+			} else if sy >= h {
+				sy = h - 1
+			}
+		}
+
+		si := (sy*w + sx) * 4
+		return orig[si], orig[si+1], orig[si+2]
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Polar Coordinates (Distort)
+// ---------------------------------------------------------------------------
+
+type polarCoordinatesParams struct {
+	Mode string `json:"mode"` // "rectangular-to-polar" or "polar-to-rectangular"
+}
+
+func filterPolarCoordinates(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+	var p polarCoordinatesParams
+	if params != nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return err
+		}
+	}
+
+	orig := append([]byte(nil), pixels...)
+	cx := float64(w) / 2
+	cy := float64(h) / 2
+	maxRadius := math.Sqrt(cx*cx + cy*cy)
+
+	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		x := (i / 4) % w
+		y := (i / 4) / w
+
+		if p.Mode == "polar-to-rectangular" {
+			// Input (x,y) treated as (angle, radius).
+			// x maps to angle [0, 2*pi], y maps to radius [0, maxRadius].
+			angle := float64(x) / float64(w) * 2 * math.Pi
+			radius := float64(y) / float64(h) * maxRadius
+			sx := cx + radius*math.Cos(angle)
+			sy := cy + radius*math.Sin(angle)
+			return bilinearSample(orig, sx, sy, w, h)
+		}
+
+		// rectangular-to-polar (default): convert (x,y) to polar, map to output.
+		dx := float64(x) - cx
+		dy := float64(y) - cy
+		radius := math.Sqrt(dx*dx + dy*dy)
+		angle := math.Atan2(dy, dx)
+		if angle < 0 {
+			angle += 2 * math.Pi
+		}
+		sx := angle / (2 * math.Pi) * float64(w)
+		sy := radius / maxRadius * float64(h)
+		return bilinearSample(orig, sx, sy, w, h)
 	})
 	return nil
 }
