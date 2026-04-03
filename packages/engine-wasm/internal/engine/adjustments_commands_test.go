@@ -149,10 +149,10 @@ func TestClassifyHueRange(t *testing.T) {
 		{"gray (low sat)", 128, 128, 128, "master"},
 		{"white", 255, 255, 255, "master"},
 		{"black", 0, 0, 0, "master"},
-		{"orange", 255, 128, 0, "yellows"},   // hue ~30
-		{"teal", 0, 128, 128, "cyans"},        // hue ~180
-		{"violet", 128, 0, 255, "blues"},      // hue ~270
-		{"warm red", 255, 50, 50, "reds"},     // hue ~0
+		{"orange", 255, 128, 0, "yellows"}, // hue ~30
+		{"teal", 0, 128, 128, "cyans"},     // hue ~180
+		{"violet", 128, 0, 255, "blues"},   // hue ~270
+		{"warm red", 255, 50, 50, "reds"},  // hue ~0
 	}
 
 	for _, tt := range tests {
