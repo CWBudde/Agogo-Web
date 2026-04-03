@@ -65,6 +65,7 @@ import {
 } from "@/components/editor-icons";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import { LayersPanel } from "@/components/layers-panel";
+import { PathsPanel } from "@/components/paths-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
@@ -443,7 +444,7 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches";
+type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches" | "paths";
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -2486,6 +2487,7 @@ export default function App() {
                           ["color", "Color"],
                           ["swatches", "Swatches"],
                           ["channels", "Channels"],
+                          ["paths", "Paths"],
                           ["history", "History"],
                           ["navigator", "Navigator"],
                         ].map(([id, label]) => (
@@ -2779,6 +2781,13 @@ export default function App() {
                       ) : null}
 
                       {activeAuxPanel === "channels" ? <ChannelsPanel /> : null}
+
+                      {activeAuxPanel === "paths" ? (
+                        <PathsPanel
+                          engine={engine}
+                          paths={render?.uiMeta.paths ?? []}
+                        />
+                      ) : null}
                     </DockSection>
 
                     <DockSection
@@ -4316,6 +4325,8 @@ function dockTitle(panel: AuxPanel) {
       return "Navigator";
     case "channels":
       return "Channels";
+    case "paths":
+      return "Paths";
     case "adjustments":
       return "Adjustments";
     default:
