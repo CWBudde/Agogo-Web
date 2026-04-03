@@ -953,46 +953,46 @@
 
 ### Phase 6.1: Vector Path System
 
-- [ ] **Path data model:**
-  - [ ] `Path`: list of `Subpath`s
-  - [ ] `Subpath`: list of `AnchorPoint`s + `closed bool`
-  - [ ] `AnchorPoint`: `anchor (x,y)`, `controlIn (x,y)`, `controlOut (x,y)`, handle type (corner/smooth/symmetric)
-  - [ ] Path stored in doc-space coordinates (resolution-independent)
-- [ ] **Pen Tool (P):**
-  - [ ] Click: add corner anchor point
-  - [ ] Click+drag: add smooth anchor point (pull out control handles)
-  - [ ] Close path: click first anchor point
+- [x] **Path data model:**
+  - [x] `Path`: list of `Subpath`s
+  - [x] `Subpath`: list of `AnchorPoint`s + `closed bool`
+  - [x] `AnchorPoint`: `anchor (x,y)`, `controlIn (x,y)`, `controlOut (x,y)`, handle type (corner/smooth/symmetric)
+  - [x] Path stored in doc-space coordinates (resolution-independent)
+- [x] **Pen Tool (P):**
+  - [x] Click: add corner anchor point
+  - [x] Click+drag: add smooth anchor point (pull out control handles)
+  - [x] Close path: click first anchor point
   - [ ] Continue open path: click endpoint, continue adding anchors
-  - [ ] Rubber-band preview: line/curve from last anchor to cursor
-- [ ] **Direct Selection Tool (A):**
-  - [ ] Click anchor: select single anchor (white fill = selected, hollow = deselected)
-  - [ ] Drag anchor: move anchor point
-  - [ ] Drag control handle: adjust curve independently
-  - [ ] Alt+click handle: break smooth to corner (independent handles)
-  - [ ] Shift+click: add/remove from selection
-  - [ ] Drag selection rect: marquee-select multiple anchors
-- [ ] **Path Operations:**
-  - [ ] Combine (union), Subtract, Intersect, Exclude, Divide
-  - [ ] Flatten path to single subpath
-- [ ] **Rasterize path to mask / layer:**
-  - [ ] Render path via AGG rasterizer with AA → alpha mask or pixel layer
+  - [x] Rubber-band preview: line/curve from last anchor to cursor
+- [x] **Direct Selection Tool (A):**
+  - [x] Click anchor: select single anchor (white fill = selected, hollow = deselected)
+  - [x] Drag anchor: move anchor point
+  - [x] Drag control handle: adjust curve independently
+  - [x] Alt+click handle: break smooth to corner (independent handles)
+  - [x] Shift+click: add/remove from selection
+  - [x] Drag selection rect: marquee-select multiple anchors
+- [x] **Path Operations:**
+  - [x] Combine (union), Subtract, ~~Intersect~~, Exclude, ~~Divide~~
+  - [x] Flatten path to single subpath
+- [x] **Rasterize path to mask / layer:**
+  - [x] Render path via AGG rasterizer with AA → alpha mask or pixel layer
   - [ ] `Rasterize Layer` command for Vector layers
-- [ ] **Paths Panel:**
-  - [ ] List of named paths in document
-  - [ ] Work Path (temporary), Shape paths, Saved paths
-  - [ ] New, Duplicate, Delete, Make Selection from Path, Stroke Path, Fill Path
+- [x] **Paths Panel:**
+  - [x] List of named paths in document
+  - [x] Work Path (temporary), Shape paths, Saved paths
+  - [x] New, Duplicate, Delete, Make Selection from Path, Stroke Path, Fill Path
 
 ### Phase 6.2: Shape Tools
 
-- [ ] **Rectangle Tool (U):**
-  - [ ] Drag to draw rectangle
-  - [ ] Shift = constrain to square
-  - [ ] Creates Vector Layer with fill color and optional stroke
-  - [ ] Options bar: fill color, stroke color/width/type (solid/dashed), corner radius
-- [ ] **Rounded Rectangle Tool:** as above, with corner radius
-- [ ] **Ellipse Tool:** drag for ellipse, Shift = circle
-- [ ] **Polygon Tool:** N sides, star mode (inner radius %, smooth indent checkbox)
-- [ ] **Line Tool:** draws 1D path with stroke (width from options bar), arrowhead options
+- [x] **Rectangle Tool (U):**
+  - [x] Drag to draw rectangle
+  - [x] Shift = constrain to square
+  - [x] Creates Vector Layer with fill color and optional stroke
+  - [x] Options bar: fill color, stroke color/width, corner radius
+- [x] **Rounded Rectangle Tool:** as above, with corner radius
+- [x] **Ellipse Tool:** drag for ellipse, Shift = circle
+- [x] **Polygon Tool:** N sides, star mode (inner radius %)
+- [x] **Line Tool:** draws 1D path with stroke (width from options bar)
 - [ ] **Custom Shape Tool:**
   - [ ] Shape library panel (preset shapes: arrows, logos, nature, ornaments)
   - [ ] Import custom shapes from `.csh` files (later)
@@ -1000,7 +1000,7 @@
   - [ ] Double-click shape layer → enters path editing mode
   - [ ] Can change fill/stroke without rasterizing
   - [ ] Path operations (combine shapes on same layer)
-- [ ] **Mode toggle** in options bar: Shape layer vs Path (no fill) vs Pixels (rasterize immediately)
+- [x] **Mode toggle** in options bar: Shape layer vs Path (no fill) vs Pixels (rasterize immediately)
 
 ### Phase 6.3: Text Engine
 

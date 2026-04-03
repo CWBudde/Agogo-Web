@@ -1,4 +1,4 @@
-import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
+import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
 import { PathOverlayRenderer } from "./path-overlay";
 import {
   useCallback,
@@ -84,6 +84,16 @@ type EditorCanvasProps = {
   eyedropperSampleSize: number;
   eyedropperSampleMerged: boolean;
   eyedropperSampleAllLayersNoAdj: boolean;
+  shapeOptions: {
+    subTool: "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+    mode: "shape" | "path" | "pixels";
+    cornerRadius: number;
+    polygonSides: number;
+    starMode: boolean;
+    fillColor: [number, number, number, number];
+    strokeColor: [number, number, number, number];
+    strokeWidth: number;
+  };
   cropDeletePixels: boolean;
   transformSelectionActive: boolean;
   onTransformSelectionCommit: (a: number, b: number, c: number, d: number, tx: number, ty: number) => void;
@@ -613,6 +623,7 @@ export function EditorCanvas({
   eyedropperSampleSize,
   eyedropperSampleMerged,
   eyedropperSampleAllLayersNoAdj,
+  shapeOptions,
   cropDeletePixels,
   transformSelectionActive,
   onTransformSelectionCommit,
@@ -653,6 +664,7 @@ export function EditorCanvas({
     null,
   );
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
+  const [shapeDraft, setShapeDraft] = useState<{ start: DocumentPoint; current: DocumentPoint } | null>(null);
   const [magneticLassoDraft, setMagneticLassoDraft] =
     useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
@@ -754,6 +766,9 @@ export function EditorCanvas({
     if (activeTool !== "gradient") {
       setGradientDragStart(null);
       setGradientDragCurrent(null);
+    }
+    if (activeTool !== "shape") {
+      setShapeDraft(null);
     }
   }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
@@ -1305,6 +1320,15 @@ export function EditorCanvas({
       }
     : null;
 
+  const shapeOverlay = shapeDraft
+    ? (() => {
+        const startC = documentPointToCanvas(shapeDraft.start);
+        const endC = documentPointToCanvas(shapeDraft.current);
+        if (!startC || !endC) return null;
+        return { start: startC, current: endC };
+      })()
+    : null;
+
   return (
     <div
       ref={hostRef}
@@ -1790,6 +1814,15 @@ export function EditorCanvas({
           } satisfies FillCommand);
           return;
         }
+        if (activeTool === "shape" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          const start = { x: docPoint.x, y: docPoint.y };
+          setShapeDraft({ start, current: start });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
         if (activeTool === "gradient" && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
@@ -1994,6 +2027,10 @@ export function EditorCanvas({
               current ? { ...current, lastX: pixelX, lastY: pixelY } : current,
             );
           }
+          return;
+        }
+        if (shapeDraft && activeTool === "shape" && docPoint) {
+          setShapeDraft((d) => d ? { ...d, current: { x: docPoint.x, y: docPoint.y } } : d);
           return;
         }
         if (
@@ -2496,6 +2533,44 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
+        if (shapeDraft && activeTool === "shape" && event.button === 0) {
+          const draft = shapeDraft;
+          setShapeDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          const shiftKey = event.shiftKey;
+          let x = Math.min(draft.start.x, draft.current.x);
+          let y = Math.min(draft.start.y, draft.current.y);
+          let w = Math.abs(draft.current.x - draft.start.x);
+          let h = Math.abs(draft.current.y - draft.start.y);
+          if (shapeOptions.subTool === "line") {
+            // Line: preserve direction
+            x = draft.start.x;
+            y = draft.start.y;
+            w = draft.current.x - draft.start.x;
+            h = draft.current.y - draft.start.y;
+          } else if (shiftKey) {
+            // Constrain to square / circle
+            const size = Math.max(w, h);
+            w = size;
+            h = size;
+          }
+          if (w === 0 || h === 0) return;
+          engine.dispatchCommand(CommandID.DrawShape, {
+            shapeType: shapeOptions.subTool,
+            x,
+            y,
+            w,
+            h,
+            cornerRadius: shapeOptions.cornerRadius,
+            sides: shapeOptions.polygonSides,
+            starMode: shapeOptions.starMode,
+            fillColor: shapeOptions.fillColor,
+            strokeColor: shapeOptions.strokeColor,
+            strokeWidth: shapeOptions.strokeWidth,
+            mode: shapeOptions.mode,
+          } satisfies DrawShapeCommand);
+          return;
+        }
         if (gradientDragStart && activeTool === "gradient" && event.button === 0) {
           const point = clientPointToDocument(event.clientX, event.clientY);
           const end = gradientDragCurrent ?? point ?? gradientDragStart;
@@ -2629,6 +2704,7 @@ export function EditorCanvas({
       polygonOverlay ||
       magneticLassoDraft ||
       gradientDragStart ||
+      shapeOverlay ||
       (transformSelectionActive && selTransformBox) ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -2667,6 +2743,41 @@ export function EditorCanvas({
                 fill="rgba(244, 114, 182, 0.12)"
                 stroke="rgba(244, 114, 182, 0.95)"
                 strokeDasharray="8 6"
+                strokeWidth="1.5"
+              />
+            )
+          ) : null}
+          {shapeOverlay ? (
+            shapeOptions.subTool === "ellipse" ? (
+              <ellipse
+                cx={(shapeOverlay.start.x + shapeOverlay.current.x) * 0.5}
+                cy={(shapeOverlay.start.y + shapeOverlay.current.y) * 0.5}
+                rx={Math.abs(shapeOverlay.current.x - shapeOverlay.start.x) * 0.5}
+                ry={Math.abs(shapeOverlay.current.y - shapeOverlay.start.y) * 0.5}
+                fill="rgba(34, 211, 238, 0.08)"
+                stroke="rgba(34, 211, 238, 0.9)"
+                strokeDasharray="6 5"
+                strokeWidth="1.5"
+              />
+            ) : shapeOptions.subTool === "line" ? (
+              <line
+                x1={shapeOverlay.start.x}
+                y1={shapeOverlay.start.y}
+                x2={shapeOverlay.current.x}
+                y2={shapeOverlay.current.y}
+                stroke="rgba(34, 211, 238, 0.9)"
+                strokeDasharray="6 5"
+                strokeWidth="1.5"
+              />
+            ) : (
+              <rect
+                x={Math.min(shapeOverlay.start.x, shapeOverlay.current.x)}
+                y={Math.min(shapeOverlay.start.y, shapeOverlay.current.y)}
+                width={Math.abs(shapeOverlay.current.x - shapeOverlay.start.x)}
+                height={Math.abs(shapeOverlay.current.y - shapeOverlay.start.y)}
+                fill="rgba(34, 211, 238, 0.08)"
+                stroke="rgba(34, 211, 238, 0.9)"
+                strokeDasharray="6 5"
                 strokeWidth="1.5"
               />
             )

@@ -738,6 +738,18 @@ export default function App() {
   const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
   const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
+
+  // Shape tool state
+  type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+  type ShapeMode = "shape" | "path" | "pixels";
+  const [shapeSubTool, setShapeSubTool] = useState<ShapeSubTool>("rect");
+  const [shapeMode, setShapeMode] = useState<ShapeMode>("shape");
+  const [shapeCornerRadius, setShapeCornerRadius] = useState(10);
+  const [shapePolygonSides, setShapePolygonSides] = useState(6);
+  const [shapeStarMode, setShapeStarMode] = useState(false);
+  const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
+  const [shapeStrokeColor, setShapeStrokeColor] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -2141,6 +2153,110 @@ export default function App() {
             <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
             <span className="text-[11px] text-slate-400">Click sets foreground; Alt+click sets background.</span>
           </>
+        ) : activeTool === "shape" ? (
+          <>
+            <ToolOptionGroup label="Shape">
+              {(["rect", "rounded-rect", "ellipse", "polygon", "line"] as ShapeSubTool[]).map((s) => (
+                <ToolChoiceButton key={s} active={shapeSubTool === s} onClick={() => setShapeSubTool(s)}>
+                  {s === "rect" ? "Rect" : s === "rounded-rect" ? "Round" : s === "ellipse" ? "Ellipse" : s === "polygon" ? "Polygon" : "Line"}
+                </ToolChoiceButton>
+              ))}
+            </ToolOptionGroup>
+            <ToolOptionGroup label="Mode">
+              {(["shape", "path", "pixels"] as ShapeMode[]).map((m) => (
+                <ToolChoiceButton key={m} active={shapeMode === m} onClick={() => setShapeMode(m)}>
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </ToolChoiceButton>
+              ))}
+            </ToolOptionGroup>
+            {shapeMode !== "path" && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Fill</span>
+                <button
+                  type="button"
+                  title="Fill color"
+                  style={{ background: `rgba(${shapeFillColor[0]},${shapeFillColor[1]},${shapeFillColor[2]},${shapeFillColor[3] / 255})` }}
+                  className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
+                  onClick={() => {
+                    setShapeFillColor([...foregroundColor] as [number, number, number, number]);
+                  }}
+                />
+                <button
+                  type="button"
+                  title="Use foreground color"
+                  className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
+                  onClick={() => setShapeFillColor([...foregroundColor] as [number, number, number, number])}
+                >
+                  FG
+                </button>
+                <button
+                  type="button"
+                  title="No fill"
+                  className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
+                  onClick={() => setShapeFillColor([0, 0, 0, 0])}
+                >
+                  None
+                </button>
+              </div>
+            )}
+            {shapeMode !== "path" && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Stroke</span>
+                <button
+                  type="button"
+                  title="Stroke color"
+                  style={{ background: `rgba(${shapeStrokeColor[0]},${shapeStrokeColor[1]},${shapeStrokeColor[2]},${shapeStrokeColor[3] / 255})` }}
+                  className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
+                  onClick={() => setShapeStrokeColor([...foregroundColor] as [number, number, number, number])}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={shapeStrokeWidth}
+                  onChange={(e) => setShapeStrokeWidth(Math.max(0, Number(e.target.value)))}
+                  className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+                />
+                <span className="text-[10px] text-slate-500">px</span>
+              </div>
+            )}
+            {shapeSubTool === "rounded-rect" && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Radius</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  step={1}
+                  value={shapeCornerRadius}
+                  onChange={(e) => setShapeCornerRadius(Math.max(0, Number(e.target.value)))}
+                  className="w-14 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+                />
+                <span className="text-[10px] text-slate-500">px</span>
+              </div>
+            )}
+            {shapeSubTool === "polygon" && (
+              <>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Sides</span>
+                  <input
+                    type="number"
+                    min={3}
+                    max={100}
+                    step={1}
+                    value={shapePolygonSides}
+                    onChange={(e) => setShapePolygonSides(Math.max(3, Number(e.target.value)))}
+                    className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+                  />
+                </div>
+                <ToolChoiceButton active={shapeStarMode} onClick={() => setShapeStarMode((v) => !v)}>
+                  Star
+                </ToolChoiceButton>
+              </>
+            )}
+            <span className="text-[11px] text-slate-400">Drag to draw. Shift = constrain aspect ratio.</span>
+          </>
         ) : null;
 
   return (
@@ -2404,6 +2520,16 @@ export default function App() {
                     eyedropperSampleSize={eyedropperSampleSize}
                     eyedropperSampleMerged={eyedropperSampleMerged}
                     eyedropperSampleAllLayersNoAdj={eyedropperSampleAllLayersNoAdj}
+                    shapeOptions={{
+                      subTool: shapeSubTool,
+                      mode: shapeMode,
+                      cornerRadius: shapeCornerRadius,
+                      polygonSides: shapePolygonSides,
+                      starMode: shapeStarMode,
+                      fillColor: shapeFillColor,
+                      strokeColor: shapeStrokeColor,
+                      strokeWidth: shapeStrokeWidth,
+                    }}
                     cropDeletePixels={cropDeletePixels}
                     transformSelectionActive={transformSelectionActive}
                     onTransformSelectionCommit={(a, b, c, d, tx, ty) => {
