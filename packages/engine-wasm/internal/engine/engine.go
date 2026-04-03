@@ -125,11 +125,14 @@ const (
 	commandStrokePath            = 0x0625
 	commandFillPath              = 0x0626
 
-	commandBeginTxn                 = 0xffe0
-	commandEndTxn                   = 0xffe1
-	commandClearHistory             = 0xffe2
-	commandUndo                     = 0xfff0
-	commandRedo                     = 0xfff1
+	// Phase 6.2: Shape Tools
+	commandDrawShape = 0x0630
+
+	commandBeginTxn     = 0xffe0
+	commandEndTxn       = 0xffe1
+	commandClearHistory = 0xffe2
+	commandUndo         = 0xfff0
+	commandRedo         = 0xfff1
 )
 
 const (
@@ -999,6 +1002,13 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandCreatePath, commandDeletePath, commandRenamePath, commandDuplicatePath,
 		commandMakeSelectionFromPath, commandStrokePath, commandFillPath:
 		if handled, err := inst.dispatchPathCommand(commandID, payloadJSON); handled || err != nil {
+			if err != nil {
+				return RenderResult{}, err
+			}
+		}
+
+	case commandDrawShape:
+		if handled, err := inst.dispatchShapeCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}

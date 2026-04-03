@@ -126,6 +126,9 @@ export enum CommandID {
   StrokePath = 0x0625,
   FillPath = 0x0626,
 
+  // Phase 6.2: Shape Tools
+  DrawShape = 0x0630,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -919,4 +922,34 @@ export interface PathOverlay {
   anchors: PathOverlayAnchor[];
   handleLines: PathOverlayLine[];
   rubberBand?: PathOverlayPolyline;
+}
+
+// Phase 6.2: Shape Tools
+
+export type ShapeType = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+export type ShapeMode = "shape" | "path" | "pixels";
+
+export interface DrawShapeCommand {
+  shapeType: ShapeType;
+  /** Bounding box in document coordinates. For "line", x/y is start point and w/h is the delta to end. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Corner radius for "rounded-rect" (px). Default 0. */
+  cornerRadius?: number;
+  /** Number of sides for "polygon". Default 6. */
+  sides?: number;
+  /** Star mode for "polygon": alternating inner/outer vertices. */
+  starMode?: boolean;
+  /** Inner radius as fraction of outer radius for star mode (0–1). Default 0.5. */
+  innerRadiusPct?: number;
+  /** Fill color [r, g, b, a]. Omit for no fill. */
+  fillColor?: [number, number, number, number];
+  /** Stroke color [r, g, b, a]. Omit for no stroke. */
+  strokeColor?: [number, number, number, number];
+  /** Stroke width in pixels. Default 0. */
+  strokeWidth?: number;
+  /** Output mode: creates a VectorLayer, adds to Paths panel, or rasterizes. Default "shape". */
+  mode?: ShapeMode;
 }
