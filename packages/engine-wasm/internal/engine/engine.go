@@ -225,6 +225,7 @@ type UIMeta struct {
 	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
 	Crop            *CropMeta          `json:"crop,omitempty"`
 	Paths           []PathMeta         `json:"paths,omitempty"`
+	PathOverlay     *PathOverlay       `json:"pathOverlay,omitempty"`
 }
 
 type RenderResult struct {
@@ -842,6 +843,8 @@ type instance struct {
 	// preFadeSnapshot stores pixel data before the last filter was applied,
 	// enabling Filter > Fade to blend the result back with the original.
 	preFadeSnapshot *fadeSnapshot
+	// pathTool holds the pen / direct-selection tool UI state.
+	pathTool *pathToolState
 }
 
 var (
@@ -876,6 +879,7 @@ func Init(configJSON string) int32 {
 		history:         newHistoryStack(defaultHistoryMax),
 		foregroundColor: [4]uint8{0, 0, 0, 255},
 		backgroundColor: [4]uint8{255, 255, 255, 255},
+		pathTool:        newPathToolState(),
 	}
 
 	if config.DocumentWidth > 0 && config.DocumentHeight > 0 {

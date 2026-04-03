@@ -140,6 +140,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		FreeTransform:       inst.freeTransform.meta(),
 		Crop:                inst.crop.meta(),
 		Paths:               doc.pathsMeta(),
+		PathOverlay:          inst.buildPathOverlay(),
 	}
 }
 
