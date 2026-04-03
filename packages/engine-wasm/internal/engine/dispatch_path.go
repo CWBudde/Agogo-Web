@@ -10,13 +10,24 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 
 	switch commandID {
 	case commandSetActiveTool:
-		// Tool switching is handled at a higher level; acknowledge success.
+		var payload SetActiveToolPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		// Tool switching is UI state only — no history entry.
+		inst.pathTool.activeTool = payload.Tool
 		return true, nil
 
 	case commandPenToolClick:
-		return true, fmt.Errorf("pen tool click: not yet implemented")
+		var payload PenToolClickPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.penToolClick(payload)
+
 	case commandPenToolClose:
-		return true, fmt.Errorf("pen tool close: not yet implemented")
+		return true, inst.penToolClose()
+
 	case commandDirectSelectMove:
 		return true, fmt.Errorf("direct select move: not yet implemented")
 	case commandDirectSelectMarquee:
