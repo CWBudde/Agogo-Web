@@ -25,8 +25,10 @@ type projectDocumentArchive struct {
 	CreatedAt   string                `json:"createdAt"`
 	CreatedBy   string                `json:"createdBy"`
 	ModifiedAt  string                `json:"modifiedAt"`
-	ActiveLayer string                `json:"activeLayerId,omitempty"`
-	Layers      []projectLayerArchive `json:"layers"`
+	ActiveLayer   string                `json:"activeLayerId,omitempty"`
+	Layers        []projectLayerArchive `json:"layers"`
+	Paths         []NamedPath           `json:"paths,omitempty"`
+	ActivePathIdx int                   `json:"activePathIdx,omitempty"`
 }
 
 type projectLayerArchive struct {
@@ -79,8 +81,10 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 			CreatedAt:   doc.CreatedAt,
 			CreatedBy:   doc.CreatedBy,
 			ModifiedAt:  doc.ModifiedAt,
-			ActiveLayer: doc.ActiveLayerID,
-			Layers:      make([]projectLayerArchive, 0),
+			ActiveLayer:   doc.ActiveLayerID,
+			Layers:        make([]projectLayerArchive, 0),
+			Paths:         cloneNamedPaths(doc.Paths),
+			ActivePathIdx: doc.ActivePathIdx,
 		},
 		History: append([]HistoryEntry(nil), history...),
 	}
@@ -183,6 +187,8 @@ func (archive projectDocumentArchive) toDocument() (*Document, error) {
 		ModifiedAt:    archive.ModifiedAt,
 		ActiveLayerID: archive.ActiveLayer,
 		LayerRoot:     NewGroupLayer("Root"),
+		Paths:         cloneNamedPaths(archive.Paths),
+		ActivePathIdx: archive.ActivePathIdx,
 	}
 	children := make([]LayerNode, 0, len(archive.Layers))
 	for _, childArchive := range archive.Layers {

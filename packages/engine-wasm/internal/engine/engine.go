@@ -162,6 +162,8 @@ type Document struct {
 	Selection      *Selection  `json:"-"`
 	LastSelection  *Selection  `json:"-"`
 	ContentVersion int64       `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
+	Paths          []NamedPath `json:"-"`
+	ActivePathIdx  int         `json:"-"`
 }
 
 type ViewportState struct {
@@ -222,6 +224,7 @@ type UIMeta struct {
 	Selection       SelectionMeta      `json:"selection"`
 	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
 	Crop            *CropMeta          `json:"crop,omitempty"`
+	Paths           []PathMeta         `json:"paths,omitempty"`
 }
 
 type RenderResult struct {
