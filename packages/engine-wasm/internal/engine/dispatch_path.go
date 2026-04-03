@@ -29,15 +29,39 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 		return true, inst.penToolClose()
 
 	case commandDirectSelectMove:
-		return true, fmt.Errorf("direct select move: not yet implemented")
+		var payload DirectSelectMovePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.directSelectMove(payload)
+
 	case commandDirectSelectMarquee:
-		return true, fmt.Errorf("direct select marquee: not yet implemented")
+		var payload DirectSelectMarqueePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.directSelectMarquee(payload)
+
 	case commandBreakHandle:
-		return true, fmt.Errorf("break handle: not yet implemented")
+		var payload BreakHandlePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.breakHandle(payload)
+
 	case commandDeleteAnchor:
-		return true, fmt.Errorf("delete anchor: not yet implemented")
+		var payload DeleteAnchorPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.deleteAnchor(payload)
+
 	case commandAddAnchorOnSegment:
-		return true, fmt.Errorf("add anchor on segment: not yet implemented")
+		var payload AddAnchorOnSegmentPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.addAnchorOnSegment(payload)
 
 	case commandPathCombine:
 		return true, fmt.Errorf("path combine: not yet implemented")
