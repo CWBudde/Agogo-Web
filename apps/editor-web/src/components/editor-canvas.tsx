@@ -32,6 +32,8 @@ type EditorCanvasProps = {
     | "eyedropper"
     | "type"
     | "shape"
+    | "pen"
+    | "directSelect"
     | "hand"
     | "zoom"
     | "transform"
