@@ -42,13 +42,54 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 		return true, fmt.Errorf("rasterize path: not yet implemented")
 
 	case commandCreatePath:
-		return true, fmt.Errorf("create path: not yet implemented")
+		var payload CreatePathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Create path", func(doc *Document) error {
+			doc.CreatePath(payload.Name)
+			return nil
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandDeletePath:
-		return true, fmt.Errorf("delete path: not yet implemented")
+		var payload DeletePathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Delete path", func(doc *Document) error {
+			return doc.DeletePath(payload.PathIndex)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandRenamePath:
-		return true, fmt.Errorf("rename path: not yet implemented")
+		var payload RenamePathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Rename path", func(doc *Document) error {
+			return doc.RenamePath(payload.PathIndex, payload.Name)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandDuplicatePath:
-		return true, fmt.Errorf("duplicate path: not yet implemented")
+		var payload DuplicatePathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Duplicate path", func(doc *Document) error {
+			return doc.DuplicatePath(payload.PathIndex)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandMakeSelectionFromPath:
 		return true, fmt.Errorf("make selection from path: not yet implemented")
 	case commandStrokePath:
