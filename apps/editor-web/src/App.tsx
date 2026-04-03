@@ -703,7 +703,11 @@ export default function App() {
   const [posterizeLevels, setPosterizeLevels] = useState(6);
   const [channelMixerDialogOpen, setChannelMixerDialogOpen] = useState(false);
   const [channelMixerMonochrome, setChannelMixerMonochrome] = useState(false);
-  const [channelMixerMatrix, setChannelMixerMatrix] = useState({
+  const [channelMixerMatrix, setChannelMixerMatrix] = useState<{
+    red: [number, number, number];
+    green: [number, number, number];
+    blue: [number, number, number];
+  }>({
     red: [100, 0, 0],
     green: [0, 100, 0],
     blue: [0, 0, 100],
@@ -3473,7 +3477,7 @@ export default function App() {
                 onChange={(event) => {
                   const next = hexToRgba(event.target.value);
                   if (next) {
-                    setPhotoFilterColor(next);
+                    setPhotoFilterColor(toMutableRgba(next));
                   }
                 }}
               />
