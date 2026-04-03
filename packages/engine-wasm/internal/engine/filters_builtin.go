@@ -263,8 +263,8 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 
 	if selMask != nil {
 		orig := append([]byte(nil), pixels...)
-		sb := agglib.NewStackBlur()
-		sb.BlurRGBA8(pixels, w, h, p.Radius)
+		sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+		sb.BlurRGBA8(pixels, w, h, w*4, p.Radius)
 		// Blend blurred result with original using selection mask.
 		for i := 0; i < len(pixels); i += 4 {
 			idx := i / 4
@@ -281,8 +281,8 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 		return nil
 	}
 
-	sb := agglib.NewStackBlur()
-	sb.BlurRGBA8(pixels, w, h, p.Radius)
+	sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+	sb.BlurRGBA8(pixels, w, h, w*4, p.Radius)
 	return nil
 }
 
@@ -343,8 +343,8 @@ func filterUnsharpMask(pixels []byte, w, h int, selMask []byte, params json.RawM
 	}
 
 	blurred := append([]byte(nil), pixels...)
-	sb := agglib.NewStackBlur()
-	sb.BlurRGBA8(blurred, w, h, p.Radius)
+	sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+	sb.BlurRGBA8(blurred, w, h, w*4, p.Radius)
 
 	amt := float64(p.Amount) / 100.0
 	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
@@ -427,8 +427,8 @@ func filterHighPass(pixels []byte, w, h int, selMask []byte, params json.RawMess
 	}
 
 	blurred := append([]byte(nil), pixels...)
-	sb := agglib.NewStackBlur()
-	sb.BlurRGBA8(blurred, w, h, p.Radius)
+	sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+	sb.BlurRGBA8(blurred, w, h, w*4, p.Radius)
 
 	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
 		return clamp8(float64(pixels[i]) - float64(blurred[i]) + 128),
@@ -1317,11 +1317,11 @@ func filterSurfaceBlur(pixels []byte, w, h int, selMask []byte, params json.RawM
 
 type smartSharpenParams struct {
 	Amount        int    `json:"amount"`         // 1-500 percent
-	Radius        int    `json:"radius"`          // 1-64
-	Remove        string `json:"remove"`          // "gaussian", "lens", "motion"
-	Angle         int    `json:"angle"`           // for motion remove only
-	ShadowFade    int    `json:"shadow_fade"`     // 0-100, reduce sharpening in shadows
-	HighlightFade int    `json:"highlight_fade"`  // 0-100, reduce sharpening in highlights
+	Radius        int    `json:"radius"`         // 1-64
+	Remove        string `json:"remove"`         // "gaussian", "lens", "motion"
+	Angle         int    `json:"angle"`          // for motion remove only
+	ShadowFade    int    `json:"shadow_fade"`    // 0-100, reduce sharpening in shadows
+	HighlightFade int    `json:"highlight_fade"` // 0-100, reduce sharpening in highlights
 }
 
 func filterSmartSharpen(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
@@ -1352,8 +1352,8 @@ func filterSmartSharpen(pixels []byte, w, h int, selMask []byte, params json.Raw
 		}))
 	default:
 		// Gaussian (default).
-		sb := agglib.NewStackBlur()
-		sb.BlurRGBA8(blurred, w, h, p.Radius)
+		sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+		sb.BlurRGBA8(blurred, w, h, w*4, p.Radius)
 	}
 
 	amt := float64(p.Amount) / 100.0
@@ -1400,10 +1400,10 @@ func marshalFilterParams(v any) json.RawMessage {
 // ---------------------------------------------------------------------------
 
 type reduceNoiseParams struct {
-	Strength        int  `json:"strength"`         // 0-10
-	PreserveDetails int  `json:"preserve_details"`  // 0-100 percent
+	Strength         int `json:"strength"`           // 0-10
+	PreserveDetails  int `json:"preserve_details"`   // 0-100 percent
 	ReduceColorNoise int `json:"reduce_color_noise"` // 0-100 percent
-	SharpenDetails  int  `json:"sharpen_details"`    // 0-100 percent
+	SharpenDetails   int `json:"sharpen_details"`    // 0-100 percent
 }
 
 func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
@@ -1476,8 +1476,8 @@ func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawM
 	if p.SharpenDetails > 0 {
 		sharpAmt := float64(p.SharpenDetails) / 100.0 * 0.5 // mild
 		blurred := append([]byte(nil), denoised...)
-		sb := agglib.NewStackBlur()
-		sb.BlurRGBA8(blurred, w, h, 1)
+		sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
+		sb.BlurRGBA8(blurred, w, h, w*4, 1)
 		for i := 0; i < len(denoised); i += 4 {
 			denoised[i] = clamp8(float64(denoised[i]) + sharpAmt*float64(int(denoised[i])-int(blurred[i])))
 			denoised[i+1] = clamp8(float64(denoised[i+1]) + sharpAmt*float64(int(denoised[i+1])-int(blurred[i+1])))
@@ -1496,10 +1496,10 @@ func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawM
 // ---------------------------------------------------------------------------
 
 type lensCorrectionParams struct {
-	Distortion          float64 `json:"distortion"`            // -100 to +100
-	ChromaticAberration float64 `json:"chromatic_aberration"`  // 0-100 (fringe offset in pixels)
-	Vignette            float64 `json:"vignette"`              // -100 to +100
-	PerspectiveV        float64 `json:"perspective_vertical"`  // -100 to +100
+	Distortion          float64 `json:"distortion"`             // -100 to +100
+	ChromaticAberration float64 `json:"chromatic_aberration"`   // 0-100 (fringe offset in pixels)
+	Vignette            float64 `json:"vignette"`               // -100 to +100
+	PerspectiveV        float64 `json:"perspective_vertical"`   // -100 to +100
 	PerspectiveH        float64 `json:"perspective_horizontal"` // -100 to +100
 }
 
@@ -1525,7 +1525,7 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 	cx := float64(w) / 2
 	cy := float64(h) / 2
 	maxR := math.Sqrt(cx*cx + cy*cy)
-	distK := p.Distortion / 100.0 * 0.5 // barrel/pincushion coefficient
+	distK := p.Distortion / 100.0 * 0.5             // barrel/pincushion coefficient
 	caOffset := p.ChromaticAberration / 100.0 * 3.0 // max 3px fringe
 	vigAmount := p.Vignette / 100.0
 	perspH := p.PerspectiveH / 100.0 * 0.3

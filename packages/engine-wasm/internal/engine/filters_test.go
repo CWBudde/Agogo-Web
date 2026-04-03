@@ -481,7 +481,9 @@ func TestPreviewFilterUpdatesOnParamChange(t *testing.T) {
 	// Register a filter that reads a param to decide behavior.
 	RegisterFilter(FilterDef{ID: "param-filter", Name: "Param Filter", Category: FilterCategoryOther},
 		func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
-			var p struct{ Value byte `json:"value"` }
+			var p struct {
+				Value byte `json:"value"`
+			}
 			if params != nil {
 				_ = json.Unmarshal(params, &p)
 			}
