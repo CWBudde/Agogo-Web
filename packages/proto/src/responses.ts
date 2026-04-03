@@ -64,6 +64,8 @@ export interface UIMeta {
 	pathOverlay?: PathOverlay;
 	/** Named paths in the active document. */
 	paths?: Array<{ name: string; active: boolean }>;
+	/** Non-empty while a VectorLayer's path is being edited via the direct-select tool. */
+	editingVectorLayerId?: string;
 }
 
 export interface LayerNodeMeta {

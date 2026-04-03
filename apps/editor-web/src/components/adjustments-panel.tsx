@@ -5,6 +5,7 @@ import {
   CommandID,
   type LayerNodeMeta,
 } from "@agogo/proto";
+import { VectorPropertiesPanel } from "./vector-properties-panel";
 import {
   type MouseEvent,
   type ReactNode,
@@ -118,6 +119,10 @@ export function AdjPropertiesPanel({
   fallback: ReactNode;
 }) {
   const layer = activeLayerId ? findLayerById(layers, activeLayerId) : null;
+
+  if (layer?.layerType === "vector") {
+    return <VectorPropertiesPanel engine={engine} layer={layer} />;
+  }
 
   if (!layer || layer.layerType !== "adjustment" || !layer.adjustmentKind) {
     return <>{fallback}</>;
