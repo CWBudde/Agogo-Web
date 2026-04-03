@@ -124,7 +124,7 @@ func TestTextAndVectorLayerCloneDeepCopiesRasterState(t *testing.T) {
 		t.Fatal("text clone lost textual properties")
 	}
 
-	vector := NewVectorLayer("Shape", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 2}}}, []byte{7, 8, 9, 255})
+	vector := NewVectorLayer("Shape", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 2}}}}}, []byte{7, 8, 9, 255})
 	vector.FillColor = [4]uint8{200, 100, 50, 255}
 	vector.StrokeColor = [4]uint8{5, 6, 7, 255}
 	vector.StrokeWidth = 3
@@ -132,8 +132,8 @@ func TestTextAndVectorLayerCloneDeepCopiesRasterState(t *testing.T) {
 	if !ok {
 		t.Fatalf("vector clone type = %T, want *VectorLayer", vector.Clone())
 	}
-	vectorClone.Shape.Points[0].X = 20
-	if vector.Shape.Points[0].X == 20 {
+	vectorClone.Shape.Subpaths[0].Points[0].X = 20
+	if vector.Shape.Subpaths[0].Points[0].X == 20 {
 		t.Fatal("vector shape shares backing storage")
 	}
 	vectorClone.CachedRaster[0] = 88
@@ -148,7 +148,7 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	group.SetFillOpacity(0.25)
 	group.SetLockMode(LayerLockPosition)
 	group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 2, Data: []byte{255, 127, 64, 0}})
-	group.SetVectorMask(&Path{Closed: true, Points: []PathPoint{{X: 1, Y: 2}, {X: 3, Y: 4}}})
+	group.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 2}, {X: 3, Y: 4}}}}})
 	group.SetClipToBelow(true)
 	group.SetClippingBase(true)
 	group.SetStyleStack([]LayerStyle{{
@@ -206,8 +206,8 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 		t.Fatal("mask data share backing storage between original and clone")
 	}
 
-	clone.VectorMask().Points[0].X = 42
-	if group.VectorMask().Points[0].X == 42 {
+	clone.VectorMask().Subpaths[0].Points[0].X = 42
+	if group.VectorMask().Subpaths[0].Points[0].X == 42 {
 		t.Fatal("vector mask points share backing storage between original and clone")
 	}
 
@@ -218,5 +218,78 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	}
 	if string(clone.StyleStack()[0].Params) != `{"distance":8}` {
 		t.Fatal("StyleStack() should return defensive copies")
+	}
+}
+
+func TestSubpathAndCompoundPath(t *testing.T) {
+	// Single subpath.
+	single := &Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{
+			{X: 0, Y: 0},
+			{X: 10, Y: 0},
+			{X: 10, Y: 10},
+			{X: 0, Y: 10},
+		},
+	}}}
+	if len(single.Subpaths) != 1 {
+		t.Fatalf("expected 1 subpath, got %d", len(single.Subpaths))
+	}
+	if !single.Subpaths[0].Closed {
+		t.Fatal("subpath should be closed")
+	}
+
+	// Compound path with two subpaths.
+	compound := &Path{Subpaths: []Subpath{
+		{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 20, Y: 0}, {X: 20, Y: 20}, {X: 0, Y: 20}}},
+		{Closed: true, Points: []PathPoint{{X: 5, Y: 5}, {X: 15, Y: 5}, {X: 15, Y: 15}, {X: 5, Y: 15}}},
+	}}
+	if len(compound.Subpaths) != 2 {
+		t.Fatalf("expected 2 subpaths, got %d", len(compound.Subpaths))
+	}
+
+	// Clone preserves all subpaths.
+	cloned := clonePath(compound)
+	if !pathEqual(compound, cloned) {
+		t.Fatal("cloned path should equal original")
+	}
+
+	// Mutation of clone does not affect original.
+	cloned.Subpaths[1].Points[0].X = 999
+	if compound.Subpaths[1].Points[0].X == 999 {
+		t.Fatal("clone shares backing storage with original")
+	}
+
+	// pathEqual detects differences.
+	if pathEqual(compound, cloned) {
+		t.Fatal("pathEqual should detect mutated clone")
+	}
+
+	// Nil handling.
+	if clonePath(nil) != nil {
+		t.Fatal("clonePath(nil) should return nil")
+	}
+	if !pathEqual(nil, nil) {
+		t.Fatal("pathEqual(nil, nil) should be true")
+	}
+	if pathEqual(nil, compound) || pathEqual(compound, nil) {
+		t.Fatal("pathEqual with one nil should be false")
+	}
+
+	// HandleType on PathPoint.
+	curved := &Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{
+			{X: 0, Y: 0, HandleType: HandleCorner},
+			{X: 10, Y: 0, OutX: 5, OutY: -3, InX: -5, InY: 3, HandleType: HandleSmooth},
+			{X: 10, Y: 10, OutX: 2, OutY: 2, InX: -2, InY: -2, HandleType: HandleSymmetric},
+		},
+	}}}
+	curvedClone := clonePath(curved)
+	if curvedClone.Subpaths[0].Points[1].HandleType != HandleSmooth {
+		t.Fatalf("expected HandleSmooth, got %d", curvedClone.Subpaths[0].Points[1].HandleType)
+	}
+	if curvedClone.Subpaths[0].Points[2].HandleType != HandleSymmetric {
+		t.Fatalf("expected HandleSymmetric, got %d", curvedClone.Subpaths[0].Points[2].HandleType)
 	}
 }

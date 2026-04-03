@@ -275,13 +275,13 @@ func newRenderableProjectFixture() *Document {
 	text.FontSize = 24
 	text.SetBlendMode(BlendModeScreen)
 
-	vector := NewVectorLayer("Shape", LayerBounds{X: 1, Y: 1, W: 2, H: 1}, &Path{Closed: true, Points: []PathPoint{{X: 1, Y: 1}, {X: 3, Y: 1}, {X: 3, Y: 2}}}, []byte{
+	vector := NewVectorLayer("Shape", LayerBounds{X: 1, Y: 1, W: 2, H: 1}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 1}, {X: 3, Y: 1}, {X: 3, Y: 2}}}}}, []byte{
 		0, 0, 255, 128,
 		0, 0, 255, 128,
 	})
 	vector.FillColor = [4]uint8{0, 0, 255, 255}
 	vector.SetClipToBelow(true)
-	vector.SetVectorMask(&Path{Closed: true, Points: []PathPoint{{X: 1, Y: 1}, {X: 2, Y: 1}, {X: 2, Y: 2}}})
+	vector.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 1}, {X: 2, Y: 1}, {X: 2, Y: 2}}}}})
 
 	group.SetChildren([]LayerNode{text, vector})
 	doc.LayerRoot.SetChildren([]LayerNode{base, group})
@@ -311,7 +311,7 @@ func newArchiveOnlyProjectFixture() *Document {
 	adjustment := NewAdjustmentLayer("Curves", "curves", json.RawMessage(`{"points":[[0,0],[255,255]]}`))
 	adjustment.SetStyleStack([]LayerStyle{{Kind: "shadow", Enabled: true, Params: json.RawMessage(`{"distance":4}`)}})
 
-	vector := NewVectorLayer("Archive Vector", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 0}, {X: 2, Y: 2}}}, []byte{
+	vector := NewVectorLayer("Archive Vector", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 0}, {X: 2, Y: 2}}}}}, []byte{
 		10, 20, 30, 255,
 		40, 50, 60, 255,
 		70, 80, 90, 255,

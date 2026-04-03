@@ -97,19 +97,31 @@ type LayerMask struct {
 	Data    []byte `json:"data,omitempty"`
 }
 
-type Path struct {
+type HandleType int
+
+const (
+	HandleCorner    HandleType = iota // Handles move independently
+	HandleSmooth                      // Handles stay collinear, independent lengths
+	HandleSymmetric                   // Handles collinear + equal length
+)
+
+type PathPoint struct {
+	X          float64    `json:"x"`
+	Y          float64    `json:"y"`
+	InX        float64    `json:"inX,omitempty"`
+	InY        float64    `json:"inY,omitempty"`
+	OutX       float64    `json:"outX,omitempty"`
+	OutY       float64    `json:"outY,omitempty"`
+	HandleType HandleType `json:"handleType,omitempty"`
+}
+
+type Subpath struct {
 	Closed bool        `json:"closed"`
 	Points []PathPoint `json:"points,omitempty"`
 }
 
-type PathPoint struct {
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	InX      float64 `json:"inX,omitempty"`
-	InY      float64 `json:"inY,omitempty"`
-	OutX     float64 `json:"outX,omitempty"`
-	OutY     float64 `json:"outY,omitempty"`
-	HasCurve bool    `json:"hasCurve,omitempty"`
+type Path struct {
+	Subpaths []Subpath `json:"subpaths"`
 }
 
 type LayerStyle struct {
@@ -496,9 +508,14 @@ func clonePath(path *Path) *Path {
 	if path == nil {
 		return nil
 	}
-	copyPath := *path
-	copyPath.Points = append([]PathPoint(nil), path.Points...)
-	return &copyPath
+	cp := &Path{Subpaths: make([]Subpath, len(path.Subpaths))}
+	for i, sp := range path.Subpaths {
+		cp.Subpaths[i] = Subpath{
+			Closed: sp.Closed,
+			Points: append([]PathPoint(nil), sp.Points...),
+		}
+	}
+	return cp
 }
 
 func cloneLayerStyles(styles []LayerStyle) []LayerStyle {
@@ -643,12 +660,18 @@ func pathEqual(a, b *Path) bool {
 	if a == nil {
 		return true
 	}
-	if a.Closed != b.Closed || len(a.Points) != len(b.Points) {
+	if len(a.Subpaths) != len(b.Subpaths) {
 		return false
 	}
-	for index := range a.Points {
-		if a.Points[index] != b.Points[index] {
+	for i := range a.Subpaths {
+		sa, sb := a.Subpaths[i], b.Subpaths[i]
+		if sa.Closed != sb.Closed || len(sa.Points) != len(sb.Points) {
 			return false
+		}
+		for j := range sa.Points {
+			if sa.Points[j] != sb.Points[j] {
+				return false
+			}
 		}
 	}
 	return true

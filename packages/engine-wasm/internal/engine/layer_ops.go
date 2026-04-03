@@ -617,7 +617,7 @@ func (doc *Document) AddVectorMask(layerID string) error {
 		return fmt.Errorf("layer %q already has a vector mask", layer.Name())
 	}
 	// Placeholder: creates an empty path. Full path editing deferred to Phase 6.1.
-	layer.SetVectorMask(&Path{Closed: true})
+	layer.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true}}})
 	doc.touchModifiedAt()
 	return nil
 }
