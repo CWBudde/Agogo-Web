@@ -712,7 +712,7 @@ func TestApplyLayerMaskSupportsTextAndVectorLayers(t *testing.T) {
 	})
 	text.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 1, Data: []byte{255, 0}})
 
-	vector := NewVectorLayer("Vector", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, &Path{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 0}}}, []byte{
+	vector := NewVectorLayer("Vector", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 0}}}}}, []byte{
 		70, 80, 90, 255,
 		100, 110, 120, 255,
 	})
@@ -1111,7 +1111,7 @@ func TestGenerateAllThumbnailsIncludesMixedLayerTypesAndMasks(t *testing.T) {
 	pixel.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 2, Data: []byte{255, 0, 0, 255}})
 
 	text := NewTextLayer("Text", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, "A", []byte{0, 255, 0, 255})
-	vector := NewVectorLayer("Vector", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, &Path{Closed: true, Points: []PathPoint{{X: 1, Y: 0}, {X: 2, Y: 0}, {X: 2, Y: 1}}}, []byte{0, 0, 255, 255})
+	vector := NewVectorLayer("Vector", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 0}, {X: 2, Y: 0}, {X: 2, Y: 1}}}}}, []byte{0, 0, 255, 255})
 	group := NewGroupLayer("Group")
 	group.SetChildren([]LayerNode{text, vector})
 	doc.LayerRoot.SetChildren([]LayerNode{pixel, group})
