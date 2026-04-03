@@ -231,7 +231,7 @@ type UIMeta struct {
 	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
 	Crop            *CropMeta          `json:"crop,omitempty"`
 	Paths           []PathMeta         `json:"paths,omitempty"`
-	PathOverlay          *PathOverlay `json:"pathOverlay,omitempty"`
+	PathOverlay     *PathOverlay       `json:"pathOverlay,omitempty"`
 	// EditingVectorLayerID is non-empty while a VectorLayer's path is being
 	// edited. The UI uses this to show the "editing path" indicator.
 	EditingVectorLayerID string `json:"editingVectorLayerId,omitempty"`
