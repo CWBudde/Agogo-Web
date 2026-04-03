@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
-export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "cloneStamp" | "historyBrush" | "pencil" | "eraser" | "fill" | "gradient" | "eyedropper";
+export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "cloneStamp" | "historyBrush" | "pencil" | "eraser" | "fill" | "gradient" | "eyedropper" | "pen" | "directSelect";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;
@@ -134,6 +134,14 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "i":
           event.preventDefault();
           actions.onToolSelect("eyedropper");
+          return;
+        case "p":
+          event.preventDefault();
+          actions.onToolSelect("pen");
+          return;
+        case "a":
+          event.preventDefault();
+          actions.onToolSelect("directSelect");
           return;
         case "Mod+t":
           event.preventDefault();

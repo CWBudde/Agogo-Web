@@ -60,6 +60,8 @@ import {
   TypeToolIcon,
   UndoIcon,
   ZoomToolIcon,
+  PenToolIcon,
+  DirectSelectIcon,
 } from "@/components/editor-icons";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import { LayersPanel } from "@/components/layers-panel";
@@ -414,6 +416,8 @@ const toolItems: {
   { id: "fill", label: "Fill", Icon: FillToolIcon },
   { id: "gradient", label: "Gradient", Icon: GradientToolIcon },
   { id: "eyedropper", label: "Eyedropper", Icon: EyedropperToolIcon },
+  { id: "pen", label: "Pen", Icon: PenToolIcon },
+  { id: "directSelect", label: "Direct Selection", Icon: DirectSelectIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
   { id: "shape", label: "Shape", Icon: ShapeToolIcon },
   { id: "transform", label: "Transform", Icon: SlidersIcon },
@@ -903,6 +907,15 @@ export default function App() {
     if (activeTool === "transform" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelFreeTransform, {});
     }
+    if (
+      (activeTool === "pen" || activeTool === "directSelect") &&
+      tool !== "pen" &&
+      tool !== "directSelect" &&
+      tool !== "hand" &&
+      tool !== "zoom"
+    ) {
+      engine.dispatchCommand(CommandID.SetActiveTool, { tool: "" });
+    }
 
     setActiveTool(tool);
     if (tool !== "hand") {
@@ -912,6 +925,14 @@ export default function App() {
     // Begin special modes
     if (tool === "crop") {
       engine.dispatchCommand(CommandID.BeginCrop, {});
+    }
+    if (tool === "pen") {
+      engine.dispatchCommand(CommandID.SetActiveTool, { tool: "pen" });
+    }
+    if (tool === "directSelect") {
+      engine.dispatchCommand(CommandID.SetActiveTool, {
+        tool: "direct-select",
+      });
     }
   };
 
