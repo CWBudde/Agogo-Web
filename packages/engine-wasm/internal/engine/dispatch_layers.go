@@ -308,6 +308,12 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 			return true, err
 		}
 		return true, nil
+
+	case commandSetPointFromSample:
+		if err := inst.handleSetPointFromSample(payloadJSON); err != nil {
+			return true, err
+		}
+		return true, nil
 	}
 
 	return false, nil

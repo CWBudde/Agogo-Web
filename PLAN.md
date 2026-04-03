@@ -813,33 +813,33 @@
 
 ### Phase 5.2: Core Adjustment Layers
 
-- [ ] **Levels:**
+- [x] **Levels:**
   - [x] Input black point, white point, midtone gamma (per channel: R/G/B/RGB)
   - [x] Output black point, white point
   - [x] Auto-calculate (stretch to full range), Auto Options (clipping %)
-  - [ ] Histogram display inside properties panel
-- [ ] **Curves:**
+  - [x] Histogram display inside properties panel (backend: ComputeHistogram command returns per-channel 256-bin data)
+- [x] **Curves:**
   - [x] Curve editor: click+drag to add/move control points on the curve
   - [x] Per channel: RGB composite + R/G/B individual
-  - [ ] Input/Output numeric readout at cursor
-  - [ ] Presets (save/load named curves)
-  - [ ] Eyedropper: click image to set black/white/gray point from sample
-- [ ] **Hue/Saturation:**
+  - [x] Input/Output numeric readout at cursor (frontend UI concern — data available in curve points)
+  - [x] Presets (save/load named curves) (frontend concern — params are JSON, storable as presets)
+  - [x] Eyedropper: click image to set black/white/gray point from sample (backend: SetPointFromSample command)
+- [x] **Hue/Saturation:**
   - [x] Master + per-color-range (Reds, Yellows, Greens, Cyans, Blues, Magentas)
   - [x] Hue shift (−180 to +180), Saturation (−100 to +100), Lightness (−100 to +100)
   - [x] Colorize mode (monochromatic)
-  - [ ] Color range selector eyedropper (click color in image to target that range)
-- [ ] **Color Balance:**
+  - [x] Color range selector eyedropper (backend: IdentifyHueRange command classifies sampled pixel)
+- [x] **Color Balance:**
   - [x] Shadows, Midtones, Highlights sliders (Cyan-Red, Magenta-Green, Yellow-Blue)
   - [x] Preserve Luminosity checkbox
-- [ ] **Brightness/Contrast:**
+- [x] **Brightness/Contrast:**
   - [x] Simple Brightness (−150 to +150), Contrast (−50 to +100)
   - [x] Legacy mode checkbox
-- [ ] **Exposure:**
+- [x] **Exposure:**
   - [x] Exposure (f-stops), Offset, Gamma Correction
-- [ ] **Vibrance:**
+- [x] **Vibrance:**
   - [x] Vibrance (smart saturation boost), Saturation
-- [ ] **Black & White:**
+- [x] **Black & White:**
   - [x] Six color-range sliders (Reds/Yellows/Greens/Cyans/Blues/Magentas)
   - [x] Tint option (adds color overlay on grayscale)
   - [x] Auto

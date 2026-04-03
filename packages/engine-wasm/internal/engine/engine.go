@@ -92,6 +92,9 @@ const (
 	commandMagicErase               = 0x0413
 	commandFill                     = 0x0414
 	commandApplyGradient            = 0x0415
+	commandComputeHistogram         = 0x011c
+	commandSetPointFromSample       = 0x011d
+	commandIdentifyHueRange         = 0x011e
 	commandApplyFilter              = 0x0500
 	commandReapplyFilter            = 0x0501
 	commandPreviewFilter            = 0x0502
@@ -211,6 +214,10 @@ type RenderResult struct {
 	SuggestedPath []SelectionPoint `json:"suggestedPath,omitempty"`
 	// SampledColor is set only in response to commandSampleMergedColor.
 	SampledColor *[4]uint8 `json:"sampledColor,omitempty"`
+	// Histogram is set only in response to commandComputeHistogram.
+	Histogram *HistogramData `json:"histogram,omitempty"`
+	// IdentifiedHueRange is set only in response to commandIdentifyHueRange.
+	IdentifiedHueRange string `json:"identifiedHueRange,omitempty"`
 }
 
 type RawRenderResult struct {
@@ -891,7 +898,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandFlattenLayer, commandMergeDown, commandMergeVisible, commandAddLayerMask,
 		commandDeleteLayerMask, commandApplyLayerMask, commandInvertLayerMask,
 		commandSetMaskEnabled, commandSetLayerClip, commandSetLayerName, commandSetActiveLayer,
-		commandSetAdjustmentParams, commandAddVectorMask, commandDeleteVectorMask:
+		commandSetAdjustmentParams, commandAddVectorMask, commandDeleteVectorMask,
+		commandSetPointFromSample:
 		if handled, err := inst.dispatchLayerCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
@@ -916,7 +924,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 				return RenderResult{}, err
 			}
 		}
-	case commandSetMaskEditMode, commandGetLayerThumbnails:
+	case commandSetMaskEditMode, commandGetLayerThumbnails, commandComputeHistogram, commandIdentifyHueRange:
 		handled, customResult, err := inst.dispatchUICommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err
