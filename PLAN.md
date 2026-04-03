@@ -996,10 +996,10 @@
 - [ ] **Custom Shape Tool:**
   - [ ] Shape library panel (preset shapes: arrows, logos, nature, ornaments)
   - [ ] Import custom shapes from `.csh` files (later)
-- [ ] Shape layer editing:
-  - [ ] Double-click shape layer → enters path editing mode
-  - [ ] Can change fill/stroke without rasterizing
-  - [ ] Path operations (combine shapes on same layer)
+- [x] Shape layer editing:
+  - [x] Double-click shape layer → enters path editing mode
+  - [x] Can change fill/stroke without rasterizing
+  - [ ] Path operations (combine shapes on same layer)  ← deferred (Paths panel covers this)
 - [x] **Mode toggle** in options bar: Shape layer vs Path (no fill) vs Pixels (rasterize immediately)
 
 ### Phase 6.3: Text Engine
