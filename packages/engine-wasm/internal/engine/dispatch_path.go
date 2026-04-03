@@ -74,7 +74,20 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 	case commandFlattenPath:
 		return true, inst.dispatchFlattenPath()
 	case commandRasterizePath:
-		return true, fmt.Errorf("rasterize path: not yet implemented")
+		var payload MakeSelectionFromPathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		pathIdx := doc.ActivePathIdx
+		if payload.PathIndex != nil {
+			pathIdx = *payload.PathIndex
+		}
+		if err := inst.executeDocCommand("Rasterize path", func(doc *Document) error {
+			return doc.makeSelectionFromPath(pathIdx)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
 
 	case commandCreatePath:
 		var payload CreatePathPayload
@@ -126,11 +139,64 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 		return true, nil
 
 	case commandMakeSelectionFromPath:
-		return true, fmt.Errorf("make selection from path: not yet implemented")
-	case commandStrokePath:
-		return true, fmt.Errorf("stroke path: not yet implemented")
+		var payload MakeSelectionFromPathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		pathIdx := doc.ActivePathIdx
+		if payload.PathIndex != nil {
+			pathIdx = *payload.PathIndex
+		}
+		if err := inst.executeDocCommand("Make selection from path", func(doc *Document) error {
+			return doc.makeSelectionFromPath(pathIdx)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandFillPath:
-		return true, fmt.Errorf("fill path: not yet implemented")
+		var payload FillPathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		pathIdx := doc.ActivePathIdx
+		if payload.PathIndex != nil {
+			pathIdx = *payload.PathIndex
+		}
+		color := payload.Color
+		if color == [4]uint8{} {
+			color = inst.foregroundColor
+		}
+		if err := inst.executeDocCommand("Fill path", func(doc *Document) error {
+			return fillPathOnDoc(doc, pathIdx, color)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandStrokePath:
+		var payload StrokePathPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		pathIdx := doc.ActivePathIdx
+		if payload.PathIndex != nil {
+			pathIdx = *payload.PathIndex
+		}
+		color := payload.Color
+		if color == [4]uint8{} {
+			color = inst.foregroundColor
+		}
+		width := payload.ToolWidth
+		if width <= 0 {
+			width = 1.0
+		}
+		if err := inst.executeDocCommand("Stroke path", func(doc *Document) error {
+			return strokePathOnDoc(doc, pathIdx, width, color)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
 
 	default:
 		return false, nil
