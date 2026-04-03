@@ -41,6 +41,7 @@ export enum CommandID {
   OpenImageFile = 0x0118,
   TranslateLayer = 0x0119,
   PickLayerAtPoint = 0x011a,
+  SetAdjustmentParams = 0x011b,
 
   // Phase 5.2: Adjustment layer tools
   ComputeHistogram = 0x011c,
@@ -584,6 +585,12 @@ export interface TranslateLayerCommand {
 export interface PickLayerAtPointCommand {
   x: number;
   y: number;
+}
+
+export interface SetAdjustmentParamsCommand {
+  layerId: string;
+  adjustmentKind?: AdjustmentKind;
+  params?: AdjustmentLayerParams;
 }
 
 export interface AddVectorMaskCommand {
