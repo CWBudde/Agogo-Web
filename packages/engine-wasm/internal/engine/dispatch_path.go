@@ -64,15 +64,15 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 		return true, inst.addAnchorOnSegment(payload)
 
 	case commandPathCombine:
-		return true, fmt.Errorf("path combine: not yet implemented")
+		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolCombine, "Combine paths")
 	case commandPathSubtract:
-		return true, fmt.Errorf("path subtract: not yet implemented")
+		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolSubtract, "Subtract paths")
 	case commandPathIntersect:
-		return true, fmt.Errorf("path intersect: not yet implemented")
+		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolIntersect, "Intersect paths")
 	case commandPathExclude:
-		return true, fmt.Errorf("path exclude: not yet implemented")
+		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolExclude, "Exclude paths")
 	case commandFlattenPath:
-		return true, fmt.Errorf("flatten path: not yet implemented")
+		return true, inst.dispatchFlattenPath()
 	case commandRasterizePath:
 		return true, fmt.Errorf("rasterize path: not yet implemented")
 
@@ -135,4 +135,77 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 	default:
 		return false, nil
 	}
+}
+
+// dispatchPathBoolean handles combine/subtract/intersect/exclude commands.
+func (inst *instance) dispatchPathBoolean(payloadJSON string, op PathBoolOp, description string) error {
+	var payload PathBooleanPayload
+	if err := decodePayload(payloadJSON, &payload); err != nil {
+		return err
+	}
+
+	return inst.executeDocCommand(description, func(doc *Document) error {
+		if len(doc.Paths) < 2 {
+			return fmt.Errorf("%s requires at least 2 paths", description)
+		}
+
+		idxA := payload.PathIndexA
+		idxB := payload.PathIndexB
+
+		// Default: active path and the next path.
+		if idxA == 0 && idxB == 0 {
+			idxA = doc.ActivePathIdx
+			idxB = idxA + 1
+			if idxB >= len(doc.Paths) {
+				idxB = 0
+			}
+		}
+
+		if idxA < 0 || idxA >= len(doc.Paths) {
+			return fmt.Errorf("path index A (%d) out of range", idxA)
+		}
+		if idxB < 0 || idxB >= len(doc.Paths) {
+			return fmt.Errorf("path index B (%d) out of range", idxB)
+		}
+		if idxA == idxB {
+			return fmt.Errorf("path indices must differ")
+		}
+
+		result, err := pathBoolean(&doc.Paths[idxA].Path, &doc.Paths[idxB].Path, op)
+		if err != nil {
+			return err
+		}
+
+		// Replace path A with the result.
+		doc.Paths[idxA].Path = *result
+
+		// Remove path B.
+		doc.Paths = append(doc.Paths[:idxB], doc.Paths[idxB+1:]...)
+
+		// Adjust active index if needed.
+		if doc.ActivePathIdx >= len(doc.Paths) {
+			doc.ActivePathIdx = len(doc.Paths) - 1
+		}
+		// Keep A active.
+		if idxA < len(doc.Paths) {
+			doc.ActivePathIdx = idxA
+		}
+
+		return nil
+	})
+}
+
+// dispatchFlattenPath merges all paths into a single path.
+func (inst *instance) dispatchFlattenPath() error {
+	return inst.executeDocCommand("Flatten paths", func(doc *Document) error {
+		if len(doc.Paths) == 0 {
+			return fmt.Errorf("no paths to flatten")
+		}
+
+		merged := flattenPaths(doc.Paths)
+		name := doc.Paths[0].Name
+		doc.Paths = []NamedPath{{Name: name, Path: *merged}}
+		doc.ActivePathIdx = 0
+		return nil
+	})
 }
