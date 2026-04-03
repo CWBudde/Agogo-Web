@@ -61,6 +61,7 @@ import {
   UndoIcon,
   ZoomToolIcon,
 } from "@/components/editor-icons";
+import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -438,7 +439,7 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches";
+type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches";
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -2455,6 +2456,7 @@ export default function App() {
                       <div className="flex items-center gap-[var(--ui-gap-1)]">
                         {[
                           ["properties", "Properties"],
+                          ["adjustments", "Adjust"],
                           ["brush", "Brush"],
                           ["color", "Color"],
                           ["swatches", "Swatches"],
@@ -2491,30 +2493,45 @@ export default function App() {
                   <div className="grid min-h-0 flex-1 grid-rows-[minmax(15rem,18rem)_minmax(0,1fr)]">
                     <DockSection title={dockTitle(activeAuxPanel)}>
                       {activeAuxPanel === "properties" ? (
-                        <div className="space-y-[var(--ui-gap-3)]">
-                          <PropertyGridRow
-                            label="Document"
-                            value={documentSize}
-                          />
-                          <PropertyGridRow label="Zoom" value={zoomPercent} />
-                          <PropertyGridRow
-                            label="Rotation"
-                            value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
-                          />
-                          <PropertyGridRow
-                            label="DPI"
-                            value={draft.resolution.toString()}
-                          />
-                          <CompactRange
-                            id="rotate-view-range"
-                            label="Rotate View"
-                            min={0}
-                            max={360}
-                            step={1}
-                            value={render?.viewport.rotation ?? 0}
-                            onChange={(value) => engine.setRotation(value)}
-                          />
-                        </div>
+                        <AdjPropertiesPanel
+                          engine={engine}
+                          layers={render?.uiMeta.layers ?? []}
+                          activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                          fallback={
+                            <div className="space-y-[var(--ui-gap-3)]">
+                              <PropertyGridRow
+                                label="Document"
+                                value={documentSize}
+                              />
+                              <PropertyGridRow label="Zoom" value={zoomPercent} />
+                              <PropertyGridRow
+                                label="Rotation"
+                                value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
+                              />
+                              <PropertyGridRow
+                                label="DPI"
+                                value={draft.resolution.toString()}
+                              />
+                              <CompactRange
+                                id="rotate-view-range"
+                                label="Rotate View"
+                                min={0}
+                                max={360}
+                                step={1}
+                                value={render?.viewport.rotation ?? 0}
+                                onChange={(value) => engine.setRotation(value)}
+                              />
+                            </div>
+                          }
+                        />
+                      ) : null}
+
+                      {activeAuxPanel === "adjustments" ? (
+                        <AdjustmentsPanel
+                          engine={engine}
+                          layers={render?.uiMeta.layers ?? []}
+                          activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                        />
                       ) : null}
 
                       {activeAuxPanel === "brush" ? (
@@ -4274,6 +4291,8 @@ function dockTitle(panel: AuxPanel) {
       return "Navigator";
     case "channels":
       return "Channels";
+    case "adjustments":
+      return "Adjustments";
     default:
       return "Properties";
   }

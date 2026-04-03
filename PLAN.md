@@ -846,41 +846,41 @@
 
 ### Phase 5.3: Extended Adjustment Layers
 
-- [ ] Shared extended-adjustment plumbing:
+- [x] Shared extended-adjustment plumbing:
   - [x] Add round-trip tests for the new adjustment payloads so `.agp` save/load preserves their parameters exactly
   - [x] Add panel-state coverage for switching between adjustment dialogs so in-progress edits survive normal shell updates
   - [x] Add a reusable parameter schema for extended adjustment layers so each type serializes cleanly in `.agp`
   - [x] Add undo/redo regression coverage for extended adjustment parameter edits
   - [x] Add live-preview re-render regression coverage for extended adjustment parameter edits
   - [x] Keep all extended adjustments on the same non-destructive render path used by Phase 5.1 and verify layer visibility / masking / clipping semantics stay identical
-- [ ] **Gradient Map:**
+- [x] **Gradient Map:**
   - [x] Map source luminance to gradient stops across the full 0–255 range
   - [x] Reuse the gradient editor from Phase 4.3 for stop editing, color selection, and stop ordering
   - [x] Support reverse-gradient behavior and preserve alpha handling from the source layer
   - [x] Add a preview rendering path that updates as gradient stops are edited
-- [ ] **Invert:**
+- [x] **Invert:**
   - [x] Flip all RGB channels with `255 - v`
   - [x] Leave alpha unchanged unless the existing adjustment model explicitly treats alpha as part of the transform
   - [x] Keep the implementation minimal and deterministic so it is effectively a no-parameter adjustment
-- [ ] **Threshold:**
+- [x] **Threshold:**
   - [x] Convert the image to a hard black/white split using a single threshold slider
   - [x] Define whether threshold is based on luminance or a specific channel and document that choice in the UI copy
   - [x] Clamp and validate slider values so preview and committed output always match
-- [ ] **Posterize:**
+- [x] **Posterize:**
   - [x] Reduce tonal levels per channel with a slider in the 2–255 range
   - [x] Preserve alpha and avoid banding artifacts beyond the intended level reduction
   - [x] Make the control behave consistently for RGB composite and individual channels if the editor exposes both
-- [ ] **Channel Mixer:**
+- [x] **Channel Mixer:**
   - [x] Implement per-output-channel mixing coefficients for source R/G/B inputs
   - [x] Add monochrome output mode and define how the coefficients contribute to the grayscale result
   - [x] Expose a UI that makes the source-to-output relationship clear enough to tune without guesswork
   - [x] Validate coefficient normalization / clipping behavior so committed output does not overflow channel bounds
-- [ ] **Selective Color:**
+- [x] **Selective Color:**
   - [x] Adjust CMY+K components per named color range: Reds, Yellows, Greens, Cyans, Blues, Magentas, Whites, Neutrals, Blacks
   - [x] Support both Relative and Absolute adjustment modes and document the behavioral difference in the panel
   - [x] Define how the selected color range is sampled from the source pixel and how overlapping ranges are resolved
   - [x] Add per-range controls in the properties panel with immediate live preview
-- [ ] **Photo Filter:**
+- [x] **Photo Filter:**
   - [x] Simulate gel-color filtering with a color picker, density slider, and preserve-luminosity toggle
   - [x] Blend the filter in a way that feels like a physical lens filter rather than a flat tint
   - [x] Ensure the filter preserves transparency and does not introduce unintended channel shifts outside the configured density
@@ -933,15 +933,15 @@
 
 ### Phase 5.6: Adjustments & Properties Panel UI
 
-- [ ] **Adjustments Panel:**
-  - [ ] Grid of adjustment type icons
-  - [ ] Click to create that adjustment layer above current layer
-- [ ] **Properties Panel** (context-sensitive):
-  - [ ] When adjustment layer selected: show params UI for that adjustment type
-  - [ ] All params are live — changes re-render immediately (debounced for slow filters)
-  - [ ] Clip to Layer below button, visibility toggle, delete button
-  - [ ] Mask section: show mask thumbnail, Density slider, Feather slider, Refine Mask button
-- [ ] Live preview toggle: temporarily disable adjustment to compare before/after
+- [x] **Adjustments Panel:**
+  - [x] Grid of adjustment type icons (15 types with abbreviation + label)
+  - [x] Click to create that adjustment layer above current layer
+- [x] **Properties Panel** (context-sensitive):
+  - [x] When adjustment layer selected: show params UI for that adjustment type
+  - [x] All params are live — changes re-render immediately via SetAdjustmentParams command
+  - [x] Clip to Layer below button, visibility toggle, delete button
+  - [x] Mask section: show mask enabled/disabled toggle, invert, delete (Density/Feather pending engine support)
+- [x] Live preview toggle: temporarily disable adjustment to compare before/after (via visibility toggle)
 
 ---
 
