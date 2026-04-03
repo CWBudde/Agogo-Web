@@ -1,4 +1,5 @@
 import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
+import { PathOverlayRenderer } from "./path-overlay";
 import {
   useCallback,
   useEffect,
@@ -2854,6 +2855,9 @@ export function EditorCanvas({
             : null}
         </svg>
       ) : null}
+      {render?.uiMeta.pathOverlay && (
+        <PathOverlayRenderer overlay={render.uiMeta.pathOverlay} />
+      )}
       {engine.status !== "ready" ? (
         <div className="editor-backdrop absolute inset-0 flex items-center justify-center p-6">
           <div className="editor-popup max-w-lg rounded-[var(--ui-radius-lg)] p-5 text-center">

@@ -326,3 +326,21 @@ export function ClipboardIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+export function PenToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 19l7-14-14 7 5 2 2 5z" />
+      <path d="M12 19l2.5-2.5" />
+    </IconBase>
+  );
+}
+
+export function DirectSelectIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 3l-2 18 7-7 8 2-13-13z" />
+      <path d="M10 14l4 6 2-6 6-2-6-4" />
+    </IconBase>
+  );
+}
