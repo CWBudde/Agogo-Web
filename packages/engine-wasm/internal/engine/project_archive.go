@@ -14,17 +14,17 @@ type projectArchive struct {
 }
 
 type projectDocumentArchive struct {
-	Width       int                   `json:"width"`
-	Height      int                   `json:"height"`
-	Resolution  float64               `json:"resolution"`
-	ColorMode   string                `json:"colorMode"`
-	BitDepth    int                   `json:"bitDepth"`
-	Background  Background            `json:"background"`
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	CreatedAt   string                `json:"createdAt"`
-	CreatedBy   string                `json:"createdBy"`
-	ModifiedAt  string                `json:"modifiedAt"`
+	Width         int                   `json:"width"`
+	Height        int                   `json:"height"`
+	Resolution    float64               `json:"resolution"`
+	ColorMode     string                `json:"colorMode"`
+	BitDepth      int                   `json:"bitDepth"`
+	Background    Background            `json:"background"`
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	CreatedAt     string                `json:"createdAt"`
+	CreatedBy     string                `json:"createdBy"`
+	ModifiedAt    string                `json:"modifiedAt"`
 	ActiveLayer   string                `json:"activeLayerId,omitempty"`
 	Layers        []projectLayerArchive `json:"layers"`
 	Paths         []NamedPath           `json:"paths,omitempty"`
@@ -70,17 +70,17 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 	archive := projectArchive{
 		Version: projectArchiveVersion,
 		Document: projectDocumentArchive{
-			Width:       doc.Width,
-			Height:      doc.Height,
-			Resolution:  doc.Resolution,
-			ColorMode:   doc.ColorMode,
-			BitDepth:    doc.BitDepth,
-			Background:  doc.Background,
-			ID:          doc.ID,
-			Name:        doc.Name,
-			CreatedAt:   doc.CreatedAt,
-			CreatedBy:   doc.CreatedBy,
-			ModifiedAt:  doc.ModifiedAt,
+			Width:         doc.Width,
+			Height:        doc.Height,
+			Resolution:    doc.Resolution,
+			ColorMode:     doc.ColorMode,
+			BitDepth:      doc.BitDepth,
+			Background:    doc.Background,
+			ID:            doc.ID,
+			Name:          doc.Name,
+			CreatedAt:     doc.CreatedAt,
+			CreatedBy:     doc.CreatedBy,
+			ModifiedAt:    doc.ModifiedAt,
 			ActiveLayer:   doc.ActiveLayerID,
 			Layers:        make([]projectLayerArchive, 0),
 			Paths:         cloneNamedPaths(doc.Paths),
