@@ -128,6 +128,9 @@ export enum CommandID {
 
   // Phase 6.2: Shape Tools
   DrawShape = 0x0630,
+  EnterVectorEditMode = 0x0631,
+  CommitVectorEdit = 0x0632,
+  SetVectorLayerStyle = 0x0633,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -952,4 +955,17 @@ export interface DrawShapeCommand {
   strokeWidth?: number;
   /** Output mode: creates a VectorLayer, adds to Paths panel, or rasterizes. Default "shape". */
   mode?: ShapeMode;
+}
+
+export interface EnterVectorEditModeCommand {
+  layerId: string;
+}
+
+export interface CommitVectorEditCommand {}
+
+export interface SetVectorLayerStyleCommand {
+  layerId: string;
+  fillColor: [number, number, number, number];
+  strokeColor: [number, number, number, number];
+  strokeWidth: number;
 }

@@ -126,7 +126,10 @@ const (
 	commandFillPath              = 0x0626
 
 	// Phase 6.2: Shape Tools
-	commandDrawShape = 0x0630
+	commandDrawShape           = 0x0630
+	commandEnterVectorEditMode = 0x0631
+	commandCommitVectorEdit    = 0x0632
+	commandSetVectorLayerStyle = 0x0633
 
 	commandBeginTxn     = 0xffe0
 	commandEndTxn       = 0xffe1
@@ -228,7 +231,10 @@ type UIMeta struct {
 	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
 	Crop            *CropMeta          `json:"crop,omitempty"`
 	Paths           []PathMeta         `json:"paths,omitempty"`
-	PathOverlay     *PathOverlay       `json:"pathOverlay,omitempty"`
+	PathOverlay          *PathOverlay `json:"pathOverlay,omitempty"`
+	// EditingVectorLayerID is non-empty while a VectorLayer's path is being
+	// edited. The UI uses this to show the "editing path" indicator.
+	EditingVectorLayerID string `json:"editingVectorLayerId,omitempty"`
 }
 
 type RenderResult struct {
@@ -848,6 +854,9 @@ type instance struct {
 	preFadeSnapshot *fadeSnapshot
 	// pathTool holds the pen / direct-selection tool UI state.
 	pathTool *pathToolState
+	// editingVectorLayerID is set while the user is editing a VectorLayer's
+	// path via the direct-select tool. UI-only — not included in snapshots.
+	editingVectorLayerID string
 }
 
 var (

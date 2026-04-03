@@ -139,8 +139,9 @@ func (inst *instance) renderUIMeta() UIMeta {
 		Selection:           doc.selectionMeta(),
 		FreeTransform:       inst.freeTransform.meta(),
 		Crop:                inst.crop.meta(),
-		Paths:               doc.pathsMeta(),
+		Paths:                doc.pathsMeta(),
 		PathOverlay:          inst.buildPathOverlay(),
+		EditingVectorLayerID: inst.editingVectorLayerID,
 	}
 }
 
