@@ -103,6 +103,29 @@ export enum CommandID {
   CommitFilterPreview = 0x0504,
   FadeFilter = 0x0505,
 
+  // Phase 6.1: Vector Path
+  SetActiveTool = 0x0600,
+  PenToolClick = 0x0601,
+  PenToolClose = 0x0602,
+  DirectSelectMove = 0x0603,
+  DirectSelectMarquee = 0x0604,
+  BreakHandle = 0x0605,
+  DeleteAnchor = 0x0606,
+  AddAnchorOnSegment = 0x0607,
+  PathCombine = 0x0610,
+  PathSubtract = 0x0611,
+  PathIntersect = 0x0612,
+  PathExclude = 0x0613,
+  FlattenPath = 0x0614,
+  RasterizePath = 0x0615,
+  CreatePath = 0x0620,
+  DeletePath = 0x0621,
+  RenamePath = 0x0622,
+  DuplicatePath = 0x0623,
+  MakeSelectionFromPath = 0x0624,
+  StrokePath = 0x0625,
+  FillPath = 0x0626,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -382,12 +405,16 @@ export interface PathPointCommand {
   inY?: number;
   outX?: number;
   outY?: number;
-  hasCurve?: boolean;
+  handleType?: number; // 0=corner, 1=smooth, 2=symmetric
+}
+
+export interface SubpathCommand {
+  closed: boolean;
+  points: PathPointCommand[];
 }
 
 export interface PathCommand {
-  closed: boolean;
-  points: PathPointCommand[];
+  subpaths: SubpathCommand[];
 }
 
 export interface AddLayerCommand {
@@ -784,4 +811,112 @@ export interface ApplyGradientCommand {
   dither?: boolean;
   createLayer?: boolean;
   stops?: GradientStopCommand[];
+}
+
+// Phase 6.1: Vector Path payload types
+
+export interface SetActiveToolCommand {
+  tool: string;
+}
+
+export interface PenToolClickCommand {
+  x: number;
+  y: number;
+  dragX?: number;
+  dragY?: number;
+  shift?: boolean;
+}
+
+export interface DirectSelectMoveCommand {
+  subpathIndex: number;
+  anchorIndex: number;
+  handleKind: "anchor" | "in" | "out";
+  x: number;
+  y: number;
+}
+
+export interface DirectSelectMarqueeCommand {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  shift?: boolean;
+}
+
+export interface BreakHandleCommand {
+  subpathIndex: number;
+  anchorIndex: number;
+}
+
+export interface DeleteAnchorCommand {
+  subpathIndex: number;
+  anchorIndices: number[];
+}
+
+export interface AddAnchorOnSegmentCommand {
+  subpathIndex: number;
+  segmentIndex: number;
+  t: number;
+}
+
+export interface CreatePathCommand {
+  name: string;
+  path?: PathCommand;
+}
+
+export interface RenamePathCommand {
+  pathIndex: number;
+  name: string;
+}
+
+export interface DuplicatePathCommand {
+  pathIndex: number;
+}
+
+export interface DeletePathCommand {
+  pathIndex: number;
+}
+
+export interface MakeSelectionFromPathCommand {
+  pathIndex?: number;
+  featherRadius?: number;
+  antiAlias?: boolean;
+}
+
+export interface StrokePathCommand {
+  pathIndex?: number;
+  toolWidth?: number;
+  color?: [number, number, number, number];
+}
+
+export interface FillPathCommand {
+  pathIndex?: number;
+  color?: [number, number, number, number];
+}
+
+// Path overlay in UIMeta
+
+export interface PathOverlayAnchor {
+  x: number;
+  y: number;
+  selected: boolean;
+  first: boolean;
+}
+
+export interface PathOverlayLine {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface PathOverlayPolyline {
+  points: Array<{ x: number; y: number }>;
+}
+
+export interface PathOverlay {
+  segments: PathOverlayPolyline[];
+  anchors: PathOverlayAnchor[];
+  handleLines: PathOverlayLine[];
+  rubberBand?: PathOverlayPolyline;
 }

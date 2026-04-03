@@ -101,6 +101,30 @@ const (
 	commandCancelFilterPreview      = 0x0503
 	commandCommitFilterPreview      = 0x0504
 	commandFadeFilter               = 0x0505
+
+	// Phase 6.1: Vector Path
+	commandSetActiveTool         = 0x0600
+	commandPenToolClick          = 0x0601
+	commandPenToolClose          = 0x0602
+	commandDirectSelectMove      = 0x0603
+	commandDirectSelectMarquee   = 0x0604
+	commandBreakHandle           = 0x0605
+	commandDeleteAnchor          = 0x0606
+	commandAddAnchorOnSegment    = 0x0607
+	commandPathCombine           = 0x0610
+	commandPathSubtract          = 0x0611
+	commandPathIntersect         = 0x0612
+	commandPathExclude           = 0x0613
+	commandFlattenPath           = 0x0614
+	commandRasterizePath         = 0x0615
+	commandCreatePath            = 0x0620
+	commandDeletePath            = 0x0621
+	commandRenamePath            = 0x0622
+	commandDuplicatePath         = 0x0623
+	commandMakeSelectionFromPath = 0x0624
+	commandStrokePath            = 0x0625
+	commandFillPath              = 0x0626
+
 	commandBeginTxn                 = 0xffe0
 	commandEndTxn                   = 0xffe1
 	commandClearHistory             = 0xffe2
@@ -955,6 +979,19 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 	case commandApplyFilter, commandReapplyFilter, commandPreviewFilter,
 		commandCancelFilterPreview, commandCommitFilterPreview, commandFadeFilter:
 		if handled, err := inst.dispatchFilterCommand(commandID, payloadJSON); handled || err != nil {
+			if err != nil {
+				return RenderResult{}, err
+			}
+		}
+
+	case commandSetActiveTool, commandPenToolClick, commandPenToolClose,
+		commandDirectSelectMove, commandDirectSelectMarquee, commandBreakHandle,
+		commandDeleteAnchor, commandAddAnchorOnSegment,
+		commandPathCombine, commandPathSubtract, commandPathIntersect, commandPathExclude,
+		commandFlattenPath, commandRasterizePath,
+		commandCreatePath, commandDeletePath, commandRenamePath, commandDuplicatePath,
+		commandMakeSelectionFromPath, commandStrokePath, commandFillPath:
+		if handled, err := inst.dispatchPathCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}

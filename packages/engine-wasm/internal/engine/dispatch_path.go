@@ -1,0 +1,62 @@
+package engine
+
+import "fmt"
+
+func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (bool, error) {
+	doc := inst.manager.Active()
+	if doc == nil {
+		return true, fmt.Errorf("no active document")
+	}
+
+	switch commandID {
+	case commandSetActiveTool:
+		// Tool switching is handled at a higher level; acknowledge success.
+		return true, nil
+
+	case commandPenToolClick:
+		return true, fmt.Errorf("pen tool click: not yet implemented")
+	case commandPenToolClose:
+		return true, fmt.Errorf("pen tool close: not yet implemented")
+	case commandDirectSelectMove:
+		return true, fmt.Errorf("direct select move: not yet implemented")
+	case commandDirectSelectMarquee:
+		return true, fmt.Errorf("direct select marquee: not yet implemented")
+	case commandBreakHandle:
+		return true, fmt.Errorf("break handle: not yet implemented")
+	case commandDeleteAnchor:
+		return true, fmt.Errorf("delete anchor: not yet implemented")
+	case commandAddAnchorOnSegment:
+		return true, fmt.Errorf("add anchor on segment: not yet implemented")
+
+	case commandPathCombine:
+		return true, fmt.Errorf("path combine: not yet implemented")
+	case commandPathSubtract:
+		return true, fmt.Errorf("path subtract: not yet implemented")
+	case commandPathIntersect:
+		return true, fmt.Errorf("path intersect: not yet implemented")
+	case commandPathExclude:
+		return true, fmt.Errorf("path exclude: not yet implemented")
+	case commandFlattenPath:
+		return true, fmt.Errorf("flatten path: not yet implemented")
+	case commandRasterizePath:
+		return true, fmt.Errorf("rasterize path: not yet implemented")
+
+	case commandCreatePath:
+		return true, fmt.Errorf("create path: not yet implemented")
+	case commandDeletePath:
+		return true, fmt.Errorf("delete path: not yet implemented")
+	case commandRenamePath:
+		return true, fmt.Errorf("rename path: not yet implemented")
+	case commandDuplicatePath:
+		return true, fmt.Errorf("duplicate path: not yet implemented")
+	case commandMakeSelectionFromPath:
+		return true, fmt.Errorf("make selection from path: not yet implemented")
+	case commandStrokePath:
+		return true, fmt.Errorf("stroke path: not yet implemented")
+	case commandFillPath:
+		return true, fmt.Errorf("fill path: not yet implemented")
+
+	default:
+		return false, nil
+	}
+}
