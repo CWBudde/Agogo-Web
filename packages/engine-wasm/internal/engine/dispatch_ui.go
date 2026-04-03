@@ -26,6 +26,24 @@ func (inst *instance) dispatchUICommand(commandID int32, payloadJSON string) (bo
 			}
 		}
 		return true, &result, nil
+
+	case commandComputeHistogram:
+		hist, err := inst.computeHistogram(payloadJSON)
+		if err != nil {
+			return true, nil, err
+		}
+		result := inst.render()
+		result.Histogram = hist
+		return true, &result, nil
+
+	case commandIdentifyHueRange:
+		rangeName, err := inst.identifyHueRange(payloadJSON)
+		if err != nil {
+			return true, nil, err
+		}
+		result := inst.render()
+		result.IdentifiedHueRange = rangeName
+		return true, &result, nil
 	}
 
 	return false, nil, nil

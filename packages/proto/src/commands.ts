@@ -42,6 +42,11 @@ export enum CommandID {
   TranslateLayer = 0x0119,
   PickLayerAtPoint = 0x011a,
 
+  // Phase 5.2: Adjustment layer tools
+  ComputeHistogram = 0x011c,
+  SetPointFromSample = 0x011d,
+  IdentifyHueRange = 0x011e,
+
   // Phase 3: Selection
   NewSelection = 0x0200,
   SelectAll = 0x0201,
