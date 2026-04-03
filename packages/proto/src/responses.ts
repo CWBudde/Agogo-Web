@@ -1,7 +1,7 @@
 // RenderResult — returned by the engine after each command dispatch.
 // bufferPtr and bufferLen reference a region inside the Wasm linear memory.
 
-import type { AdjustmentKind, AdjustmentLayerParams, FreeTransformMeta } from "./commands.js";
+import type { AdjustmentKind, AdjustmentLayerParams, FreeTransformMeta, PathOverlay } from "./commands.js";
 
 export interface DirtyRect {
 	x: number;
@@ -60,6 +60,10 @@ export interface UIMeta {
 	freeTransform?: FreeTransformMeta;
 	/** Present when crop tool is active. */
 	crop?: import("./commands.js").CropMeta;
+	/** Present when a path tool is active. */
+	pathOverlay?: PathOverlay;
+	/** Named paths in the active document. */
+	paths?: Array<{ name: string; active: boolean }>;
 }
 
 export interface LayerNodeMeta {
