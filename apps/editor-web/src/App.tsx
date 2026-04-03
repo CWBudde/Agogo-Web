@@ -838,6 +838,7 @@ export default function App() {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
   const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
@@ -928,6 +929,9 @@ export default function App() {
       tool !== "zoom"
     ) {
       engine.dispatchCommand(CommandID.SetActiveTool, { tool: "" });
+      if (editingVectorLayerID) {
+        engine.dispatchCommand(CommandID.CommitVectorEdit, {});
+      }
     }
 
     setActiveTool(tool);
@@ -2409,6 +2413,21 @@ export default function App() {
               <div className="hidden shrink-0 text-[11px] text-slate-400 xl:block">
                 Shift add, Alt subtract, Shift+Alt intersect
               </div>
+            </div>
+          ) : null}
+
+          {editingVectorLayerID ? (
+            <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-amber-500/30 bg-amber-500/8 px-3 py-1">
+              <span className="text-[11px] text-amber-200">
+                Editing shape path — switch tool to commit changes
+              </span>
+              <button
+                type="button"
+                className="ml-auto rounded border border-amber-500/40 px-2 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/15 focus-visible:outline-none"
+                onClick={() => engine.dispatchCommand(CommandID.CommitVectorEdit, {})}
+              >
+                Done
+              </button>
             </div>
           ) : null}
 

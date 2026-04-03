@@ -569,6 +569,9 @@ export function LayersPanel({
                   onDragOver={handleDragOver}
                   onDropLayer={handleDrop}
                   onOpenContextMenu={openContextMenu}
+                  onEnterVectorEdit={(layerId) =>
+                    engine.dispatchCommand(CommandID.EnterVectorEditMode, { layerId })
+                  }
                 />
               ))}
             </div>
@@ -836,6 +839,7 @@ type LayerTreeRowProps = {
   onDragOver: (event: DragEvent<HTMLDivElement>, layer: LayerNodeMeta) => void;
   onDropLayer: (layer: LayerNodeMeta) => void;
   onOpenContextMenu: (layer: LayerNodeMeta, x: number, y: number) => void;
+  onEnterVectorEdit: (layerId: string) => void;
 };
 
 function LayerTreeRow({
@@ -866,6 +870,7 @@ function LayerTreeRow({
   onDragOver,
   onDropLayer,
   onOpenContextMenu,
+  onEnterVectorEdit,
 }: LayerTreeRowProps) {
   const isGroup = layer.layerType === "group";
   const isCollapsed = isGroup && collapsedGroups[layer.id];
@@ -969,6 +974,11 @@ function LayerTreeRow({
               colorTag={colorTags[layer.id] ?? "none"}
               isEditingMask={isEditingMask}
               onToggleMaskEdit={() => onToggleMaskEdit(layer.id)}
+              onDoubleClick={
+                layer.layerType === "vector"
+                  ? () => onEnterVectorEdit(layer.id)
+                  : undefined
+              }
             />
 
             <div className="min-w-0">
@@ -1085,6 +1095,7 @@ function LayerTreeRow({
               onDragOver={onDragOver}
               onDropLayer={onDropLayer}
               onOpenContextMenu={onOpenContextMenu}
+              onEnterVectorEdit={onEnterVectorEdit}
             />
           ))}
         </div>
@@ -1167,12 +1178,14 @@ function LayerThumbnail({
   colorTag,
   isEditingMask,
   onToggleMaskEdit,
+  onDoubleClick,
 }: {
   layer: LayerNodeMeta;
   thumbnail: ThumbnailEntry | undefined;
   colorTag: ColorTagId;
   isEditingMask: boolean;
   onToggleMaskEdit: () => void;
+  onDoubleClick?: () => void;
 }) {
   const toneClass =
     layer.layerType === "group"
@@ -1188,7 +1201,14 @@ function LayerThumbnail({
   const colorTagInfo = COLOR_TAGS.find((c) => c.id === colorTag);
 
   return (
-    <div className="flex items-center gap-0.5">
+    // biome-ignore lint/a11y/noStaticElementInteractions: role conditionally set to "button" when onDoubleClick is present
+    <div
+      className="flex items-center gap-0.5"
+      onDoubleClick={onDoubleClick}
+      role={onDoubleClick ? "button" : undefined}
+      tabIndex={onDoubleClick ? 0 : undefined}
+      onKeyDown={onDoubleClick ? (e) => { if (e.key === "Enter") onDoubleClick(); } : undefined}
+    >
       <div
         className={[
           "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
