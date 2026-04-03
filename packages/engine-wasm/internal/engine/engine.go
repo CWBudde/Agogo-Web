@@ -1016,7 +1016,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			}
 		}
 
-	case commandDrawShape:
+	case commandDrawShape, commandEnterVectorEditMode, commandCommitVectorEdit, commandSetVectorLayerStyle:
 		if handled, err := inst.dispatchShapeCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err

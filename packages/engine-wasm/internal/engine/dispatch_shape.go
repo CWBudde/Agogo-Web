@@ -19,6 +19,22 @@ type DrawShapePayload struct {
 	Mode           string   `json:"mode,omitempty"`
 }
 
+// EnterVectorEditModePayload is the JSON payload for commandEnterVectorEditMode.
+type EnterVectorEditModePayload struct {
+	LayerID string `json:"layerId"`
+}
+
+// CommitVectorEditPayload is the (empty) JSON payload for commandCommitVectorEdit.
+type CommitVectorEditPayload struct{}
+
+// SetVectorLayerStylePayload is the JSON payload for commandSetVectorLayerStyle.
+type SetVectorLayerStylePayload struct {
+	LayerID     string   `json:"layerId"`
+	FillColor   [4]uint8 `json:"fillColor"`
+	StrokeColor [4]uint8 `json:"strokeColor"`
+	StrokeWidth float64  `json:"strokeWidth"`
+}
+
 func (inst *instance) dispatchShapeCommand(commandID int32, payloadJSON string) (bool, error) {
 	if inst.manager.Active() == nil {
 		return true, fmt.Errorf("no active document")
@@ -31,8 +47,114 @@ func (inst *instance) dispatchShapeCommand(commandID int32, payloadJSON string) 
 			return true, err
 		}
 		return true, inst.drawShape(payload)
+
+	case commandEnterVectorEditMode:
+		var payload EnterVectorEditModePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.enterVectorEditMode(payload)
+
+	case commandCommitVectorEdit:
+		return true, inst.commitVectorEdit()
+
+	case commandSetVectorLayerStyle:
+		var payload SetVectorLayerStylePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.setVectorLayerStyle(payload)
 	}
 	return false, nil
+}
+
+func (inst *instance) enterVectorEditMode(p EnterVectorEditModePayload) error {
+	doc := inst.manager.Active()
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), p.LayerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", p.LayerID)
+	}
+	vl, ok := layer.(*VectorLayer)
+	if !ok {
+		return fmt.Errorf("layer %q is not a vector layer", p.LayerID)
+	}
+
+	workPath := clonePath(vl.Shape)
+	if workPath == nil {
+		workPath = &Path{}
+	}
+	layerName := layer.Name()
+	if err := inst.executeDocCommand("Enter vector edit mode", func(doc *Document) error {
+		if len(doc.Paths) == 0 {
+			doc.Paths = []NamedPath{{Name: layerName, Path: *workPath}}
+		} else {
+			doc.Paths[0] = NamedPath{Name: layerName, Path: *workPath}
+		}
+		doc.ActivePathIdx = 0
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	inst.editingVectorLayerID = p.LayerID
+	inst.pathTool.activeTool = "direct-select"
+	return nil
+}
+
+func (inst *instance) commitVectorEdit() error {
+	if inst.editingVectorLayerID == "" {
+		return nil
+	}
+	layerID := inst.editingVectorLayerID
+	inst.editingVectorLayerID = ""
+	inst.pathTool.activeTool = ""
+
+	return inst.executeDocCommand("Commit vector edit", func(doc *Document) error {
+		layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+		if !ok {
+			return nil // layer deleted — silently succeed
+		}
+		vl, ok := layer.(*VectorLayer)
+		if !ok {
+			return nil
+		}
+		if doc.ActivePathIdx < 0 || doc.ActivePathIdx >= len(doc.Paths) {
+			return nil
+		}
+		editedPath := doc.Paths[doc.ActivePathIdx].Path
+		vl.Shape = clonePath(&editedPath)
+		raster, err := rasterizeVectorShape(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth)
+		if err != nil {
+			return err
+		}
+		vl.CachedRaster = raster
+		return nil
+	})
+}
+
+func (inst *instance) setVectorLayerStyle(p SetVectorLayerStylePayload) error {
+	return inst.executeDocCommand("Set shape style", func(doc *Document) error {
+		layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), p.LayerID)
+		if !ok {
+			return fmt.Errorf("layer %q not found", p.LayerID)
+		}
+		vl, ok := layer.(*VectorLayer)
+		if !ok {
+			return fmt.Errorf("layer %q is not a vector layer", p.LayerID)
+		}
+		vl.FillColor = p.FillColor
+		vl.StrokeColor = p.StrokeColor
+		vl.StrokeWidth = p.StrokeWidth
+		raster, err := rasterizeVectorShape(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth)
+		if err != nil {
+			return err
+		}
+		vl.CachedRaster = raster
+		return nil
+	})
 }
 
 func (inst *instance) drawShape(p DrawShapePayload) error {
