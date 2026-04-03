@@ -213,6 +213,10 @@ type LayerNodeMeta struct {
 	HasVectorMask  bool            `json:"hasVectorMask"`
 	Isolated       bool            `json:"isolated,omitempty"`
 	Children       []LayerNodeMeta `json:"children,omitempty"`
+	// VectorLayer-specific style fields. Only populated when LayerType == "vector".
+	VecFillColor   *[4]uint8 `json:"fillColor,omitempty"`
+	VecStrokeColor *[4]uint8 `json:"strokeColor,omitempty"`
+	VecStrokeWidth *float64  `json:"strokeWidth,omitempty"`
 }
 
 func (doc *Document) ensureLayerRoot() *GroupLayer {
@@ -1408,6 +1412,14 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		for _, child := range children {
 			meta.Children = append(meta.Children, buildLayerNodeMeta(child))
 		}
+	}
+	if vl, ok := layer.(*VectorLayer); ok {
+		fc := vl.FillColor
+		sc := vl.StrokeColor
+		sw := vl.StrokeWidth
+		meta.VecFillColor = &fc
+		meta.VecStrokeColor = &sc
+		meta.VecStrokeWidth = &sw
 	}
 	return meta
 }

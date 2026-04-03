@@ -85,6 +85,10 @@ export interface LayerNodeMeta {
 	hasVectorMask: boolean;
 	isolated?: boolean;
 	children?: LayerNodeMeta[];
+	// VectorLayer-specific style fields. Only present when layerType === "vector".
+	fillColor?: [number, number, number, number];
+	strokeColor?: [number, number, number, number];
+	strokeWidth?: number;
 }
 
 export interface HistoryEntry {
