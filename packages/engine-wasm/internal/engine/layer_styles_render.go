@@ -138,6 +138,15 @@ func hasSupportedEnabledLayerStyleStack(styles []LayerStyle) bool {
 	return hasSupportedEnabledLayerStyles(decodeLayerStyles(styles))
 }
 
+func hasAnyEnabledLayerStyleEntry(styles []LayerStyle) bool {
+	for _, style := range styles {
+		if style.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 func buildColorOverlaySurface(sourceSurface []byte, params ColorOverlayParams) []byte {
 	overlay := make([]byte, len(sourceSurface))
 	for offset := 0; offset < len(sourceSurface); offset += 4 {

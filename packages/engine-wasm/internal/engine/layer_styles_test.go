@@ -185,3 +185,30 @@ func TestRenderStyledLayerSurface_RejectsNonRasterizableStyledLayers(t *testing.
 		t.Fatal("expected styled adjustment render to fail until non-rasterizable layer styles are supported")
 	}
 }
+
+func TestRenderStyledLayerSurface_AllowsNonRasterizableLayersWithDisabledStyles(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+
+	group := NewGroupLayer("Disabled Styled Group")
+	group.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindColorOverlay),
+		Enabled: false,
+		Params:  jsonRawMessage(`{"color":[0,255,0,255],"opacity":1}`),
+	}})
+	group.SetChildren([]LayerNode{
+		NewPixelLayer("Child", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{255, 0, 0, 255}),
+	})
+	if _, err := doc.renderLayerToSurface(group); err != nil {
+		t.Fatalf("render disabled styled group: %v", err)
+	}
+
+	adjustment := NewAdjustmentLayer("Disabled Styled Adjustment", "invert", nil)
+	adjustment.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindColorOverlay),
+		Enabled: false,
+		Params:  jsonRawMessage(`{"color":[0,255,0,255],"opacity":1}`),
+	}})
+	if _, err := doc.renderLayerToSurface(adjustment); err != nil {
+		t.Fatalf("render disabled styled adjustment: %v", err)
+	}
+}

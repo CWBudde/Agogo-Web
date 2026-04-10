@@ -1198,7 +1198,7 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 func ensureRasterizableLayer(layer LayerNode) error {
 	// Vector masks are not yet rasterized during compositing (Phase 6.1).
 	// They are stored as data but silently ignored in rendering for now.
-	if len(layer.StyleStack()) == 0 {
+	if !hasAnyEnabledLayerStyleEntry(layer.StyleStack()) {
 		return nil
 	}
 	switch layer.(type) {
