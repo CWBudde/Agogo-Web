@@ -268,6 +268,80 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 		}
 		return true, nil
 
+	case commandSetLayerStyleStack:
+		var payload SetLayerStyleStackPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Set layer styles", func(doc *Document) error {
+			return doc.SetLayerStyleStack(payload.LayerID, layerStylePayloadsToStyles(payload.Styles))
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandSetLayerStyleEnabled:
+		var payload SetLayerStyleEnabledPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Toggle layer style", func(doc *Document) error {
+			return doc.SetLayerStyleEnabled(payload.LayerID, payload.Kind, payload.Enabled)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandSetLayerStyleParams:
+		var payload SetLayerStyleParamsPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Set layer style params", func(doc *Document) error {
+			return doc.SetLayerStyleParams(payload.LayerID, payload.Kind, payload.Params)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandCopyLayerStyle:
+		var payload CopyLayerStylePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		doc := inst.manager.Active()
+		if doc == nil {
+			return true, fmt.Errorf("no active document")
+		}
+		if err := inst.copyLayerStyle(doc, payload.LayerID); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandPasteLayerStyle:
+		var payload PasteLayerStylePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Paste layer styles", func(doc *Document) error {
+			return inst.pasteLayerStyle(doc, payload.LayerID)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandClearLayerStyle:
+		var payload ClearLayerStylePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Clear layer styles", func(doc *Document) error {
+			return doc.ClearLayerStyle(payload.LayerID)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandAddVectorMask:
 		var payload AddVectorMaskPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -317,4 +391,19 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 	}
 
 	return false, nil
+}
+
+func layerStylePayloadsToStyles(payloads []LayerStylePayload) []LayerStyle {
+	if len(payloads) == 0 {
+		return nil
+	}
+	styles := make([]LayerStyle, len(payloads))
+	for i, payload := range payloads {
+		styles[i] = LayerStyle{
+			Kind:    string(payload.Kind),
+			Enabled: payload.Enabled,
+			Params:  cloneJSONRawMessage(payload.Params),
+		}
+	}
+	return styles
 }

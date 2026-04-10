@@ -873,6 +873,8 @@ type instance struct {
 	// preFadeSnapshot stores pixel data before the last filter was applied,
 	// enabling Filter > Fade to blend the result back with the original.
 	preFadeSnapshot *fadeSnapshot
+	// styleClipboard stores copied layer styles outside document history.
+	styleClipboard styleClipboard
 	// pathTool holds the pen / direct-selection tool UI state.
 	pathTool *pathToolState
 	// editingVectorLayerID is set while the user is editing a VectorLayer's
