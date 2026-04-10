@@ -552,11 +552,18 @@ func cloneLayerStyles(styles []LayerStyle) []LayerStyle {
 		return nil
 	}
 	cloned := make([]LayerStyle, len(styles))
-	copy(cloned, styles)
-	for i := range cloned {
-		cloned[i].Params = cloneJSONRawMessage(styles[i].Params)
+	for i := range styles {
+		cloned[i] = cloneLayerStyle(styles[i])
 	}
 	return cloned
+}
+
+func cloneLayerStyle(style LayerStyle) LayerStyle {
+	return LayerStyle{
+		Kind:    style.Kind,
+		Enabled: style.Enabled,
+		Params:  cloneJSONRawMessage(style.Params),
+	}
 }
 
 func cloneJSONRawMessage(message json.RawMessage) json.RawMessage {
