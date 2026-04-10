@@ -126,3 +126,35 @@ func TestDecodeLayerStyles_BevelEmbossInvalidEnumsFallbackToDefaults(t *testing.
 		t.Fatalf("bevel enums = %+v, want default normalized values", decoded[0].BevelEmboss)
 	}
 }
+
+func TestRenderStyledLayerSurface_UsesFillOpacityForBaseButNotEffects(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	layer := NewPixelLayer("Styled", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{
+		255, 0, 0, 255,
+	})
+	layer.SetFillOpacity(0)
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"color":[0,255,0,255],"opacity":1}`),
+		},
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"angle":0,"distance":1,"size":0}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := surface[:4]; got[0] != 0 || got[1] != 255 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("base pixel = %v, want opaque green color overlay with fill-hidden source", got)
+	}
+	if got := surface[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 255 || got[3] != 255 {
+		t.Fatalf("shadow pixel = %v, want opaque blue drop shadow", got)
+	}
+}

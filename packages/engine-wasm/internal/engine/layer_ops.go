@@ -134,13 +134,13 @@ type SetAdjustmentParamsPayload struct {
 type LayerStyleKind string
 
 const (
-	LayerStyleKindDropShadow     LayerStyleKind = "drop-shadow"
-	LayerStyleKindInnerShadow    LayerStyleKind = "inner-shadow"
-	LayerStyleKindOuterGlow      LayerStyleKind = "outer-glow"
-	LayerStyleKindInnerGlow      LayerStyleKind = "inner-glow"
-	LayerStyleKindBevelEmboss    LayerStyleKind = "bevel-emboss"
-	LayerStyleKindSatin          LayerStyleKind = "satin"
-	LayerStyleKindColorOverlay   LayerStyleKind = "color-overlay"
+	LayerStyleKindDropShadow      LayerStyleKind = "drop-shadow"
+	LayerStyleKindInnerShadow     LayerStyleKind = "inner-shadow"
+	LayerStyleKindOuterGlow       LayerStyleKind = "outer-glow"
+	LayerStyleKindInnerGlow       LayerStyleKind = "inner-glow"
+	LayerStyleKindBevelEmboss     LayerStyleKind = "bevel-emboss"
+	LayerStyleKindSatin           LayerStyleKind = "satin"
+	LayerStyleKindColorOverlay    LayerStyleKind = "color-overlay"
 	LayerStyleKindGradientOverlay LayerStyleKind = "gradient-overlay"
 	LayerStyleKindPatternOverlay  LayerStyleKind = "pattern-overlay"
 	LayerStyleKindStroke          LayerStyleKind = "stroke"
@@ -1110,11 +1110,26 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
+		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
+		if err != nil {
+			return err
+		}
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return nil
 	case *TextLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
+		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
+		if err != nil {
+			return err
+		}
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return nil
 	case *VectorLayer:
-		return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), effectiveContentOpacity(typed), typed.Mask(), clipAlpha)
+		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
+		if err != nil {
+			return err
+		}
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		return nil
 	case *AdjustmentLayer:
 		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha)
 	case *GroupLayer:
@@ -1174,9 +1189,7 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 func ensureRasterizableLayer(layer LayerNode) error {
 	// Vector masks are not yet rasterized during compositing (Phase 6.1).
 	// They are stored as data but silently ignored in rendering for now.
-	if len(layer.StyleStack()) > 0 {
-		return fmt.Errorf("layer %q cannot be merged while layer styles are not rasterized", layer.Name())
-	}
+	_ = layer
 	return nil
 }
 
@@ -1191,7 +1204,7 @@ func effectiveLayerOpacity(layer LayerNode) float64 {
 // Fill opacity reduces only the layer's own pixels, not its effects (drop shadows,
 // strokes, etc. added in Phase 5). Use this for PixelLayer, TextLayer, VectorLayer.
 func effectiveContentOpacity(layer LayerNode) float64 {
-	return clampUnit(layer.Opacity() * layer.FillOpacity())
+	return clampUnit(layer.FillOpacity())
 }
 
 func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte) error {
