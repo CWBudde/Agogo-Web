@@ -6,10 +6,14 @@ import (
 )
 
 type styleClipboard struct {
-	styles []LayerStyle
+	styles   []LayerStyle
+	hasValue bool
 }
 
 func (doc *Document) SetLayerStyleStack(layerID string, styles []LayerStyle) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
@@ -20,6 +24,9 @@ func (doc *Document) SetLayerStyleStack(layerID string, styles []LayerStyle) err
 }
 
 func (doc *Document) SetLayerStyleEnabled(layerID string, kind LayerStyleKind, enabled bool) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
@@ -39,6 +46,9 @@ func (doc *Document) SetLayerStyleEnabled(layerID string, kind LayerStyleKind, e
 }
 
 func (doc *Document) SetLayerStyleParams(layerID string, kind LayerStyleKind, params json.RawMessage) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
@@ -58,6 +68,9 @@ func (doc *Document) SetLayerStyleParams(layerID string, kind LayerStyleKind, pa
 }
 
 func (doc *Document) ClearLayerStyle(layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
@@ -68,15 +81,25 @@ func (doc *Document) ClearLayerStyle(layerID string) error {
 }
 
 func (inst *instance) copyLayerStyle(doc *Document, layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	inst.styleClipboard.styles = cloneLayerStyles(layer.StyleStack())
+	inst.styleClipboard.hasValue = true
 	return nil
 }
 
 func (inst *instance) pasteLayerStyle(doc *Document, layerID string) error {
+	if doc == nil {
+		return fmt.Errorf("no active document")
+	}
+	if !inst.styleClipboard.hasValue {
+		return fmt.Errorf("no layer styles copied")
+	}
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
