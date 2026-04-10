@@ -1,6 +1,9 @@
 package engine
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 type DropShadowParams struct {
 	BlendMode BlendMode `json:"blendMode"`
@@ -348,7 +351,16 @@ func decodeJSONInto(params json.RawMessage, target any) {
 	if len(params) == 0 {
 		return
 	}
-	_ = json.Unmarshal(params, target)
+	value := reflect.ValueOf(target)
+	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+		return
+	}
+	decoded := reflect.New(value.Elem().Type())
+	decoded.Elem().Set(value.Elem())
+	if err := json.Unmarshal(params, decoded.Interface()); err != nil {
+		return
+	}
+	value.Elem().Set(decoded.Elem())
 }
 
 func normalizeBlendMode(mode BlendMode, fallback BlendMode) BlendMode {
