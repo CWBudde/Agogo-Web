@@ -1189,8 +1189,14 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 func ensureRasterizableLayer(layer LayerNode) error {
 	// Vector masks are not yet rasterized during compositing (Phase 6.1).
 	// They are stored as data but silently ignored in rendering for now.
-	_ = layer
-	return nil
+	if len(layer.StyleStack()) == 0 {
+		return nil
+	}
+	switch layer.(type) {
+	case *PixelLayer, *TextLayer, *VectorLayer:
+		return nil
+	}
+	return fmt.Errorf("layer %q cannot be merged while layer styles are not rasterized", layer.Name())
 }
 
 // effectiveLayerOpacity returns the whole-layer composite opacity, which applies

@@ -158,3 +158,30 @@ func TestRenderStyledLayerSurface_UsesFillOpacityForBaseButNotEffects(t *testing
 		t.Fatalf("shadow pixel = %v, want opaque blue drop shadow", got)
 	}
 }
+
+func TestRenderStyledLayerSurface_RejectsNonRasterizableStyledLayers(t *testing.T) {
+	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
+
+	group := NewGroupLayer("Styled Group")
+	group.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindColorOverlay),
+		Enabled: true,
+		Params:  jsonRawMessage(`{"color":[0,255,0,255],"opacity":1}`),
+	}})
+	group.SetChildren([]LayerNode{
+		NewPixelLayer("Child", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{255, 0, 0, 255}),
+	})
+	if _, err := doc.renderLayerToSurface(group); err == nil {
+		t.Fatal("expected styled group render to fail until non-rasterizable layer styles are supported")
+	}
+
+	adjustment := NewAdjustmentLayer("Styled Adjustment", "invert", nil)
+	adjustment.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindColorOverlay),
+		Enabled: true,
+		Params:  jsonRawMessage(`{"color":[0,255,0,255],"opacity":1}`),
+	}})
+	if _, err := doc.renderLayerToSurface(adjustment); err == nil {
+		t.Fatal("expected styled adjustment render to fail until non-rasterizable layer styles are supported")
+	}
+}
