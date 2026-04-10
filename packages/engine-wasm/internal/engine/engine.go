@@ -1022,7 +1022,9 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandDeleteLayerMask, commandApplyLayerMask, commandInvertLayerMask,
 		commandSetMaskEnabled, commandSetLayerClip, commandSetLayerName, commandSetActiveLayer,
 		commandSetAdjustmentParams, commandAddVectorMask, commandDeleteVectorMask,
-		commandSetPointFromSample:
+		commandSetPointFromSample, commandSetLayerStyleStack, commandSetLayerStyleEnabled,
+		commandSetLayerStyleParams, commandCopyLayerStyle, commandPasteLayerStyle,
+		commandClearLayerStyle:
 		if handled, err := inst.dispatchLayerCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
