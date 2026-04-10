@@ -978,6 +978,39 @@ func TestClippingBaseSurfaceForLayerAndClipHelpers(t *testing.T) {
 	}
 }
 
+func TestClipToBelowIgnoresBaseLayerEffectsInClipMask(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
+	group := NewGroupLayer("Group")
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{
+		0, 0, 255, 255,
+	})
+	base.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"angle":0,"distance":1,"size":0}`),
+		},
+	})
+	clipped := NewPixelLayer("Clipped", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, []byte{
+		255, 0, 0, 255,
+	})
+	group.SetChildren([]LayerNode{base, clipped})
+	doc.LayerRoot.SetChildren([]LayerNode{group})
+
+	if err := doc.SetLayerClipToBelow(clipped.ID(), true); err != nil {
+		t.Fatalf("SetLayerClipToBelow: %v", err)
+	}
+
+	surface, err := doc.renderLayerToSurface(group)
+	if err != nil {
+		t.Fatalf("renderLayerToSurface(group): %v", err)
+	}
+
+	if got := surface[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("clipped pixel under base shadow = %v, want only the base shadow contribution", got)
+	}
+}
+
 func TestFlattenImageCommandDiscardsHiddenLayersAndSupportsUndo(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)

@@ -1110,6 +1110,9 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
+		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
@@ -1117,6 +1120,9 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
 		return nil
 	case *TextLayer:
+		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
@@ -1124,6 +1130,9 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
 		return nil
 	case *VectorLayer:
+		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
@@ -1171,7 +1180,7 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 		if baseIndex < 0 {
 			continue
 		}
-		baseSurface, err := doc.renderLayerToSurface(layers[baseIndex])
+		baseSurface, err := doc.renderClipBaseSurface(layers[baseIndex])
 		if err != nil {
 			return err
 		}
@@ -1456,7 +1465,7 @@ func (doc *Document) clippingBaseSurfaceForLayer(layer LayerNode) ([]byte, error
 		if baseIndex < 0 {
 			return nil, nil
 		}
-		return doc.renderLayerToSurface(children[baseIndex])
+		return doc.renderClipBaseSurface(children[baseIndex])
 	}
 	return nil, nil
 }

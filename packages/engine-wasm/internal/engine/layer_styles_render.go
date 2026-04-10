@@ -6,12 +6,7 @@ import (
 )
 
 func (doc *Document) renderStyledLayerSurface(layer LayerNode, clipAlpha []byte) ([]byte, error) {
-	bounds, raster, mask, err := rasterizableLayerSource(layer)
-	if err != nil {
-		return nil, err
-	}
-
-	baseSurface, err := buildDocumentSurfaceFromRaster(doc.Width, doc.Height, bounds, raster, mask, clipAlpha, effectiveContentOpacity(layer))
+	baseSurface, err := doc.renderRasterizableContentSurface(layer, clipAlpha, effectiveContentOpacity(layer))
 	if err != nil {
 		return nil, err
 	}
@@ -21,11 +16,28 @@ func (doc *Document) renderStyledLayerSurface(layer LayerNode, clipAlpha []byte)
 		return baseSurface, nil
 	}
 
-	sourceSurface, err := buildDocumentSurfaceFromRaster(doc.Width, doc.Height, bounds, raster, mask, clipAlpha, 1)
+	sourceSurface, err := doc.renderRasterizableContentSurface(layer, clipAlpha, 1)
 	if err != nil {
 		return nil, err
 	}
 	return applyLayerStylesToSurface(baseSurface, sourceSurface, doc.Width, doc.Height, decoded), nil
+}
+
+func (doc *Document) renderRasterizableContentSurface(layer LayerNode, clipAlpha []byte, opacity float64) ([]byte, error) {
+	bounds, raster, mask, err := rasterizableLayerSource(layer)
+	if err != nil {
+		return nil, err
+	}
+	return buildDocumentSurfaceFromRaster(doc.Width, doc.Height, bounds, raster, mask, clipAlpha, opacity)
+}
+
+func (doc *Document) renderClipBaseSurface(layer LayerNode) ([]byte, error) {
+	switch typed := layer.(type) {
+	case *PixelLayer, *TextLayer, *VectorLayer:
+		return doc.renderRasterizableContentSurface(typed, nil, effectiveContentOpacity(typed))
+	default:
+		return doc.renderLayerToSurface(layer)
+	}
 }
 
 func rasterizableLayerSource(layer LayerNode) (LayerBounds, []byte, *LayerMask, error) {
@@ -120,6 +132,10 @@ func hasSupportedEnabledLayerStyles(styles []DecodedLayerStyle) bool {
 		}
 	}
 	return false
+}
+
+func hasSupportedEnabledLayerStyleStack(styles []LayerStyle) bool {
+	return hasSupportedEnabledLayerStyles(decodeLayerStyles(styles))
 }
 
 func buildColorOverlaySurface(sourceSurface []byte, params ColorOverlayParams) []byte {
