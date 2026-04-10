@@ -95,6 +95,12 @@ const (
 	commandComputeHistogram         = 0x011c
 	commandSetPointFromSample       = 0x011d
 	commandIdentifyHueRange         = 0x011e
+	commandSetLayerStyleStack       = 0x011f
+	commandSetLayerStyleEnabled     = 0x0120
+	commandSetLayerStyleParams      = 0x0121
+	commandCopyLayerStyle           = 0x0122
+	commandPasteLayerStyle          = 0x0123
+	commandClearLayerStyle          = 0x0124
 	commandApplyFilter              = 0x0500
 	commandReapplyFilter            = 0x0501
 	commandPreviewFilter            = 0x0502
@@ -146,6 +152,56 @@ const (
 	commandUndo         = 0xfff0
 	commandRedo         = 0xfff1
 )
+
+type LayerStyleKind string
+
+const (
+	LayerStyleKindDropShadow   LayerStyleKind = "drop-shadow"
+	LayerStyleKindInnerShadow  LayerStyleKind = "inner-shadow"
+	LayerStyleKindOuterGlow    LayerStyleKind = "outer-glow"
+	LayerStyleKindInnerGlow    LayerStyleKind = "inner-glow"
+	LayerStyleKindBevelEmboss  LayerStyleKind = "bevel-emboss"
+	LayerStyleKindSatin        LayerStyleKind = "satin"
+	LayerStyleKindColorOverlay LayerStyleKind = "color-overlay"
+	LayerStyleKindGradientOverlay LayerStyleKind = "gradient-overlay"
+	LayerStyleKindPatternOverlay  LayerStyleKind = "pattern-overlay"
+	LayerStyleKindStroke          LayerStyleKind = "stroke"
+)
+
+type LayerStylePayload struct {
+	Kind    LayerStyleKind   `json:"kind"`
+	Enabled bool             `json:"enabled"`
+	Params  json.RawMessage  `json:"params,omitempty"`
+}
+
+type SetLayerStyleStackPayload struct {
+	LayerID string              `json:"layerId"`
+	Styles  []LayerStylePayload `json:"styles"`
+}
+
+type SetLayerStyleEnabledPayload struct {
+	LayerID string         `json:"layerId"`
+	Kind    LayerStyleKind `json:"kind"`
+	Enabled bool           `json:"enabled"`
+}
+
+type SetLayerStyleParamsPayload struct {
+	LayerID string         `json:"layerId"`
+	Kind    LayerStyleKind `json:"kind"`
+	Params  json.RawMessage `json:"params"`
+}
+
+type CopyLayerStylePayload struct {
+	LayerID string `json:"layerId"`
+}
+
+type PasteLayerStylePayload struct {
+	LayerID string `json:"layerId"`
+}
+
+type ClearLayerStylePayload struct {
+	LayerID string `json:"layerId"`
+}
 
 const (
 	defaultDocWidth       = 1920

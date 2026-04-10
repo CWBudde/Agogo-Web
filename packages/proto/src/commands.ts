@@ -47,6 +47,12 @@ export enum CommandID {
   ComputeHistogram = 0x011c,
   SetPointFromSample = 0x011d,
   IdentifyHueRange = 0x011e,
+  SetLayerStyleStack = 0x011f,
+  SetLayerStyleEnabled = 0x0120,
+  SetLayerStyleParams = 0x0121,
+  CopyLayerStyle = 0x0122,
+  PasteLayerStyle = 0x0123,
+  ClearLayerStyle = 0x0124,
 
   // Phase 3: Selection
   NewSelection = 0x0200,
@@ -198,6 +204,18 @@ export type AdjustmentKind =
   | "photo-filter"
   | "selective-color"
   | "gradient-map";
+
+export type LayerStyleKind =
+  | "drop-shadow"
+  | "inner-shadow"
+  | "outer-glow"
+  | "inner-glow"
+  | "bevel-emboss"
+  | "satin"
+  | "color-overlay"
+  | "gradient-overlay"
+  | "pattern-overlay"
+  | "stroke";
 
 export interface LevelsAdjustmentParams {
   channel?: string;
@@ -633,6 +651,41 @@ export interface SetAdjustmentParamsCommand {
   layerId: string;
   adjustmentKind?: AdjustmentKind;
   params?: AdjustmentLayerParams;
+}
+
+export interface LayerStyleEntryCommand {
+  kind: LayerStyleKind;
+  enabled: boolean;
+  params?: Record<string, unknown>;
+}
+
+export interface SetLayerStyleStackCommand {
+  layerId: string;
+  styles: LayerStyleEntryCommand[];
+}
+
+export interface SetLayerStyleEnabledCommand {
+  layerId: string;
+  kind: LayerStyleKind;
+  enabled: boolean;
+}
+
+export interface SetLayerStyleParamsCommand {
+  layerId: string;
+  kind: LayerStyleKind;
+  params: Record<string, unknown>;
+}
+
+export interface CopyLayerStyleCommand {
+  layerId: string;
+}
+
+export interface PasteLayerStyleCommand {
+  layerId: string;
+}
+
+export interface ClearLayerStyleCommand {
+  layerId: string;
 }
 
 export interface AddVectorMaskCommand {
