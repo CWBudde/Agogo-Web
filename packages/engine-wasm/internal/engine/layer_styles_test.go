@@ -159,6 +159,220 @@ func TestRenderStyledLayerSurface_UsesFillOpacityForBaseButNotEffects(t *testing
 	}
 }
 
+func TestRenderStyledLayerSurface_AppliesEffectsInStableOrder(t *testing.T) {
+	doc := &Document{
+		Width:      7,
+		Height:     7,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 3, Y: 3, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+		},
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,0,0,255],"opacity":1}`),
+		},
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"size":1,"position":"outside","fillType":"color","blendMode":"normal","color":[0,255,0,255],"opacity":1}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 3, 3); got != ([4]uint8{255, 0, 0, 255}) {
+		t.Fatalf("base pixel = %v, want opaque red fill effect result", got)
+	}
+	if got := rgbaAt(surface, doc.Width, 2, 3); got != ([4]uint8{0, 255, 0, 255}) {
+		t.Fatalf("stroke-only pixel = %v, want opaque green stroke result", got)
+	}
+	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 0, 255, 255}) {
+		t.Fatalf("overlap pixel = %v, want outer-effect blue to win over stroke on stable grouped order", got)
+	}
+}
+
+func TestRenderStyledLayerSurface_RendersSupportedEffectCatalog(t *testing.T) {
+	tests := []struct {
+		name   string
+		style  LayerStyle
+		assert func(t *testing.T, surface []byte, width int)
+	}{
+		{
+			name: "color overlay",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindColorOverlay),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,0,0,255],"opacity":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 4, 4); got != ([4]uint8{255, 0, 0, 255}) {
+					t.Fatalf("center pixel = %v, want opaque red color overlay", got)
+				}
+			},
+		},
+		{
+			name: "gradient overlay",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindGradientOverlay),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","opacity":1,"angle":0,"scale":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 4, 4); got == ([4]uint8{255, 255, 255, 255}) {
+					t.Fatalf("center pixel = %v, want deterministic non-white gradient result", got)
+				}
+			},
+		},
+		{
+			name: "pattern overlay",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindPatternOverlay),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","opacity":1,"scale":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 4, 4); got == ([4]uint8{255, 255, 255, 255}) {
+					t.Fatalf("center pixel = %v, want deterministic patterned fill result", got)
+				}
+			},
+		},
+		{
+			name: "stroke",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindStroke),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"size":1,"position":"outside","fillType":"color","blendMode":"normal","color":[0,255,0,255],"opacity":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 2, 4); got != ([4]uint8{0, 255, 0, 255}) {
+					t.Fatalf("stroke pixel = %v, want opaque green stroke", got)
+				}
+			},
+		},
+		{
+			name: "drop shadow",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindDropShadow),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 6, 4); got != ([4]uint8{0, 0, 255, 255}) {
+					t.Fatalf("shadow pixel = %v, want opaque blue drop shadow", got)
+				}
+			},
+		},
+		{
+			name: "inner shadow",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindInnerShadow),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 3, 4); got != ([4]uint8{0, 0, 0, 255}) {
+					t.Fatalf("inner-shadow pixel = %v, want opaque black interior edge", got)
+				}
+			},
+		},
+		{
+			name: "outer glow",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindOuterGlow),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,128,0,255],"opacity":1,"spread":1,"size":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 2, 4); got[3] == 0 || got[0] == 0 {
+					t.Fatalf("outer-glow pixel = %v, want non-transparent warm glow outside the layer", got)
+				}
+			},
+		},
+		{
+			name: "inner glow",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindInnerGlow),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,255,255,255],"opacity":1,"spread":0,"size":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				if got := rgbaAt(surface, width, 3, 4); got[1] == 0 || got[2] == 0 {
+					t.Fatalf("inner-glow pixel = %v, want visible cyan glow on the inner edge", got)
+				}
+			},
+		},
+		{
+			name: "bevel emboss",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindBevelEmboss),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"style":"inner-bevel","technique":"smooth","depth":1,"direction":"up","size":1,"soften":0,"angle":0,"altitude":30,"highlightBlendMode":"normal","highlightColor":[255,0,0,255],"highlightOpacity":1,"shadowBlendMode":"normal","shadowColor":[0,0,255,255],"shadowOpacity":1}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				left := rgbaAt(surface, width, 3, 4)
+				right := rgbaAt(surface, width, 5, 4)
+				if left[0] == 0 || right[2] == 0 {
+					t.Fatalf("bevel pixels = left %v right %v, want colored highlight and shadow lobes", left, right)
+				}
+			},
+		},
+		{
+			name: "satin",
+			style: LayerStyle{
+				Kind:    string(LayerStyleKindSatin),
+				Enabled: true,
+				Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,0,255,255],"opacity":1,"distance":1,"angle":0,"size":0,"invert":false}`),
+			},
+			assert: func(t *testing.T, surface []byte, width int) {
+				left := rgbaAt(surface, width, 3, 4)
+				right := rgbaAt(surface, width, 5, 4)
+				if left[0] == 0 || right[0] == 0 {
+					t.Fatalf("satin pixels = left %v right %v, want visible interior lobes", left, right)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := &Document{
+				Width:      9,
+				Height:     9,
+				Background: parseBackground("transparent"),
+				LayerRoot:  NewGroupLayer("Root"),
+			}
+
+			pixels := make([]byte, 3*3*4)
+			for offset := 0; offset < len(pixels); offset += 4 {
+				copy(pixels[offset:offset+4], []byte{255, 255, 255, 255})
+			}
+
+			layer := NewPixelLayer("Styled", LayerBounds{X: 3, Y: 3, W: 3, H: 3}, pixels)
+			layer.SetStyleStack([]LayerStyle{test.style})
+
+			surface, err := doc.renderLayerToSurface(layer)
+			if err != nil {
+				t.Fatalf("render styled layer: %v", err)
+			}
+
+			test.assert(t, surface, doc.Width)
+		})
+	}
+}
+
 func TestRenderStyledLayerSurface_RejectsNonRasterizableStyledLayers(t *testing.T) {
 	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
 
@@ -210,5 +424,15 @@ func TestRenderStyledLayerSurface_AllowsNonRasterizableLayersWithDisabledStyles(
 	}})
 	if _, err := doc.renderLayerToSurface(adjustment); err != nil {
 		t.Fatalf("render disabled styled adjustment: %v", err)
+	}
+}
+
+func rgbaAt(surface []byte, width, x, y int) [4]uint8 {
+	offset := (y*width + x) * 4
+	return [4]uint8{
+		surface[offset],
+		surface[offset+1],
+		surface[offset+2],
+		surface[offset+3],
 	}
 }

@@ -104,18 +104,12 @@ func buildDocumentSurfaceFromRaster(docW, docH int, bounds LayerBounds, src []by
 
 func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle) []byte {
 	finalSurface := append([]byte(nil), baseSurface...)
-	for _, style := range styles {
-		if !style.Enabled {
-			continue
-		}
-
-		switch LayerStyleKind(style.Kind) {
-		case LayerStyleKindColorOverlay:
-			overlaySurface := buildColorOverlaySurface(sourceSurface, style.ColorOverlay)
-			compositeDocumentSurface(finalSurface, overlaySurface, style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity)
-		case LayerStyleKindDropShadow:
-			shadowSurface := buildDropShadowSurface(sourceSurface, docW, docH, style.DropShadow)
-			compositeDocumentSurface(finalSurface, shadowSurface, style.DropShadow.BlendMode, style.DropShadow.Opacity)
+	for _, kind := range orderedLayerStyleKinds() {
+		for _, style := range styles {
+			if !style.Enabled || LayerStyleKind(style.Kind) != kind {
+				continue
+			}
+			applyLayerStyleEffect(finalSurface, sourceSurface, docW, docH, style)
 		}
 	}
 	return finalSurface
@@ -123,11 +117,7 @@ func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int
 
 func hasSupportedEnabledLayerStyles(styles []DecodedLayerStyle) bool {
 	for _, style := range styles {
-		if !style.Enabled {
-			continue
-		}
-		switch LayerStyleKind(style.Kind) {
-		case LayerStyleKindColorOverlay, LayerStyleKindDropShadow:
+		if style.Enabled && isSupportedLayerStyleKind(LayerStyleKind(style.Kind)) {
 			return true
 		}
 	}
@@ -145,57 +135,6 @@ func hasAnyEnabledLayerStyleEntry(styles []LayerStyle) bool {
 		}
 	}
 	return false
-}
-
-func buildColorOverlaySurface(sourceSurface []byte, params ColorOverlayParams) []byte {
-	overlay := make([]byte, len(sourceSurface))
-	for offset := 0; offset < len(sourceSurface); offset += 4 {
-		sourceAlpha := sourceSurface[offset+3]
-		if sourceAlpha == 0 {
-			continue
-		}
-		copy(overlay[offset:offset+4], params.Color[:])
-		overlay[offset+3] = scaleMaskedAlpha(sourceAlpha, params.Color[3])
-	}
-	return overlay
-}
-
-func buildDropShadowSurface(sourceSurface []byte, docW, docH int, params DropShadowParams) []byte {
-	shadow := make([]byte, len(sourceSurface))
-	if len(sourceSurface) == 0 || docW <= 0 || docH <= 0 {
-		return shadow
-	}
-
-	dx, dy := dropShadowOffset(params.Angle, params.Distance)
-	for offset := 0; offset < len(sourceSurface); offset += 4 {
-		sourceAlpha := sourceSurface[offset+3]
-		if sourceAlpha == 0 {
-			continue
-		}
-
-		pixelIndex := offset / 4
-		srcX := pixelIndex % docW
-		srcY := pixelIndex / docW
-		dstX := srcX + dx
-		dstY := srcY + dy
-		if dstX < 0 || dstX >= docW || dstY < 0 || dstY >= docH {
-			continue
-		}
-
-		destIndex := (dstY*docW + dstX) * 4
-
-		pixel := [4]byte{params.Color[0], params.Color[1], params.Color[2], scaleMaskedAlpha(sourceAlpha, params.Color[3])}
-		compositePixelWithBlend(shadow[destIndex:destIndex+4], pixel[:], BlendModeNormal, 1, pixelNoiseSeed(dstX, dstY))
-	}
-
-	return shadow
-}
-
-func dropShadowOffset(angle, distance float64) (int, int) {
-	radians := angle * math.Pi / 180
-	dx := int(math.Round(math.Cos(radians) * distance))
-	dy := int(math.Round(-math.Sin(radians) * distance))
-	return dx, dy
 }
 
 func fmtUnsupportedStyledLayer(layer LayerNode) error {
