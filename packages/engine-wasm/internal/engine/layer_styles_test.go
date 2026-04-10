@@ -84,3 +84,45 @@ func TestDecodeLayerStyles_InvalidFieldTypesFailSafeToDefaults(t *testing.T) {
 		t.Fatalf("drop shadow defaults = %+v, want default params", decoded[0].DropShadow)
 	}
 }
+
+func TestDecodeLayerStyles_StrokeInvalidEnumsAndShortColorFallbackToDefaults(t *testing.T) {
+	styles := []LayerStyle{
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  json.RawMessage(`{"position":"sideways","fillType":"noise","color":[255,0,0]}`),
+		},
+	}
+
+	decoded := decodeLayerStyles(styles)
+	if len(decoded) != 1 {
+		t.Fatalf("decoded len = %d, want 1", len(decoded))
+	}
+	if decoded[0].Stroke.Position != "outside" || decoded[0].Stroke.FillType != "color" {
+		t.Fatalf("stroke enums = %+v, want default normalized values", decoded[0].Stroke)
+	}
+	if decoded[0].Stroke.Color != ([4]uint8{0, 0, 0, 255}) {
+		t.Fatalf("stroke color = %v, want default color", decoded[0].Stroke.Color)
+	}
+}
+
+func TestDecodeLayerStyles_BevelEmbossInvalidEnumsFallbackToDefaults(t *testing.T) {
+	styles := []LayerStyle{
+		{
+			Kind:    string(LayerStyleKindBevelEmboss),
+			Enabled: true,
+			Params:  json.RawMessage(`{"style":"weird","technique":"rough","direction":"sideways","contour":"stairs"}`),
+		},
+	}
+
+	decoded := decodeLayerStyles(styles)
+	if len(decoded) != 1 {
+		t.Fatalf("decoded len = %d, want 1", len(decoded))
+	}
+	if decoded[0].BevelEmboss.Style != "inner-bevel" ||
+		decoded[0].BevelEmboss.Technique != "smooth" ||
+		decoded[0].BevelEmboss.Direction != "up" ||
+		decoded[0].BevelEmboss.Contour != "linear" {
+		t.Fatalf("bevel enums = %+v, want default normalized values", decoded[0].BevelEmboss)
+	}
+}

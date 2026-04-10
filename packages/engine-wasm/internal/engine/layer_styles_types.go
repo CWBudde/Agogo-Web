@@ -155,6 +155,7 @@ func decodeDropShadowParams(params json.RawMessage) DropShadowParams {
 	decoded := defaultDropShadowParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeMultiply)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultDropShadowParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Distance = clampNonNegative(decoded.Distance)
 	decoded.Spread = clampUnit(decoded.Spread)
@@ -167,6 +168,7 @@ func decodeInnerShadowParams(params json.RawMessage) InnerShadowParams {
 	decoded := defaultInnerShadowParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeMultiply)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultInnerShadowParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Distance = clampNonNegative(decoded.Distance)
 	decoded.Choke = clampUnit(decoded.Choke)
@@ -179,6 +181,7 @@ func decodeOuterGlowParams(params json.RawMessage) GlowParams {
 	decoded := defaultGlowParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeScreen)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultGlowParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Spread = clampUnit(decoded.Spread)
 	decoded.Size = clampNonNegative(decoded.Size)
@@ -190,6 +193,7 @@ func decodeInnerGlowParams(params json.RawMessage) GlowParams {
 	decoded := defaultGlowParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeScreen)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultGlowParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Spread = clampUnit(decoded.Spread)
 	decoded.Size = clampNonNegative(decoded.Size)
@@ -200,13 +204,19 @@ func decodeInnerGlowParams(params json.RawMessage) GlowParams {
 func decodeBevelEmbossParams(params json.RawMessage) BevelEmbossParams {
 	decoded := defaultBevelEmbossParams()
 	decodeJSONInto(params, &decoded)
+	decoded.Style = normalizeStringEnum(decoded.Style, defaultBevelEmbossParams().Style, "inner-bevel", "outer-bevel", "emboss", "pillow-emboss", "stroke-emboss")
+	decoded.Technique = normalizeStringEnum(decoded.Technique, defaultBevelEmbossParams().Technique, "smooth", "chisel-hard", "chisel-soft")
 	decoded.Depth = clampNonNegative(decoded.Depth)
+	decoded.Direction = normalizeStringEnum(decoded.Direction, defaultBevelEmbossParams().Direction, "up", "down")
 	decoded.Size = clampNonNegative(decoded.Size)
 	decoded.Soften = clampNonNegative(decoded.Soften)
 	decoded.Highlight = normalizeBlendMode(decoded.Highlight, BlendModeScreen)
+	decoded.HighlightC = normalizeRGBAField(params, "highlightColor", decoded.HighlightC, defaultBevelEmbossParams().HighlightC)
 	decoded.HighlightO = clampUnit(decoded.HighlightO)
 	decoded.Shadow = normalizeBlendMode(decoded.Shadow, BlendModeMultiply)
+	decoded.ShadowC = normalizeRGBAField(params, "shadowColor", decoded.ShadowC, defaultBevelEmbossParams().ShadowC)
 	decoded.ShadowO = clampUnit(decoded.ShadowO)
+	decoded.Contour = normalizeStringEnum(decoded.Contour, defaultBevelEmbossParams().Contour, "linear", "gaussian", "cone", "rolling-slope", "rounded-steps")
 	return decoded
 }
 
@@ -214,9 +224,11 @@ func decodeSatinParams(params json.RawMessage) SatinParams {
 	decoded := defaultSatinParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeMultiply)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultSatinParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Distance = clampNonNegative(decoded.Distance)
 	decoded.Size = clampNonNegative(decoded.Size)
+	decoded.Contour = normalizeStringEnum(decoded.Contour, defaultSatinParams().Contour, "gaussian", "linear", "cone", "rolling-slope")
 	return decoded
 }
 
@@ -224,6 +236,7 @@ func decodeColorOverlayParams(params json.RawMessage) ColorOverlayParams {
 	decoded := defaultColorOverlayParams()
 	decodeJSONInto(params, &decoded)
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeNormal)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultColorOverlayParams().Color)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	return decoded
 }
@@ -250,8 +263,11 @@ func decodeStrokeParams(params json.RawMessage) StrokeParams {
 	decoded := defaultStrokeParams()
 	decodeJSONInto(params, &decoded)
 	decoded.Size = clampNonNegative(decoded.Size)
+	decoded.Position = normalizeStringEnum(decoded.Position, defaultStrokeParams().Position, "outside", "inside", "center")
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeNormal)
 	decoded.Opacity = clampUnit(decoded.Opacity)
+	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultStrokeParams().Color)
+	decoded.FillType = normalizeStringEnum(decoded.FillType, defaultStrokeParams().FillType, "color", "gradient", "pattern")
 	return decoded
 }
 
@@ -368,6 +384,34 @@ func normalizeBlendMode(mode BlendMode, fallback BlendMode) BlendMode {
 		return fallback
 	}
 	return mode
+}
+
+func normalizeStringEnum(value, fallback string, allowed ...string) string {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return value
+		}
+	}
+	return fallback
+}
+
+func normalizeRGBAField(params json.RawMessage, key string, current, fallback [4]uint8) [4]uint8 {
+	if len(params) == 0 {
+		return current
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(params, &raw); err != nil {
+		return fallback
+	}
+	value, ok := raw[key]
+	if !ok {
+		return current
+	}
+	var rgba []uint8
+	if err := json.Unmarshal(value, &rgba); err != nil || len(rgba) != 4 {
+		return fallback
+	}
+	return [4]uint8{rgba[0], rgba[1], rgba[2], rgba[3]}
 }
 
 func clampNonNegative(value float64) float64 {
