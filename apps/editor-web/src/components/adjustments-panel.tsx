@@ -5,6 +5,7 @@ import {
   CommandID,
   type LayerNodeMeta,
 } from "@agogo/proto";
+import { CharacterPanel } from "./character-panel";
 import { VectorPropertiesPanel } from "./vector-properties-panel";
 import {
   type MouseEvent,
@@ -122,6 +123,10 @@ export function AdjPropertiesPanel({
 
   if (layer?.layerType === "vector") {
     return <VectorPropertiesPanel engine={engine} layer={layer} />;
+  }
+
+  if (layer?.layerType === "text") {
+    return <CharacterPanel engine={engine} layer={layer} />;
   }
 
   if (!layer || layer.layerType !== "adjustment" || !layer.adjustmentKind) {

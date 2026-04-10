@@ -142,7 +142,44 @@ func (inst *instance) renderUIMeta() UIMeta {
 		Paths:                doc.pathsMeta(),
 		PathOverlay:          inst.buildPathOverlay(),
 		EditingVectorLayerID: inst.editingVectorLayerID,
+		EditingTextLayerID:   inst.textEdit.layerID,
+		TextCursorX:          inst.textCursorX(doc),
+		TextCursorY:          inst.textCursorY(doc),
 	}
+}
+
+// textCursorX returns the doc-space X coordinate of the text insertion cursor.
+// Returns 0 when no text layer is being edited.
+func (inst *instance) textCursorX(doc *Document) float64 {
+	if inst.textEdit.layerID == "" || doc == nil {
+		return 0
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), inst.textEdit.layerID)
+	if !ok {
+		return 0
+	}
+	tl, ok := layer.(*TextLayer)
+	if !ok {
+		return 0
+	}
+	textWidth := measureTextWidth(inst.textEdit.workingText, tl.FontSize)
+	return float64(tl.Bounds.X) + textWidth
+}
+
+// textCursorY returns the doc-space Y coordinate of the text insertion cursor baseline.
+func (inst *instance) textCursorY(doc *Document) float64 {
+	if inst.textEdit.layerID == "" || doc == nil {
+		return 0
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), inst.textEdit.layerID)
+	if !ok {
+		return 0
+	}
+	tl, ok := layer.(*TextLayer)
+	if !ok {
+		return 0
+	}
+	return float64(tl.Bounds.Y) + tl.FontSize
 }
 
 func (inst *instance) renderViewportWithCache(doc *Document, documentSurface []byte) []byte {

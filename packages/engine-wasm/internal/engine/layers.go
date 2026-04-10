@@ -364,12 +364,26 @@ func NewAdjustmentLayer(name, adjustmentKind string, params json.RawMessage) *Ad
 
 type TextLayer struct {
 	layerBase
-	Bounds       LayerBounds `json:"bounds"`
-	Text         string      `json:"text"`
-	FontFamily   string      `json:"fontFamily"`
-	FontSize     float64     `json:"fontSize"`
-	Color        [4]uint8    `json:"color"`
-	CachedRaster []byte      `json:"cachedRaster,omitempty"`
+	Bounds     LayerBounds `json:"bounds"`
+	Text       string      `json:"text"`
+	FontFamily string      `json:"fontFamily"`
+	FontSize   float64     `json:"fontSize"`
+	Color      [4]uint8    `json:"color"`
+	// TextType is "point" (no wrap) or "area" (wraps within Bounds).
+	TextType      string  `json:"textType,omitempty"`
+	Alignment     string  `json:"alignment,omitempty"`
+	Leading       float64 `json:"leading,omitempty"`
+	Tracking      float64 `json:"tracking,omitempty"` // extra letter spacing in pixels
+	Underline     bool    `json:"underline,omitempty"`
+	Strikethrough bool    `json:"strikethrough,omitempty"`
+	AllCaps       bool    `json:"allCaps,omitempty"`
+	SmallCaps     bool    `json:"smallCaps,omitempty"`
+	IndentLeft    float64 `json:"indentLeft,omitempty"`
+	IndentRight   float64 `json:"indentRight,omitempty"`
+	IndentFirst   float64 `json:"indentFirst,omitempty"`
+	SpaceBefore   float64 `json:"spaceBefore,omitempty"`
+	SpaceAfter    float64 `json:"spaceAfter,omitempty"`
+	CachedRaster  []byte  `json:"cachedRaster,omitempty"`
 }
 
 func NewTextLayer(name string, bounds LayerBounds, text string, cachedRaster []byte) *TextLayer {
@@ -380,6 +394,8 @@ func NewTextLayer(name string, bounds LayerBounds, text string, cachedRaster []b
 		FontFamily:   "system-ui",
 		FontSize:     16,
 		Color:        [4]uint8{0, 0, 0, 255},
+		TextType:     "point",
+		Alignment:    "left",
 		CachedRaster: append([]byte(nil), cachedRaster...),
 	}
 }
@@ -390,13 +406,26 @@ func (l *TextLayer) LayerType() LayerType {
 
 func (l *TextLayer) Clone() LayerNode {
 	return &TextLayer{
-		layerBase:    l.cloneBase(),
-		Bounds:       l.Bounds,
-		Text:         l.Text,
-		FontFamily:   l.FontFamily,
-		FontSize:     l.FontSize,
-		Color:        l.Color,
-		CachedRaster: append([]byte(nil), l.CachedRaster...),
+		layerBase:     l.cloneBase(),
+		Bounds:        l.Bounds,
+		Text:          l.Text,
+		FontFamily:    l.FontFamily,
+		FontSize:      l.FontSize,
+		Color:         l.Color,
+		TextType:      l.TextType,
+		Alignment:     l.Alignment,
+		Leading:       l.Leading,
+		Tracking:      l.Tracking,
+		Underline:     l.Underline,
+		Strikethrough: l.Strikethrough,
+		AllCaps:       l.AllCaps,
+		SmallCaps:     l.SmallCaps,
+		IndentLeft:    l.IndentLeft,
+		IndentRight:   l.IndentRight,
+		IndentFirst:   l.IndentFirst,
+		SpaceBefore:   l.SpaceBefore,
+		SpaceAfter:    l.SpaceAfter,
+		CachedRaster:  append([]byte(nil), l.CachedRaster...),
 	}
 }
 
@@ -608,6 +637,21 @@ func layerTreeEqual(a, b LayerNode) bool {
 			return false
 		}
 		if left.FontSize != right.FontSize || left.Color != right.Color || !bytes.Equal(left.CachedRaster, right.CachedRaster) {
+			return false
+		}
+		if left.TextType != right.TextType || left.Alignment != right.Alignment || left.Leading != right.Leading {
+			return false
+		}
+		if left.Tracking != right.Tracking || left.Underline != right.Underline || left.Strikethrough != right.Strikethrough {
+			return false
+		}
+		if left.AllCaps != right.AllCaps || left.SmallCaps != right.SmallCaps {
+			return false
+		}
+		if left.IndentLeft != right.IndentLeft || left.IndentRight != right.IndentRight || left.IndentFirst != right.IndentFirst {
+			return false
+		}
+		if left.SpaceBefore != right.SpaceBefore || left.SpaceAfter != right.SpaceAfter {
 			return false
 		}
 	case *VectorLayer:

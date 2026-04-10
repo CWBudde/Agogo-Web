@@ -572,6 +572,9 @@ export function LayersPanel({
                   onEnterVectorEdit={(layerId) =>
                     engine.dispatchCommand(CommandID.EnterVectorEditMode, { layerId })
                   }
+                  onEnterTextEdit={(layerId) =>
+                    engine.dispatchCommand(CommandID.EnterTextEditMode, { layerId })
+                  }
                 />
               ))}
             </div>
@@ -840,6 +843,7 @@ type LayerTreeRowProps = {
   onDropLayer: (layer: LayerNodeMeta) => void;
   onOpenContextMenu: (layer: LayerNodeMeta, x: number, y: number) => void;
   onEnterVectorEdit: (layerId: string) => void;
+  onEnterTextEdit: (layerId: string) => void;
 };
 
 function LayerTreeRow({
@@ -871,6 +875,7 @@ function LayerTreeRow({
   onDropLayer,
   onOpenContextMenu,
   onEnterVectorEdit,
+  onEnterTextEdit,
 }: LayerTreeRowProps) {
   const isGroup = layer.layerType === "group";
   const isCollapsed = isGroup && collapsedGroups[layer.id];
@@ -977,7 +982,9 @@ function LayerTreeRow({
               onDoubleClick={
                 layer.layerType === "vector"
                   ? () => onEnterVectorEdit(layer.id)
-                  : undefined
+                  : layer.layerType === "text"
+                    ? () => onEnterTextEdit(layer.id)
+                    : undefined
               }
             />
 
@@ -1096,6 +1103,7 @@ function LayerTreeRow({
               onDropLayer={onDropLayer}
               onOpenContextMenu={onOpenContextMenu}
               onEnterVectorEdit={onEnterVectorEdit}
+              onEnterTextEdit={onEnterTextEdit}
             />
           ))}
         </div>

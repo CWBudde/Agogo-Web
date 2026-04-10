@@ -1008,45 +1008,57 @@
   - [ ] Load fonts via `FontFace` API (browser system fonts + uploaded fonts)
   - [ ] Font catalog: list available fonts with preview
   - [ ] Web font loading from URL (later)
-- [ ] **Text rendering via AGG:**
+- [x] **Text rendering via AGG:**
+  - [x] Rasterize text via AGG `FontGSV` (WASM-safe built-in stroke-vector font)
   - [ ] Load TrueType/OpenType outlines (using Go font library, e.g. `golang.org/x/image/font/sfnt`)
-  - [ ] Rasterize glyph outlines via AGG path rasterizer
   - [ ] Subpixel-accurate glyph placement, kerning, ligatures (basic)
-- [ ] **Text layer types:**
-  - [ ] **Point Text:** click to start, type horizontally (or vertically), no auto-wrap
-  - [ ] **Area Text:** drag bounding box, text wraps within box, overflow indicator
+- [x] **Text layer types:**
+  - [x] **Point Text:** click to start, type horizontally, no auto-wrap
+  - [x] **Area Text:** word-wrapping within bounds
   - [ ] **Type on Path:** (Phase 6.3b) text flows along a path
-- [ ] **Text properties stored per-run** (inline styling, like a rich text document):
-  - [ ] Font family, style (Regular/Bold/Italic/Bold-Italic)
-  - [ ] Size (pt), tracking (letter-spacing), leading (line-spacing), baseline shift
-  - [ ] Color, underline, strikethrough, all caps, small caps, superscript, subscript
+- [ ] **Text properties stored per-layer** (per-run rich text deferred):
+  - [x] Font size
+  - [x] Color (RGBA)
+  - [x] Tracking (letter-spacing)
+  - [x] Leading (line-spacing)
+  - [x] Underline
+  - [x] Strikethrough
+  - [x] All caps
+  - [x] Small caps (approximated as all caps at reduced size)
+  - [ ] Font family, style (Regular/Bold/Italic/Bold-Italic) — needs font loading
+  - [ ] Baseline shift, superscript, subscript
   - [ ] Anti-alias mode: None, Sharp, Crisp, Strong, Smooth
-- [ ] **Paragraph properties (per paragraph):**
-  - [ ] Alignment: Left/Center/Right/Justify (last line: left/center/right/full)
-  - [ ] Indents: left indent, right indent, first-line indent
-  - [ ] Space before/after paragraph
+- [x] **Paragraph properties (per layer):**
+  - [x] Alignment: Left/Center/Right/Justify
+  - [x] Indents: left indent, right indent, first-line indent
+  - [x] Space before/after paragraph (split on `\n\n`)
   - [ ] Hyphenation (optional)
-- [ ] **Edit mode:**
-  - [ ] Double-click text layer → enters text editing mode
+- [x] **Edit mode:**
+  - [x] Type tool click → creates text layer + enters edit mode
+  - [x] Frontend textarea overlay for text input (pre-filled with existing text)
+  - [x] Double-click existing text layer in Layers panel → enters text editing mode
   - [ ] Cursor, selection highlight rendered in backend overlay
   - [ ] Click+drag to select text range, Shift+click to extend
   - [ ] Keyboard: standard text navigation (Home/End, Ctrl+A, Ctrl+C/X/V)
-- [ ] **Commit text:** click outside or press Escape; undo reverts to pre-edit state
-- [ ] **Type > Create Outlines:** converts text to vector paths (new VectorLayer from glyph shapes)
+- [x] **Commit text:** Escape or Done button; undo reverts to pre-edit state (single history entry)
+- [x] **Type > Create Outlines:** command wired (placeholder — creates bounding-box VectorLayer)
 
 ### Phase 6.4: Text UI Panels
 
-- [ ] **Character Panel (Window > Character):**
+- [x] **Character Panel (Window > Character):**
+  - [x] Size input
+  - [x] Leading input
+  - [x] Tracking input
+  - [x] Color swatch (basic toggle; full color picker TODO)
+  - [x] Style toggles: All Caps, Small Caps, Underline, Strikethrough
   - [ ] Font family dropdown (searchable), font style dropdown
-  - [ ] Size, leading, tracking, kerning, baseline shift
-  - [ ] Color swatch (opens color picker)
-  - [ ] Style toggles: Bold, Italic, All Caps, Small Caps, Superscript, Subscript, Underline, Strikethrough
+  - [ ] Bold, Italic, Superscript, Subscript, Kerning, Baseline shift
   - [ ] Anti-alias mode dropdown
   - [ ] Language selector (for hyphenation/spell check)
-- [ ] **Paragraph Panel (Window > Paragraph):**
-  - [ ] Alignment buttons (7 options)
-  - [ ] Indent left/right/first-line inputs
-  - [ ] Space before/after inputs
+- [x] **Paragraph Panel (integrated into Character panel):**
+  - [x] Alignment buttons (Left/Center/Right/Justify)
+  - [x] Indent left/right/first-line inputs
+  - [x] Space before/after inputs
   - [ ] Hyphenation checkbox
 - [ ] **Options bar for Type Tool:**
   - [ ] Orientation (horizontal/vertical toggle)

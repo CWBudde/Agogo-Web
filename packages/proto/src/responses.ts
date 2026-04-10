@@ -66,6 +66,12 @@ export interface UIMeta {
 	paths?: Array<{ name: string; active: boolean }>;
 	/** Non-empty while a VectorLayer's path is being edited via the direct-select tool. */
 	editingVectorLayerId?: string;
+	/** Non-empty while a TextLayer is in text edit mode. */
+	editingTextLayerId?: string;
+	/** Doc-space X coordinate of the text insertion cursor. */
+	textCursorX?: number;
+	/** Doc-space Y coordinate of the text insertion cursor baseline. */
+	textCursorY?: number;
 }
 
 export interface LayerNodeMeta {
@@ -91,6 +97,24 @@ export interface LayerNodeMeta {
 	fillColor?: [number, number, number, number];
 	strokeColor?: [number, number, number, number];
 	strokeWidth?: number;
+	// TextLayer-specific fields. Only present when layerType === "text".
+	text?: string;
+	fontFamily?: string;
+	fontSize?: number;
+	textColor?: [number, number, number, number];
+	textAlignment?: "left" | "center" | "right" | "justify";
+	textType?: "point" | "area";
+	tracking?: number;
+	leading?: number;
+	underline?: boolean;
+	strikethrough?: boolean;
+	allCaps?: boolean;
+	smallCaps?: boolean;
+	indentLeft?: number;
+	indentRight?: number;
+	indentFirst?: number;
+	spaceBefore?: number;
+	spaceAfter?: number;
 }
 
 export interface HistoryEntry {

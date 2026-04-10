@@ -132,6 +132,15 @@ export enum CommandID {
   CommitVectorEdit = 0x0632,
   SetVectorLayerStyle = 0x0633,
 
+  // Phase 6.3: Text Engine
+  AddTextLayer = 0x0640,
+  SetTextContent = 0x0641,
+  SetTextStyle = 0x0642,
+  EnterTextEditMode = 0x0643,
+  TextEditInput = 0x0644,
+  CommitTextEdit = 0x0645,
+  ConvertTextToPath = 0x0646,
+
   // Undo/Redo
   BeginTransaction = 0xffe0,
   EndTransaction = 0xffe1,
@@ -968,4 +977,59 @@ export interface SetVectorLayerStyleCommand {
   fillColor: [number, number, number, number];
   strokeColor: [number, number, number, number];
   strokeWidth: number;
+}
+
+// Phase 6.3: Text Engine
+
+export interface AddTextLayerCommand {
+  /** X coordinate (doc-space) for the text origin. */
+  x: number;
+  /** Y coordinate (doc-space) for the text origin. */
+  y: number;
+  /** Font size in pixels. Defaults to 36 if omitted. */
+  fontSize?: number;
+  /** Text color [r, g, b, a]. Defaults to black opaque. */
+  color?: [number, number, number, number];
+  /** "point" (no wrap) or "area" (wraps within bounds). Defaults to "point". */
+  textType?: "point" | "area";
+}
+
+export interface SetTextContentCommand {
+  layerId: string;
+  text: string;
+}
+
+export interface SetTextStyleCommand {
+  layerId: string;
+  fontFamily?: string;
+  fontSize?: number;
+  color?: [number, number, number, number];
+  alignment?: "left" | "center" | "right" | "justify";
+  leading?: number;
+  textType?: "point" | "area";
+  tracking?: number;
+  underline?: boolean;
+  strikethrough?: boolean;
+  allCaps?: boolean;
+  smallCaps?: boolean;
+  indentLeft?: number;
+  indentRight?: number;
+  indentFirst?: number;
+  spaceBefore?: number;
+  spaceAfter?: number;
+}
+
+export interface EnterTextEditModeCommand {
+  layerId: string;
+}
+
+/** The frontend sends the complete current text string on every keystroke. */
+export interface TextEditInputCommand {
+  text: string;
+}
+
+export interface CommitTextEditCommand {}
+
+export interface ConvertTextToPathCommand {
+  layerId: string;
 }

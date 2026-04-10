@@ -1,4 +1,4 @@
-import { CommandID, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
+import { CommandID, type AddTextLayerCommand, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
 import { PathOverlayRenderer } from "./path-overlay";
 import {
   useCallback,
@@ -1814,6 +1814,16 @@ export function EditorCanvas({
             source: fillSource,
             createLayer: fillCreateLayer,
           } satisfies FillCommand);
+          return;
+        }
+        if (activeTool === "type" && event.button === 0 && !isPanMode) {
+          const docPoint = clientPointToDocument(event.clientX, event.clientY);
+          if (!docPoint) return;
+          engine.dispatchCommand(CommandID.AddTextLayer, {
+            x: docPoint.x,
+            y: docPoint.y,
+          } satisfies AddTextLayerCommand);
+          event.preventDefault();
           return;
         }
         if (activeTool === "shape" && event.button === 0 && !isPanMode) {

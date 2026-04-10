@@ -32,34 +32,47 @@ type projectDocumentArchive struct {
 }
 
 type projectLayerArchive struct {
-	ID             string                `json:"id"`
-	LayerType      LayerType             `json:"layerType"`
-	Name           string                `json:"name"`
-	Visible        bool                  `json:"visible"`
-	LockMode       LayerLockMode         `json:"lockMode"`
-	Opacity        float64               `json:"opacity"`
-	FillOpacity    float64               `json:"fillOpacity"`
-	BlendMode      BlendMode             `json:"blendMode"`
-	ClipToBelow    bool                  `json:"clipToBelow"`
-	ClippingBase   bool                  `json:"clippingBase"`
-	Mask           *LayerMask            `json:"mask,omitempty"`
-	VectorMask     *Path                 `json:"vectorMask,omitempty"`
-	StyleStack     []LayerStyle          `json:"styleStack,omitempty"`
-	Isolated       bool                  `json:"isolated,omitempty"`
-	Bounds         *LayerBounds          `json:"bounds,omitempty"`
-	Pixels         []byte                `json:"pixels,omitempty"`
-	AdjustmentKind string                `json:"adjustmentKind,omitempty"`
-	Params         json.RawMessage       `json:"params,omitempty"`
-	Text           string                `json:"text,omitempty"`
-	FontFamily     string                `json:"fontFamily,omitempty"`
-	FontSize       float64               `json:"fontSize,omitempty"`
-	Color          [4]uint8              `json:"color,omitempty"`
-	Shape          *Path                 `json:"shape,omitempty"`
-	FillColor      [4]uint8              `json:"fillColor,omitempty"`
-	StrokeColor    [4]uint8              `json:"strokeColor,omitempty"`
-	StrokeWidth    float64               `json:"strokeWidth,omitempty"`
-	CachedRaster   []byte                `json:"cachedRaster,omitempty"`
-	Children       []projectLayerArchive `json:"children,omitempty"`
+	ID                string                `json:"id"`
+	LayerType         LayerType             `json:"layerType"`
+	Name              string                `json:"name"`
+	Visible           bool                  `json:"visible"`
+	LockMode          LayerLockMode         `json:"lockMode"`
+	Opacity           float64               `json:"opacity"`
+	FillOpacity       float64               `json:"fillOpacity"`
+	BlendMode         BlendMode             `json:"blendMode"`
+	ClipToBelow       bool                  `json:"clipToBelow"`
+	ClippingBase      bool                  `json:"clippingBase"`
+	Mask              *LayerMask            `json:"mask,omitempty"`
+	VectorMask        *Path                 `json:"vectorMask,omitempty"`
+	StyleStack        []LayerStyle          `json:"styleStack,omitempty"`
+	Isolated          bool                  `json:"isolated,omitempty"`
+	Bounds            *LayerBounds          `json:"bounds,omitempty"`
+	Pixels            []byte                `json:"pixels,omitempty"`
+	AdjustmentKind    string                `json:"adjustmentKind,omitempty"`
+	Params            json.RawMessage       `json:"params,omitempty"`
+	Text              string                `json:"text,omitempty"`
+	FontFamily        string                `json:"fontFamily,omitempty"`
+	FontSize          float64               `json:"fontSize,omitempty"`
+	Color             [4]uint8              `json:"color,omitempty"`
+	TextType          string                `json:"textType,omitempty"`
+	TextAlignment     string                `json:"textAlignment,omitempty"`
+	TextLeading       float64               `json:"textLeading,omitempty"`
+	TextTracking      float64               `json:"textTracking,omitempty"`
+	TextUnderline     bool                  `json:"textUnderline,omitempty"`
+	TextStrikethrough bool                  `json:"textStrikethrough,omitempty"`
+	TextAllCaps       bool                  `json:"textAllCaps,omitempty"`
+	TextSmallCaps     bool                  `json:"textSmallCaps,omitempty"`
+	TextIndentLeft    float64               `json:"textIndentLeft,omitempty"`
+	TextIndentRight   float64               `json:"textIndentRight,omitempty"`
+	TextIndentFirst   float64               `json:"textIndentFirst,omitempty"`
+	TextSpaceBefore   float64               `json:"textSpaceBefore,omitempty"`
+	TextSpaceAfter    float64               `json:"textSpaceAfter,omitempty"`
+	Shape             *Path                 `json:"shape,omitempty"`
+	FillColor         [4]uint8              `json:"fillColor,omitempty"`
+	StrokeColor       [4]uint8              `json:"strokeColor,omitempty"`
+	StrokeWidth       float64               `json:"strokeWidth,omitempty"`
+	CachedRaster      []byte                `json:"cachedRaster,omitempty"`
+	Children          []projectLayerArchive `json:"children,omitempty"`
 }
 
 // SaveProject serializes a document and layer tree into a portable JSON archive.
@@ -159,6 +172,19 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 		archive.FontFamily = typed.FontFamily
 		archive.FontSize = typed.FontSize
 		archive.Color = typed.Color
+		archive.TextType = typed.TextType
+		archive.TextAlignment = typed.Alignment
+		archive.TextLeading = typed.Leading
+		archive.TextTracking = typed.Tracking
+		archive.TextUnderline = typed.Underline
+		archive.TextStrikethrough = typed.Strikethrough
+		archive.TextAllCaps = typed.AllCaps
+		archive.TextSmallCaps = typed.SmallCaps
+		archive.TextIndentLeft = typed.IndentLeft
+		archive.TextIndentRight = typed.IndentRight
+		archive.TextIndentFirst = typed.IndentFirst
+		archive.TextSpaceBefore = typed.SpaceBefore
+		archive.TextSpaceAfter = typed.SpaceAfter
 		archive.CachedRaster = append([]byte(nil), typed.CachedRaster...)
 	case *VectorLayer:
 		bounds := typed.Bounds
@@ -229,6 +255,25 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 		if archive.Color != [4]uint8{} {
 			textLayer.Color = archive.Color
 		}
+		if archive.TextType != "" {
+			textLayer.TextType = archive.TextType
+		}
+		if archive.TextAlignment != "" {
+			textLayer.Alignment = archive.TextAlignment
+		}
+		if archive.TextLeading > 0 {
+			textLayer.Leading = archive.TextLeading
+		}
+		textLayer.Tracking = archive.TextTracking
+		textLayer.Underline = archive.TextUnderline
+		textLayer.Strikethrough = archive.TextStrikethrough
+		textLayer.AllCaps = archive.TextAllCaps
+		textLayer.SmallCaps = archive.TextSmallCaps
+		textLayer.IndentLeft = archive.TextIndentLeft
+		textLayer.IndentRight = archive.TextIndentRight
+		textLayer.IndentFirst = archive.TextIndentFirst
+		textLayer.SpaceBefore = archive.TextSpaceBefore
+		textLayer.SpaceAfter = archive.TextSpaceAfter
 		layer = textLayer
 	case LayerTypeVector:
 		if archive.Bounds == nil {

@@ -131,6 +131,15 @@ const (
 	commandCommitVectorEdit    = 0x0632
 	commandSetVectorLayerStyle = 0x0633
 
+	// Phase 6.3: Text Engine
+	commandAddTextLayer      = 0x0640 // create text layer at point, enter edit mode
+	commandSetTextContent    = 0x0641 // replace text string + re-rasterize
+	commandSetTextStyle      = 0x0642 // update font/size/color/alignment + re-rasterize
+	commandEnterTextEditMode = 0x0643 // enter text editing (double-click)
+	commandTextEditInput     = 0x0644 // update working text from frontend keyboard input
+	commandCommitTextEdit    = 0x0645 // finalize edit (Escape / click-outside)
+	commandConvertTextToPath = 0x0646 // Type > Create Outlines → new VectorLayer
+
 	commandBeginTxn     = 0xffe0
 	commandEndTxn       = 0xffe1
 	commandClearHistory = 0xffe2
@@ -235,6 +244,12 @@ type UIMeta struct {
 	// EditingVectorLayerID is non-empty while a VectorLayer's path is being
 	// edited. The UI uses this to show the "editing path" indicator.
 	EditingVectorLayerID string `json:"editingVectorLayerId,omitempty"`
+	// EditingTextLayerID is non-empty while a TextLayer is in text edit mode.
+	EditingTextLayerID string `json:"editingTextLayerId,omitempty"`
+	// TextCursorX/Y are doc-space coordinates of the text insertion cursor.
+	// Only meaningful when EditingTextLayerID is set.
+	TextCursorX float64 `json:"textCursorX,omitempty"`
+	TextCursorY float64 `json:"textCursorY,omitempty"`
 }
 
 type RenderResult struct {
@@ -857,6 +872,15 @@ type instance struct {
 	// editingVectorLayerID is set while the user is editing a VectorLayer's
 	// path via the direct-select tool. UI-only — not included in snapshots.
 	editingVectorLayerID string
+	// textEdit holds the in-flight state while a TextLayer is being edited.
+	// UI-only — not included in history snapshots. Cleared on commit.
+	textEdit textEditState
+}
+
+// textEditState tracks the in-progress text edit for a single TextLayer.
+type textEditState struct {
+	layerID     string
+	workingText string
 }
 
 var (
@@ -1018,6 +1042,15 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 
 	case commandDrawShape, commandEnterVectorEditMode, commandCommitVectorEdit, commandSetVectorLayerStyle:
 		if handled, err := inst.dispatchShapeCommand(commandID, payloadJSON); handled || err != nil {
+			if err != nil {
+				return RenderResult{}, err
+			}
+		}
+
+	case commandAddTextLayer, commandSetTextContent, commandSetTextStyle,
+		commandEnterTextEditMode, commandTextEditInput, commandCommitTextEdit,
+		commandConvertTextToPath:
+		if handled, err := inst.dispatchTextCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}

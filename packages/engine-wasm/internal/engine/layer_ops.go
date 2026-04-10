@@ -217,6 +217,24 @@ type LayerNodeMeta struct {
 	VecFillColor   *[4]uint8 `json:"fillColor,omitempty"`
 	VecStrokeColor *[4]uint8 `json:"strokeColor,omitempty"`
 	VecStrokeWidth *float64  `json:"strokeWidth,omitempty"`
+	// TextLayer-specific fields. Only populated when LayerType == "text".
+	TextContent       *string   `json:"text,omitempty"`
+	TextFontFamily    *string   `json:"fontFamily,omitempty"`
+	TextFontSize      *float64  `json:"fontSize,omitempty"`
+	TextColor         *[4]uint8 `json:"textColor,omitempty"`
+	TextAlignment     *string   `json:"textAlignment,omitempty"`
+	TextType          *string   `json:"textType,omitempty"`
+	TextTracking      *float64  `json:"tracking,omitempty"`
+	TextLeading       *float64  `json:"leading,omitempty"`
+	TextUnderline     *bool     `json:"underline,omitempty"`
+	TextStrikethrough *bool     `json:"strikethrough,omitempty"`
+	TextAllCaps       *bool     `json:"allCaps,omitempty"`
+	TextSmallCaps     *bool     `json:"smallCaps,omitempty"`
+	TextIndentLeft    *float64  `json:"indentLeft,omitempty"`
+	TextIndentRight   *float64  `json:"indentRight,omitempty"`
+	TextIndentFirst   *float64  `json:"indentFirst,omitempty"`
+	TextSpaceBefore   *float64  `json:"spaceBefore,omitempty"`
+	TextSpaceAfter    *float64  `json:"spaceAfter,omitempty"`
 }
 
 func (doc *Document) ensureLayerRoot() *GroupLayer {
@@ -954,6 +972,14 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 		if payload.Color != [4]uint8{} {
 			layer.Color = payload.Color
 		}
+		// Auto-rasterize when created via payload with text but no pre-baked raster.
+		if len(layer.CachedRaster) == 0 {
+			raster, err := rasterizeTextLayer(layer, doc.Width, doc.Height)
+			if err != nil {
+				return nil, err
+			}
+			layer.CachedRaster = raster
+		}
 		return layer, nil
 	case LayerTypeVector:
 		layer := NewVectorLayer(payload.Name, payload.Bounds, payload.Path, payload.CachedRaster)
@@ -1420,6 +1446,42 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		meta.VecFillColor = &fc
 		meta.VecStrokeColor = &sc
 		meta.VecStrokeWidth = &sw
+	}
+	if tl, ok := layer.(*TextLayer); ok {
+		text := tl.Text
+		family := tl.FontFamily
+		size := tl.FontSize
+		color := tl.Color
+		alignment := tl.Alignment
+		textType := tl.TextType
+		tracking := tl.Tracking
+		leading := tl.Leading
+		underline := tl.Underline
+		strikethrough := tl.Strikethrough
+		allCaps := tl.AllCaps
+		smallCaps := tl.SmallCaps
+		indentLeft := tl.IndentLeft
+		indentRight := tl.IndentRight
+		indentFirst := tl.IndentFirst
+		spaceBefore := tl.SpaceBefore
+		spaceAfter := tl.SpaceAfter
+		meta.TextContent = &text
+		meta.TextFontFamily = &family
+		meta.TextFontSize = &size
+		meta.TextColor = &color
+		meta.TextAlignment = &alignment
+		meta.TextType = &textType
+		meta.TextTracking = &tracking
+		meta.TextLeading = &leading
+		meta.TextUnderline = &underline
+		meta.TextStrikethrough = &strikethrough
+		meta.TextAllCaps = &allCaps
+		meta.TextSmallCaps = &smallCaps
+		meta.TextIndentLeft = &indentLeft
+		meta.TextIndentRight = &indentRight
+		meta.TextIndentFirst = &indentFirst
+		meta.TextSpaceBefore = &spaceBefore
+		meta.TextSpaceAfter = &spaceAfter
 	}
 	return meta
 }
