@@ -1025,10 +1025,12 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandSetPointFromSample, commandSetLayerStyleStack, commandSetLayerStyleEnabled,
 		commandSetLayerStyleParams, commandCopyLayerStyle, commandPasteLayerStyle,
 		commandClearLayerStyle:
-		if handled, err := inst.dispatchLayerCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchLayerCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 		}
 	case commandCreateDocument, commandCloseDocument, commandZoomSet, commandPanSet,
 		commandRotateViewSet, commandResize, commandPointerEvent, commandBeginTxn,
