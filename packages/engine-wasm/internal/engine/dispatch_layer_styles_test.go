@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -28,17 +29,70 @@ func TestLayerStyleCommands_RoundTripThroughDispatch(t *testing.T) {
 	}
 
 	layerID := added.UIMeta.ActiveLayerID
-	_, err = DispatchCommand(h, commandSetLayerStyleStack, mustJSON(t, SetLayerStyleStackPayload{
-		LayerID: layerID,
-		Styles: []LayerStylePayload{
-			{
+	tests := []struct {
+		name      string
+		commandID int32
+		payload   any
+	}{
+		{
+			name:      "SetLayerStyleStack",
+			commandID: commandSetLayerStyleStack,
+			payload: SetLayerStyleStackPayload{
+				LayerID: layerID,
+				Styles: []LayerStylePayload{
+					{
+						Kind:    LayerStyleKindDropShadow,
+						Enabled: true,
+						Params:  mustRawJSON(t, `{"blendMode":"multiply","opacity":0.75,"distance":4,"size":6}`),
+					},
+				},
+			},
+		},
+		{
+			name:      "SetLayerStyleEnabled",
+			commandID: commandSetLayerStyleEnabled,
+			payload: SetLayerStyleEnabledPayload{
+				LayerID: layerID,
 				Kind:    LayerStyleKindDropShadow,
 				Enabled: true,
+			},
+		},
+		{
+			name:      "SetLayerStyleParams",
+			commandID: commandSetLayerStyleParams,
+			payload: SetLayerStyleParamsPayload{
+				LayerID: layerID,
+				Kind:    LayerStyleKindDropShadow,
 				Params:  mustRawJSON(t, `{"blendMode":"multiply","opacity":0.75,"distance":4,"size":6}`),
 			},
 		},
-	}))
-	if err == nil {
-		t.Fatal("expected missing layer-style command implementation to fail before wiring")
+		{
+			name:      "CopyLayerStyle",
+			commandID: commandCopyLayerStyle,
+			payload:   CopyLayerStylePayload{LayerID: layerID},
+		},
+		{
+			name:      "PasteLayerStyle",
+			commandID: commandPasteLayerStyle,
+			payload:   PasteLayerStylePayload{LayerID: layerID},
+		},
+		{
+			name:      "ClearLayerStyle",
+			commandID: commandClearLayerStyle,
+			payload:   ClearLayerStylePayload{LayerID: layerID},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := DispatchCommand(h, tc.commandID, mustJSON(t, tc.payload))
+			if err == nil {
+				t.Fatalf("expected %s to fail before handlers are wired", tc.name)
+			}
+			wantErr := fmt.Sprintf("unsupported command id 0x%04x", tc.commandID)
+			if err.Error() != wantErr {
+				t.Fatalf("%s error = %q, want %q", tc.name, err.Error(), wantErr)
+			}
+		})
 	}
 }
