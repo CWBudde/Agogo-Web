@@ -89,7 +89,7 @@ func TestLayerStyleCommands_RoundTripThroughDispatch(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected %s to fail before handlers are wired", tc.name)
 			}
-			wantErr := fmt.Sprintf("unsupported command id 0x%04x", tc.commandID)
+			wantErr := fmt.Sprintf("unsupported layer command id 0x%04x", tc.commandID)
 			if err.Error() != wantErr {
 				t.Fatalf("%s error = %q, want %q", tc.name, err.Error(), wantErr)
 			}

@@ -980,7 +980,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, err
 		}
 		if !handled {
-			return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
+			return RenderResult{}, fmt.Errorf("unsupported layer command id 0x%04x", commandID)
 		}
 	case commandCreateDocument, commandCloseDocument, commandZoomSet, commandPanSet,
 		commandRotateViewSet, commandResize, commandPointerEvent, commandBeginTxn,

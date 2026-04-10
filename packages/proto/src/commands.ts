@@ -47,6 +47,8 @@ export enum CommandID {
   ComputeHistogram = 0x011c,
   SetPointFromSample = 0x011d,
   IdentifyHueRange = 0x011e,
+
+  // Phase 6.5: Layer styles
   SetLayerStyleStack = 0x011f,
   SetLayerStyleEnabled = 0x0120,
   SetLayerStyleParams = 0x0121,
