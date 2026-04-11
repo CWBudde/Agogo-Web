@@ -101,6 +101,10 @@ const (
 	commandCopyLayerStyle           = 0x0122
 	commandPasteLayerStyle          = 0x0123
 	commandClearLayerStyle          = 0x0124
+	commandCreateDocumentStylePreset = 0x0125
+	commandUpdateDocumentStylePreset = 0x0126
+	commandDeleteDocumentStylePreset = 0x0127
+	commandApplyDocumentStylePreset  = 0x0128
 	commandApplyFilter              = 0x0500
 	commandReapplyFilter            = 0x0501
 	commandPreviewFilter            = 0x0502
@@ -185,6 +189,7 @@ type Document struct {
 	ContentVersion int64       `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
 	Paths          []NamedPath `json:"-"`
 	ActivePathIdx  int         `json:"-"`
+	StylePresets   []DocumentStylePreset `json:"-"`
 }
 
 type ViewportState struct {
@@ -256,6 +261,7 @@ type UIMeta struct {
 	// Only meaningful when EditingTextLayerID is set.
 	TextCursorX float64 `json:"textCursorX,omitempty"`
 	TextCursorY float64 `json:"textCursorY,omitempty"`
+	StylePresets []DocumentStylePreset `json:"stylePresets,omitempty"`
 }
 
 type RenderResult struct {
@@ -976,7 +982,9 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandSetAdjustmentParams, commandAddVectorMask, commandDeleteVectorMask,
 		commandSetPointFromSample, commandSetLayerStyleStack, commandSetLayerStyleEnabled,
 		commandSetLayerStyleParams, commandCopyLayerStyle, commandPasteLayerStyle,
-		commandClearLayerStyle:
+		commandClearLayerStyle, commandCreateDocumentStylePreset,
+		commandUpdateDocumentStylePreset, commandDeleteDocumentStylePreset,
+		commandApplyDocumentStylePreset:
 		handled, err := inst.dispatchLayerCommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err

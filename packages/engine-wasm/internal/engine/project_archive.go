@@ -29,6 +29,7 @@ type projectDocumentArchive struct {
 	Layers        []projectLayerArchive `json:"layers"`
 	Paths         []NamedPath           `json:"paths,omitempty"`
 	ActivePathIdx int                   `json:"activePathIdx,omitempty"`
+	StylePresets  []DocumentStylePreset `json:"stylePresets,omitempty"`
 }
 
 type projectLayerArchive struct {
@@ -95,12 +96,13 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 			CreatedBy:     doc.CreatedBy,
 			ModifiedAt:    doc.ModifiedAt,
 			ActiveLayer:   doc.ActiveLayerID,
-			Layers:        make([]projectLayerArchive, 0),
-			Paths:         cloneNamedPaths(doc.Paths),
-			ActivePathIdx: doc.ActivePathIdx,
-		},
-		History: append([]HistoryEntry(nil), history...),
-	}
+				Layers:        make([]projectLayerArchive, 0),
+				Paths:         cloneNamedPaths(doc.Paths),
+				ActivePathIdx: doc.ActivePathIdx,
+				StylePresets:  cloneDocumentStylePresets(doc.StylePresets),
+			},
+			History: append([]HistoryEntry(nil), history...),
+		}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()
 		archive.Document.Layers = make([]projectLayerArchive, 0, len(children))
@@ -212,10 +214,11 @@ func (archive projectDocumentArchive) toDocument() (*Document, error) {
 		CreatedBy:     archive.CreatedBy,
 		ModifiedAt:    archive.ModifiedAt,
 		ActiveLayerID: archive.ActiveLayer,
-		LayerRoot:     NewGroupLayer("Root"),
-		Paths:         cloneNamedPaths(archive.Paths),
-		ActivePathIdx: archive.ActivePathIdx,
-	}
+			LayerRoot:     NewGroupLayer("Root"),
+			Paths:         cloneNamedPaths(archive.Paths),
+			ActivePathIdx: archive.ActivePathIdx,
+			StylePresets:  cloneDocumentStylePresets(archive.StylePresets),
+		}
 	children := make([]LayerNode, 0, len(archive.Layers))
 	for _, childArchive := range archive.Layers {
 		child, err := childArchive.toLayerNode()

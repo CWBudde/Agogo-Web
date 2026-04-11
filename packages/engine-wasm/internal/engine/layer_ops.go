@@ -261,6 +261,7 @@ type LayerNodeMeta struct {
 	HasMask        bool            `json:"hasMask"`
 	MaskEnabled    bool            `json:"maskEnabled"`
 	HasVectorMask  bool            `json:"hasVectorMask"`
+	StyleStack     []LayerStyle    `json:"styleStack,omitempty"`
 	Isolated       bool            `json:"isolated,omitempty"`
 	Children       []LayerNodeMeta `json:"children,omitempty"`
 	// VectorLayer-specific style fields. Only populated when LayerType == "vector".
@@ -1501,6 +1502,7 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		HasMask:       mask != nil,
 		MaskEnabled:   mask != nil && mask.Enabled,
 		HasVectorMask: layer.VectorMask() != nil,
+		StyleStack:    cloneLayerStyles(layer.StyleStack()),
 	}
 	if adjustment, ok := layer.(*AdjustmentLayer); ok {
 		meta.AdjustmentKind = adjustment.AdjustmentKind

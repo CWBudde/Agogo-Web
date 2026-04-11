@@ -342,6 +342,46 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 		}
 		return true, nil
 
+	case commandCreateDocumentStylePreset:
+		var payload CreateDocumentStylePresetPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.createDocumentStylePreset(payload); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandUpdateDocumentStylePreset:
+		var payload UpdateDocumentStylePresetPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.updateDocumentStylePreset(payload); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandDeleteDocumentStylePreset:
+		var payload DeleteDocumentStylePresetPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.deleteDocumentStylePreset(payload); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case commandApplyDocumentStylePreset:
+		var payload ApplyDocumentStylePresetPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.applyDocumentStylePreset(payload); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandAddVectorMask:
 		var payload AddVectorMaskPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -394,7 +434,7 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 }
 
 func layerStylePayloadsToStyles(payloads []LayerStylePayload) []LayerStyle {
-	if len(payloads) == 0 {
+	if payloads == nil {
 		return nil
 	}
 	styles := make([]LayerStyle, len(payloads))

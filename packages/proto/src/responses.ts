@@ -1,7 +1,14 @@
 // RenderResult — returned by the engine after each command dispatch.
 // bufferPtr and bufferLen reference a region inside the Wasm linear memory.
 
-import type { AdjustmentKind, AdjustmentLayerParams, FreeTransformMeta, PathOverlay } from "./commands.js";
+import type {
+	AdjustmentKind,
+	AdjustmentLayerParams,
+	DocumentStylePresetEntry,
+	FreeTransformMeta,
+	LayerStyleEntryCommand,
+	PathOverlay,
+} from "./commands.js";
 
 export interface DirtyRect {
 	x: number;
@@ -72,6 +79,7 @@ export interface UIMeta {
 	textCursorX?: number;
 	/** Doc-space Y coordinate of the text insertion cursor baseline. */
 	textCursorY?: number;
+	stylePresets?: DocumentStylePresetEntry[];
 }
 
 export interface LayerNodeMeta {
@@ -93,6 +101,7 @@ export interface LayerNodeMeta {
 	hasVectorMask: boolean;
 	isolated?: boolean;
 	children?: LayerNodeMeta[];
+	styleStack?: LayerStyleEntryCommand[];
 	// VectorLayer-specific style fields. Only present when layerType === "vector".
 	fillColor?: [number, number, number, number];
 	strokeColor?: [number, number, number, number];

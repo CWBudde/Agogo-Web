@@ -140,12 +140,13 @@ func (inst *instance) renderUIMeta() UIMeta {
 		FreeTransform:        inst.freeTransform.meta(),
 		Crop:                 inst.crop.meta(),
 		Paths:                doc.pathsMeta(),
-		PathOverlay:          inst.buildPathOverlay(),
-		EditingVectorLayerID: inst.editingVectorLayerID,
-		EditingTextLayerID:   inst.textEdit.layerID,
-		TextCursorX:          inst.textCursorX(doc),
-		TextCursorY:          inst.textCursorY(doc),
-	}
+			PathOverlay:          inst.buildPathOverlay(),
+			EditingVectorLayerID: inst.editingVectorLayerID,
+			EditingTextLayerID:   inst.textEdit.layerID,
+			TextCursorX:          inst.textCursorX(doc),
+			TextCursorY:          inst.textCursorY(doc),
+			StylePresets:         cloneDocumentStylePresets(doc.StylePresets),
+		}
 }
 
 // textCursorX returns the doc-space X coordinate of the text insertion cursor.

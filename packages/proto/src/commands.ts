@@ -55,6 +55,10 @@ export enum CommandID {
   CopyLayerStyle = 0x0122,
   PasteLayerStyle = 0x0123,
   ClearLayerStyle = 0x0124,
+  CreateDocumentStylePreset = 0x0125,
+  UpdateDocumentStylePreset = 0x0126,
+  DeleteDocumentStylePreset = 0x0127,
+  ApplyDocumentStylePreset = 0x0128,
 
   // Phase 3: Selection
   NewSelection = 0x0200,
@@ -661,6 +665,12 @@ export interface LayerStyleEntryCommand {
   params?: Record<string, unknown>;
 }
 
+export interface DocumentStylePresetEntry {
+  id: string;
+  name: string;
+  styles: LayerStyleEntryCommand[];
+}
+
 export interface SetLayerStyleStackCommand {
   layerId: string;
   styles: LayerStyleEntryCommand[];
@@ -687,6 +697,26 @@ export interface PasteLayerStyleCommand {
 }
 
 export interface ClearLayerStyleCommand {
+  layerId: string;
+}
+
+export interface CreateDocumentStylePresetCommand {
+  name: string;
+  styles: LayerStyleEntryCommand[];
+}
+
+export interface UpdateDocumentStylePresetCommand {
+  presetId: string;
+  name?: string;
+  styles?: LayerStyleEntryCommand[];
+}
+
+export interface DeleteDocumentStylePresetCommand {
+  presetId: string;
+}
+
+export interface ApplyDocumentStylePresetCommand {
+  presetId: string;
   layerId: string;
 }
 

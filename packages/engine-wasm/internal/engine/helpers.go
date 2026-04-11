@@ -15,6 +15,7 @@ func cloneDocument(doc *Document) *Document {
 	copyDoc.Selection = cloneSelection(doc.Selection)
 	copyDoc.LastSelection = cloneSelection(doc.LastSelection)
 	copyDoc.Paths = cloneNamedPaths(doc.Paths)
+	copyDoc.StylePresets = cloneDocumentStylePresets(doc.StylePresets)
 	return &copyDoc
 }
 
@@ -64,7 +65,48 @@ func documentsEqual(a, b *Document) bool {
 			return false
 		}
 	}
+	if !documentStylePresetsEqual(a.StylePresets, b.StylePresets) {
+		return false
+	}
 	return layerTreeEqual(a.LayerRoot, b.LayerRoot)
+}
+
+func cloneDocumentStylePresets(presets []DocumentStylePreset) []DocumentStylePreset {
+	if presets == nil {
+		return nil
+	}
+	cloned := make([]DocumentStylePreset, len(presets))
+	for i := range presets {
+		cloned[i] = DocumentStylePreset{
+			ID:     presets[i].ID,
+			Name:   presets[i].Name,
+			Styles: clonePresetStyles(presets[i].Styles),
+		}
+	}
+	return cloned
+}
+
+func clonePresetStyles(styles []LayerStyle) []LayerStyle {
+	if styles == nil {
+		return []LayerStyle{}
+	}
+	cloned := cloneLayerStyles(styles)
+	if cloned == nil {
+		return []LayerStyle{}
+	}
+	return cloned
+}
+
+func documentStylePresetsEqual(a, b []DocumentStylePreset) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || !layerStylesEqual(a[i].Styles, b[i].Styles) {
+			return false
+		}
+	}
+	return true
 }
 
 func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {

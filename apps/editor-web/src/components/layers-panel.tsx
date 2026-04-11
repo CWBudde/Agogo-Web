@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { LayerStyleDialog } from "@/components/layer-style-dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { EngineContextValue } from "@/wasm/types";
@@ -132,6 +133,7 @@ export function LayersPanel({
   const [contextMenu, setContextMenu] = useState<LayerContextMenuState>(null);
   const [colorTags, setColorTags] = useState<Record<string, ColorTagId>>({});
   const [propertiesLayerId, setPropertiesLayerId] = useState<string | null>(null);
+  const [layerStyleLayerId, setLayerStyleLayerId] = useState<string | null>(null);
 
   const activeLayer = useMemo(
     () => findLayerById(layers, activeLayerId ?? "") ?? firstLayer(layers),
@@ -336,6 +338,12 @@ export function LayersPanel({
 
   const openLayerProperties = (layer: LayerNodeMeta) => {
     setPropertiesLayerId(layer.id);
+    setContextMenu(null);
+  };
+
+  const openLayerStyle = (layerId: string) => {
+    setLayerStyleLayerId(layerId);
+    setPropertiesLayerId(null);
     setContextMenu(null);
   };
 
@@ -733,6 +741,38 @@ export function LayersPanel({
             }
             toggleClipForSelection(!contextLayer.clipToBelow);
           }}
+          onLayerStyle={() => {
+            if (contextLayer) {
+              openLayerStyle(contextLayer.id);
+            }
+          }}
+          onCopyLayerStyle={() => {
+            if (!contextLayer) {
+              return;
+            }
+            engine.dispatchCommand(CommandID.CopyLayerStyle, {
+              layerId: contextLayer.id,
+            });
+            setContextMenu(null);
+          }}
+          onPasteLayerStyle={() => {
+            if (!contextLayer) {
+              return;
+            }
+            engine.dispatchCommand(CommandID.PasteLayerStyle, {
+              layerId: contextLayer.id,
+            });
+            setContextMenu(null);
+          }}
+          onClearLayerStyle={() => {
+            if (!contextLayer) {
+              return;
+            }
+            engine.dispatchCommand(CommandID.ClearLayerStyle, {
+              layerId: contextLayer.id,
+            });
+            setContextMenu(null);
+          }}
           onLayerProperties={() => {
             if (contextLayer) {
               openLayerProperties(contextLayer);
@@ -757,9 +797,18 @@ export function LayersPanel({
               [propertiesLayerId]: tag,
             }))
           }
+          onOpenLayerStyle={() => openLayerStyle(propertiesLayerId)}
           onClose={() => setPropertiesLayerId(null)}
         />
       ) : null}
+
+      <LayerStyleDialog
+        open={layerStyleLayerId !== null}
+        engine={engine}
+        layer={layerStyleLayerId ? findLayerById(layers, layerStyleLayerId) : null}
+        presets={engine.render?.uiMeta.stylePresets ?? []}
+        onClose={() => setLayerStyleLayerId(null)}
+      />
     </div>
   );
 }
@@ -1316,6 +1365,10 @@ function LayerContextMenu({
   onAddVectorMask,
   onDeleteVectorMask,
   onToggleClip,
+  onLayerStyle,
+  onCopyLayerStyle,
+  onPasteLayerStyle,
+  onClearLayerStyle,
   onLayerProperties,
 }: {
   x: number;
@@ -1336,6 +1389,10 @@ function LayerContextMenu({
   onAddVectorMask: () => void;
   onDeleteVectorMask: () => void;
   onToggleClip: () => void;
+  onLayerStyle: () => void;
+  onCopyLayerStyle: () => void;
+  onPasteLayerStyle: () => void;
+  onClearLayerStyle: () => void;
   onLayerProperties: () => void;
 }) {
   return (
@@ -1367,7 +1424,12 @@ function LayerContextMenu({
       <MenuSeparator />
       <MenuAction label="Toggle Clipping" onClick={onToggleClip} />
       <MenuSeparator />
-      <MenuAction label="Layer Properties…" onClick={onLayerProperties} />
+      <MenuAction label="Layer Style..." onClick={onLayerStyle} />
+      <MenuAction label="Copy Layer Style" onClick={onCopyLayerStyle} />
+      <MenuAction label="Paste Layer Style" onClick={onPasteLayerStyle} />
+      <MenuAction label="Clear Layer Style" onClick={onClearLayerStyle} />
+      <MenuSeparator />
+      <MenuAction label="Layer Properties..." onClick={onLayerProperties} />
     </div>
   );
 }
@@ -1574,12 +1636,14 @@ export function LayerPropertiesDialog({
   colorTag,
   onRename,
   onColorTag,
+  onOpenLayerStyle,
   onClose,
 }: {
   layer: LayerNodeMeta | null;
   colorTag: ColorTagId;
   onRename: (name: string) => void;
   onColorTag: (tag: ColorTagId) => void;
+  onOpenLayerStyle: () => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(layer?.name ?? "");
@@ -1664,13 +1728,18 @@ export function LayerPropertiesDialog({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Cancel
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={onOpenLayerStyle}>
+            Layer Style...
           </Button>
-          <Button size="sm" onClick={handleApply}>
-            Apply
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleApply}>
+              Apply
+            </Button>
+          </div>
         </div>
       </div>
     </div>
