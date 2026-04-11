@@ -1066,28 +1066,28 @@
 
 ### Phase 6.5: Layer Styles
 
-- [ ] **Layer Style data model:**
-  - [ ] `StyleStack []Effect` per layer
-  - [ ] Each effect: enabled bool, params struct
-  - [ ] Effects ordered: Fill effects applied first, then stroke, then shadow effects
-- [ ] **Layer Style dialog:**
-  - [ ] Left column: effect list (checkboxes to enable/disable each effect)
-  - [ ] Right panel: params for selected effect
-  - [ ] Live preview on canvas while dialog is open
-  - [ ] OK / Cancel / New Style (save as preset) / Reset
-- [ ] **Implement effects (rendered in backend during composite):**
-  - [ ] **Drop Shadow:** color, opacity, angle, distance, spread, size, noise, layer knocks out shadow
-  - [ ] **Inner Shadow:** color, opacity, angle, distance, choke, size, noise
-  - [ ] **Outer Glow:** color or gradient, opacity, noise, technique (softer/precise), spread, size
-  - [ ] **Inner Glow:** color or gradient, source (edge/center), choke, size
-  - [ ] **Bevel & Emboss:** style (outer/inner/emboss/pillow/stroke), technique, depth, direction, size, soften; shading: angle, altitude, gloss contour, highlight/shadow modes
-  - [ ] **Satin:** color, blend mode, opacity, angle, distance, size, contour
-  - [ ] **Color Overlay:** color, blend mode, opacity
-  - [ ] **Gradient Overlay:** gradient, blend mode, opacity, style, angle, scale, align with layer
-  - [ ] **Pattern Overlay:** pattern, blend mode, opacity, scale, link with layer
-  - [ ] **Stroke:** size, position (outside/inside/center), blend mode, opacity, fill type (color/gradient/pattern)
+- [x] **Layer Style data model:**
+  - [x] `StyleStack []Effect` per layer
+  - [x] Each effect: enabled bool, params struct
+  - [x] Effects ordered: Fill effects applied first, then stroke, then shadow effects
+- [x] **Layer Style dialog:**
+  - [x] Left column: effect list (checkboxes to enable/disable each effect)
+  - [x] Right panel: params for selected effect
+  - [x] Live preview on canvas while dialog is open
+  - [x] OK / Cancel / New Style (save as preset) / Reset
+- [x] **Implement effects (rendered in backend during composite):**
+  - [x] **Drop Shadow:** color, opacity, angle, distance, spread, size, noise, layer knocks out shadow
+  - [x] **Inner Shadow:** color, opacity, angle, distance, choke, size, noise
+  - [x] **Outer Glow:** color or gradient, opacity, noise, technique (softer/precise), spread, size
+  - [x] **Inner Glow:** color or gradient, source (edge/center), choke, size
+  - [x] **Bevel & Emboss:** style (outer/inner/emboss/pillow/stroke), technique, depth, direction, size, soften; shading: angle, altitude, gloss contour, highlight/shadow modes
+  - [x] **Satin:** color, blend mode, opacity, angle, distance, size, contour
+  - [x] **Color Overlay:** color, blend mode, opacity
+  - [x] **Gradient Overlay:** gradient, blend mode, opacity, style, angle, scale, align with layer
+  - [x] **Pattern Overlay:** pattern, blend mode, opacity, scale, link with layer
+  - [x] **Stroke:** size, position (outside/inside/center), blend mode, opacity, fill type (color/gradient/pattern)
 - [ ] **Blend If / Advanced Blending:**
-  - [ ] Fill opacity (separate from layer opacity for effects)
+  - [x] Fill opacity (separate from layer opacity for effects)
   - [ ] Channels (R/G/B checkboxes to include in blend)
   - [ ] Blend If sliders: "This Layer" and "Underlying Layer" — split sliders for smooth transitions
 - [ ] **Styles Panel (Window > Styles):**
@@ -1095,8 +1095,8 @@
   - [ ] Click to apply style to current layer
   - [ ] Save current layer style as preset
   - [ ] Import/export `.asl` style files (later)
-- [ ] **Copy/Paste Layer Style** (right-click context menu)
-- [ ] **Flatten/Merge with effects:** merge effects into pixel data
+- [x] **Copy/Paste Layer Style** (right-click context menu)
+- [x] **Flatten/Merge with effects:** merge effects into pixel data
 
 ---
 
