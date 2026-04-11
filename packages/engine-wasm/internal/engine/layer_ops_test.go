@@ -369,6 +369,129 @@ func TestFlattenAndMergeSupportNonNormalBlendModes(t *testing.T) {
 	}
 }
 
+func TestMergeDown_AllowsStyledLayers(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	bottom, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Bottom",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 1},
+		Pixels:    []byte{0, 0, 255, 255, 0, 0, 255, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add bottom: %v", err)
+	}
+	bottomID := bottom.UIMeta.ActiveLayerID
+
+	top, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Top",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add top: %v", err)
+	}
+	topID := top.UIMeta.ActiveLayerID
+
+	if _, err := DispatchCommand(h, commandSetLayerStyleStack, mustJSON(t, SetLayerStyleStackPayload{
+		LayerID: topID,
+		Styles: []LayerStylePayload{{
+			Kind:    LayerStyleKindDropShadow,
+			Enabled: true,
+			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+		}},
+	})); err != nil {
+		t.Fatalf("set style stack: %v", err)
+	}
+
+	merged, err := DispatchCommand(h, commandMergeDown, mustJSON(t, MergeDownPayload{LayerID: topID}))
+	if err != nil {
+		t.Fatalf("merge down styled layer: %v", err)
+	}
+
+	activeDoc := instances[h].manager.Active()
+	layer, _, _, ok := findLayerByID(activeDoc.ensureLayerRoot(), merged.UIMeta.ActiveLayerID)
+	if !ok {
+		t.Fatalf("merged layer %q not found", merged.UIMeta.ActiveLayerID)
+	}
+	mergedLayer, ok := layer.(*PixelLayer)
+	if !ok {
+		t.Fatalf("merged layer type = %T, want *PixelLayer", layer)
+	}
+	if mergedLayer.ID() == topID || mergedLayer.ID() == bottomID {
+		t.Fatal("merge down should create a new merged pixel layer")
+	}
+	if got := mergedLayer.Pixels[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("merged shadow pixel = %v, want rasterized drop shadow in merged output", got)
+	}
+}
+
+func TestFlattenImage_AllowsStyledLayers(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Flatten Styled",
+		Width:      2,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Bottom",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 1},
+		Pixels:    []byte{0, 0, 255, 255, 0, 0, 255, 255},
+	})); err != nil {
+		t.Fatalf("add bottom: %v", err)
+	}
+
+	top, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Top",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add top: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandSetLayerStyleStack, mustJSON(t, SetLayerStyleStackPayload{
+		LayerID: top.UIMeta.ActiveLayerID,
+		Styles: []LayerStylePayload{{
+			Kind:    LayerStyleKindDropShadow,
+			Enabled: true,
+			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+		}},
+	})); err != nil {
+		t.Fatalf("set style stack: %v", err)
+	}
+
+	flattened, err := DispatchCommand(h, commandFlattenImage, "")
+	if err != nil {
+		t.Fatalf("flatten image styled layers: %v", err)
+	}
+	if len(flattened.UIMeta.Layers) != 1 {
+		t.Fatalf("flattened layer count = %d, want 1", len(flattened.UIMeta.Layers))
+	}
+
+	activeDoc := instances[h].manager.Active()
+	layer := activeDoc.ensureLayerRoot().Children()[0]
+	flattenedLayer, ok := layer.(*PixelLayer)
+	if !ok {
+		t.Fatalf("flattened layer type = %T, want *PixelLayer", layer)
+	}
+	if got := flattenedLayer.Pixels[4:8]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Fatalf("flattened shadow pixel = %v, want rasterized drop shadow in flattened output", got)
+	}
+}
+
 func TestDeleteLayerCommandSelectsNextSiblingAndSupportsUndo(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)

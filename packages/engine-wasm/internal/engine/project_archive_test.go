@@ -26,7 +26,18 @@ func TestProjectArchiveRoundTripPreservesDocument(t *testing.T) {
 		0, 0, 255, 0,
 	})
 	base.SetMask(newFilledLayerMask(2, 1, 255))
-	base.SetStyleStack([]LayerStyle{{Kind: "shadow", Enabled: true, Params: jsonRawMessage(`{"size":4}`)}})
+	base.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"size":2,"position":"outside","fillType":"color","color":[255,255,0,255],"opacity":0.8}`),
+		},
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"multiply","opacity":0.75,"angle":120,"distance":4,"spread":0.1,"size":6}`),
+		},
+	})
 	top := NewPixelLayer("Top", LayerBounds{X: 0, Y: 0, W: 2, H: 1}, []byte{
 		255, 0, 0, 255,
 		255, 0, 0, 255,

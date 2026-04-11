@@ -6,43 +6,36 @@ import (
 	agglib "github.com/cwbudde/agg_go"
 )
 
+var supportedLayerStyleKinds = []LayerStyleKind{
+	LayerStyleKindColorOverlay,
+	LayerStyleKindGradientOverlay,
+	LayerStyleKindPatternOverlay,
+	LayerStyleKindStroke,
+	LayerStyleKindInnerShadow,
+	LayerStyleKindInnerGlow,
+	LayerStyleKindBevelEmboss,
+	LayerStyleKindSatin,
+	LayerStyleKindDropShadow,
+	LayerStyleKindOuterGlow,
+}
+
 func orderedLayerStyleKinds() []LayerStyleKind {
-	return []LayerStyleKind{
-		LayerStyleKindColorOverlay,
-		LayerStyleKindGradientOverlay,
-		LayerStyleKindPatternOverlay,
-		LayerStyleKindStroke,
-		LayerStyleKindInnerShadow,
-		LayerStyleKindInnerGlow,
-		LayerStyleKindBevelEmboss,
-		LayerStyleKindSatin,
-		LayerStyleKindDropShadow,
-		LayerStyleKindOuterGlow,
-	}
+	return supportedLayerStyleKinds
 }
 
 func isSupportedLayerStyleKind(kind LayerStyleKind) bool {
-	switch kind {
-	case LayerStyleKindColorOverlay,
-		LayerStyleKindGradientOverlay,
-		LayerStyleKindPatternOverlay,
-		LayerStyleKindStroke,
-		LayerStyleKindDropShadow,
-		LayerStyleKindInnerShadow,
-		LayerStyleKindOuterGlow,
-		LayerStyleKindInnerGlow,
-		LayerStyleKindBevelEmboss,
-		LayerStyleKindSatin:
-		return true
-	default:
-		return false
+	for _, supported := range supportedLayerStyleKinds {
+		if supported == kind {
+			return true
+		}
 	}
+	return false
 }
 
 func applyLayerStyleEffect(dst, sourceSurface []byte, docW, docH int, style DecodedLayerStyle) {
 	switch LayerStyleKind(style.Kind) {
 	case LayerStyleKindColorOverlay:
-		compositeDocumentSurface(dst, buildColorOverlaySurface(sourceSurface, style.ColorOverlay), style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity)
+		compositeDocumentSurface(dst, buildColorOverlaySurface(sourceSurface, docW, docH, style.ColorOverlay), style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity)
 	case LayerStyleKindGradientOverlay:
 		compositeDocumentSurface(dst, buildGradientOverlaySurface(sourceSurface, docW, docH, style.GradientOverlay), style.GradientOverlay.BlendMode, style.GradientOverlay.Opacity)
 	case LayerStyleKindPatternOverlay:
@@ -66,271 +59,179 @@ func applyLayerStyleEffect(dst, sourceSurface []byte, docW, docH int, style Deco
 	}
 }
 
-func buildColorOverlaySurface(sourceSurface []byte, params ColorOverlayParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	return colorSurfaceFromMask(mask, params.Color)
+func buildColorOverlaySurface(sourceSurface []byte, docW, docH int, params ColorOverlayParams) []byte {
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	return agglib.RenderMaskedSolidRGBA(mask, aggColor(params.Color))
 }
 
 func buildGradientOverlaySurface(sourceSurface []byte, docW, docH int, params GradientOverlayParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	return gradientSurfaceFromMask(mask, docW, docH, params.Angle, params.Scale, params.Reverse)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	return agglib.RenderMaskedLinearGradientRGBA(mask, gradientFill(params))
 }
 
 func buildPatternOverlaySurface(sourceSurface []byte, docW, docH int, params PatternOverlayParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	return patternSurfaceFromMask(mask, docW, docH, params.Scale)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	return agglib.RenderMaskedCheckerPatternRGBA(mask, checkerPatternFill(params.Scale))
 }
 
 func buildStrokeSurface(sourceSurface []byte, docW, docH int, params StrokeParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	strokeMask := strokeMaskFromAlpha(mask, docW, docH, params.Size, params.Position)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	strokeMask := strokeMaskFromAlpha(mask, params.Size, params.Position)
 	switch params.FillType {
 	case "gradient":
-		return gradientSurfaceFromMask(strokeMask, docW, docH, 0, 1, false)
+		return agglib.RenderMaskedLinearGradientRGBA(strokeMask, gradientFill(GradientOverlayParams{Scale: 1}))
 	case "pattern":
-		return patternSurfaceFromMask(strokeMask, docW, docH, 1)
+		return agglib.RenderMaskedCheckerPatternRGBA(strokeMask, checkerPatternFill(1))
 	default:
-		return colorSurfaceFromMask(strokeMask, params.Color)
+		return agglib.RenderMaskedSolidRGBA(strokeMask, aggColor(params.Color))
 	}
 }
 
 func buildDropShadowSurface(sourceSurface []byte, docW, docH int, params DropShadowParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	working := shiftAndBlurShadowMask(mask, docW, docH, params.Angle, params.Distance, params.Spread, params.Size)
-	return colorSurfaceFromMask(working, params.Color)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	working := shiftAndBlurShadowMask(mask, params.Angle, params.Distance, params.Spread, params.Size)
+	return agglib.RenderMaskedSolidRGBA(working, aggColor(params.Color))
 }
 
 func buildInnerShadowSurface(sourceSurface []byte, docW, docH int, params InnerShadowParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
 	dx, dy := dropShadowOffset(params.Angle, params.Distance)
-	shifted := shiftAlphaMask(mask, docW, docH, dx, dy)
-	shadowMask := subtractAlphaMask(mask, shifted)
+	shadowMask := mask.Subtract(mask.Shifted(dx, dy))
 	if chokeRadius := alphaRadius(params.Choke * params.Size); chokeRadius > 0 {
-		shadowMask = dilateAlphaMask(shadowMask, docW, docH, chokeRadius)
+		shadowMask = shadowMask.Dilated(chokeRadius)
 	}
 	if blurRadius := alphaRadius(params.Size); blurRadius > 0 {
-		shadowMask = blurAlphaMask(shadowMask, docW, docH, blurRadius)
+		shadowMask = shadowMask.Blurred(blurRadius)
 	}
-	shadowMask = intersectAlphaMask(shadowMask, mask)
-	return colorSurfaceFromMask(shadowMask, params.Color)
+	shadowMask = shadowMask.Intersect(mask)
+	return agglib.RenderMaskedSolidRGBA(shadowMask, aggColor(params.Color))
 }
 
 func buildOuterGlowSurface(sourceSurface []byte, docW, docH int, params GlowParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	working := append([]byte(nil), mask...)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	working := mask.Clone()
 	if spreadRadius := alphaRadius(params.Spread * params.Size); spreadRadius > 0 {
-		working = dilateAlphaMask(working, docW, docH, spreadRadius)
+		working = working.Dilated(spreadRadius)
 	}
 	if blurRadius := alphaRadius(params.Size); blurRadius > 0 {
-		working = blurAlphaMask(working, docW, docH, blurRadius)
+		working = working.Blurred(blurRadius)
 	}
-	working = subtractAlphaMask(working, mask)
-	return colorSurfaceFromMask(working, params.Color)
+	working = working.Subtract(mask)
+	return agglib.RenderMaskedSolidRGBA(working, aggColor(params.Color))
 }
 
 func buildInnerGlowSurface(sourceSurface []byte, docW, docH int, params GlowParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
-	innerMask := append([]byte(nil), mask...)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	innerMask := mask.Clone()
 	if spreadRadius := alphaRadius(params.Spread * params.Size); spreadRadius > 0 {
-		innerMask = erodeAlphaMask(innerMask, docW, docH, spreadRadius)
+		innerMask = innerMask.Eroded(spreadRadius)
 	}
-	innerMask = subtractAlphaMask(mask, innerMask)
+	innerMask = mask.Subtract(innerMask)
 	if blurRadius := alphaRadius(params.Size); blurRadius > 0 {
-		innerMask = blurAlphaMask(innerMask, docW, docH, blurRadius)
+		innerMask = innerMask.Blurred(blurRadius)
 	}
-	innerMask = intersectAlphaMask(innerMask, mask)
-	return colorSurfaceFromMask(innerMask, params.Color)
+	innerMask = innerMask.Intersect(mask)
+	return agglib.RenderMaskedSolidRGBA(innerMask, aggColor(params.Color))
 }
 
 func buildBevelEmbossSurfaces(sourceSurface []byte, docW, docH int, params BevelEmbossParams) ([]byte, []byte) {
-	mask := alphaMaskFromSurface(sourceSurface)
-	reliefMask := bevelEmbossMask(mask, docW, docH, params)
-	shapeMask := bevelEmbossShapeMask(mask, docW, docH, params)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
+	reliefMask := bevelEmbossMask(mask, params)
+	shapeMask := bevelEmbossShapeMask(mask, params)
 	offsetDistance := math.Max(1, params.Size)
 	dx, dy := dropShadowOffset(params.Angle, offsetDistance)
 	if dx == 0 && dy == 0 {
 		dx = 1
 	}
-	highlightMask := intersectAlphaMask(reliefMask, subtractAlphaMask(shapeMask, shiftAlphaMask(shapeMask, docW, docH, dx, dy)))
-	shadowMask := intersectAlphaMask(reliefMask, subtractAlphaMask(shapeMask, shiftAlphaMask(shapeMask, docW, docH, -dx, -dy)))
+	highlightMask := reliefMask.Intersect(shapeMask.Subtract(shapeMask.Shifted(dx, dy)))
+	shadowMask := reliefMask.Intersect(shapeMask.Subtract(shapeMask.Shifted(-dx, -dy)))
 	if params.Direction == "down" {
 		highlightMask, shadowMask = shadowMask, highlightMask
 	}
 	if params.Style == "pillow-emboss" {
-		highlightMask, shadowMask = intersectAlphaMask(shadowMask, mask), intersectAlphaMask(highlightMask, mask)
+		highlightMask, shadowMask = shadowMask.Intersect(mask), highlightMask.Intersect(mask)
 	}
 	if blurRadius := alphaRadius(params.Soften); blurRadius > 0 {
-		highlightMask = blurAlphaMask(highlightMask, docW, docH, blurRadius)
-		shadowMask = blurAlphaMask(shadowMask, docW, docH, blurRadius)
+		highlightMask = highlightMask.Blurred(blurRadius)
+		shadowMask = shadowMask.Blurred(blurRadius)
 	}
-	return colorSurfaceFromMask(highlightMask, params.HighlightC), colorSurfaceFromMask(shadowMask, params.ShadowC)
+	return agglib.RenderMaskedSolidRGBA(highlightMask, aggColor(params.HighlightC)),
+		agglib.RenderMaskedSolidRGBA(shadowMask, aggColor(params.ShadowC))
 }
 
 func buildSatinSurface(sourceSurface []byte, docW, docH int, params SatinParams) []byte {
-	mask := alphaMaskFromSurface(sourceSurface)
+	mask := agglib.AlphaMaskFromRGBA(sourceSurface, docW, docH)
 	dx, dy := dropShadowOffset(params.Angle, params.Distance)
-	forward := shiftAlphaMask(mask, docW, docH, dx, dy)
-	backward := shiftAlphaMask(mask, docW, docH, -dx, -dy)
-	satinMask := absDiffAlphaMask(forward, backward)
-	satinMask = intersectAlphaMask(satinMask, mask)
+	satinMask := mask.Shifted(dx, dy).AbsDiff(mask.Shifted(-dx, -dy)).Intersect(mask)
 	if blurRadius := alphaRadius(params.Size); blurRadius > 0 {
-		satinMask = blurAlphaMask(satinMask, docW, docH, blurRadius)
-		satinMask = intersectAlphaMask(satinMask, mask)
+		satinMask = satinMask.Blurred(blurRadius).Intersect(mask)
 	}
 	if params.Invert {
-		satinMask = subtractAlphaMask(mask, satinMask)
+		satinMask = mask.Subtract(satinMask)
 	}
-	return colorSurfaceFromMask(satinMask, params.Color)
+	return agglib.RenderMaskedSolidRGBA(satinMask, aggColor(params.Color))
 }
 
 func bevelEmbossOpacity(baseOpacity, depth float64) float64 {
 	return clampUnit(baseOpacity * math.Max(0.25, depth))
 }
 
-func bevelEmbossMask(mask []byte, docW, docH int, params BevelEmbossParams) []byte {
+func bevelEmbossMask(mask agglib.AlphaMask, params BevelEmbossParams) agglib.AlphaMask {
 	size := math.Max(1, params.Size)
 	switch params.Style {
 	case "outer-bevel":
-		return strokeMaskFromAlpha(mask, docW, docH, size, "outside")
+		return strokeMaskFromAlpha(mask, size, "outside")
 	case "emboss":
-		outer := strokeMaskFromAlpha(mask, docW, docH, size, "outside")
-		inner := strokeMaskFromAlpha(mask, docW, docH, size, "inside")
-		return maxAlphaMask(outer, inner)
+		return strokeMaskFromAlpha(mask, size, "outside").Max(strokeMaskFromAlpha(mask, size, "inside"))
 	case "pillow-emboss":
-		return strokeMaskFromAlpha(mask, docW, docH, size, "inside")
+		return strokeMaskFromAlpha(mask, size, "inside")
 	case "stroke-emboss":
-		return strokeMaskFromAlpha(mask, docW, docH, size, "center")
+		return strokeMaskFromAlpha(mask, size, "center")
 	default:
-		return strokeMaskFromAlpha(mask, docW, docH, size, "inside")
+		return strokeMaskFromAlpha(mask, size, "inside")
 	}
 }
 
-func bevelEmbossShapeMask(mask []byte, docW, docH int, params BevelEmbossParams) []byte {
+func bevelEmbossShapeMask(mask agglib.AlphaMask, params BevelEmbossParams) agglib.AlphaMask {
 	size := alphaRadius(math.Max(1, params.Size))
 	switch params.Style {
-	case "outer-bevel":
-		return dilateAlphaMask(mask, docW, docH, size)
-	case "emboss":
-		return dilateAlphaMask(mask, docW, docH, size)
+	case "outer-bevel", "emboss":
+		return mask.Dilated(size)
 	case "stroke-emboss":
-		return strokeMaskFromAlpha(mask, docW, docH, math.Max(1, params.Size), "center")
+		return strokeMaskFromAlpha(mask, math.Max(1, params.Size), "center")
 	default:
 		return mask
 	}
 }
 
-func shiftAndBlurShadowMask(mask []byte, docW, docH int, angle, distance, spread, size float64) []byte {
+func shiftAndBlurShadowMask(mask agglib.AlphaMask, angle, distance, spread, size float64) agglib.AlphaMask {
 	dx, dy := dropShadowOffset(angle, distance)
-	working := shiftAlphaMask(mask, docW, docH, dx, dy)
+	working := mask.Shifted(dx, dy)
 	if spreadRadius := alphaRadius(spread * size); spreadRadius > 0 {
-		working = dilateAlphaMask(working, docW, docH, spreadRadius)
+		working = working.Dilated(spreadRadius)
 	}
 	if blurRadius := alphaRadius(size); blurRadius > 0 {
-		working = blurAlphaMask(working, docW, docH, blurRadius)
+		working = working.Blurred(blurRadius)
 	}
 	return working
 }
 
-func strokeMaskFromAlpha(mask []byte, docW, docH int, size float64, position string) []byte {
-	if len(mask) == 0 {
-		return nil
-	}
+func strokeMaskFromAlpha(mask agglib.AlphaMask, size float64, position string) agglib.AlphaMask {
 	radius := alphaRadius(size)
 	if radius <= 0 {
-		return make([]byte, len(mask))
+		return agglib.NewAlphaMask(mask.Width, mask.Height)
 	}
 
 	switch position {
 	case "inside":
-		inner := erodeAlphaMask(mask, docW, docH, radius)
-		return subtractAlphaMask(mask, inner)
+		return mask.Subtract(mask.Eroded(radius))
 	case "center":
 		outerRadius := maxInt(1, alphaRadius(size/2))
 		innerRadius := maxInt(1, int(math.Floor(size/2)))
-		outer := dilateAlphaMask(mask, docW, docH, outerRadius)
-		inner := erodeAlphaMask(mask, docW, docH, innerRadius)
-		return subtractAlphaMask(outer, inner)
+		return mask.Dilated(outerRadius).Subtract(mask.Eroded(innerRadius))
 	default:
-		outer := dilateAlphaMask(mask, docW, docH, radius)
-		return subtractAlphaMask(outer, mask)
+		return mask.Dilated(radius).Subtract(mask)
 	}
-}
-
-func colorSurfaceFromMask(mask []byte, color [4]uint8) []byte {
-	surface := make([]byte, len(mask)*4)
-	for index, alpha := range mask {
-		if alpha == 0 {
-			continue
-		}
-		offset := index * 4
-		surface[offset] = color[0]
-		surface[offset+1] = color[1]
-		surface[offset+2] = color[2]
-		surface[offset+3] = scaleMaskedAlpha(alpha, color[3])
-	}
-	return surface
-}
-
-func gradientSurfaceFromMask(mask []byte, docW, docH int, angle, scale float64, reverse bool) []byte {
-	surface := make([]byte, len(mask)*4)
-	if len(mask) == 0 || docW <= 0 || docH <= 0 {
-		return surface
-	}
-	centerX := float64(docW-1) / 2
-	centerY := float64(docH-1) / 2
-	maxAxis := math.Max(float64(docW), float64(docH))
-	theta := angle * math.Pi / 180
-	cosTheta := math.Cos(theta)
-	sinTheta := math.Sin(theta)
-	scale = math.Max(0.1, scale)
-	span := math.Max(1, maxAxis*scale)
-
-	for index, alpha := range mask {
-		if alpha == 0 {
-			continue
-		}
-		x := float64(index % docW)
-		y := float64(index / docW)
-		projected := ((x-centerX)*cosTheta + (centerY-y)*sinTheta) / span
-		t := clampUnit(0.5 + projected)
-		if reverse {
-			t = 1 - t
-		}
-		color := gradientRampColor(t)
-		offset := index * 4
-		surface[offset] = color[0]
-		surface[offset+1] = color[1]
-		surface[offset+2] = color[2]
-		surface[offset+3] = alpha
-	}
-	return surface
-}
-
-func patternSurfaceFromMask(mask []byte, docW, docH int, scale float64) []byte {
-	surface := make([]byte, len(mask)*4)
-	if len(mask) == 0 || docW <= 0 || docH <= 0 {
-		return surface
-	}
-	tile := maxInt(1, int(math.Round(math.Max(1, scale)*4)))
-	for index, alpha := range mask {
-		if alpha == 0 {
-			continue
-		}
-		x := index % docW
-		y := index / docW
-		var color [4]uint8
-		if ((x/tile)+(y/tile))%2 == 0 {
-			color = [4]uint8{32, 160, 255, 255}
-		} else {
-			color = [4]uint8{255, 224, 96, 255}
-		}
-		offset := index * 4
-		surface[offset] = color[0]
-		surface[offset+1] = color[1]
-		surface[offset+2] = color[2]
-		surface[offset+3] = alpha
-	}
-	return surface
 }
 
 func gradientRampColor(t float64) [4]uint8 {
@@ -344,168 +245,26 @@ func gradientRampColor(t float64) [4]uint8 {
 	}
 }
 
-func alphaMaskFromSurface(surface []byte) []byte {
-	mask := make([]byte, len(surface)/4)
-	for offset := 0; offset+3 < len(surface); offset += 4 {
-		mask[offset/4] = surface[offset+3]
+func gradientFill(params GradientOverlayParams) agglib.LinearGradientFill {
+	return agglib.LinearGradientFill{
+		Start:   aggColor(gradientRampColor(0)),
+		End:     aggColor(gradientRampColor(1)),
+		Angle:   params.Angle,
+		Scale:   math.Max(0.1, params.Scale),
+		Reverse: params.Reverse,
 	}
-	return mask
 }
 
-func shiftAlphaMask(mask []byte, docW, docH, dx, dy int) []byte {
-	shifted := make([]byte, len(mask))
-	if len(mask) == 0 || docW <= 0 || docH <= 0 {
-		return shifted
+func checkerPatternFill(scale float64) agglib.CheckerPatternFill {
+	return agglib.CheckerPatternFill{
+		First:  agglib.NewColorRGB(32, 160, 255),
+		Second: agglib.NewColorRGB(255, 224, 96),
+		Scale:  math.Max(1, scale),
 	}
-	for index, alpha := range mask {
-		if alpha == 0 {
-			continue
-		}
-		x := index % docW
-		y := index / docW
-		dstX := x + dx
-		dstY := y + dy
-		if dstX < 0 || dstX >= docW || dstY < 0 || dstY >= docH {
-			continue
-		}
-		destIndex := dstY*docW + dstX
-		if alpha > shifted[destIndex] {
-			shifted[destIndex] = alpha
-		}
-	}
-	return shifted
 }
 
-func blurAlphaMask(mask []byte, docW, docH, radius int) []byte {
-	if len(mask) == 0 || docW <= 0 || docH <= 0 || radius <= 0 {
-		return append([]byte(nil), mask...)
-	}
-	buffer := make([]byte, len(mask)*4)
-	for index, alpha := range mask {
-		offset := index * 4
-		buffer[offset] = alpha
-		buffer[offset+1] = alpha
-		buffer[offset+2] = alpha
-		buffer[offset+3] = alpha
-	}
-	stackBlur := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
-	stackBlur.BlurRGBA8(buffer, docW, docH, docW*4, radius)
-	blurred := make([]byte, len(mask))
-	for offset := 0; offset+3 < len(buffer); offset += 4 {
-		blurred[offset/4] = buffer[offset+3]
-	}
-	return blurred
-}
-
-func dilateAlphaMask(mask []byte, docW, docH, radius int) []byte {
-	if len(mask) == 0 || docW <= 0 || docH <= 0 || radius <= 0 {
-		return append([]byte(nil), mask...)
-	}
-	out := make([]byte, len(mask))
-	for y := 0; y < docH; y++ {
-		for x := 0; x < docW; x++ {
-			var maxAlpha uint8
-			for sampleY := maxInt(0, y-radius); sampleY <= minInt(docH-1, y+radius); sampleY++ {
-				for sampleX := maxInt(0, x-radius); sampleX <= minInt(docW-1, x+radius); sampleX++ {
-					alpha := mask[sampleY*docW+sampleX]
-					if alpha > maxAlpha {
-						maxAlpha = alpha
-					}
-				}
-			}
-			out[y*docW+x] = maxAlpha
-		}
-	}
-	return out
-}
-
-func erodeAlphaMask(mask []byte, docW, docH, radius int) []byte {
-	if len(mask) == 0 || docW <= 0 || docH <= 0 || radius <= 0 {
-		return append([]byte(nil), mask...)
-	}
-	out := make([]byte, len(mask))
-	for y := 0; y < docH; y++ {
-		for x := 0; x < docW; x++ {
-			minAlpha := uint8(255)
-			for sampleY := y - radius; sampleY <= y+radius; sampleY++ {
-				for sampleX := x - radius; sampleX <= x+radius; sampleX++ {
-					if sampleX < 0 || sampleX >= docW || sampleY < 0 || sampleY >= docH {
-						minAlpha = 0
-						continue
-					}
-					alpha := mask[sampleY*docW+sampleX]
-					if alpha < minAlpha {
-						minAlpha = alpha
-					}
-				}
-			}
-			out[y*docW+x] = minAlpha
-		}
-	}
-	return out
-}
-
-func subtractAlphaMask(mask, subtract []byte) []byte {
-	out := make([]byte, len(mask))
-	for index := range mask {
-		value := int(mask[index]) - int(alphaAt(subtract, index))
-		if value < 0 {
-			value = 0
-		}
-		out[index] = uint8(value)
-	}
-	return out
-}
-
-func intersectAlphaMask(a, b []byte) []byte {
-	out := make([]byte, len(a))
-	for index := range a {
-		out[index] = scaleMaskedAlpha(a[index], alphaAt(b, index))
-	}
-	return out
-}
-
-func maxAlphaMask(a, b []byte) []byte {
-	size := len(a)
-	if len(b) > size {
-		size = len(b)
-	}
-	out := make([]byte, size)
-	for index := range out {
-		left := alphaAt(a, index)
-		right := alphaAt(b, index)
-		if left > right {
-			out[index] = left
-		} else {
-			out[index] = right
-		}
-	}
-	return out
-}
-
-func absDiffAlphaMask(a, b []byte) []byte {
-	size := len(a)
-	if len(b) > size {
-		size = len(b)
-	}
-	out := make([]byte, size)
-	for index := range out {
-		left := int(alphaAt(a, index))
-		right := int(alphaAt(b, index))
-		diff := left - right
-		if diff < 0 {
-			diff = -diff
-		}
-		out[index] = uint8(diff)
-	}
-	return out
-}
-
-func alphaAt(mask []byte, index int) uint8 {
-	if index < 0 || index >= len(mask) {
-		return 0
-	}
-	return mask[index]
+func aggColor(color [4]uint8) agglib.Color {
+	return agglib.NewColor(color[0], color[1], color[2], color[3])
 }
 
 func alphaRadius(value float64) int {

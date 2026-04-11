@@ -204,6 +204,103 @@ func TestRenderStyledLayerSurface_AppliesEffectsInStableOrder(t *testing.T) {
 	}
 }
 
+func TestRenderStyledLayerSurface_PreservesStableOrderForDuplicateKinds(t *testing.T) {
+	doc := &Document{
+		Width:      3,
+		Height:     3,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 1, Y: 1, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,0,0,255],"opacity":1}`),
+		},
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,255,0,255],"opacity":1}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 1, 1); got != ([4]uint8{0, 255, 0, 255}) {
+		t.Fatalf("center pixel = %v, want second same-kind overlay to remain later in stable order", got)
+	}
+}
+
+func TestRenderStyledLayerSurface_RespectsEffectOpacityAndBlendMode(t *testing.T) {
+	doc := &Document{
+		Width:      1,
+		Height:     1,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"multiply","color":[0,0,0,255],"opacity":0.5}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 0, 0); got != ([4]uint8{128, 128, 128, 255}) {
+		t.Fatalf("pixel = %v, want 50%% multiply over white to produce mid gray", got)
+	}
+}
+
+func TestRenderStyledLayerSurface_ComposesPartialOverlapInGroupedOrder(t *testing.T) {
+	doc := &Document{
+		Width:      7,
+		Height:     7,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 3, Y: 3, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"size":1,"position":"outside","fillType":"color","blendMode":"normal","color":[0,255,0,255],"opacity":0.5}`),
+		},
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":0.5,"distance":1,"angle":0,"size":0}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 85, 170, 192}) {
+		t.Fatalf("overlap pixel = %v, want exact blue-over-green partial composite in grouped order", got)
+	}
+}
+
 func TestRenderStyledLayerSurface_RendersSupportedEffectCatalog(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -424,6 +521,31 @@ func TestRenderStyledLayerSurface_AllowsNonRasterizableLayersWithDisabledStyles(
 	}})
 	if _, err := doc.renderLayerToSurface(adjustment); err != nil {
 		t.Fatalf("render disabled styled adjustment: %v", err)
+	}
+}
+
+func TestRenderStyledLayerSurface_DefaultsMalformedStylesInsteadOfFailing(t *testing.T) {
+	doc := &Document{
+		Width:      1,
+		Height:     1,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	layer := NewPixelLayer("Bad", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindDropShadow),
+		Enabled: true,
+		Params:  jsonRawMessage(`{"opacity":"bad"}`),
+	}})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("renderLayerToSurface should fail safe, got %v", err)
+	}
+	if got := rgbaAt(surface, doc.Width, 0, 0); got != ([4]uint8{64, 64, 64, 255}) {
+		t.Fatalf("malformed style should fall back to default drop shadow, got %v", got)
 	}
 }
 
