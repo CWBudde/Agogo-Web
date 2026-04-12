@@ -120,7 +120,7 @@ func (inst *instance) penToolClick(payload PenToolClickPayload) error {
 			}
 			if len(sp.Points) >= 2 && isWithinPenEndpoint(payload.X, payload.Y, sp.Points[0]) {
 				// Clicking the start of an open subpath should continue forward from that endpoint.
-				reverseSubpath(sp)
+				reverseSubpathInPlace(sp)
 				return nil
 			}
 			if len(sp.Points) == 1 && isWithinPenEndpoint(payload.X, payload.Y, sp.Points[0]) {
@@ -155,9 +155,9 @@ func isWithinPenEndpoint(x, y float64, pt PathPoint) bool {
 	return dx*dx+dy*dy <= penToolEndpointSnapDistance*penToolEndpointSnapDistance
 }
 
-func reverseSubpath(sp *Subpath) {
+func reverseSubpathInPlace(sp *Subpath) {
 	points := make([]PathPoint, len(sp.Points))
-	for i, pt := range sp.Points {
+	for i := range sp.Points {
 		src := sp.Points[len(sp.Points)-1-i]
 		points[i] = src
 		points[i].InX, points[i].OutX = src.OutX, src.InX

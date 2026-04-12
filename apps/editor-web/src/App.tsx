@@ -1008,8 +1008,16 @@ export default function App() {
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let payload: string;
-    // PK magic bytes 0x50 0x4B = ZIP file
-    if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    const isLikelyJSON = (() => {
+      for (const value of bytes) {
+        if (value === 0x20 || value === 0x09 || value === 0x0a || value === 0x0d) {
+          continue;
+        }
+        return value === 0x7b;
+      }
+      return false;
+    })();
+    if (!isLikelyJSON) {
       const chunkSize = 0x8000;
       let binary = "";
       for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -1017,7 +1025,6 @@ export default function App() {
       }
       payload = btoa(binary);
     } else {
-      // Legacy JSON — pass as plain text
       payload = new TextDecoder().decode(bytes);
     }
     const imported = engine.importProject(payload);

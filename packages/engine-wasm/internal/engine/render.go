@@ -104,6 +104,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		return UIMeta{
 			CursorType:          "default",
 			StatusText:          "No active document",
+			ImportWarnings:      append([]string(nil), inst.importWarnings...),
 			History:             inst.history.Entries(),
 			CurrentHistoryIndex: inst.history.CurrentIndex(),
 			CanUndo:             inst.history.CanUndo(),
@@ -122,6 +123,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		ActiveLayerName:      activeLayerName,
 		CursorType:           inst.cursorType(),
 		StatusText:           inst.statusText(doc),
+		ImportWarnings:       append([]string(nil), inst.importWarnings...),
 		RulerOriginX:         0,
 		RulerOriginY:         0,
 		History:              inst.history.Entries(),
@@ -140,13 +142,13 @@ func (inst *instance) renderUIMeta() UIMeta {
 		FreeTransform:        inst.freeTransform.meta(),
 		Crop:                 inst.crop.meta(),
 		Paths:                doc.pathsMeta(),
-			PathOverlay:          inst.buildPathOverlay(),
-			EditingVectorLayerID: inst.editingVectorLayerID,
-			EditingTextLayerID:   inst.textEdit.layerID,
-			TextCursorX:          inst.textCursorX(doc),
-			TextCursorY:          inst.textCursorY(doc),
-			StylePresets:         cloneDocumentStylePresets(doc.StylePresets),
-		}
+		PathOverlay:          inst.buildPathOverlay(),
+		EditingVectorLayerID: inst.editingVectorLayerID,
+		EditingTextLayerID:   inst.textEdit.layerID,
+		TextCursorX:          inst.textCursorX(doc),
+		TextCursorY:          inst.textCursorY(doc),
+		StylePresets:         cloneDocumentStylePresets(doc.StylePresets),
+	}
 }
 
 // textCursorX returns the doc-space X coordinate of the text insertion cursor.

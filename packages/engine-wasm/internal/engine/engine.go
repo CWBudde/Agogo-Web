@@ -15,102 +15,102 @@ import (
 const thumbnailSize = 32
 
 const (
-	commandCreateDocument           = 0x0001
-	commandCloseDocument            = 0x0002
-	commandZoomSet                  = 0x0010
-	commandPanSet                   = 0x0011
-	commandRotateViewSet            = 0x0012
-	commandResize                   = 0x0013
-	commandFitToView                = 0x0014
-	commandPointerEvent             = 0x0015
-	commandJumpHistory              = 0x0016
-	commandSetShowGuides            = 0x0017
-	commandAddLayer                 = 0x0100
-	commandDeleteLayer              = 0x0101
-	commandMoveLayer                = 0x0102
-	commandSetLayerVis              = 0x0103
-	commandSetLayerOp               = 0x0104
-	commandSetLayerBlend            = 0x0105
-	commandDuplicateLayer           = 0x0106
-	commandSetLayerLock             = 0x0107
-	commandFlattenLayer             = 0x0108
-	commandMergeDown                = 0x0109
-	commandMergeVisible             = 0x010a
-	commandAddLayerMask             = 0x010b
-	commandDeleteLayerMask          = 0x010c
-	commandApplyLayerMask           = 0x010d
-	commandInvertLayerMask          = 0x010e
-	commandSetMaskEnabled           = 0x010f
-	commandSetLayerClip             = 0x0110
-	commandSetActiveLayer           = 0x0111
-	commandSetLayerName             = 0x0112
-	commandAddVectorMask            = 0x0113
-	commandDeleteVectorMask         = 0x0114
-	commandSetMaskEditMode          = 0x0115
-	commandGetLayerThumbnails       = 0x0116
-	commandFlattenImage             = 0x0117
-	commandOpenImageFile            = 0x0118
-	commandTranslateLayer           = 0x0119
-	commandPickLayerAtPoint         = 0x011a
-	commandSetAdjustmentParams      = 0x011b
-	commandNewSelection             = 0x0200
-	commandSelectAll                = 0x0201
-	commandDeselect                 = 0x0202
-	commandReselect                 = 0x0203
-	commandInvertSelection          = 0x0204
-	commandFeatherSelection         = 0x0205
-	commandExpandSelection          = 0x0206
-	commandContractSelection        = 0x0207
-	commandSmoothSelection          = 0x0208
-	commandBorderSelection          = 0x0209
-	commandTransformSelection       = 0x020a
-	commandSelectColorRange         = 0x020b
-	commandQuickSelect              = 0x020c
-	commandMagicWand                = 0x020d
-	commandMagneticLassoSuggestPath = 0x020e
-	commandBeginFreeTransform       = 0x0300
-	commandUpdateFreeTransform      = 0x0301
-	commandCommitFreeTransform      = 0x0302
-	commandCancelFreeTransform      = 0x0303
-	commandFlipLayerH               = 0x0304
-	commandFlipLayerV               = 0x0305
-	commandRotateLayer90CW          = 0x0306
-	commandRotateLayer90CCW         = 0x0307
-	commandRotateLayer180           = 0x0308
-	commandTransformAgain           = 0x0309
-	commandBeginCrop                = 0x0320
-	commandUpdateCrop               = 0x0321
-	commandCommitCrop               = 0x0322
-	commandCancelCrop               = 0x0323
-	commandResizeCanvas             = 0x0324
-	commandBeginPaintStroke         = 0x0400
-	commandContinuePaintStroke      = 0x0401
-	commandEndPaintStroke           = 0x0402
-	commandSetForegroundColor       = 0x0410
-	commandSetBackgroundColor       = 0x0411
-	commandSampleMergedColor        = 0x0412
-	commandMagicErase               = 0x0413
-	commandFill                     = 0x0414
-	commandApplyGradient            = 0x0415
-	commandComputeHistogram         = 0x011c
-	commandSetPointFromSample       = 0x011d
-	commandIdentifyHueRange         = 0x011e
-	commandSetLayerStyleStack       = 0x011f
-	commandSetLayerStyleEnabled     = 0x0120
-	commandSetLayerStyleParams      = 0x0121
-	commandCopyLayerStyle           = 0x0122
-	commandPasteLayerStyle          = 0x0123
-	commandClearLayerStyle          = 0x0124
+	commandCreateDocument            = 0x0001
+	commandCloseDocument             = 0x0002
+	commandZoomSet                   = 0x0010
+	commandPanSet                    = 0x0011
+	commandRotateViewSet             = 0x0012
+	commandResize                    = 0x0013
+	commandFitToView                 = 0x0014
+	commandPointerEvent              = 0x0015
+	commandJumpHistory               = 0x0016
+	commandSetShowGuides             = 0x0017
+	commandAddLayer                  = 0x0100
+	commandDeleteLayer               = 0x0101
+	commandMoveLayer                 = 0x0102
+	commandSetLayerVis               = 0x0103
+	commandSetLayerOp                = 0x0104
+	commandSetLayerBlend             = 0x0105
+	commandDuplicateLayer            = 0x0106
+	commandSetLayerLock              = 0x0107
+	commandFlattenLayer              = 0x0108
+	commandMergeDown                 = 0x0109
+	commandMergeVisible              = 0x010a
+	commandAddLayerMask              = 0x010b
+	commandDeleteLayerMask           = 0x010c
+	commandApplyLayerMask            = 0x010d
+	commandInvertLayerMask           = 0x010e
+	commandSetMaskEnabled            = 0x010f
+	commandSetLayerClip              = 0x0110
+	commandSetActiveLayer            = 0x0111
+	commandSetLayerName              = 0x0112
+	commandAddVectorMask             = 0x0113
+	commandDeleteVectorMask          = 0x0114
+	commandSetMaskEditMode           = 0x0115
+	commandGetLayerThumbnails        = 0x0116
+	commandFlattenImage              = 0x0117
+	commandOpenImageFile             = 0x0118
+	commandTranslateLayer            = 0x0119
+	commandPickLayerAtPoint          = 0x011a
+	commandSetAdjustmentParams       = 0x011b
+	commandNewSelection              = 0x0200
+	commandSelectAll                 = 0x0201
+	commandDeselect                  = 0x0202
+	commandReselect                  = 0x0203
+	commandInvertSelection           = 0x0204
+	commandFeatherSelection          = 0x0205
+	commandExpandSelection           = 0x0206
+	commandContractSelection         = 0x0207
+	commandSmoothSelection           = 0x0208
+	commandBorderSelection           = 0x0209
+	commandTransformSelection        = 0x020a
+	commandSelectColorRange          = 0x020b
+	commandQuickSelect               = 0x020c
+	commandMagicWand                 = 0x020d
+	commandMagneticLassoSuggestPath  = 0x020e
+	commandBeginFreeTransform        = 0x0300
+	commandUpdateFreeTransform       = 0x0301
+	commandCommitFreeTransform       = 0x0302
+	commandCancelFreeTransform       = 0x0303
+	commandFlipLayerH                = 0x0304
+	commandFlipLayerV                = 0x0305
+	commandRotateLayer90CW           = 0x0306
+	commandRotateLayer90CCW          = 0x0307
+	commandRotateLayer180            = 0x0308
+	commandTransformAgain            = 0x0309
+	commandBeginCrop                 = 0x0320
+	commandUpdateCrop                = 0x0321
+	commandCommitCrop                = 0x0322
+	commandCancelCrop                = 0x0323
+	commandResizeCanvas              = 0x0324
+	commandBeginPaintStroke          = 0x0400
+	commandContinuePaintStroke       = 0x0401
+	commandEndPaintStroke            = 0x0402
+	commandSetForegroundColor        = 0x0410
+	commandSetBackgroundColor        = 0x0411
+	commandSampleMergedColor         = 0x0412
+	commandMagicErase                = 0x0413
+	commandFill                      = 0x0414
+	commandApplyGradient             = 0x0415
+	commandComputeHistogram          = 0x011c
+	commandSetPointFromSample        = 0x011d
+	commandIdentifyHueRange          = 0x011e
+	commandSetLayerStyleStack        = 0x011f
+	commandSetLayerStyleEnabled      = 0x0120
+	commandSetLayerStyleParams       = 0x0121
+	commandCopyLayerStyle            = 0x0122
+	commandPasteLayerStyle           = 0x0123
+	commandClearLayerStyle           = 0x0124
 	commandCreateDocumentStylePreset = 0x0125
 	commandUpdateDocumentStylePreset = 0x0126
 	commandDeleteDocumentStylePreset = 0x0127
 	commandApplyDocumentStylePreset  = 0x0128
-	commandApplyFilter              = 0x0500
-	commandReapplyFilter            = 0x0501
-	commandPreviewFilter            = 0x0502
-	commandCancelFilterPreview      = 0x0503
-	commandCommitFilterPreview      = 0x0504
-	commandFadeFilter               = 0x0505
+	commandApplyFilter               = 0x0500
+	commandReapplyFilter             = 0x0501
+	commandPreviewFilter             = 0x0502
+	commandCancelFilterPreview       = 0x0503
+	commandCommitFilterPreview       = 0x0504
+	commandFadeFilter                = 0x0505
 
 	// Phase 6.1: Vector Path
 	commandSetActiveTool         = 0x0600
@@ -172,24 +172,24 @@ type Background struct {
 }
 
 type Document struct {
-	Width          int         `json:"width"`
-	Height         int         `json:"height"`
-	Resolution     float64     `json:"resolution"`
-	ColorMode      string      `json:"colorMode"`
-	BitDepth       int         `json:"bitDepth"`
-	Background     Background  `json:"background"`
-	ID             string      `json:"id"`
-	Name           string      `json:"name"`
-	CreatedAt      string      `json:"createdAt"`
-	CreatedBy      string      `json:"createdBy"`
-	ModifiedAt     string      `json:"modifiedAt"`
-	ActiveLayerID  string      `json:"activeLayerId,omitempty"`
-	LayerRoot      *GroupLayer `json:"-"`
-	Selection      *Selection  `json:"-"`
-	LastSelection  *Selection  `json:"-"`
-	ContentVersion int64       `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
-	Paths          []NamedPath `json:"-"`
-	ActivePathIdx  int         `json:"-"`
+	Width          int                   `json:"width"`
+	Height         int                   `json:"height"`
+	Resolution     float64               `json:"resolution"`
+	ColorMode      string                `json:"colorMode"`
+	BitDepth       int                   `json:"bitDepth"`
+	Background     Background            `json:"background"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	CreatedAt      string                `json:"createdAt"`
+	CreatedBy      string                `json:"createdBy"`
+	ModifiedAt     string                `json:"modifiedAt"`
+	ActiveLayerID  string                `json:"activeLayerId,omitempty"`
+	LayerRoot      *GroupLayer           `json:"-"`
+	Selection      *Selection            `json:"-"`
+	LastSelection  *Selection            `json:"-"`
+	ContentVersion int64                 `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
+	Paths          []NamedPath           `json:"-"`
+	ActivePathIdx  int                   `json:"-"`
 	StylePresets   []DocumentStylePreset `json:"-"`
 }
 
@@ -230,6 +230,7 @@ type UIMeta struct {
 	ActiveLayerName     string          `json:"activeLayerName"`
 	CursorType          string          `json:"cursorType"`
 	StatusText          string          `json:"statusText"`
+	ImportWarnings      []string        `json:"importWarnings,omitempty"`
 	RulerOriginX        float64         `json:"rulerOriginX"`
 	RulerOriginY        float64         `json:"rulerOriginY"`
 	History             []HistoryEntry  `json:"history"`
@@ -260,8 +261,8 @@ type UIMeta struct {
 	EditingTextLayerID string `json:"editingTextLayerId,omitempty"`
 	// TextCursorX/Y are doc-space coordinates of the text insertion cursor.
 	// Only meaningful when EditingTextLayerID is set.
-	TextCursorX float64 `json:"textCursorX,omitempty"`
-	TextCursorY float64 `json:"textCursorY,omitempty"`
+	TextCursorX  float64               `json:"textCursorX,omitempty"`
+	TextCursorY  float64               `json:"textCursorY,omitempty"`
 	StylePresets []DocumentStylePreset `json:"stylePresets,omitempty"`
 }
 
@@ -890,6 +891,8 @@ type instance struct {
 	// textEdit holds the in-flight state while a TextLayer is being edited.
 	// UI-only — not included in history snapshots. Cleared on commit.
 	textEdit textEditState
+	// importWarnings stores non-fatal issues from the most recent external import.
+	importWarnings []string
 }
 
 // textEditState tracks the in-progress text edit for a single TextLayer.

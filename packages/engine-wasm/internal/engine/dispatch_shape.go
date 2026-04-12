@@ -186,7 +186,7 @@ func (inst *instance) rasterizeLayer(p RasterizeLayerPayload) error {
 		if err != nil {
 			return err
 		}
-		replaceChild(parent.(*GroupLayer), index, pixelLayer)
+		replaceChild(parent, index, pixelLayer)
 		doc.normalizeClippingState()
 		doc.ActiveLayerID = pixelLayer.ID()
 		return nil

@@ -46,6 +46,7 @@ export interface UIMeta {
 	activeLayerName: string | null;
 	cursorType: string;
 	statusText: string;
+	importWarnings?: string[];
 	rulerOriginX: number;
 	rulerOriginY: number;
 	history: HistoryEntry[];
