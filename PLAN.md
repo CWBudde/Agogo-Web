@@ -1111,18 +1111,18 @@
 - [ ] Implement PSD/PSB file format reader per Adobe specification:
   - [x] **File header:** magic (`8BPS`), version (1=PSD, 2=PSB), channels, height, width, depth, color mode
   - [x] **Color mode data section**
-  - [ ] **Image resources section:** DPI (0x03ED), ICC profile (0x040F), guides (0x0408), slices (0x041A), layer comps (0x0435)
+  - [x] **Image resources section:** DPI (0x03ED), ICC profile (0x040F), guides (0x0408), slices (0x041A), layer comps (0x0435)
     - [x] DPI (0x03ED)
-    - [ ] ICC profile (0x040F)
-    - [ ] Guides (0x0408)
-    - [ ] Slices (0x041A)
-    - [ ] Layer comps (0x0435)
+    - [x] ICC profile (0x040F)
+    - [x] Guides (0x0408)
+    - [x] Slices (0x041A)
+    - [x] Layer comps (0x0435)
   - [ ] **Layer and mask information section:**
     - [x] Layer count and layer records (bounding rect, channels, blend mode, opacity, flags, name, extra data)
     - [x] Extra layer data: layer name (Unicode)
-    - [ ] Extra layer data: layer ID, layer color tag, sections (groups/begin-end markers)
-    - [ ] Layer masks: mask data per layer
-    - [ ] Layer effects (legacy effects list + object-based effects / descriptor)
+    - [x] Extra layer data: layer ID, layer color tag, sections (groups/begin-end markers)
+    - [x] Layer masks: mask data per layer
+    - [x] Layer effects (legacy effects list + object-based effects / descriptor)
     - [ ] Text layer data (descriptor-based: TySh)
     - [ ] Vector mask data (vmsk / vsms)
     - [ ] Adjustment layer params per type (leve, curv, hue2, etc.)
@@ -1135,7 +1135,7 @@
   - [x] PSB differences: 8-byte length fields, layer/channel lengths, height/width width limits in header parsing
 - [x] Map parsed data to internal `Document` / `LayerNode` tree
 - [x] Fallback: unknown layer types import as flattened pixel layer with warning
-- [ ] Error handling: corrupt/partial PSDs load what they can, report issues
+- [x] Error handling: corrupt/partial PSDs load what they can, report issues
 
 ### Phase 7.2: PSD Writer (Save)
 

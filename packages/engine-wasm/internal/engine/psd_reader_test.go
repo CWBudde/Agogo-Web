@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"compress/zlib"
 	"bytes"
+	"compress/zlib"
 	"encoding/base64"
 	"encoding/binary"
 	"io"
@@ -138,6 +138,304 @@ func TestLoadPSDImportsLayerRasterDataAndWarnsForUnsupportedTextMetadata(t *test
 	}
 	if !bytes.Equal(second.Pixels, []byte{200, 150, 100, 255}) {
 		t.Fatalf("second layer pixels = %v, want [200 150 100 255]", second.Pixels)
+	}
+}
+
+func TestLoadPSDParsesImageResourceMetadataWithoutBlockingImport(t *testing.T) {
+	testCases := []struct {
+		name string
+		id   uint16
+		data []byte
+	}{
+		{name: "ICC profile", id: psdImageResourceICCProfile, data: []byte("icc-profile")},
+		{name: "guides", id: psdImageResourceGuides, data: []byte("guide-data")},
+		{name: "slices", id: psdImageResourceSlices, data: []byte("slice-data")},
+		{name: "layer comps", id: psdImageResourceLayerComps, data: []byte("layer-comps")},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := buildMinimalPSD(t, minimalPSDConfig{
+				width:      1,
+				height:     1,
+				channels:   3,
+				resolution: 72,
+				resources: []psdImageResource{
+					{id: tc.id, name: "meta", data: tc.data},
+				},
+				composite: psdImageData{
+					compression: psdCompressionRaw,
+					planes: [][]byte{
+						{0},
+						{0},
+						{0},
+					},
+				},
+			})
+			doc, warnings, err := LoadPSD(data)
+			if err != nil {
+				t.Fatalf("LoadPSD: %v", err)
+			}
+			if len(warnings) != 0 {
+				t.Fatalf("unexpected warnings = %v", warnings)
+			}
+			if len(doc.LayerRoot.Children()) != 1 {
+				t.Fatalf("imported child count = %d, want 1", len(doc.LayerRoot.Children()))
+			}
+		})
+	}
+}
+
+func TestLoadPSDParsesSectionDividerBlocksIntoGroups(t *testing.T) {
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		layers: []minimalPSDLayer{
+			{
+				name: "Group",
+				rect: LayerBounds{X: 0, Y: 0, W: 0, H: 0},
+				extraBlocks: []psdTaggedBlock{
+					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionOpenFolder)},
+				},
+			},
+			{
+				name: "Child",
+				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				channels: []psdLayerChannel{
+					{id: 0, compression: psdCompressionRaw, data: []byte{10}},
+					{id: 1, compression: psdCompressionRaw, data: []byte{20}},
+					{id: 2, compression: psdCompressionRaw, data: []byte{30}},
+					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+				},
+			},
+			{
+				name: "Group End",
+				rect: LayerBounds{X: 0, Y: 0, W: 0, H: 0},
+				extraBlocks: []psdTaggedBlock{
+					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionCloseFolder)},
+				},
+			},
+		},
+		composite: psdImageData{
+			compression: psdCompressionRaw,
+			planes: [][]byte{
+				{0},
+				{0},
+				{0},
+			},
+		},
+	})
+	doc, warnings, err := LoadPSD(data)
+	if err != nil {
+		t.Fatalf("LoadPSD: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings = %v", warnings)
+	}
+	rootChildren := doc.LayerRoot.Children()
+	if len(rootChildren) != 1 {
+		t.Fatalf("root child count = %d, want 1", len(rootChildren))
+	}
+	group, ok := rootChildren[0].(*GroupLayer)
+	if !ok {
+		t.Fatalf("root child type = %T, want *GroupLayer", rootChildren[0])
+	}
+	groupChildren := group.Children()
+	if len(groupChildren) != 1 {
+		t.Fatalf("group child count = %d, want 1", len(groupChildren))
+	}
+	if _, ok := groupChildren[0].(*PixelLayer); !ok {
+		t.Fatalf("group child type = %T, want *PixelLayer", groupChildren[0])
+	}
+}
+
+func TestLoadPSDParsesLayerMaskMetadata(t *testing.T) {
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		layers: []minimalPSDLayer{
+			{
+				name: "Masked",
+				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				channels: []psdLayerChannel{
+					{id: 0, compression: psdCompressionRaw, data: []byte{10}},
+					{id: 1, compression: psdCompressionRaw, data: []byte{20}},
+					{id: 2, compression: psdCompressionRaw, data: []byte{30}},
+					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+				},
+			},
+		},
+		composite: psdImageData{
+			compression: psdCompressionRaw,
+			planes: [][]byte{
+				{10},
+				{20},
+				{30},
+			},
+		},
+	})
+	doc, _, err := LoadPSD(data)
+	if err != nil {
+		t.Fatalf("LoadPSD: %v", err)
+	}
+	children := doc.LayerRoot.Children()
+	if len(children) != 1 {
+		t.Fatalf("child count = %d, want 1", len(children))
+	}
+	layer, ok := children[0].(*PixelLayer)
+	if !ok {
+		t.Fatalf("root child type = %T, want *PixelLayer", children[0])
+	}
+	mask := layer.Mask()
+	if mask == nil {
+		t.Fatal("expected parsed layer mask")
+	}
+	if mask.Width != 1 || mask.Height != 1 {
+		t.Fatalf("mask size = %dx%d, want 1x1", mask.Width, mask.Height)
+	}
+}
+
+func TestParsePSDLayerExtraDataCapturesLayerEffectsMetadata(t *testing.T) {
+	extraData := buildLayerExtraData(t, []psdTaggedBlock{
+		{
+			signature: "8BIM",
+			key:       "lrFX",
+			data:      buildLayerLegacyEffectsBlock([]string{"drSh", "dsSh"}),
+		},
+		{
+			signature: "8BIM",
+			key:       "lfx2",
+			data:      buildLayerObjectEffectsBlock(2, 3),
+		},
+		{
+			signature: "8BIM",
+			key:       "levl",
+			data:      buildLayerAdjustmentPayload(0),
+		},
+		{
+			signature: "8BIM",
+			key:       "PlLd",
+			data:      buildLayerSmartObjectPayload("uid-1"),
+		},
+	})
+
+	var record psdLayerRecord
+	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
+		t.Fatalf("parsePSDLayerExtraData: %v", err)
+	}
+	if record.Effects == nil || record.Effects.Legacy == nil {
+		t.Fatal("expected legacy effects metadata")
+	}
+	if got, want := len(record.Effects.Legacy.EffectKeys), 2; got != want {
+		t.Fatalf("legacy effect count = %d, want %d", got, want)
+	}
+	if record.Effects.Legacy.EffectCount != 2 {
+		t.Fatalf("legacy effect count field = %d, want 2", record.Effects.Legacy.EffectCount)
+	}
+	if record.Effects.Object == nil {
+		t.Fatal("expected object effects metadata")
+	}
+	if got, want := len(record.Adjustments), 1; got != want {
+		t.Fatalf("adjustment metadata count = %d, want 1", got)
+	}
+	if record.Adjustments[0].Kind != "levels" {
+		t.Fatalf("adjustment kind = %q, want levels", record.Adjustments[0].Kind)
+	}
+	if record.SmartObject == nil {
+		t.Fatal("expected smart object metadata")
+	}
+	if record.SmartObject.Identifier != "uid-1" {
+		t.Fatalf("smart object identifier = %q, want uid-1", record.SmartObject.Identifier)
+	}
+}
+
+func TestLoadPSDParsesMalformedLayerEffectsMetadataAsWarning(t *testing.T) {
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		layers: []minimalPSDLayer{
+			{
+				name: "Effects",
+				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				extraBlocks: []psdTaggedBlock{
+					{
+						signature: "8BIM",
+						key:       "lfx2",
+						data:      []byte{0x01},
+					},
+					{
+						signature: "8BIM",
+						key:       "lrFX",
+						data:      []byte{0x00, 0x01},
+					},
+				},
+				channels: []psdLayerChannel{
+					{id: 0, compression: psdCompressionRaw, data: []byte{11}},
+					{id: 1, compression: psdCompressionRaw, data: []byte{22}},
+					{id: 2, compression: psdCompressionRaw, data: []byte{33}},
+					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+				},
+			},
+		},
+		composite: psdImageData{
+			compression: psdCompressionRaw,
+			planes: [][]byte{
+				{11},
+				{22},
+				{33},
+			},
+		},
+	})
+	_, warnings, err := LoadPSD(data)
+	if err != nil {
+		t.Fatalf("LoadPSD: %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected warning for malformed layer effects metadata")
+	}
+	if !strings.Contains(strings.Join(warnings, " "), "lfx2") && !strings.Contains(strings.Join(warnings, " "), "lrFX") {
+		t.Fatalf("expected malformed layer effects warning, got %v", warnings)
+	}
+}
+
+func TestLoadPSDPartialCompositeErrorReportsWarning(t *testing.T) {
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		layers: []minimalPSDLayer{
+			{
+				name: "Only",
+				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				channels: []psdLayerChannel{
+					{id: 0, compression: psdCompressionRaw, data: []byte{40}},
+					{id: 1, compression: psdCompressionRaw, data: []byte{50}},
+					{id: 2, compression: psdCompressionRaw, data: []byte{60}},
+					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+				},
+			},
+		},
+		composite: psdImageData{
+			compression: 99,
+			planes: [][]byte{
+				{40},
+				{50},
+				{60},
+			},
+		},
+	})
+	doc, warnings, err := LoadPSD(data)
+	if err != nil {
+		t.Fatalf("LoadPSD: %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected warning for unsupported composite compression")
+	}
+	children := doc.LayerRoot.Children()
+	if len(children) != 1 {
+		t.Fatalf("child count = %d, want 1", len(children))
 	}
 }
 
@@ -322,8 +620,15 @@ type minimalPSDConfig struct {
 	height     int
 	channels   int
 	resolution int
+	resources  []psdImageResource
 	layers     []minimalPSDLayer
 	composite  psdImageData
+}
+
+type psdImageResource struct {
+	id   uint16
+	name string
+	data []byte
 }
 
 type minimalPSDLayer struct {
@@ -331,6 +636,8 @@ type minimalPSDLayer struct {
 	rect        LayerBounds
 	channels    []psdLayerChannel
 	extraBlocks []psdTaggedBlock
+	maskData    []byte
+	blendRanges []byte
 }
 
 type psdLayerChannel struct {
@@ -376,6 +683,9 @@ func buildMinimalPSD(t *testing.T, cfg minimalPSDConfig) []byte {
 	if cfg.resolution > 0 {
 		writeImageResourceBlock(&resources, 0x03ed, nil, buildResolutionInfoBlock(cfg.resolution))
 	}
+	for _, resource := range cfg.resources {
+		writeImageResourceBlock(&resources, resource.id, []byte(resource.name), resource.data)
+	}
 	writeUint32(&out, uint32(resources.Len()))
 	out.Write(resources.Bytes())
 
@@ -420,8 +730,16 @@ func buildLayerAndMaskSection(t *testing.T, layers []minimalPSDLayer) []byte {
 		layerRecords.WriteByte(0)
 
 		var extra bytes.Buffer
-		writeUint32(&extra, 0)
-		writeUint32(&extra, 0)
+		if len(layer.maskData) == 0 {
+			layer.maskData = buildLayerMaskData(t, layer.rect)
+		}
+		if len(layer.blendRanges) == 0 {
+			layer.blendRanges = buildLayerBlendRangeData()
+		}
+		writeUint32(&extra, uint32(len(layer.maskData)))
+		extra.Write(layer.maskData)
+		writeUint32(&extra, uint32(len(layer.blendRanges)))
+		extra.Write(layer.blendRanges)
 		writePascalString4(&extra, layer.name)
 		for _, block := range layer.extraBlocks {
 			writeTaggedBlock(&extra, block)
@@ -446,6 +764,19 @@ func buildLayerAndMaskSection(t *testing.T, layers []minimalPSDLayer) []byte {
 	section.Write(layerInfo.Bytes())
 	writeUint32(&section, 0)
 	return section.Bytes()
+}
+
+func buildLayerExtraData(t *testing.T, blocks []psdTaggedBlock) []byte {
+	t.Helper()
+
+	var out bytes.Buffer
+	writeUint32(&out, 0)
+	writeUint32(&out, 0)
+	writePascalString4(&out, "Layer")
+	for _, block := range blocks {
+		writeTaggedBlock(&out, block)
+	}
+	return out.Bytes()
 }
 
 func buildImageDataSection(t *testing.T, data psdImageData, width, height int) []byte {
@@ -478,7 +809,7 @@ func buildImageDataSection(t *testing.T, data psdImageData, width, height int) [
 		if data.compression == psdCompressionZipPrediction {
 			for i := 0; i < len(data.planes); i++ {
 				start := i * width * height
-				end := start + width * height
+				end := start + width*height
 				if end > len(composite) {
 					t.Fatalf("invalid composite plane bounds start=%d end=%d len=%d", start, end, len(composite))
 				}
@@ -491,8 +822,46 @@ func buildImageDataSection(t *testing.T, data psdImageData, width, height int) [
 		}
 		out.Write(compressed)
 	default:
-		t.Fatalf("unsupported compression %d in test fixture", data.compression)
+		// Intentionally emit unsupported compression markers for resilience tests.
+		return out.Bytes()
 	}
+	return out.Bytes()
+}
+
+func buildLayerAdjustmentPayload(version uint16) []byte {
+	var out bytes.Buffer
+	writeUint16(&out, version)
+	out.WriteString("level-data")
+	return out.Bytes()
+}
+
+func buildLayerLegacyEffectsBlock(effectKeys []string) []byte {
+	var out bytes.Buffer
+	writeUint16(&out, 1)
+	writeUint16(&out, uint16(len(effectKeys)))
+	for _, key := range effectKeys {
+		out.WriteString("8BIM")
+		out.WriteString(key)
+		payload := []byte{0x10, 0x20, 0x30, 0x40}
+		writeUint32(&out, uint32(len(payload)))
+		out.Write(payload)
+	}
+	return out.Bytes()
+}
+
+func buildLayerObjectEffectsBlock(objectVersion, descriptorVersion uint32) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, objectVersion)
+	writeUint32(&out, descriptorVersion)
+	out.WriteString("desc")
+	return out.Bytes()
+}
+
+func buildLayerSmartObjectPayload(identifier string) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, 1)
+	out.WriteByte(byte(len(identifier)))
+	out.WriteString(identifier)
 	return out.Bytes()
 }
 
@@ -588,6 +957,29 @@ func buildResolutionInfoBlock(dpi int) []byte {
 	return out.Bytes()
 }
 
+func buildLayerMaskData(t *testing.T, bounds LayerBounds) []byte {
+	t.Helper()
+
+	var out bytes.Buffer
+	writeInt32(&out, int32(bounds.Y))
+	writeInt32(&out, int32(bounds.X))
+	writeInt32(&out, int32(bounds.Y+bounds.H))
+	writeInt32(&out, int32(bounds.X+bounds.W))
+	writeUint16(&out, 0) // default color
+	writeUint16(&out, 0) // flags
+	return out.Bytes()
+}
+
+func buildLayerBlendRangeData() []byte {
+	return []byte{0, 0, 0, 0, 0, 0, 0, 0}
+}
+
+func buildSectionDividerData(sectionType uint32) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, sectionType)
+	return out.Bytes()
+}
+
 func buildTypeToolInfoBlock() []byte {
 	var out bytes.Buffer
 	writeUint16(&out, 1)
@@ -647,6 +1039,10 @@ func writeUint16(out *bytes.Buffer, value uint16) {
 }
 
 func writeInt16(out *bytes.Buffer, value int16) {
+	_ = binary.Write(out, binary.BigEndian, value)
+}
+
+func writeInt32(out *bytes.Buffer, value int32) {
 	_ = binary.Write(out, binary.BigEndian, value)
 }
 

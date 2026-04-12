@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"compress/zlib"
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -16,10 +16,25 @@ const (
 	psdColorModeGrayscale = 1
 	psdColorModeRGB       = 3
 
-	psdCompressionRaw           = iota
+	psdCompressionRaw = iota
 	psdCompressionRLE
 	psdCompressionZip
 	psdCompressionZipPrediction
+)
+
+const (
+	psdImageResourceDPI        = 0x03ed
+	psdImageResourceICCProfile = 0x040f
+	psdImageResourceGuides     = 0x0408
+	psdImageResourceSlices     = 0x041a
+	psdImageResourceLayerComps = 0x0435
+)
+
+const (
+	psdLayerSectionNormal      = 0
+	psdLayerSectionOpenFolder  = 1
+	psdLayerSectionCloseFolder = 2
+	psdLayerSectionNested      = 3
 )
 
 type psdHeader struct {
@@ -38,7 +53,72 @@ type psdParser struct {
 }
 
 type psdImageResources struct {
-	Resolution float64
+	Resolution    float64
+	HasICCProfile bool
+	HasGuides     bool
+	HasSlices     bool
+	HasLayerComps bool
+}
+
+type psdLayerEffectsMeta struct {
+	Legacy *psdLegacyLayerEffectsMeta
+	Object *psdObjectLayerEffectsMeta
+}
+
+type psdLegacyLayerEffectsMeta struct {
+	Version     uint16
+	EffectCount uint16
+	EffectKeys  []string
+	Malformed   bool
+}
+
+type psdObjectLayerEffectsMeta struct {
+	ObjectVersion     uint32
+	DescriptorVersion uint32
+	HasDescriptor     bool
+	Malformed         bool
+}
+
+type psdAdjustmentMeta struct {
+	Key        string
+	Kind       string
+	Version    uint16
+	HasVersion bool
+	PayloadLen int
+	Malformed  bool
+}
+
+type psdSmartObjectMeta struct {
+	Key           string
+	Version       uint32
+	Identifier    string
+	UniqueID      string
+	PayloadLen    int
+	HasDescriptor bool
+	HasVersion    bool
+	Malformed     bool
+	PageNumber    *uint32
+	TotalPages    *uint32
+	PlacedType    *uint32
+}
+
+type psdVectorMaskMeta struct {
+	Key         string
+	PayloadLen  int
+	HasBounds   bool
+	Bounds      LayerBounds
+	DefaultColor uint16
+	Flags       uint16
+	Malformed   bool
+}
+
+type psdTextLayerMeta struct {
+	Key               string
+	PayloadLen        int
+	ParsedText        string
+	DescriptorVersion uint32
+	HasDescriptor     bool
+	Malformed         bool
 }
 
 type psdLayerRecord struct {
@@ -49,8 +129,21 @@ type psdLayerRecord struct {
 	Visible           bool
 	ClipToBelow       bool
 	BlendMode         BlendMode
+	LayerID           uint32
+	LayerColorTag     string
+	SectionType       uint32
+	HasLayerMask      bool
+	LayerMaskBounds   LayerBounds
+	LayerMaskEnabled  bool
+	HasVectorMask     bool
+	VectorMask        *psdVectorMaskMeta
+	Effects           *psdLayerEffectsMeta
+	Adjustments       []psdAdjustmentMeta
+	SmartObject       *psdSmartObjectMeta
+	Text              *psdTextLayerMeta
 	ChannelPixels     map[int16][]byte
 	UnsupportedBlocks []string
+	MetadataWarnings  []string
 }
 
 type psdChannelInfo struct {
@@ -82,11 +175,17 @@ func LoadPSD(data []byte) (*Document, []string, error) {
 	}
 	layers, err := parser.parseLayerAndMaskInfo(header)
 	if err != nil {
-		return nil, nil, err
+		if len(layers) == 0 {
+			return nil, nil, err
+		}
+		parser.warnings = append(parser.warnings, fmt.Sprintf("partial layer info: %v", err))
 	}
 	compositeRGBA, err := parser.parseCompositeImageData(header)
 	if err != nil {
-		return nil, nil, err
+		if len(layers) == 0 {
+			return nil, nil, err
+		}
+		parser.warnings = append(parser.warnings, fmt.Sprintf("partial composite image: %v", err))
 	}
 
 	doc := newImportedPSDDocument(header, resources)
@@ -107,6 +206,10 @@ func LoadPSD(data []byte) (*Document, []string, error) {
 		doc.ActiveLayerID = importedLayers[len(importedLayers)-1].ID()
 	}
 	return doc, append([]string(nil), parser.warnings...), nil
+}
+
+func (p *psdParser) warnf(format string, args ...any) {
+	p.warnings = append(p.warnings, fmt.Sprintf(format, args...))
 }
 
 func newImportedPSDDocument(header psdHeader, resources psdImageResources) *Document {
@@ -135,16 +238,69 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 	if len(layers) == 0 {
 		return nil, nil, nil
 	}
-	nodes := make([]LayerNode, 0, len(layers))
 	var warnings []string
+	nodes := make([]LayerNode, 0, len(layers))
+	groups := make([]*GroupLayer, 0)
+	stacks := [][]LayerNode{nodes}
+
+	resolveName := func(record psdLayerRecord, index int) string {
+		if record.Name != "" {
+			return record.Name
+		}
+		return fmt.Sprintf("Layer %d", index+1)
+	}
+
+	pushStack := func() {
+		stacks = append(stacks, make([]LayerNode, 0))
+	}
+
+	popStack := func() (*GroupLayer, error) {
+		if len(stacks) <= 1 || len(groups) == 0 {
+			return nil, fmt.Errorf("unbalanced group close marker")
+		}
+		lastGroupIdx := len(groups) - 1
+		group := groups[lastGroupIdx]
+		children := stacks[len(stacks)-1]
+		stacks = stacks[:len(stacks)-1]
+		groups = groups[:lastGroupIdx]
+		group.SetChildren(children)
+		return group, nil
+	}
+
+	addToCurrent := func(node LayerNode) {
+		top := len(stacks) - 1
+		stacks[top] = append(stacks[top], node)
+	}
+
+	beginGroup := func(record psdLayerRecord, name string) {
+		group := NewGroupLayer(name)
+		group.SetVisible(record.Visible)
+		group.SetOpacity(record.Opacity)
+		group.SetBlendMode(record.BlendMode)
+		group.SetClipToBelow(record.ClipToBelow)
+		addToCurrent(group)
+		groups = append(groups, group)
+		pushStack()
+	}
+
 	for index, record := range layers {
+		name := resolveName(record, index)
+		if record.SectionType == psdLayerSectionOpenFolder || record.SectionType == psdLayerSectionNested {
+			beginGroup(record, name)
+			continue
+		}
+		if record.SectionType == psdLayerSectionCloseFolder {
+			if _, err := popStack(); err != nil {
+				warnings = append(warnings, "unbalanced group end marker")
+				continue
+			}
+			continue
+		}
+
 		rgba, err := flattenPSDLayerPixels(header, record)
 		if err != nil {
-			return nil, nil, fmt.Errorf("flatten layer %q: %w", record.Name, err)
-		}
-		name := record.Name
-		if name == "" {
-			name = fmt.Sprintf("Layer %d", index+1)
+			warnings = append(warnings, fmt.Sprintf("layer %q skipped: %v", name, err))
+			continue
 		}
 		layer := NewPixelLayer(name, record.Bounds, rgba)
 		layer.SetOpacity(record.Opacity)
@@ -154,8 +310,28 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 		for _, key := range record.UnsupportedBlocks {
 			warnings = append(warnings, fmt.Sprintf("layer %q: unsupported metadata block %s imported as flattened pixel layer", name, key))
 		}
-		nodes = append(nodes, layer)
+		for _, warning := range record.MetadataWarnings {
+			warnings = append(warnings, warning)
+		}
+		if record.HasLayerMask && record.LayerMaskBounds.W > 0 && record.LayerMaskBounds.H > 0 {
+			layer.SetMask(&LayerMask{
+				Enabled: record.LayerMaskEnabled,
+				Width:   record.LayerMaskBounds.W,
+				Height:  record.LayerMaskBounds.H,
+			})
+		}
+		addToCurrent(layer)
 	}
+	for len(stacks) > 1 {
+		group, err := popStack()
+		if err != nil {
+			break
+		}
+		if group != nil {
+			warnings = append(warnings, fmt.Sprintf("group %q was not explicitly closed", group.Name()))
+		}
+	}
+	nodes = stacks[0]
 	return nodes, warnings, nil
 }
 
@@ -285,7 +461,8 @@ func (p *psdParser) parseImageResources() (psdImageResources, error) {
 			return resources, err
 		}
 		if signature != "8BIM" {
-			return resources, fmt.Errorf("invalid image resource signature %q", signature)
+			p.warnf("invalid image resource signature %q", signature)
+			return resources, nil
 		}
 		id, err := readUint16From(reader)
 		if err != nil {
@@ -317,11 +494,19 @@ func (p *psdParser) parseImageResources() (psdImageResources, error) {
 			}
 		}
 		switch id {
-		case 0x03ed:
+		case psdImageResourceDPI:
 			if len(payload) >= 4 {
 				fixed := binary.BigEndian.Uint32(payload[:4])
 				resources.Resolution = float64(fixed) / 65536.0
 			}
+		case psdImageResourceICCProfile:
+			resources.HasICCProfile = true
+		case psdImageResourceGuides:
+			resources.HasGuides = true
+		case psdImageResourceSlices:
+			resources.HasSlices = true
+		case psdImageResourceLayerComps:
+			resources.HasLayerComps = true
 		}
 	}
 	return resources, nil
@@ -364,7 +549,8 @@ func (p *psdParser) parseLayerAndMaskInfo(header psdHeader) ([]psdLayerRecord, e
 	for i := 0; i < layerCount; i++ {
 		record, err := parsePSDLayerRecord(layerReader, header.PSB)
 		if err != nil {
-			return nil, err
+			p.warnf("failed parsing layer %d: %v", i+1, err)
+			return layers, err
 		}
 		layers = append(layers, record)
 	}
@@ -373,7 +559,8 @@ func (p *psdParser) parseLayerAndMaskInfo(header psdHeader) ([]psdLayerRecord, e
 		for _, channel := range layers[i].Channels {
 			pixels, err := parsePSDChannelImageData(layerReader, header.PSB, channel.Length, layers[i].Bounds.W, layers[i].Bounds.H)
 			if err != nil {
-				return nil, fmt.Errorf("decode layer %q channel %d: %w", layers[i].Name, channel.ID, err)
+				p.warnf("decode layer %q channel %d failed: %v", layers[i].Name, channel.ID, err)
+				continue
 			}
 			channelPixels[channel.ID] = pixels
 		}
@@ -476,21 +663,64 @@ func parsePSDLayerExtraData(data []byte, record *psdLayerRecord) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.CopyN(io.Discard, reader, int64(maskLen)); err != nil {
-		return err
+	if maskLen > 0 {
+		maskData, err := readBytesFrom(reader, int(maskLen))
+		if err != nil {
+			return err
+		}
+		if len(maskData) >= 18 {
+			maskReader := bytes.NewReader(maskData)
+			top, err := readInt32From(maskReader)
+			if err != nil {
+				return err
+			}
+			left, err := readInt32From(maskReader)
+			if err != nil {
+				return err
+			}
+			bottom, err := readInt32From(maskReader)
+			if err != nil {
+				return err
+			}
+			right, err := readInt32From(maskReader)
+			if err != nil {
+				return err
+			}
+			width := int(right - left)
+			height := int(bottom - top)
+			if width < 0 {
+				width = 0
+			}
+			if height < 0 {
+				height = 0
+			}
+			record.LayerMaskBounds = LayerBounds{
+				X: int(left),
+				Y: int(top),
+				W: width,
+				H: height,
+			}
+			record.LayerMaskEnabled = (maskData[16] & 0x01) == 0
+			record.HasLayerMask = true
+		}
 	}
 	blendRangeLen, err := readUint32From(reader)
 	if err != nil {
 		return err
 	}
-	if _, err := io.CopyN(io.Discard, reader, int64(blendRangeLen)); err != nil {
-		return err
+	if blendRangeLen > 0 {
+		if _, err := io.CopyN(io.Discard, reader, int64(blendRangeLen)); err != nil {
+			return err
+		}
 	}
 	name, err := readPascalString4(reader)
 	if err != nil {
 		return err
 	}
 	record.Name = name
+	addMetadataWarning := func(format string, args ...any) {
+		record.MetadataWarnings = append(record.MetadataWarnings, fmt.Sprintf(format, args...))
+	}
 	for reader.Len() > 0 {
 		signature, err := readStringFrom(reader, 4)
 		if err != nil {
@@ -521,11 +751,279 @@ func parsePSDLayerExtraData(data []byte, record *psdLayerRecord) error {
 			if unicodeName, err := parsePSDUnicodeString(payload); err == nil && unicodeName != "" {
 				record.Name = unicodeName
 			}
-		case "TySh", "tySh", "vmsk", "vsms", "PlLd", "SoLd", "lfx2", "lrFX", "levl", "curv", "hue2":
+		case "lyid":
+			if len(payload) >= 4 {
+				record.LayerID = binary.BigEndian.Uint32(payload[:4])
+			}
+		case "lclr":
+			record.LayerColorTag = parsePSDLayerColorTag(payload)
+		case "lsct":
+			if len(payload) >= 4 {
+				record.SectionType = binary.BigEndian.Uint32(payload[:4])
+			}
+		case "vmsk", "vsms":
+			if err := parsePSDLayerVectorMaskMetadata(key, payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed vector mask metadata (%s) ignored", record.Name, key)
+			}
+		case "lfx2":
+			if err := parsePSDLayerObjectEffectsPayload(payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed modern layer effects metadata (%v) ignored", record.Name, err)
+			}
+		case "lrFX":
+			if err := parsePSDLayerLegacyEffectsPayload(payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed legacy layer effects metadata (%v) ignored", record.Name, err)
+			}
+		case "levl", "curv", "hue2":
+			if err := parsePSDLayerAdjustmentMetadata(key, payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed adjustment metadata (%s) ignored", record.Name, key)
+			}
+		case "plLd", "PlLd", "SoLd":
+			if err := parsePSDLayerSmartObjectMetadata(key, payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed smart object metadata (%s) ignored", record.Name, key)
+			}
+		case "TySh", "tySh":
+			if err := parsePSDTextLayerMetadata(key, payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed text metadata (%s) ignored", record.Name, key)
+			}
 			record.UnsupportedBlocks = append(record.UnsupportedBlocks, key)
 		}
 	}
 	return nil
+}
+
+func parsePSDLayerObjectEffectsPayload(payload []byte, record *psdLayerRecord) error {
+	if record.Effects == nil {
+		record.Effects = &psdLayerEffectsMeta{}
+	}
+	meta := &psdObjectLayerEffectsMeta{}
+	record.Effects.Object = meta
+	if len(payload) < 8 {
+		meta.Malformed = true
+		return fmt.Errorf("lfx2 payload too short")
+	}
+	meta.ObjectVersion = binary.BigEndian.Uint32(payload[0:4])
+	meta.DescriptorVersion = binary.BigEndian.Uint32(payload[4:8])
+	meta.HasDescriptor = len(payload) > 8
+	return nil
+}
+
+func parsePSDLayerLegacyEffectsPayload(payload []byte, record *psdLayerRecord) error {
+	reader := bytes.NewReader(payload)
+	if record.Effects == nil {
+		record.Effects = &psdLayerEffectsMeta{}
+	}
+	if record.Effects.Legacy == nil {
+		record.Effects.Legacy = &psdLegacyLayerEffectsMeta{}
+	}
+	meta := record.Effects.Legacy
+	version, err := readUint16From(reader)
+	if err != nil {
+		meta.Malformed = true
+		meta.Version = 0
+		meta.EffectCount = 0
+		return nil
+	}
+	meta.Version = version
+	count, err := readUint16From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	meta.EffectCount = count
+	for i := uint16(0); i < count; i++ {
+		signature, err := readStringFrom(reader, 4)
+		if err != nil {
+			meta.Malformed = true
+			return err
+		}
+		if signature != "8BIM" && signature != "8B64" {
+			meta.Malformed = true
+			return fmt.Errorf("invalid legacy effect signature %q", signature)
+		}
+		key, err := readStringFrom(reader, 4)
+		if err != nil {
+			meta.Malformed = true
+			return err
+		}
+		meta.EffectKeys = append(meta.EffectKeys, key)
+		size, err := readUint32From(reader)
+		if err != nil {
+			meta.Malformed = true
+			return err
+		}
+		if int(size) > reader.Len() {
+			meta.Malformed = true
+			return fmt.Errorf("legacy effect %q data truncated", key)
+		}
+		if _, err := readBytesFrom(reader, int(size)); err != nil {
+			meta.Malformed = true
+			return err
+		}
+	}
+	return nil
+}
+
+func parsePSDLayerAdjustmentMetadata(key string, payload []byte, record *psdLayerRecord) error {
+	adjustment := psdAdjustmentMeta{
+		Key:        key,
+		PayloadLen: len(payload),
+	}
+	switch key {
+	case "levl":
+		adjustment.Kind = "levels"
+	case "curv":
+		adjustment.Kind = "curves"
+	case "hue2":
+		adjustment.Kind = "hue-saturation"
+	default:
+		adjustment.Kind = strings.ToLower(key)
+	}
+	if len(payload) >= 2 {
+		version, err := readUint16From(bytes.NewReader(payload))
+		if err == nil {
+			adjustment.Version = version
+			adjustment.HasVersion = true
+		}
+	}
+	record.Adjustments = append(record.Adjustments, adjustment)
+	return nil
+}
+
+func parsePSDLayerSmartObjectMetadata(key string, payload []byte, record *psdLayerRecord) error {
+	meta := &psdSmartObjectMeta{
+		Key:        key,
+		PayloadLen: len(payload),
+	}
+	record.SmartObject = meta
+	reader := bytes.NewReader(payload)
+	version, err := readUint32From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	meta.HasVersion = true
+	meta.Version = version
+
+	if reader.Len() == 0 {
+		return nil
+	}
+	identifierLen, err := readUint8From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return fmt.Errorf("smart object identifier length missing")
+	}
+	if int(identifierLen) > reader.Len() {
+		meta.Malformed = true
+		return fmt.Errorf("smart object identifier length exceeds payload")
+	}
+	identifierBytes, err := readBytesFrom(reader, int(identifierLen))
+	if err != nil {
+		meta.Malformed = true
+		return fmt.Errorf("smart object identifier missing")
+	}
+	meta.Identifier = string(identifierBytes)
+	if key == "PlLd" || key == "plLd" {
+		meta.HasDescriptor = true
+	}
+	if key == "SoLd" && reader.Len() >= 16 {
+		pageNumber, err := readUint32From(reader)
+		if err == nil {
+			meta.PageNumber = &pageNumber
+		}
+		totalPages, err := readUint32From(reader)
+		if err == nil {
+			meta.TotalPages = &totalPages
+		}
+		placedType, err := readUint32From(reader)
+		if err == nil {
+			meta.PlacedType = &placedType
+		}
+	}
+	if reader.Len() > 0 {
+		meta.UniqueID = meta.Identifier
+	}
+	return nil
+}
+
+func parsePSDLayerVectorMaskMetadata(key string, payload []byte, record *psdLayerRecord) error {
+	meta := &psdVectorMaskMeta{
+		Key:        key,
+		PayloadLen: len(payload),
+	}
+	record.HasVectorMask = true
+	record.VectorMask = meta
+	reader := bytes.NewReader(payload)
+	if len(payload) < 20 {
+		meta.Malformed = true
+		return nil
+	}
+	top, err := readInt32From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	left, err := readInt32From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	bottom, err := readInt32From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	right, err := readInt32From(reader)
+	if err != nil {
+		meta.Malformed = true
+		return nil
+	}
+	width := int(right - left)
+	height := int(bottom - top)
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	meta.Bounds = LayerBounds{
+		X: int(left),
+		Y: int(top),
+		W: width,
+		H: height,
+	}
+	meta.HasBounds = true
+	meta.DefaultColor = uint16(payload[16])<<8 | uint16(payload[17])
+	meta.Flags = uint16(payload[18])<<8 | uint16(payload[19])
+	return nil
+}
+
+func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecord) error {
+	meta := &psdTextLayerMeta{
+		Key:        key,
+		PayloadLen: len(payload),
+	}
+	record.Text = meta
+	if len(payload) == 0 {
+		meta.Malformed = true
+		return nil
+	}
+	if len(payload) >= 4 {
+		version, err := readUint32From(bytes.NewReader(payload))
+		if err == nil {
+			meta.DescriptorVersion = version
+			meta.HasDescriptor = true
+		}
+	}
+	if text, err := parsePSDUnicodeString(payload); err == nil {
+		meta.ParsedText = text
+	}
+	return nil
+}
+
+func readUint8From(r io.Reader) (uint8, error) {
+	var value uint8
+	err := binary.Read(r, binary.BigEndian, &value)
+	return value, err
 }
 
 func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
@@ -846,6 +1344,30 @@ func mapPSDBlendMode(key string) BlendMode {
 		return BlendModeLighten
 	default:
 		return BlendModeNormal
+	}
+}
+
+func parsePSDLayerColorTag(payload []byte) string {
+	if len(payload) == 0 {
+		return "none"
+	}
+	switch payload[0] {
+	case 1:
+		return "red"
+	case 2:
+		return "orange"
+	case 3:
+		return "yellow"
+	case 4:
+		return "green"
+	case 5:
+		return "blue"
+	case 6:
+		return "violet"
+	case 7:
+		return "gray"
+	default:
+		return fmt.Sprintf("unknown(%d)", payload[0])
 	}
 }
 
