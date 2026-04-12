@@ -19,23 +19,33 @@ type SetTextContentPayload struct {
 
 // SetTextStylePayload is the JSON payload for commandSetTextStyle.
 type SetTextStylePayload struct {
-	LayerID       string   `json:"layerId"`
-	FontFamily    string   `json:"fontFamily,omitempty"`
-	FontSize      float64  `json:"fontSize,omitempty"`
-	Color         [4]uint8 `json:"color,omitempty"`
-	Alignment     string   `json:"alignment,omitempty"`
-	Leading       float64  `json:"leading,omitempty"`
-	TextType      string   `json:"textType,omitempty"`
-	Tracking      float64  `json:"tracking,omitempty"`
-	Underline     *bool    `json:"underline,omitempty"`
-	Strikethrough *bool    `json:"strikethrough,omitempty"`
-	AllCaps       *bool    `json:"allCaps,omitempty"`
-	SmallCaps     *bool    `json:"smallCaps,omitempty"`
-	IndentLeft    float64  `json:"indentLeft,omitempty"`
-	IndentRight   float64  `json:"indentRight,omitempty"`
-	IndentFirst   float64  `json:"indentFirst,omitempty"`
-	SpaceBefore   float64  `json:"spaceBefore,omitempty"`
-	SpaceAfter    float64  `json:"spaceAfter,omitempty"`
+	LayerID       string    `json:"layerId"`
+	FontFamily    *string   `json:"fontFamily,omitempty"`
+	FontStyle     *string   `json:"fontStyle,omitempty"`
+	FontSize      *float64  `json:"fontSize,omitempty"`
+	Bold          *bool     `json:"bold,omitempty"`
+	Italic        *bool     `json:"italic,omitempty"`
+	Color         *[4]uint8 `json:"color,omitempty"`
+	Alignment     *string   `json:"alignment,omitempty"`
+	Leading       *float64  `json:"leading,omitempty"`
+	TextType      *string   `json:"textType,omitempty"`
+	Tracking      *float64  `json:"tracking,omitempty"`
+	AntiAlias     *string   `json:"antiAlias,omitempty"`
+	Kerning       *float64  `json:"kerning,omitempty"`
+	Language      *string   `json:"language,omitempty"`
+	BaselineShift *float64  `json:"baselineShift,omitempty"`
+	Superscript   *bool     `json:"superscript,omitempty"`
+	Subscript     *bool     `json:"subscript,omitempty"`
+	Orientation   *string   `json:"orientation,omitempty"`
+	Underline     *bool     `json:"underline,omitempty"`
+	Strikethrough *bool     `json:"strikethrough,omitempty"`
+	AllCaps       *bool     `json:"allCaps,omitempty"`
+	SmallCaps     *bool     `json:"smallCaps,omitempty"`
+	IndentLeft    *float64  `json:"indentLeft,omitempty"`
+	IndentRight   *float64  `json:"indentRight,omitempty"`
+	IndentFirst   *float64  `json:"indentFirst,omitempty"`
+	SpaceBefore   *float64  `json:"spaceBefore,omitempty"`
+	SpaceAfter    *float64  `json:"spaceAfter,omitempty"`
 }
 
 // EnterTextEditModePayload is the JSON payload for commandEnterTextEditMode.
@@ -199,26 +209,56 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if !ok {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
-		if p.FontFamily != "" {
-			tl.FontFamily = p.FontFamily
+		if p.FontFamily != nil {
+			tl.FontFamily = *p.FontFamily
 		}
-		if p.FontSize > 0 {
-			tl.FontSize = p.FontSize
+		if p.FontStyle != nil {
+			tl.FontStyle = *p.FontStyle
 		}
-		if p.Color != [4]uint8{} {
-			tl.Color = p.Color
+		if p.FontSize != nil {
+			tl.FontSize = *p.FontSize
 		}
-		if p.Alignment != "" {
-			tl.Alignment = p.Alignment
+		if p.Bold != nil {
+			tl.Bold = *p.Bold
 		}
-		if p.Leading > 0 {
-			tl.Leading = p.Leading
+		if p.Italic != nil {
+			tl.Italic = *p.Italic
 		}
-		if p.TextType != "" {
-			tl.TextType = p.TextType
+		if p.Color != nil {
+			tl.Color = *p.Color
 		}
-		if p.Tracking != 0 {
-			tl.Tracking = p.Tracking
+		if p.Alignment != nil {
+			tl.Alignment = *p.Alignment
+		}
+		if p.Leading != nil {
+			tl.Leading = *p.Leading
+		}
+		if p.TextType != nil {
+			tl.TextType = *p.TextType
+		}
+		if p.Tracking != nil {
+			tl.Tracking = *p.Tracking
+		}
+		if p.AntiAlias != nil {
+			tl.AntiAlias = *p.AntiAlias
+		}
+		if p.Kerning != nil {
+			tl.Kerning = *p.Kerning
+		}
+		if p.Language != nil {
+			tl.Language = *p.Language
+		}
+		if p.BaselineShift != nil {
+			tl.BaselineShift = *p.BaselineShift
+		}
+		if p.Superscript != nil {
+			tl.Superscript = *p.Superscript
+		}
+		if p.Subscript != nil {
+			tl.Subscript = *p.Subscript
+		}
+		if p.Orientation != nil {
+			tl.Orientation = *p.Orientation
 		}
 		if p.Underline != nil {
 			tl.Underline = *p.Underline
@@ -232,20 +272,20 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if p.SmallCaps != nil {
 			tl.SmallCaps = *p.SmallCaps
 		}
-		if p.IndentLeft != 0 {
-			tl.IndentLeft = p.IndentLeft
+		if p.IndentLeft != nil {
+			tl.IndentLeft = *p.IndentLeft
 		}
-		if p.IndentRight != 0 {
-			tl.IndentRight = p.IndentRight
+		if p.IndentRight != nil {
+			tl.IndentRight = *p.IndentRight
 		}
-		if p.IndentFirst != 0 {
-			tl.IndentFirst = p.IndentFirst
+		if p.IndentFirst != nil {
+			tl.IndentFirst = *p.IndentFirst
 		}
-		if p.SpaceBefore != 0 {
-			tl.SpaceBefore = p.SpaceBefore
+		if p.SpaceBefore != nil {
+			tl.SpaceBefore = *p.SpaceBefore
 		}
-		if p.SpaceAfter != 0 {
-			tl.SpaceAfter = p.SpaceAfter
+		if p.SpaceAfter != nil {
+			tl.SpaceAfter = *p.SpaceAfter
 		}
 		raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height)
 		if err != nil {
@@ -367,17 +407,15 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
 
-		// Build a bounding-box path as a placeholder until full glyph outline
-		// tracing is implemented (requires vector font output from the TTF engine).
-		x := float64(tl.Bounds.X)
-		y := float64(tl.Bounds.Y)
-		w := measureTextWidth(tl.Text, tl.FontSize)
-		h := tl.FontSize
-		outlinePath := makeRectPath(x, y, w, h)
+		outlinePath := buildTextOutlinePath(tl)
 
-		raster, err := rasterizeVectorShape(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0)
-		if err != nil {
-			return err
+		raster := make([]byte, doc.Width*doc.Height*4)
+		if outlinePath != nil && len(outlinePath.Subpaths) > 0 {
+			var err error
+			raster, err = rasterizeVectorShape(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0)
+			if err != nil {
+				return err
+			}
 		}
 		vectorLayer := NewVectorLayer(tl.Name()+" Outlines", tl.Bounds, outlinePath, raster)
 		vectorLayer.FillColor = tl.Color
@@ -397,6 +435,7 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		}
 		parent.SetChildren(updated)
 		doc.ActiveLayerID = vectorLayer.ID()
+		doc.normalizeClippingState()
 		return nil
 	})
 }

@@ -89,6 +89,13 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 		}
 		return true, nil
 
+	case commandRasterizeLayer:
+		var payload RasterizeLayerPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, inst.rasterizeLayer(payload)
+
 	case commandCreatePath:
 		var payload CreatePathPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {

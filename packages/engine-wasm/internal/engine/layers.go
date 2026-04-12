@@ -87,6 +87,8 @@ type LayerNode interface {
 	SetClippingBase(bool)
 	StyleStack() []LayerStyle
 	SetStyleStack([]LayerStyle)
+	BlendIf() *BlendIfConfig
+	SetBlendIf(*BlendIfConfig)
 	Clone() LayerNode
 }
 
@@ -151,6 +153,7 @@ type layerBase struct {
 	clipToBelow  bool
 	clippingBase bool
 	styleStack   []LayerStyle
+	blendIf      *BlendIfConfig
 }
 
 type mutableLayerNode interface {
@@ -167,6 +170,7 @@ func newLayerBase(name string) layerBase {
 		opacity:     1,
 		fillOpacity: 1,
 		blendMode:   BlendModeNormal,
+		blendIf:     defaultBlendIfConfig(),
 	}
 }
 
@@ -303,6 +307,14 @@ func (l *layerBase) SetStyleStack(styles []LayerStyle) {
 	l.styleStack = cloneLayerStyles(styles)
 }
 
+func (l *layerBase) BlendIf() *BlendIfConfig {
+	return cloneBlendIfConfig(l.blendIf)
+}
+
+func (l *layerBase) SetBlendIf(config *BlendIfConfig) {
+	l.blendIf = normalizeBlendIfConfig(config)
+}
+
 func (l *layerBase) cloneBase() layerBase {
 	return layerBase{
 		id:           l.id,
@@ -317,6 +329,7 @@ func (l *layerBase) cloneBase() layerBase {
 		clipToBelow:  l.clipToBelow,
 		clippingBase: l.clippingBase,
 		styleStack:   cloneLayerStyles(l.styleStack),
+		blendIf:      cloneBlendIfConfig(l.blendIf),
 	}
 }
 
@@ -367,13 +380,23 @@ type TextLayer struct {
 	Bounds     LayerBounds `json:"bounds"`
 	Text       string      `json:"text"`
 	FontFamily string      `json:"fontFamily"`
+	FontStyle  string      `json:"fontStyle,omitempty"`
 	FontSize   float64     `json:"fontSize"`
+	Bold       bool        `json:"bold,omitempty"`
+	Italic     bool        `json:"italic,omitempty"`
+	AntiAlias  string      `json:"antiAlias,omitempty"`
 	Color      [4]uint8    `json:"color"`
 	// TextType is "point" (no wrap) or "area" (wraps within Bounds).
 	TextType      string  `json:"textType,omitempty"`
 	Alignment     string  `json:"alignment,omitempty"`
+	BaselineShift float64 `json:"baselineShift,omitempty"`
 	Leading       float64 `json:"leading,omitempty"`
-	Tracking      float64 `json:"tracking,omitempty"` // extra letter spacing in pixels
+	Tracking      float64 `json:"tracking,omitempty"`
+	Kerning       float64 `json:"kerning,omitempty"`
+	Language      string  `json:"language,omitempty"`
+	Orientation   string  `json:"orientation,omitempty"`
+	Superscript   bool    `json:"superscript,omitempty"`
+	Subscript     bool    `json:"subscript,omitempty"`
 	Underline     bool    `json:"underline,omitempty"`
 	Strikethrough bool    `json:"strikethrough,omitempty"`
 	AllCaps       bool    `json:"allCaps,omitempty"`
@@ -392,10 +415,13 @@ func NewTextLayer(name string, bounds LayerBounds, text string, cachedRaster []b
 		Bounds:       bounds,
 		Text:         text,
 		FontFamily:   "system-ui",
+		FontStyle:    "regular",
 		FontSize:     16,
+		AntiAlias:    "sharp",
 		Color:        [4]uint8{0, 0, 0, 255},
 		TextType:     "point",
 		Alignment:    "left",
+		Orientation:  "horizontal",
 		CachedRaster: append([]byte(nil), cachedRaster...),
 	}
 }
@@ -410,12 +436,22 @@ func (l *TextLayer) Clone() LayerNode {
 		Bounds:        l.Bounds,
 		Text:          l.Text,
 		FontFamily:    l.FontFamily,
+		FontStyle:     l.FontStyle,
 		FontSize:      l.FontSize,
+		Bold:          l.Bold,
+		Italic:        l.Italic,
+		AntiAlias:     l.AntiAlias,
 		Color:         l.Color,
 		TextType:      l.TextType,
 		Alignment:     l.Alignment,
+		BaselineShift: l.BaselineShift,
 		Leading:       l.Leading,
 		Tracking:      l.Tracking,
+		Kerning:       l.Kerning,
+		Language:      l.Language,
+		Orientation:   l.Orientation,
+		Superscript:   l.Superscript,
+		Subscript:     l.Subscript,
 		Underline:     l.Underline,
 		Strikethrough: l.Strikethrough,
 		AllCaps:       l.AllCaps,
@@ -620,7 +656,7 @@ func layerTreeEqual(a, b LayerNode) bool {
 	if a.BlendMode() != b.BlendMode() || a.ClipToBelow() != b.ClipToBelow() || a.ClippingBase() != b.ClippingBase() {
 		return false
 	}
-	if !layerMaskEqual(a.Mask(), b.Mask()) || !pathEqual(a.VectorMask(), b.VectorMask()) {
+	if !layerMaskEqual(a.Mask(), b.Mask()) || !pathEqual(a.VectorMask(), b.VectorMask()) || !blendIfEqual(a.BlendIf(), b.BlendIf()) {
 		return false
 	}
 	if !layerStylesEqual(a.StyleStack(), b.StyleStack()) {
@@ -643,13 +679,19 @@ func layerTreeEqual(a, b LayerNode) bool {
 		if !ok || left.Bounds != right.Bounds || left.Text != right.Text || left.FontFamily != right.FontFamily {
 			return false
 		}
-		if left.FontSize != right.FontSize || left.Color != right.Color || !bytes.Equal(left.CachedRaster, right.CachedRaster) {
+		if left.FontStyle != right.FontStyle || left.FontSize != right.FontSize || left.Bold != right.Bold || left.Italic != right.Italic {
 			return false
 		}
-		if left.TextType != right.TextType || left.Alignment != right.Alignment || left.Leading != right.Leading {
+		if left.AntiAlias != right.AntiAlias || left.Color != right.Color || !bytes.Equal(left.CachedRaster, right.CachedRaster) {
 			return false
 		}
-		if left.Tracking != right.Tracking || left.Underline != right.Underline || left.Strikethrough != right.Strikethrough {
+		if left.TextType != right.TextType || left.Alignment != right.Alignment || left.BaselineShift != right.BaselineShift || left.Leading != right.Leading {
+			return false
+		}
+		if left.Tracking != right.Tracking || left.Kerning != right.Kerning || left.Language != right.Language || left.Orientation != right.Orientation {
+			return false
+		}
+		if left.Superscript != right.Superscript || left.Subscript != right.Subscript || left.Underline != right.Underline || left.Strikethrough != right.Strikethrough {
 			return false
 		}
 		if left.AllCaps != right.AllCaps || left.SmallCaps != right.SmallCaps {
@@ -741,6 +783,13 @@ func layerStylesEqual(a, b []LayerStyle) bool {
 		}
 	}
 	return true
+}
+
+func blendIfEqual(a, b *BlendIfConfig) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func newLayerID() string {

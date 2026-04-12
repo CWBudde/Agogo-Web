@@ -204,11 +204,14 @@ func TestSetTextStyle_UpdatesFields(t *testing.T) {
 	}
 	layerID := addResult.UIMeta.ActiveLayerID
 
+	fontSize := 48.0
+	color := [4]uint8{255, 0, 0, 255}
+	alignment := "center"
 	_, err = DispatchCommand(h, commandSetTextStyle, mustJSON(t, SetTextStylePayload{
 		LayerID:   layerID,
-		FontSize:  48,
-		Color:     [4]uint8{255, 0, 0, 255},
-		Alignment: "center",
+		FontSize:  &fontSize,
+		Color:     &color,
+		Alignment: &alignment,
 	}))
 	if err != nil {
 		t.Fatalf("SetTextStyle: %v", err)
@@ -249,4 +252,47 @@ func TestAddTextLayer_TextInput_RasterizesPixels(t *testing.T) {
 		t.Fatalf("TextEditInput: %v", err)
 	}
 	_ = result
+}
+
+func TestConvertTextToPath_ProducesGlyphOutlinePath(t *testing.T) {
+	h := initTextTestDoc(t)
+	defer Free(h)
+
+	addResult, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypeText,
+		Name:      "Glyph",
+		Bounds:    LayerBounds{X: 10, Y: 10, W: 180, H: 80},
+		Text:      "A",
+		FontSize:  32,
+		Color:     [4]uint8{0, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+
+	result, err := DispatchCommand(h, commandConvertTextToPath, mustJSON(t, ConvertTextToPathPayload{
+		LayerID: addResult.UIMeta.ActiveLayerID,
+	}))
+	if err != nil {
+		t.Fatalf("ConvertTextToPath: %v", err)
+	}
+
+	inst := instances[h]
+	doc := inst.manager.Active()
+	layer := doc.findLayer(result.UIMeta.ActiveLayerID)
+	vectorLayer, ok := layer.(*VectorLayer)
+	if !ok {
+		t.Fatalf("expected active layer to be a vector layer, got %T", layer)
+	}
+	if vectorLayer.Shape == nil || len(vectorLayer.Shape.Subpaths) == 0 {
+		t.Fatal("expected vector outline path")
+	}
+
+	totalPoints := 0
+	for _, subpath := range vectorLayer.Shape.Subpaths {
+		totalPoints += len(subpath.Points)
+	}
+	if totalPoints <= 4 {
+		t.Fatalf("expected glyph outline, got %d total points", totalPoints)
+	}
 }

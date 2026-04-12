@@ -741,7 +741,7 @@ export default function App() {
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
 
   // Shape tool state
-  type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+  type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
   type ShapeMode = "shape" | "path" | "pixels";
   const [shapeSubTool, setShapeSubTool] = useState<ShapeSubTool>("rect");
   const [shapeMode, setShapeMode] = useState<ShapeMode>("shape");
@@ -2167,9 +2167,19 @@ export default function App() {
         ) : activeTool === "shape" ? (
           <>
             <ToolOptionGroup label="Shape">
-              {(["rect", "rounded-rect", "ellipse", "polygon", "line"] as ShapeSubTool[]).map((s) => (
+              {(["rect", "rounded-rect", "ellipse", "polygon", "line", "custom-shape"] as ShapeSubTool[]).map((s) => (
                 <ToolChoiceButton key={s} active={shapeSubTool === s} onClick={() => setShapeSubTool(s)}>
-                  {s === "rect" ? "Rect" : s === "rounded-rect" ? "Round" : s === "ellipse" ? "Ellipse" : s === "polygon" ? "Polygon" : "Line"}
+                  {s === "rect"
+                    ? "Rect"
+                    : s === "rounded-rect"
+                      ? "Round"
+                      : s === "ellipse"
+                        ? "Ellipse"
+                        : s === "polygon"
+                          ? "Polygon"
+                          : s === "line"
+                            ? "Line"
+                            : "Custom Shape"}
                 </ToolChoiceButton>
               ))}
             </ToolOptionGroup>

@@ -5,6 +5,13 @@ import (
 	"reflect"
 )
 
+type BlendIfConfig struct {
+	Gray  [2]float64 `json:"gray"`
+	Red   [2]float64 `json:"red"`
+	Green [2]float64 `json:"green"`
+	Blue  [2]float64 `json:"blue"`
+}
+
 type DropShadowParams struct {
 	BlendMode BlendMode `json:"blendMode"`
 	Color     [4]uint8  `json:"color"`
@@ -361,6 +368,54 @@ func defaultStrokeParams() StrokeParams {
 		Color:     [4]uint8{0, 0, 0, 255},
 		FillType:  "color",
 	}
+}
+
+func defaultBlendIfConfig() *BlendIfConfig {
+	return &BlendIfConfig{
+		Gray:  [2]float64{0, 255},
+		Red:   [2]float64{0, 255},
+		Green: [2]float64{0, 255},
+		Blue:  [2]float64{0, 255},
+	}
+}
+
+func cloneBlendIfConfig(config *BlendIfConfig) *BlendIfConfig {
+	if config == nil {
+		return nil
+	}
+	cloned := *config
+	return &cloned
+}
+
+func normalizeBlendIfConfig(config *BlendIfConfig) *BlendIfConfig {
+	if config == nil {
+		return defaultBlendIfConfig()
+	}
+	normalized := *config
+	normalized.Gray = normalizeBlendIfChannel(normalized.Gray)
+	normalized.Red = normalizeBlendIfChannel(normalized.Red)
+	normalized.Green = normalizeBlendIfChannel(normalized.Green)
+	normalized.Blue = normalizeBlendIfChannel(normalized.Blue)
+	return &normalized
+}
+
+func normalizeBlendIfChannel(channel [2]float64) [2]float64 {
+	minValue := clampBlendIfValue(channel[0])
+	maxValue := clampBlendIfValue(channel[1])
+	if minValue > maxValue {
+		minValue, maxValue = maxValue, minValue
+	}
+	return [2]float64{minValue, maxValue}
+}
+
+func clampBlendIfValue(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 255 {
+		return 255
+	}
+	return value
 }
 
 func decodeJSONInto(params json.RawMessage, target any) {

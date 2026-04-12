@@ -4,19 +4,21 @@ import "fmt"
 
 // DrawShapePayload is the JSON payload for commandDrawShape.
 type DrawShapePayload struct {
-	ShapeType      string   `json:"shapeType"`
-	X              float64  `json:"x"`
-	Y              float64  `json:"y"`
-	W              float64  `json:"w"`
-	H              float64  `json:"h"`
-	CornerRadius   float64  `json:"cornerRadius,omitempty"`
-	Sides          int      `json:"sides,omitempty"`
-	StarMode       bool     `json:"starMode,omitempty"`
-	InnerRadiusPct float64  `json:"innerRadiusPct,omitempty"`
-	FillColor      [4]uint8 `json:"fillColor,omitempty"`
-	StrokeColor    [4]uint8 `json:"strokeColor,omitempty"`
-	StrokeWidth    float64  `json:"strokeWidth,omitempty"`
-	Mode           string   `json:"mode,omitempty"`
+	ShapeType      string      `json:"shapeType"`
+	X              float64     `json:"x"`
+	Y              float64     `json:"y"`
+	W              float64     `json:"w"`
+	H              float64     `json:"h"`
+	CornerRadius   float64     `json:"cornerRadius,omitempty"`
+	Sides          int         `json:"sides,omitempty"`
+	StarMode       bool        `json:"starMode,omitempty"`
+	InnerRadiusPct float64     `json:"innerRadiusPct,omitempty"`
+	FillColor      [4]uint8    `json:"fillColor,omitempty"`
+	StrokeColor    [4]uint8    `json:"strokeColor,omitempty"`
+	StrokeWidth    float64     `json:"strokeWidth,omitempty"`
+	Mode           string      `json:"mode,omitempty"`
+	Closed         bool        `json:"closed,omitempty"`
+	Points         []PathPoint `json:"points,omitempty"`
 }
 
 // EnterVectorEditModePayload is the JSON payload for commandEnterVectorEditMode.
@@ -33,6 +35,10 @@ type SetVectorLayerStylePayload struct {
 	FillColor   [4]uint8 `json:"fillColor"`
 	StrokeColor [4]uint8 `json:"strokeColor"`
 	StrokeWidth float64  `json:"strokeWidth"`
+}
+
+type RasterizeLayerPayload struct {
+	LayerID string `json:"layerId,omitempty"`
 }
 
 func (inst *instance) dispatchShapeCommand(commandID int32, payloadJSON string) (bool, error) {
@@ -157,6 +163,36 @@ func (inst *instance) setVectorLayerStyle(p SetVectorLayerStylePayload) error {
 	})
 }
 
+func (inst *instance) rasterizeLayer(p RasterizeLayerPayload) error {
+	return inst.executeDocCommand("Rasterize layer", func(doc *Document) error {
+		layerID := p.LayerID
+		if layerID == "" {
+			layerID = doc.ActiveLayerID
+		}
+		if layerID == "" {
+			return fmt.Errorf("no layer id")
+		}
+
+		layer, parent, index, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+		if !ok || parent == nil {
+			return fmt.Errorf("layer %q not found", layerID)
+		}
+		vectorLayer, ok := layer.(*VectorLayer)
+		if !ok {
+			return fmt.Errorf("layer %q is not a vector layer", layerID)
+		}
+
+		pixelLayer, err := doc.rasterizeAsPixelLayer(vectorLayer, vectorLayer.Name())
+		if err != nil {
+			return err
+		}
+		replaceChild(parent.(*GroupLayer), index, pixelLayer)
+		doc.normalizeClippingState()
+		doc.ActiveLayerID = pixelLayer.ID()
+		return nil
+	})
+}
+
 func (inst *instance) drawShape(p DrawShapePayload) error {
 	path, err := buildShapePath(p)
 	if err != nil {
@@ -248,9 +284,32 @@ func buildShapePath(p DrawShapePayload) (*Path, error) {
 		return makePolygonPath(p.X, p.Y, p.W, p.H, sides, p.StarMode, p.InnerRadiusPct)
 	case "line":
 		return makeLinePath(p.X, p.Y, p.X+p.W, p.Y+p.H), nil
+	case "custom-shape":
+		if len(p.Points) < 1 {
+			return nil, fmt.Errorf("custom-shape requires at least 1 point")
+		}
+		points := make([]PathPoint, 0, len(p.Points))
+		for _, raw := range p.Points {
+			point := raw
+			if !customShapeHasHandles(point) {
+				point.InX = point.X
+				point.InY = point.Y
+				point.OutX = point.X
+				point.OutY = point.Y
+				point.HandleType = HandleCorner
+			}
+			points = append(points, point)
+		}
+		return &Path{Subpaths: []Subpath{{Closed: p.Closed, Points: points}}}, nil
 	default:
 		return nil, fmt.Errorf("unknown shape type %q", p.ShapeType)
 	}
+}
+
+func customShapeHasHandles(point PathPoint) bool {
+	return point.HandleType != HandleCorner ||
+		point.InX != point.X || point.InY != point.Y ||
+		point.OutX != point.X || point.OutY != point.Y
 }
 
 // compositeOver alpha-composites src over dst in-place (both are w*h*4 RGBA).

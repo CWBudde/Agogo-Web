@@ -87,7 +87,7 @@ type EditorCanvasProps = {
   eyedropperSampleMerged: boolean;
   eyedropperSampleAllLayersNoAdj: boolean;
   shapeOptions: {
-    subTool: "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+    subTool: "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
     mode: "shape" | "path" | "pixels";
     cornerRadius: number;
     polygonSides: number;

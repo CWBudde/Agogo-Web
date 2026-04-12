@@ -130,6 +130,7 @@ export enum CommandID {
   PathExclude = 0x0613,
   FlattenPath = 0x0614,
   RasterizePath = 0x0615,
+  RasterizeLayer = 0x0616,
   CreatePath = 0x0620,
   DeletePath = 0x0621,
   RenamePath = 0x0622,
@@ -221,7 +222,8 @@ export type LayerStyleKind =
   | "color-overlay"
   | "gradient-overlay"
   | "pattern-overlay"
-  | "stroke";
+  | "stroke"
+  | "blend-if";
 
 export interface LevelsAdjustmentParams {
   channel?: string;
@@ -1023,7 +1025,7 @@ export interface PathOverlay {
 
 // Phase 6.2: Shape Tools
 
-export type ShapeType = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line";
+export type ShapeType = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
 export type ShapeMode = "shape" | "path" | "pixels";
 
 export interface DrawShapeCommand {
@@ -1049,6 +1051,10 @@ export interface DrawShapeCommand {
   strokeWidth?: number;
   /** Output mode: creates a VectorLayer, adds to Paths panel, or rasterizes. Default "shape". */
   mode?: ShapeMode;
+  /** Whether the custom-shape subpath is closed. */
+  closed?: boolean;
+  /** Explicit points for "custom-shape". */
+  points?: PathPointCommand[];
 }
 
 export interface EnterVectorEditModeCommand {
@@ -1087,12 +1093,22 @@ export interface SetTextContentCommand {
 export interface SetTextStyleCommand {
   layerId: string;
   fontFamily?: string;
+  fontStyle?: string;
   fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
   color?: [number, number, number, number];
   alignment?: "left" | "center" | "right" | "justify";
   leading?: number;
   textType?: "point" | "area";
   tracking?: number;
+  antiAlias?: string;
+  kerning?: number;
+  language?: string;
+  baselineShift?: number;
+  superscript?: boolean;
+  subscript?: boolean;
+  orientation?: string;
   underline?: boolean;
   strikethrough?: boolean;
   allCaps?: boolean;

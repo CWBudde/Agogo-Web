@@ -46,6 +46,7 @@ type projectLayerArchive struct {
 	Mask              *LayerMask            `json:"mask,omitempty"`
 	VectorMask        *Path                 `json:"vectorMask,omitempty"`
 	StyleStack        []LayerStyle          `json:"styleStack,omitempty"`
+	BlendIf           *BlendIfConfig        `json:"blendIf,omitempty"`
 	Isolated          bool                  `json:"isolated,omitempty"`
 	Bounds            *LayerBounds          `json:"bounds,omitempty"`
 	Pixels            []byte                `json:"pixels,omitempty"`
@@ -53,12 +54,22 @@ type projectLayerArchive struct {
 	Params            json.RawMessage       `json:"params,omitempty"`
 	Text              string                `json:"text,omitempty"`
 	FontFamily        string                `json:"fontFamily,omitempty"`
+	FontStyle         string                `json:"fontStyle,omitempty"`
 	FontSize          float64               `json:"fontSize,omitempty"`
+	Bold              bool                  `json:"bold,omitempty"`
+	Italic            bool                  `json:"italic,omitempty"`
+	AntiAlias         string                `json:"antiAlias,omitempty"`
 	Color             [4]uint8              `json:"color,omitempty"`
 	TextType          string                `json:"textType,omitempty"`
 	TextAlignment     string                `json:"textAlignment,omitempty"`
+	BaselineShift     float64               `json:"baselineShift,omitempty"`
 	TextLeading       float64               `json:"textLeading,omitempty"`
 	TextTracking      float64               `json:"textTracking,omitempty"`
+	TextKerning       float64               `json:"textKerning,omitempty"`
+	TextLanguage      string                `json:"textLanguage,omitempty"`
+	TextOrientation   string                `json:"textOrientation,omitempty"`
+	TextSuperscript   bool                  `json:"textSuperscript,omitempty"`
+	TextSubscript     bool                  `json:"textSubscript,omitempty"`
 	TextUnderline     bool                  `json:"textUnderline,omitempty"`
 	TextStrikethrough bool                  `json:"textStrikethrough,omitempty"`
 	TextAllCaps       bool                  `json:"textAllCaps,omitempty"`
@@ -150,6 +161,7 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 		Mask:         cloneLayerMask(layer.Mask()),
 		VectorMask:   clonePath(layer.VectorMask()),
 		StyleStack:   cloneLayerStyles(layer.StyleStack()),
+		BlendIf:      layer.BlendIf(),
 	}
 	if group, ok := layer.(*GroupLayer); ok {
 		archive.Isolated = group.Isolated
@@ -172,12 +184,22 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 		archive.Bounds = &bounds
 		archive.Text = typed.Text
 		archive.FontFamily = typed.FontFamily
+		archive.FontStyle = typed.FontStyle
 		archive.FontSize = typed.FontSize
+		archive.Bold = typed.Bold
+		archive.Italic = typed.Italic
+		archive.AntiAlias = typed.AntiAlias
 		archive.Color = typed.Color
 		archive.TextType = typed.TextType
 		archive.TextAlignment = typed.Alignment
+		archive.BaselineShift = typed.BaselineShift
 		archive.TextLeading = typed.Leading
 		archive.TextTracking = typed.Tracking
+		archive.TextKerning = typed.Kerning
+		archive.TextLanguage = typed.Language
+		archive.TextOrientation = typed.Orientation
+		archive.TextSuperscript = typed.Superscript
+		archive.TextSubscript = typed.Subscript
 		archive.TextUnderline = typed.Underline
 		archive.TextStrikethrough = typed.Strikethrough
 		archive.TextAllCaps = typed.AllCaps
@@ -252,8 +274,16 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 		}
 		textLayer := NewTextLayer(archive.Name, *archive.Bounds, archive.Text, archive.CachedRaster)
 		textLayer.FontFamily = archive.FontFamily
+		if archive.FontStyle != "" {
+			textLayer.FontStyle = archive.FontStyle
+		}
 		if archive.FontSize > 0 {
 			textLayer.FontSize = archive.FontSize
+		}
+		textLayer.Bold = archive.Bold
+		textLayer.Italic = archive.Italic
+		if archive.AntiAlias != "" {
+			textLayer.AntiAlias = archive.AntiAlias
 		}
 		if archive.Color != [4]uint8{} {
 			textLayer.Color = archive.Color
@@ -264,10 +294,18 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 		if archive.TextAlignment != "" {
 			textLayer.Alignment = archive.TextAlignment
 		}
+		textLayer.BaselineShift = archive.BaselineShift
 		if archive.TextLeading > 0 {
 			textLayer.Leading = archive.TextLeading
 		}
 		textLayer.Tracking = archive.TextTracking
+		textLayer.Kerning = archive.TextKerning
+		textLayer.Language = archive.TextLanguage
+		if archive.TextOrientation != "" {
+			textLayer.Orientation = archive.TextOrientation
+		}
+		textLayer.Superscript = archive.TextSuperscript
+		textLayer.Subscript = archive.TextSubscript
 		textLayer.Underline = archive.TextUnderline
 		textLayer.Strikethrough = archive.TextStrikethrough
 		textLayer.AllCaps = archive.TextAllCaps
@@ -309,6 +347,7 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 	layer.SetMask(cloneLayerMask(archive.Mask))
 	layer.SetVectorMask(clonePath(archive.VectorMask))
 	layer.SetStyleStack(cloneLayerStyles(archive.StyleStack))
+	layer.SetBlendIf(archive.BlendIf)
 	if group, ok := layer.(*GroupLayer); ok {
 		children := make([]LayerNode, 0, len(archive.Children))
 		for _, childArchive := range archive.Children {

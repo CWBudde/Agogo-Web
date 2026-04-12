@@ -437,13 +437,16 @@ func layerStylePayloadsToStyles(payloads []LayerStylePayload) []LayerStyle {
 	if payloads == nil {
 		return nil
 	}
-	styles := make([]LayerStyle, len(payloads))
-	for i, payload := range payloads {
-		styles[i] = LayerStyle{
+	styles := make([]LayerStyle, 0, len(payloads))
+	for _, payload := range payloads {
+		if payload.Kind == LayerStyleKindBlendIf {
+			continue
+		}
+		styles = append(styles, LayerStyle{
 			Kind:    string(payload.Kind),
 			Enabled: payload.Enabled,
 			Params:  cloneJSONRawMessage(payload.Params),
-		}
+		})
 	}
 	return styles
 }

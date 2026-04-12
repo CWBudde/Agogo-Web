@@ -6,6 +6,8 @@ import (
 	"sort"
 )
 
+const penToolEndpointSnapDistance = 6.0
+
 // pathToolState holds engine-side state for pen and direct selection tools.
 type pathToolState struct {
 	activeTool       string       // "pen", "direct-select", or ""
@@ -91,7 +93,7 @@ type AddAnchorOnSegmentPayload struct {
 func (inst *instance) penToolClick(payload PenToolClickPayload) error {
 	return inst.executeDocCommand("Pen tool: add anchor", func(doc *Document) error {
 		// Auto-create "Work Path" if no paths exist.
-		if len(doc.Paths) == 0 {
+		if len(doc.Paths) == 0 || doc.ActivePathIdx < 0 || doc.ActivePathIdx >= len(doc.Paths) {
 			doc.CreatePath("Work Path")
 			inst.pathTool.activeSubpathIdx = 0
 		}
@@ -108,6 +110,23 @@ func (inst *instance) penToolClick(payload PenToolClickPayload) error {
 		}
 
 		sp := &p.Subpaths[inst.pathTool.activeSubpathIdx]
+
+		if !sp.Closed && len(sp.Points) > 0 {
+			lastIdx := len(sp.Points) - 1
+			if len(sp.Points) >= 2 && isWithinPenEndpoint(payload.X, payload.Y, sp.Points[lastIdx]) {
+				// Clicking the end of an open subpath means resume editing that path.
+				// Do not create a new subpath.
+				return nil
+			}
+			if len(sp.Points) >= 2 && isWithinPenEndpoint(payload.X, payload.Y, sp.Points[0]) {
+				// Clicking the start of an open subpath should continue forward from that endpoint.
+				reverseSubpath(sp)
+				return nil
+			}
+			if len(sp.Points) == 1 && isWithinPenEndpoint(payload.X, payload.Y, sp.Points[0]) {
+				return nil
+			}
+		}
 
 		pt := PathPoint{
 			X: payload.X, Y: payload.Y,
@@ -128,6 +147,23 @@ func (inst *instance) penToolClick(payload PenToolClickPayload) error {
 		sp.Points = append(sp.Points, pt)
 		return nil
 	})
+}
+
+func isWithinPenEndpoint(x, y float64, pt PathPoint) bool {
+	dx := x - pt.X
+	dy := y - pt.Y
+	return dx*dx+dy*dy <= penToolEndpointSnapDistance*penToolEndpointSnapDistance
+}
+
+func reverseSubpath(sp *Subpath) {
+	points := make([]PathPoint, len(sp.Points))
+	for i, pt := range sp.Points {
+		src := sp.Points[len(sp.Points)-1-i]
+		points[i] = src
+		points[i].InX, points[i].OutX = src.OutX, src.InX
+		points[i].InY, points[i].OutY = src.OutY, src.InY
+	}
+	sp.Points = points
 }
 
 // penToolClose closes the active subpath and advances the subpath index so the

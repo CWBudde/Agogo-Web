@@ -1,4 +1,9 @@
-import type { LayerNodeMeta, LayerStyleEntryCommand, LayerStyleKind } from "@agogo/proto";
+import type {
+	BlendIfConfig,
+	LayerNodeMeta,
+	LayerStyleEntryCommand,
+	LayerStyleKind,
+} from "@agogo/proto";
 import {
 	cloneLayerStyleStack,
 	createDefaultLayerStyleStack,
@@ -40,10 +45,18 @@ export function LayerStyleForm({
 	for (const entry of createDefaultLayerStyleStack()) {
 		catalog = ensureLayerStyleEntry(catalog, entry.kind).styles;
 	}
+	const blendIf = layer?.blendIf;
+	const isBlendIfSupported = blendIf !== undefined;
 
 	const updateParams = (kind: LayerStyleKind, patch: Record<string, unknown>) => {
 		const { entry } = ensureLayerStyleEntry(catalog, kind);
 		onParamsChange(kind, { ...(entry.params ?? {}), ...patch });
+	};
+	const updateBlendIf = (patch: Partial<BlendIfConfig>) => {
+		if (!isBlendIfSupported || !blendIf) {
+			return;
+		}
+		onParamsChange("blend-if" as LayerStyleKind, { ...blendIf, ...patch });
 	};
 
 	return (
@@ -52,6 +65,40 @@ export function LayerStyleForm({
 				Layer Styles
 			</h2>
 			<div className="space-y-2">
+				{isBlendIfSupported ? (
+					<section className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 p-2">
+						<div className="flex items-center justify-between gap-3">
+							<h3 className="text-[11px] font-medium text-slate-100">Blend If</h3>
+							<span className="text-[10px] text-slate-400">Stub</span>
+						</div>
+						<div className="mt-3 space-y-2">
+							<BlendIfChannelField
+								label="Gray"
+								value={blendIf.gray}
+								onMinChange={(value) => updateBlendIf({ gray: [value, blendIf.gray[1]] })}
+								onMaxChange={(value) => updateBlendIf({ gray: [blendIf.gray[0], value] })}
+							/>
+							<BlendIfChannelField
+								label="Red"
+								value={blendIf.red}
+								onMinChange={(value) => updateBlendIf({ red: [value, blendIf.red[1]] })}
+								onMaxChange={(value) => updateBlendIf({ red: [blendIf.red[0], value] })}
+							/>
+							<BlendIfChannelField
+								label="Green"
+								value={blendIf.green}
+								onMinChange={(value) => updateBlendIf({ green: [value, blendIf.green[1]] })}
+								onMaxChange={(value) => updateBlendIf({ green: [blendIf.green[0], value] })}
+							/>
+							<BlendIfChannelField
+								label="Blue"
+								value={blendIf.blue}
+								onMinChange={(value) => updateBlendIf({ blue: [value, blendIf.blue[1]] })}
+								onMaxChange={(value) => updateBlendIf({ blue: [blendIf.blue[0], value] })}
+							/>
+						</div>
+					</section>
+				) : null}
 				{catalog.map((entry) => (
 					<LayerStyleSection
 						key={entry.kind}
@@ -671,4 +718,62 @@ function parseFiniteNumber(value: string): number | null {
 	}
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function BlendIfChannelField({
+	label,
+	value,
+	onMinChange,
+	onMaxChange,
+}: {
+	label: string;
+	value: [number, number];
+	onMinChange: (value: number) => void;
+	onMaxChange: (value: number) => void;
+}) {
+	const updateMin = (next: string) => {
+		const parsed = parseFiniteNumber(next);
+		if (parsed === null) {
+			return;
+		}
+		onMinChange(Math.max(0, Math.min(255, parsed)));
+	};
+
+	const updateMax = (next: string) => {
+		const parsed = parseFiniteNumber(next);
+		if (parsed === null) {
+			return;
+		}
+		onMaxChange(Math.max(0, Math.min(255, parsed)));
+	};
+
+	return (
+		<div className="grid grid-cols-[4.5rem_1fr_1fr] items-center gap-2">
+			<span className="text-[11px] text-slate-400">{label}</span>
+			<label className="text-[10px] text-slate-500">
+				From
+				<input
+					type="number"
+					min={0}
+					max={255}
+					step={1}
+					value={value[0]}
+					onChange={(event) => updateMin(event.target.value)}
+					className="ml-2 h-6 w-16 rounded border border-white/10 bg-black/30 px-1 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+				/>
+			</label>
+			<label className="text-[10px] text-slate-500">
+				To
+				<input
+					type="number"
+					min={0}
+					max={255}
+					step={1}
+					value={value[1]}
+					onChange={(event) => updateMax(event.target.value)}
+					className="ml-2 h-6 w-16 rounded border border-white/10 bg-black/30 px-1 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+				/>
+			</label>
+		</div>
+	);
 }

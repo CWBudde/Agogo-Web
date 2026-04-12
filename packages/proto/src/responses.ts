@@ -82,6 +82,13 @@ export interface UIMeta {
 	stylePresets?: DocumentStylePresetEntry[];
 }
 
+export interface BlendIfConfig {
+	gray: [number, number];
+	red: [number, number];
+	green: [number, number];
+	blue: [number, number];
+}
+
 export interface LayerNodeMeta {
 	id: string;
 	name: string;
@@ -109,12 +116,22 @@ export interface LayerNodeMeta {
 	// TextLayer-specific fields. Only present when layerType === "text".
 	text?: string;
 	fontFamily?: string;
+	fontStyle?: string;
 	fontSize?: number;
+	antiAlias?: string;
 	textColor?: [number, number, number, number];
 	textAlignment?: "left" | "center" | "right" | "justify";
 	textType?: "point" | "area";
+	baselineShift?: number;
+	bold?: boolean;
+	italic?: boolean;
 	tracking?: number;
+	kerning?: number;
+	language?: string;
 	leading?: number;
+	orientation?: string;
+	superscript?: boolean;
+	subscript?: boolean;
 	underline?: boolean;
 	strikethrough?: boolean;
 	allCaps?: boolean;
@@ -124,6 +141,7 @@ export interface LayerNodeMeta {
 	indentFirst?: number;
 	spaceBefore?: number;
 	spaceAfter?: number;
+	blendIf?: BlendIfConfig;
 }
 
 export interface HistoryEntry {

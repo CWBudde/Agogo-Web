@@ -144,6 +144,7 @@ const (
 	LayerStyleKindGradientOverlay LayerStyleKind = "gradient-overlay"
 	LayerStyleKindPatternOverlay  LayerStyleKind = "pattern-overlay"
 	LayerStyleKindStroke          LayerStyleKind = "stroke"
+	LayerStyleKindBlendIf         LayerStyleKind = "blend-if"
 )
 
 type LayerStylePayload struct {
@@ -262,6 +263,7 @@ type LayerNodeMeta struct {
 	MaskEnabled    bool            `json:"maskEnabled"`
 	HasVectorMask  bool            `json:"hasVectorMask"`
 	StyleStack     []LayerStyle    `json:"styleStack,omitempty"`
+	BlendIf        *BlendIfConfig  `json:"blendIf,omitempty"`
 	Isolated       bool            `json:"isolated,omitempty"`
 	Children       []LayerNodeMeta `json:"children,omitempty"`
 	// VectorLayer-specific style fields. Only populated when LayerType == "vector".
@@ -271,12 +273,22 @@ type LayerNodeMeta struct {
 	// TextLayer-specific fields. Only populated when LayerType == "text".
 	TextContent       *string   `json:"text,omitempty"`
 	TextFontFamily    *string   `json:"fontFamily,omitempty"`
+	TextFontStyle     *string   `json:"fontStyle,omitempty"`
 	TextFontSize      *float64  `json:"fontSize,omitempty"`
+	TextAntiAlias     *string   `json:"antiAlias,omitempty"`
 	TextColor         *[4]uint8 `json:"textColor,omitempty"`
 	TextAlignment     *string   `json:"textAlignment,omitempty"`
 	TextType          *string   `json:"textType,omitempty"`
+	TextBaselineShift *float64  `json:"baselineShift,omitempty"`
+	TextBold          *bool     `json:"bold,omitempty"`
+	TextItalic        *bool     `json:"italic,omitempty"`
 	TextTracking      *float64  `json:"tracking,omitempty"`
+	TextKerning       *float64  `json:"kerning,omitempty"`
+	TextLanguage      *string   `json:"language,omitempty"`
 	TextLeading       *float64  `json:"leading,omitempty"`
+	TextOrientation   *string   `json:"orientation,omitempty"`
+	TextSuperscript   *bool     `json:"superscript,omitempty"`
+	TextSubscript     *bool     `json:"subscript,omitempty"`
 	TextUnderline     *bool     `json:"underline,omitempty"`
 	TextStrikethrough *bool     `json:"strikethrough,omitempty"`
 	TextAllCaps       *bool     `json:"allCaps,omitempty"`
@@ -1526,16 +1538,30 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		meta.VecFillColor = &fc
 		meta.VecStrokeColor = &sc
 		meta.VecStrokeWidth = &sw
+		meta.BlendIf = layer.BlendIf()
+	}
+	if _, ok := layer.(*PixelLayer); ok {
+		meta.BlendIf = layer.BlendIf()
 	}
 	if tl, ok := layer.(*TextLayer); ok {
 		text := tl.Text
 		family := tl.FontFamily
+		fontStyle := tl.FontStyle
 		size := tl.FontSize
+		antiAlias := tl.AntiAlias
 		color := tl.Color
 		alignment := tl.Alignment
 		textType := tl.TextType
+		baselineShift := tl.BaselineShift
+		bold := tl.Bold
+		italic := tl.Italic
 		tracking := tl.Tracking
+		kerning := tl.Kerning
+		language := tl.Language
 		leading := tl.Leading
+		orientation := tl.Orientation
+		superscript := tl.Superscript
+		subscript := tl.Subscript
 		underline := tl.Underline
 		strikethrough := tl.Strikethrough
 		allCaps := tl.AllCaps
@@ -1547,12 +1573,22 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		spaceAfter := tl.SpaceAfter
 		meta.TextContent = &text
 		meta.TextFontFamily = &family
+		meta.TextFontStyle = &fontStyle
 		meta.TextFontSize = &size
+		meta.TextAntiAlias = &antiAlias
 		meta.TextColor = &color
 		meta.TextAlignment = &alignment
 		meta.TextType = &textType
+		meta.TextBaselineShift = &baselineShift
+		meta.TextBold = &bold
+		meta.TextItalic = &italic
 		meta.TextTracking = &tracking
+		meta.TextKerning = &kerning
+		meta.TextLanguage = &language
 		meta.TextLeading = &leading
+		meta.TextOrientation = &orientation
+		meta.TextSuperscript = &superscript
+		meta.TextSubscript = &subscript
 		meta.TextUnderline = &underline
 		meta.TextStrikethrough = &strikethrough
 		meta.TextAllCaps = &allCaps
@@ -1562,6 +1598,7 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 		meta.TextIndentFirst = &indentFirst
 		meta.TextSpaceBefore = &spaceBefore
 		meta.TextSpaceAfter = &spaceAfter
+		meta.BlendIf = layer.BlendIf()
 	}
 	return meta
 }

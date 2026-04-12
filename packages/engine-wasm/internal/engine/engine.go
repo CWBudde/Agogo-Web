@@ -127,6 +127,7 @@ const (
 	commandPathExclude           = 0x0613
 	commandFlattenPath           = 0x0614
 	commandRasterizePath         = 0x0615
+	commandRasterizeLayer        = 0x0616
 	commandCreatePath            = 0x0620
 	commandDeletePath            = 0x0621
 	commandRenamePath            = 0x0622
@@ -1051,7 +1052,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandDirectSelectMove, commandDirectSelectMarquee, commandBreakHandle,
 		commandDeleteAnchor, commandAddAnchorOnSegment,
 		commandPathCombine, commandPathSubtract, commandPathIntersect, commandPathExclude,
-		commandFlattenPath, commandRasterizePath,
+		commandFlattenPath, commandRasterizePath, commandRasterizeLayer,
 		commandCreatePath, commandDeletePath, commandRenamePath, commandDuplicatePath,
 		commandMakeSelectionFromPath, commandStrokePath, commandFillPath:
 		if handled, err := inst.dispatchPathCommand(commandID, payloadJSON); handled || err != nil {

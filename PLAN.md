@@ -962,7 +962,7 @@
   - [x] Click: add corner anchor point
   - [x] Click+drag: add smooth anchor point (pull out control handles)
   - [x] Close path: click first anchor point
-  - [ ] Continue open path: click endpoint, continue adding anchors
+  - [x] Continue open path: click endpoint, continue adding anchors
   - [x] Rubber-band preview: line/curve from last anchor to cursor
 - [x] **Direct Selection Tool (A):**
   - [x] Click anchor: select single anchor (white fill = selected, hollow = deselected)
@@ -976,7 +976,7 @@
   - [x] Flatten path to single subpath
 - [x] **Rasterize path to mask / layer:**
   - [x] Render path via AGG rasterizer with AA → alpha mask or pixel layer
-  - [ ] `Rasterize Layer` command for Vector layers
+  - [x] `Rasterize Layer` command for Vector layers
 - [x] **Paths Panel:**
   - [x] List of named paths in document
   - [x] Work Path (temporary), Shape paths, Saved paths
@@ -1025,9 +1025,9 @@
   - [x] Strikethrough
   - [x] All caps
   - [x] Small caps (approximated as all caps at reduced size)
-  - [ ] Font family, style (Regular/Bold/Italic/Bold-Italic) — needs font loading
-  - [ ] Baseline shift, superscript, subscript
-  - [ ] Anti-alias mode: None, Sharp, Crisp, Strong, Smooth
+  - [x] Font family, style (Regular/Bold/Italic/Bold-Italic) metadata stored per layer; actual font loading/rendering still pending
+  - [x] Baseline shift, superscript, subscript metadata stored per layer
+  - [x] Anti-alias mode metadata stored per layer
 - [x] **Paragraph properties (per layer):**
   - [x] Alignment: Left/Center/Right/Justify
   - [x] Indents: left indent, right indent, first-line indent
@@ -1041,7 +1041,7 @@
   - [ ] Click+drag to select text range, Shift+click to extend
   - [ ] Keyboard: standard text navigation (Home/End, Ctrl+A, Ctrl+C/X/V)
 - [x] **Commit text:** Escape or Done button; undo reverts to pre-edit state (single history entry)
-- [x] **Type > Create Outlines:** command wired (placeholder — creates bounding-box VectorLayer)
+- [x] **Type > Create Outlines:** converts text to GSV-based outline VectorLayer
 
 ### Phase 6.4: Text UI Panels
 

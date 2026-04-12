@@ -31,6 +31,9 @@ func (doc *Document) SetLayerStyleEnabled(layerID string, kind LayerStyleKind, e
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
+	if kind == LayerStyleKindBlendIf {
+		return nil
+	}
 
 	styles := layer.StyleStack()
 	for i := range styles {
@@ -52,6 +55,13 @@ func (doc *Document) SetLayerStyleParams(layerID string, kind LayerStyleKind, pa
 	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if kind == LayerStyleKindBlendIf {
+		config := normalizeBlendIfConfig(layer.BlendIf())
+		decodeJSONInto(params, config)
+		layer.SetBlendIf(config)
+		doc.touchModifiedAt()
+		return nil
 	}
 
 	styles := layer.StyleStack()

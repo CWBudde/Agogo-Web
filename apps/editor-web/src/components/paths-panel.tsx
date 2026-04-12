@@ -87,6 +87,10 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
     });
   }
 
+  function handleRasterizeLayer() {
+    engine.dispatchCommand(CommandID.RasterizeLayer, {});
+  }
+
   const hasActive = activeIndex >= 0;
 
   return (
@@ -148,6 +152,12 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
           <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Fill Path">
             <path d="M3 10 L8 5 L11 8 L6 13 Z" />
             <path d="M13 11 Q15 13 13 14 Q11 13 13 11" />
+          </svg>
+        </FooterButton>
+        <FooterButton title="Rasterize Layer" disabled={!hasActive} onClick={handleRasterizeLayer}>
+          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Rasterize Layer">
+            <rect x="3" y="3" width="10" height="10" rx="1" />
+            <path d="M5 5 L11 11 M11 5 L5 11" />
           </svg>
         </FooterButton>
 
