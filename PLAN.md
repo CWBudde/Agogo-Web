@@ -1117,16 +1117,16 @@
     - [x] Guides (0x0408)
     - [x] Slices (0x041A)
     - [x] Layer comps (0x0435)
-  - [ ] **Layer and mask information section:**
+  - [x] **Layer and mask information section:**
     - [x] Layer count and layer records (bounding rect, channels, blend mode, opacity, flags, name, extra data)
     - [x] Extra layer data: layer name (Unicode)
     - [x] Extra layer data: layer ID, layer color tag, sections (groups/begin-end markers)
     - [x] Layer masks: mask data per layer
     - [x] Layer effects (legacy effects list + object-based effects / descriptor)
-    - [ ] Text layer data (descriptor-based: TySh)
-    - [ ] Vector mask data (vmsk / vsms)
-    - [ ] Adjustment layer params per type (leve, curv, hue2, etc.)
-    - [ ] Smart object data (PlLd, SoLd, lsct descriptors)
+    - [x] Text layer data (descriptor-based: TySh)
+    - [x] Vector mask data (vmsk / vsms)
+    - [x] Adjustment layer params per type (leve, curv, hue2, etc.)
+    - [x] Smart object data (PlLd, SoLd, lsct descriptors)
   - [ ] **Image data section:** channel pixel data (raw, RLE, zip with/without prediction)
     - [x] raw
     - [x] RLE

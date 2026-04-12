@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestLoadPSDImportsCompositeImageAndResolution(t *testing.T) {
@@ -347,6 +348,178 @@ func TestParsePSDLayerExtraDataCapturesLayerEffectsMetadata(t *testing.T) {
 	}
 	if record.SmartObject.Identifier != "uid-1" {
 		t.Fatalf("smart object identifier = %q, want uid-1", record.SmartObject.Identifier)
+	}
+}
+
+func TestParsePSDLayerExtraDataMapsObjectEffectKeysToStyleStack(t *testing.T) {
+	extraData := buildLayerExtraData(t, []psdTaggedBlock{
+		{
+			signature: "8BIM",
+			key:       "lfx2",
+			data:      buildLayerObjectEffectsBlockWithKeys(2, 3, []string{"drSh", "outerGlow"}),
+		},
+	})
+
+	var record psdLayerRecord
+	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
+		t.Fatalf("parsePSDLayerExtraData: %v", err)
+	}
+	styles := record.Effects.GetStyleStack()
+	if len(styles) != 2 {
+		t.Fatalf("effect style stack size = %d, want 2", len(styles))
+	}
+	seen := map[string]bool{}
+	for _, style := range styles {
+		seen[style.Kind] = true
+		if style.Enabled {
+			t.Fatalf("style %q should import disabled", style.Kind)
+		}
+	}
+	if !seen[string(LayerStyleKindDropShadow)] {
+		t.Fatal("expected drop shadow style in object metadata")
+	}
+	if !seen[string(LayerStyleKindOuterGlow)] {
+		t.Fatal("expected outer glow style in object metadata")
+	}
+}
+
+func TestParsePSDLayerExtraDataCapturesVectorMaskMetadata(t *testing.T) {
+	extraData := buildLayerExtraData(t, []psdTaggedBlock{
+		{
+			signature: "8BIM",
+			key:       "vmsk",
+			data:      buildLayerVectorMaskPayload(LayerBounds{X: 1, Y: 2, W: 3, H: 4}),
+		},
+	})
+
+	var record psdLayerRecord
+	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
+		t.Fatalf("parsePSDLayerExtraData: %v", err)
+	}
+	if !record.HasVectorMask {
+		t.Fatal("expected vector mask flag")
+	}
+	if record.VectorMask == nil {
+		t.Fatal("expected vector mask metadata")
+	}
+	if record.VectorMask.Bounds.W != 3 || record.VectorMask.Bounds.H != 4 {
+		t.Fatalf("vector mask bounds = %dx%d, want 3x4", record.VectorMask.Bounds.W, record.VectorMask.Bounds.H)
+	}
+	if record.VectorMask.Bounds.X != 1 || record.VectorMask.Bounds.Y != 2 {
+		t.Fatalf("vector mask origin = (%d,%d), want (1,2)", record.VectorMask.Bounds.X, record.VectorMask.Bounds.Y)
+	}
+}
+
+func TestParsePSDLayerExtraDataCapturesTextMetadata(t *testing.T) {
+	extraData := buildLayerExtraData(t, []psdTaggedBlock{
+		{
+			signature: "8BIM",
+			key:       "TySh",
+			data:      buildLayerTextPayload("Layer Title"),
+		},
+	})
+
+	var record psdLayerRecord
+	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
+		t.Fatalf("parsePSDLayerExtraData: %v", err)
+	}
+	if record.Text == nil {
+		t.Fatal("expected text layer metadata")
+	}
+	if !record.Text.HasDescriptor {
+		t.Fatal("expected text descriptor metadata")
+	}
+	if record.Text.ParsedText != "Layer Title" {
+		t.Fatalf("parsed text = %q, want Layer Title", record.Text.ParsedText)
+	}
+}
+
+func TestParsePSDLayerExtraDataCapturesSmartObjectMetadata(t *testing.T) {
+	extraData := buildLayerExtraData(t, []psdTaggedBlock{
+		{
+			signature: "8BIM",
+			key:       "SoLd",
+			data:      buildLayerSmartObjectPayloadWithSoLd("uid-2", 2, 3, 1),
+		},
+	})
+
+	var record psdLayerRecord
+	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
+		t.Fatalf("parsePSDLayerExtraData: %v", err)
+	}
+	if record.SmartObject == nil {
+		t.Fatal("expected smart object metadata")
+	}
+	if record.SmartObject.PageNumber == nil {
+		t.Fatal("expected smart object page number")
+	}
+	if got, want := *record.SmartObject.PageNumber, uint32(2); got != want {
+		t.Fatalf("smart object page = %d, want %d", got, want)
+	}
+	if record.SmartObject.TotalPages == nil || *record.SmartObject.TotalPages != 3 {
+		t.Fatalf("smart object total pages = %v, want 3", record.SmartObject.TotalPages)
+	}
+}
+
+func TestLoadPSDImportsLegacyLayerEffectsAsDisabledStyles(t *testing.T) {
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		layers: []minimalPSDLayer{
+			{
+				name: "Styled",
+				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				extraBlocks: []psdTaggedBlock{
+					{
+						signature: "8BIM",
+						key:       "lrFX",
+						data:      buildLayerLegacyEffectsBlock([]string{"drSh"}),
+					},
+				},
+				channels: []psdLayerChannel{
+					{id: 0, compression: psdCompressionRaw, data: []byte{10}},
+					{id: 1, compression: psdCompressionRaw, data: []byte{20}},
+					{id: 2, compression: psdCompressionRaw, data: []byte{30}},
+					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+				},
+			},
+		},
+		composite: psdImageData{
+			compression: psdCompressionRaw,
+			planes: [][]byte{
+				{10},
+				{20},
+				{30},
+			},
+		},
+	})
+
+	doc, warnings, err := LoadPSD(data)
+	if err != nil {
+		t.Fatalf("LoadPSD: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+
+	children := doc.LayerRoot.Children()
+	if len(children) != 1 {
+		t.Fatalf("imported child count = %d, want 1", len(children))
+	}
+	layer, ok := children[0].(*PixelLayer)
+	if !ok {
+		t.Fatalf("imported layer = %T, want *PixelLayer", children[0])
+	}
+	styles := layer.StyleStack()
+	if len(styles) != 1 {
+		t.Fatalf("style stack size = %d, want 1", len(styles))
+	}
+	if got, want := styles[0].Kind, string(LayerStyleKindDropShadow); got != want {
+		t.Fatalf("style kind = %q, want %q", got, want)
+	}
+	if styles[0].Enabled {
+		t.Fatal("expected imported legacy effect style to be disabled")
 	}
 }
 
@@ -835,6 +1008,39 @@ func buildLayerAdjustmentPayload(version uint16) []byte {
 	return out.Bytes()
 }
 
+func buildLayerVectorMaskPayload(bounds LayerBounds) []byte {
+	var out bytes.Buffer
+	right := bounds.X + bounds.W
+	bottom := bounds.Y + bounds.H
+	writeInt32(&out, int32(bounds.Y))
+	writeInt32(&out, int32(bounds.X))
+	writeInt32(&out, int32(bottom))
+	writeInt32(&out, int32(right))
+	writeUint16(&out, 0)
+	writeUint16(&out, 0)
+	out.WriteByte(0)
+	out.WriteByte(0)
+	return out.Bytes()
+}
+
+func buildLayerTextPayload(text string) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, 1)
+	writeUTF16String(&out, text)
+	return out.Bytes()
+}
+
+func buildLayerSmartObjectPayloadWithSoLd(identifier string, pageNumber, totalPages, placedType uint32) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, 1)
+	out.WriteByte(byte(len(identifier)))
+	out.WriteString(identifier)
+	writeUint32(&out, pageNumber)
+	writeUint32(&out, totalPages)
+	writeUint32(&out, placedType)
+	return out.Bytes()
+}
+
 func buildLayerLegacyEffectsBlock(effectKeys []string) []byte {
 	var out bytes.Buffer
 	writeUint16(&out, 1)
@@ -854,6 +1060,17 @@ func buildLayerObjectEffectsBlock(objectVersion, descriptorVersion uint32) []byt
 	writeUint32(&out, objectVersion)
 	writeUint32(&out, descriptorVersion)
 	out.WriteString("desc")
+	return out.Bytes()
+}
+
+func buildLayerObjectEffectsBlockWithKeys(objectVersion, descriptorVersion uint32, keys []string) []byte {
+	var out bytes.Buffer
+	writeUint32(&out, objectVersion)
+	writeUint32(&out, descriptorVersion)
+	out.WriteString("desc")
+	for _, key := range keys {
+		out.WriteString(key)
+	}
 	return out.Bytes()
 }
 
@@ -1031,6 +1248,14 @@ func writePascalString4(out *bytes.Buffer, value string) {
 	out.WriteString(value)
 	for out.Len()%4 != 0 {
 		out.WriteByte(0)
+	}
+}
+
+func writeUTF16String(out *bytes.Buffer, value string) {
+	runes := utf16.Encode([]rune(value))
+	writeUint32(out, uint32(len(runes)))
+	for _, r := range runes {
+		writeUint16(out, r)
 	}
 }
 
