@@ -671,6 +671,7 @@ export interface DocumentStylePresetEntry {
   id: string;
   name: string;
   styles: LayerStyleEntryCommand[];
+  thumbnailBase64?: string;
 }
 
 export interface SetLayerStyleStackCommand {

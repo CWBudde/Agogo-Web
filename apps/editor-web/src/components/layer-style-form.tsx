@@ -1,9 +1,12 @@
 import type {
+	BlendIfChannel,
 	BlendIfConfig,
+	BlendIfRange,
 	LayerNodeMeta,
 	LayerStyleEntryCommand,
 	LayerStyleKind,
 } from "@agogo/proto";
+import { useState } from "react";
 import {
 	cloneLayerStyleStack,
 	createDefaultLayerStyleStack,
@@ -11,6 +14,7 @@ import {
 	formatLayerStyleLabel,
 	supportsLayerStyles,
 } from "@/components/layer-style-model";
+import { BlendIfSlider } from "./ui/blend-if-slider";
 
 const blendModeOptions = [
 	{ value: "normal", label: "Normal" },
@@ -66,38 +70,7 @@ export function LayerStyleForm({
 			</h2>
 			<div className="space-y-2">
 				{isBlendIfSupported ? (
-					<section className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 p-2">
-						<div className="flex items-center justify-between gap-3">
-							<h3 className="text-[11px] font-medium text-slate-100">Blend If</h3>
-							<span className="text-[10px] text-slate-400">Stub</span>
-						</div>
-						<div className="mt-3 space-y-2">
-							<BlendIfChannelField
-								label="Gray"
-								value={blendIf.gray}
-								onMinChange={(value) => updateBlendIf({ gray: [value, blendIf.gray[1]] })}
-								onMaxChange={(value) => updateBlendIf({ gray: [blendIf.gray[0], value] })}
-							/>
-							<BlendIfChannelField
-								label="Red"
-								value={blendIf.red}
-								onMinChange={(value) => updateBlendIf({ red: [value, blendIf.red[1]] })}
-								onMaxChange={(value) => updateBlendIf({ red: [blendIf.red[0], value] })}
-							/>
-							<BlendIfChannelField
-								label="Green"
-								value={blendIf.green}
-								onMinChange={(value) => updateBlendIf({ green: [value, blendIf.green[1]] })}
-								onMaxChange={(value) => updateBlendIf({ green: [blendIf.green[0], value] })}
-							/>
-							<BlendIfChannelField
-								label="Blue"
-								value={blendIf.blue}
-								onMinChange={(value) => updateBlendIf({ blue: [value, blendIf.blue[1]] })}
-								onMaxChange={(value) => updateBlendIf({ blue: [blendIf.blue[0], value] })}
-							/>
-						</div>
-					</section>
+					<BlendIfSection blendIf={blendIf} onChange={updateBlendIf} />
 				) : null}
 				{catalog.map((entry) => (
 					<LayerStyleSection
@@ -720,60 +693,98 @@ function parseFiniteNumber(value: string): number | null {
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
-function BlendIfChannelField({
-	label,
-	value,
-	onMinChange,
-	onMaxChange,
-}: {
-	label: string;
-	value: [number, number];
-	onMinChange: (value: number) => void;
-	onMaxChange: (value: number) => void;
-}) {
-	const updateMin = (next: string) => {
-		const parsed = parseFiniteNumber(next);
-		if (parsed === null) {
-			return;
-		}
-		onMinChange(Math.max(0, Math.min(255, parsed)));
-	};
+type BlendIfChannelKey = keyof BlendIfRange;
 
-	const updateMax = (next: string) => {
-		const parsed = parseFiniteNumber(next);
-		if (parsed === null) {
-			return;
-		}
-		onMaxChange(Math.max(0, Math.min(255, parsed)));
+const blendIfChannelOptions: { value: BlendIfChannelKey; label: string }[] = [
+	{ value: "gray", label: "Gray" },
+	{ value: "red", label: "Red" },
+	{ value: "green", label: "Green" },
+	{ value: "blue", label: "Blue" },
+];
+
+function BlendIfSection({
+	blendIf,
+	onChange,
+}: {
+	blendIf: BlendIfConfig;
+	onChange: (patch: Partial<BlendIfConfig>) => void;
+}) {
+	const [channel, setChannel] = useState<BlendIfChannelKey>("gray");
+
+	const setThisLayer = (next: BlendIfChannel) => {
+		onChange({ thisLayer: { ...blendIf.thisLayer, [channel]: next } });
+	};
+	const setUnderlyingLayer = (next: BlendIfChannel) => {
+		onChange({ underlyingLayer: { ...blendIf.underlyingLayer, [channel]: next } });
+	};
+	const toggleChannel = (key: "r" | "g" | "b", enabled: boolean) => {
+		onChange({ channels: { ...blendIf.channels, [key]: enabled } });
 	};
 
 	return (
-		<div className="grid grid-cols-[4.5rem_1fr_1fr] items-center gap-2">
-			<span className="text-[11px] text-slate-400">{label}</span>
-			<label className="text-[10px] text-slate-500">
-				From
-				<input
-					type="number"
-					min={0}
-					max={255}
-					step={1}
-					value={value[0]}
-					onChange={(event) => updateMin(event.target.value)}
-					className="ml-2 h-6 w-16 rounded border border-white/10 bg-black/30 px-1 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+		<section className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 p-2">
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="text-[11px] font-medium text-slate-100">Blend If</h3>
+				<select
+					aria-label="Blend If channel"
+					className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+					value={channel}
+					onChange={(event) => setChannel(event.target.value as BlendIfChannelKey)}
+				>
+					{blendIfChannelOptions.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+			</div>
+			<div className="mt-3 space-y-3">
+				<BlendIfSlider
+					label="This Layer"
+					value={blendIf.thisLayer[channel]}
+					onChange={setThisLayer}
 				/>
-			</label>
-			<label className="text-[10px] text-slate-500">
-				To
-				<input
-					type="number"
-					min={0}
-					max={255}
-					step={1}
-					value={value[1]}
-					onChange={(event) => updateMax(event.target.value)}
-					className="ml-2 h-6 w-16 rounded border border-white/10 bg-black/30 px-1 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+				<BlendIfSlider
+					label="Underlying Layer"
+					value={blendIf.underlyingLayer[channel]}
+					onChange={setUnderlyingLayer}
 				/>
-			</label>
-		</div>
+				<div className="flex items-center gap-3">
+					<span className="text-[10px] uppercase tracking-[0.15em] text-slate-500">
+						Channels
+					</span>
+					<label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+						<input
+							aria-label="Channel R"
+							type="checkbox"
+							className="accent-cyan-400"
+							checked={blendIf.channels.r}
+							onChange={(event) => toggleChannel("r", event.target.checked)}
+						/>
+						R
+					</label>
+					<label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+						<input
+							aria-label="Channel G"
+							type="checkbox"
+							className="accent-cyan-400"
+							checked={blendIf.channels.g}
+							onChange={(event) => toggleChannel("g", event.target.checked)}
+						/>
+						G
+					</label>
+					<label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+						<input
+							aria-label="Channel B"
+							type="checkbox"
+							className="accent-cyan-400"
+							checked={blendIf.channels.b}
+							onChange={(event) => toggleChannel("b", event.target.checked)}
+						/>
+						B
+					</label>
+				</div>
+			</div>
+		</section>
 	);
 }

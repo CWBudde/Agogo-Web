@@ -1086,14 +1086,14 @@
   - [x] **Gradient Overlay:** gradient, blend mode, opacity, style, angle, scale, align with layer
   - [x] **Pattern Overlay:** pattern, blend mode, opacity, scale, link with layer
   - [x] **Stroke:** size, position (outside/inside/center), blend mode, opacity, fill type (color/gradient/pattern)
-- [ ] **Blend If / Advanced Blending:**
+- [x] **Blend If / Advanced Blending:**
   - [x] Fill opacity (separate from layer opacity for effects)
-  - [ ] Channels (R/G/B checkboxes to include in blend)
-  - [ ] Blend If sliders: "This Layer" and "Underlying Layer" — split sliders for smooth transitions
-- [ ] **Styles Panel (Window > Styles):**
-  - [ ] Preset style thumbnails
-  - [ ] Click to apply style to current layer
-  - [ ] Save current layer style as preset
+  - [x] Channels (R/G/B checkboxes to include in blend)
+  - [x] Blend If sliders: "This Layer" and "Underlying Layer" — split sliders for smooth transitions
+- [x] **Styles Panel (Window > Styles):**
+  - [x] Preset style thumbnails
+  - [x] Click to apply style to current layer
+  - [x] Save current layer style as preset
   - [ ] Import/export `.asl` style files (later)
 - [x] **Copy/Paste Layer Style** (right-click context menu)
 - [x] **Flatten/Merge with effects:** merge effects into pixel data

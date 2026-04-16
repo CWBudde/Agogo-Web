@@ -1,7 +1,11 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image/png"
+	"strings"
 	"testing"
 )
 
@@ -465,5 +469,39 @@ func TestRenderUIMeta_ExposesLayerStyleStacksAndPresets(t *testing.T) {
 	}
 	if rawColor[0] != float64(0) || rawColor[1] != float64(255) || rawColor[2] != float64(0) || rawColor[3] != float64(255) {
 		t.Fatalf("ui meta style color = %#v, want [0 255 0 255]", rawColor)
+	}
+}
+
+func TestRenderPresetThumbnail(t *testing.T) {
+	styles := []LayerStyle{
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  json.RawMessage(`{"color":[255,0,0,255],"opacity":1}`),
+		},
+	}
+
+	const prefix = "data:image/png;base64,"
+	thumb := renderPresetThumbnail(styles)
+	if !strings.HasPrefix(thumb, prefix) {
+		t.Fatalf("thumbnail = %q, want prefix %q", thumb, prefix)
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(thumb, prefix))
+	if err != nil {
+		t.Fatalf("decode base64 thumbnail: %v", err)
+	}
+
+	cfg, err := png.DecodeConfig(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("decode png config: %v", err)
+	}
+	if cfg.Width != presetThumbnailSize || cfg.Height != presetThumbnailSize {
+		t.Fatalf("thumbnail dimensions = %dx%d, want %dx%d", cfg.Width, cfg.Height, presetThumbnailSize, presetThumbnailSize)
+	}
+
+	emptyThumb := renderPresetThumbnail(nil)
+	if !strings.HasPrefix(emptyThumb, prefix) {
+		t.Fatalf("empty-styles thumbnail = %q, want prefix %q", emptyThumb, prefix)
 	}
 }

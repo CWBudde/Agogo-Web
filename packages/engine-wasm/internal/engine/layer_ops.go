@@ -1124,33 +1124,33 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 	switch typed := layer.(type) {
 	case *PixelLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
 		return nil
 	case *TextLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
 		return nil
 	case *VectorLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed))
+		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
 		return nil
 	case *AdjustmentLayer:
 		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha)
@@ -1164,7 +1164,7 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 		}
 		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask())
 		applyClipSurfaceToSurface(temp, clipAlpha)
-		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed))
+		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
 		return nil
 	default:
 		return fmt.Errorf("unsupported layer type %T", layer)
@@ -1235,7 +1235,7 @@ func effectiveContentOpacity(layer LayerNode) float64 {
 	return clampUnit(layer.FillOpacity())
 }
 
-func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte) error {
+func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte, blendIf *BlendIfConfig) error {
 	if bounds.W <= 0 || bounds.H <= 0 || len(src) == 0 || opacity <= 0 {
 		return nil
 	}
@@ -1243,6 +1243,7 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 	if len(src) != expectedLen {
 		return fmt.Errorf("raster length %d does not match bounds %dx%d", len(src), bounds.W, bounds.H)
 	}
+	identityBlendIf := blendIfIsIdentity(blendIf)
 	for y := 0; y < bounds.H; y++ {
 		docY := bounds.Y + y
 		if docY < 0 || docY >= docH {
@@ -1261,17 +1262,33 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 			}
 			destIndex := (docY*docW + docX) * 4
 			srcPixel := src[srcIndex : srcIndex+4]
+			pixelOpacity := opacity
+			var origDest [4]uint8
+			if !identityBlendIf {
+				srcRGBA := [4]uint8{srcPixel[0], srcPixel[1], srcPixel[2], srcPixel[3]}
+				copy(origDest[:], dest[destIndex:destIndex+4])
+				pixelOpacity *= blendIfAlpha(srcRGBA, origDest, blendIf)
+				if pixelOpacity <= 0 {
+					continue
+				}
+			}
 			if maskAlpha == 255 {
-				compositePixelWithBlend(dest[destIndex:destIndex+4], srcPixel, blendMode, opacity, pixelNoiseSeed(docX, docY))
-				continue
+				compositePixelWithBlend(dest[destIndex:destIndex+4], srcPixel, blendMode, pixelOpacity, pixelNoiseSeed(docX, docY))
+			} else {
+				var masked [4]byte
+				copy(masked[:], srcPixel)
+				masked[3] = scaleMaskedAlpha(srcPixel[3], maskAlpha)
+				if masked[3] == 0 {
+					continue
+				}
+				compositePixelWithBlend(dest[destIndex:destIndex+4], masked[:], blendMode, pixelOpacity, pixelNoiseSeed(docX, docY))
 			}
-			var masked [4]byte
-			copy(masked[:], srcPixel)
-			masked[3] = scaleMaskedAlpha(srcPixel[3], maskAlpha)
-			if masked[3] == 0 {
-				continue
+			if !identityBlendIf {
+				var after [4]uint8
+				copy(after[:], dest[destIndex:destIndex+4])
+				applyChannelsMask(&origDest, &after, blendIf)
+				copy(dest[destIndex:destIndex+4], after[:])
 			}
-			compositePixelWithBlend(dest[destIndex:destIndex+4], masked[:], blendMode, opacity, pixelNoiseSeed(docX, docY))
 		}
 	}
 	return nil
@@ -1483,12 +1500,29 @@ func (doc *Document) clippingBaseSurfaceForLayer(layer LayerNode) ([]byte, error
 	return nil, nil
 }
 
-func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64) {
+func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64, blendIf *BlendIfConfig) {
 	if len(dest) != len(src) || opacity <= 0 {
 		return
 	}
+	identity := blendIfIsIdentity(blendIf)
 	for offset := 0; offset < len(dest); offset += 4 {
-		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, opacity, uint32(offset/4))
+		pixelOpacity := opacity
+		var origDest [4]uint8
+		if !identity {
+			srcRGBA := [4]uint8{src[offset], src[offset+1], src[offset+2], src[offset+3]}
+			copy(origDest[:], dest[offset:offset+4])
+			pixelOpacity *= blendIfAlpha(srcRGBA, origDest, blendIf)
+			if pixelOpacity <= 0 {
+				continue
+			}
+		}
+		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, pixelOpacity, uint32(offset/4))
+		if !identity {
+			var after [4]uint8
+			copy(after[:], dest[offset:offset+4])
+			applyChannelsMask(&origDest, &after, blendIf)
+			copy(dest[offset:offset+4], after[:])
+		}
 	}
 }
 

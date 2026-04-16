@@ -285,6 +285,62 @@ func jsonRawMessage(value string) json.RawMessage {
 	return json.RawMessage(value)
 }
 
+func TestBlendIfConfigUnmarshalLegacyShape(t *testing.T) {
+	legacy := []byte(`{"gray":[16,240],"red":[0,255],"green":[20,220],"blue":[0,255]}`)
+	var config BlendIfConfig
+	if err := json.Unmarshal(legacy, &config); err != nil {
+		t.Fatalf("unmarshal legacy blendIf: %v", err)
+	}
+	want := BlendIfChannel{16, 16, 240, 240}
+	if config.ThisLayer.Gray != want {
+		t.Errorf("legacy gray ThisLayer = %v, want %v", config.ThisLayer.Gray, want)
+	}
+	if config.UnderlyingLayer.Gray != defaultBlendIfChannel() {
+		t.Errorf("legacy UnderlyingLayer = %v, want default", config.UnderlyingLayer.Gray)
+	}
+	if config.Channels != defaultBlendChannelsMask() {
+		t.Errorf("legacy Channels = %v, want default", config.Channels)
+	}
+}
+
+func TestBlendIfConfigUnmarshalNewShape(t *testing.T) {
+	data := []byte(`{"thisLayer":{"gray":[0,10,200,255],"red":[0,0,255,255],"green":[0,0,255,255],"blue":[0,0,255,255]},"underlyingLayer":{"gray":[0,0,255,255],"red":[0,0,255,255],"green":[0,0,255,255],"blue":[0,0,255,255]},"channels":{"r":true,"g":false,"b":true}}`)
+	var config BlendIfConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshal new blendIf: %v", err)
+	}
+	if got := config.ThisLayer.Gray; got != (BlendIfChannel{0, 10, 200, 255}) {
+		t.Errorf("ThisLayer.Gray = %v, want [0 10 200 255]", got)
+	}
+	if config.Channels.G {
+		t.Errorf("Channels.G = true, want false")
+	}
+}
+
+func TestBlendIfConfigRoundTrip(t *testing.T) {
+	original := &BlendIfConfig{
+		ThisLayer: BlendIfRange{
+			Gray:  BlendIfChannel{10, 40, 180, 220},
+			Red:   defaultBlendIfChannel(),
+			Green: defaultBlendIfChannel(),
+			Blue:  defaultBlendIfChannel(),
+		},
+		UnderlyingLayer: defaultBlendIfRange(),
+		Channels:        BlendChannelsMask{R: true, G: false, B: true},
+	}
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded BlendIfConfig
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded != *original {
+		t.Errorf("round trip differs: got %+v, want %+v", decoded, *original)
+	}
+}
+
 func archiveStylePresetsFromJSON(t *testing.T, data []byte) []map[string]any {
 	t.Helper()
 

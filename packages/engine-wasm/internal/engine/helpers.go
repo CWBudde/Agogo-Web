@@ -78,9 +78,10 @@ func cloneDocumentStylePresets(presets []DocumentStylePreset) []DocumentStylePre
 	cloned := make([]DocumentStylePreset, len(presets))
 	for i := range presets {
 		cloned[i] = DocumentStylePreset{
-			ID:     presets[i].ID,
-			Name:   presets[i].Name,
-			Styles: clonePresetStyles(presets[i].Styles),
+			ID:              presets[i].ID,
+			Name:            presets[i].Name,
+			Styles:          clonePresetStyles(presets[i].Styles),
+			ThumbnailBase64: presets[i].ThumbnailBase64,
 		}
 	}
 	return cloned

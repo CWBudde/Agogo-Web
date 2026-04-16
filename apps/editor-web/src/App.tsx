@@ -67,6 +67,7 @@ import {
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { PathsPanel } from "@/components/paths-panel";
+import { StylesPanel } from "@/components/styles-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
@@ -445,7 +446,7 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches" | "paths";
+type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches" | "paths" | "styles";
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -2664,6 +2665,7 @@ export default function App() {
                         {[
                           ["properties", "Properties"],
                           ["adjustments", "Adjust"],
+                          ["styles", "Styles"],
                           ["brush", "Brush"],
                           ["color", "Color"],
                           ["swatches", "Swatches"],
@@ -2738,6 +2740,14 @@ export default function App() {
                         <AdjustmentsPanel
                           engine={engine}
                           layers={render?.uiMeta.layers ?? []}
+                          activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                        />
+                      ) : null}
+
+                      {activeAuxPanel === "styles" ? (
+                        <StylesPanel
+                          engine={engine}
+                          render={render}
                           activeLayerId={render?.uiMeta.activeLayerId ?? null}
                         />
                       ) : null}
@@ -4510,6 +4520,8 @@ function dockTitle(panel: AuxPanel) {
       return "Paths";
     case "adjustments":
       return "Adjustments";
+    case "styles":
+      return "Styles";
     default:
       return "Properties";
   }

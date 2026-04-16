@@ -126,28 +126,10 @@ func appendOutlinedText(subpaths *[]Subpath, text string, x, y, fontSize, tracki
 	if text == "" {
 		return
 	}
-	outlines := agglib.BuildGSVTextOutlinePath(text, x, y, fontSize, 0, fontSize*0.08, tracking, 0, true)
-	for _, outline := range outlines {
-		points := make([]PathPoint, 0, len(outline.Points))
-		for _, point := range outline.Points {
-			points = append(points, PathPoint{
-				X:          point.X,
-				Y:          point.Y,
-				InX:        point.X,
-				InY:        point.Y,
-				OutX:       point.X,
-				OutY:       point.Y,
-				HandleType: HandleCorner,
-			})
-		}
-		if len(points) == 0 {
-			continue
-		}
-		*subpaths = append(*subpaths, Subpath{
-			Closed: outline.Closed,
-			Points: points,
-		})
-	}
+	// Text-to-outline conversion is pending upstream agg_go API
+	// (agglib.BuildGSVTextOutlinePath not yet published). Until then,
+	// convert-to-shape on text layers produces an empty path.
+	_, _, _, _, _ = x, y, fontSize, tracking, subpaths
 }
 
 func alignedTrackedX(x, totalWidth float64, alignment string, availWidth float64) float64 {

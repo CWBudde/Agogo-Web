@@ -1,11 +1,20 @@
 package engine
 
-import "fmt"
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"image"
+	"image/png"
+
+	agglib "github.com/cwbudde/agg_go"
+)
 
 type DocumentStylePreset struct {
-	ID     string       `json:"id"`
-	Name   string       `json:"name"`
-	Styles []LayerStyle `json:"styles"`
+	ID              string       `json:"id"`
+	Name            string       `json:"name"`
+	Styles          []LayerStyle `json:"styles"`
+	ThumbnailBase64 string       `json:"thumbnailBase64,omitempty"`
 }
 
 type CreateDocumentStylePresetPayload struct {
@@ -36,10 +45,12 @@ func (doc *Document) CreateDocumentStylePreset(name string, styles []LayerStyle)
 		return DocumentStylePreset{}, fmt.Errorf("preset name is required")
 	}
 
+	cloned := clonePresetStyles(styles)
 	preset := DocumentStylePreset{
-		ID:     newLayerID(),
-		Name:   name,
-		Styles: clonePresetStyles(styles),
+		ID:              newLayerID(),
+		Name:            name,
+		Styles:          cloned,
+		ThumbnailBase64: renderPresetThumbnail(cloned),
 	}
 	doc.StylePresets = append(doc.StylePresets, preset)
 	doc.touchModifiedAt()
@@ -62,7 +73,9 @@ func (doc *Document) UpdateDocumentStylePreset(presetID string, name *string, st
 			doc.StylePresets[i].Name = *name
 		}
 		if styles != nil {
-			doc.StylePresets[i].Styles = clonePresetStyles(styles)
+			cloned := clonePresetStyles(styles)
+			doc.StylePresets[i].Styles = cloned
+			doc.StylePresets[i].ThumbnailBase64 = renderPresetThumbnail(cloned)
 		}
 		doc.touchModifiedAt()
 		return nil
@@ -142,4 +155,44 @@ func (inst *instance) applyDocumentStylePreset(payload ApplyDocumentStylePresetP
 	return inst.executeDocCommand("Apply style preset", func(doc *Document) error {
 		return doc.ApplyDocumentStylePreset(payload.PresetID, payload.LayerID)
 	})
+}
+
+const presetThumbnailSize = 64
+
+func renderPresetThumbnail(styles []LayerStyle) string {
+	const size = presetThumbnailSize
+	stride := size * 4
+
+	sourceSurface := make([]byte, stride*size)
+	r := agglib.NewAgg2D()
+	r.Attach(sourceSurface, size, size, stride)
+	r.ClearAll(agglib.NewColor(0, 0, 0, 0))
+	r.ResetTransformations()
+	r.ResetPath()
+
+	const padding = 4.0
+	const radius = 6.0
+	swatch := makeRoundedRectPath(padding, padding, float64(size)-2*padding, float64(size)-2*padding, radius)
+
+	r.FillColor(agglib.NewColor(160, 160, 160, 255))
+	r.LineColor(agglib.NewColor(110, 110, 110, 255))
+	r.LineWidth(1)
+	applyPathToAgg2D(r, swatch)
+	r.DrawPath(agglib.FillAndStroke)
+
+	baseSurface := append([]byte(nil), sourceSurface...)
+	decoded := decodeLayerStyles(styles)
+	finalSurface := applyLayerStylesToSurface(baseSurface, sourceSurface, size, size, decoded)
+
+	img := &image.NRGBA{
+		Pix:    finalSurface,
+		Stride: stride,
+		Rect:   image.Rect(0, 0, size, size),
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
 }

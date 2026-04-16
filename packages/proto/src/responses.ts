@@ -83,11 +83,31 @@ export interface UIMeta {
 	stylePresets?: DocumentStylePresetEntry[];
 }
 
+/**
+ * Blend If channel: [lowHard, lowSoft, highSoft, highHard] in 0..255.
+ * Hard cutoffs have lowHard === lowSoft and highSoft === highHard.
+ * Alt-dragging a handle splits it, producing a smooth fade between
+ * the hard and soft value.
+ */
+export type BlendIfChannel = [number, number, number, number];
+
+export interface BlendIfRange {
+	gray: BlendIfChannel;
+	red: BlendIfChannel;
+	green: BlendIfChannel;
+	blue: BlendIfChannel;
+}
+
+export interface BlendChannelsMask {
+	r: boolean;
+	g: boolean;
+	b: boolean;
+}
+
 export interface BlendIfConfig {
-	gray: [number, number];
-	red: [number, number];
-	green: [number, number];
-	blue: [number, number];
+	thisLayer: BlendIfRange;
+	underlyingLayer: BlendIfRange;
+	channels: BlendChannelsMask;
 }
 
 export interface LayerNodeMeta {

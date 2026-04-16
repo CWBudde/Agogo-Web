@@ -35,27 +35,27 @@ func isSupportedLayerStyleKind(kind LayerStyleKind) bool {
 func applyLayerStyleEffect(dst, sourceSurface []byte, docW, docH int, style DecodedLayerStyle) {
 	switch LayerStyleKind(style.Kind) {
 	case LayerStyleKindColorOverlay:
-		compositeDocumentSurface(dst, buildColorOverlaySurface(sourceSurface, docW, docH, style.ColorOverlay), style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity)
+		compositeDocumentSurface(dst, buildColorOverlaySurface(sourceSurface, docW, docH, style.ColorOverlay), style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity, nil)
 	case LayerStyleKindGradientOverlay:
-		compositeDocumentSurface(dst, buildGradientOverlaySurface(sourceSurface, docW, docH, style.GradientOverlay), style.GradientOverlay.BlendMode, style.GradientOverlay.Opacity)
+		compositeDocumentSurface(dst, buildGradientOverlaySurface(sourceSurface, docW, docH, style.GradientOverlay), style.GradientOverlay.BlendMode, style.GradientOverlay.Opacity, nil)
 	case LayerStyleKindPatternOverlay:
-		compositeDocumentSurface(dst, buildPatternOverlaySurface(sourceSurface, docW, docH, style.PatternOverlay), style.PatternOverlay.BlendMode, style.PatternOverlay.Opacity)
+		compositeDocumentSurface(dst, buildPatternOverlaySurface(sourceSurface, docW, docH, style.PatternOverlay), style.PatternOverlay.BlendMode, style.PatternOverlay.Opacity, nil)
 	case LayerStyleKindStroke:
-		compositeDocumentSurface(dst, buildStrokeSurface(sourceSurface, docW, docH, style.Stroke), style.Stroke.BlendMode, style.Stroke.Opacity)
+		compositeDocumentSurface(dst, buildStrokeSurface(sourceSurface, docW, docH, style.Stroke), style.Stroke.BlendMode, style.Stroke.Opacity, nil)
 	case LayerStyleKindInnerShadow:
-		compositeDocumentSurface(dst, buildInnerShadowSurface(sourceSurface, docW, docH, style.InnerShadow), style.InnerShadow.BlendMode, style.InnerShadow.Opacity)
+		compositeDocumentSurface(dst, buildInnerShadowSurface(sourceSurface, docW, docH, style.InnerShadow), style.InnerShadow.BlendMode, style.InnerShadow.Opacity, nil)
 	case LayerStyleKindInnerGlow:
-		compositeDocumentSurface(dst, buildInnerGlowSurface(sourceSurface, docW, docH, style.InnerGlow), style.InnerGlow.BlendMode, style.InnerGlow.Opacity)
+		compositeDocumentSurface(dst, buildInnerGlowSurface(sourceSurface, docW, docH, style.InnerGlow), style.InnerGlow.BlendMode, style.InnerGlow.Opacity, nil)
 	case LayerStyleKindBevelEmboss:
 		highlight, shadow := buildBevelEmbossSurfaces(sourceSurface, docW, docH, style.BevelEmboss)
-		compositeDocumentSurface(dst, highlight, style.BevelEmboss.Highlight, bevelEmbossOpacity(style.BevelEmboss.HighlightO, style.BevelEmboss.Depth))
-		compositeDocumentSurface(dst, shadow, style.BevelEmboss.Shadow, bevelEmbossOpacity(style.BevelEmboss.ShadowO, style.BevelEmboss.Depth))
+		compositeDocumentSurface(dst, highlight, style.BevelEmboss.Highlight, bevelEmbossOpacity(style.BevelEmboss.HighlightO, style.BevelEmboss.Depth), nil)
+		compositeDocumentSurface(dst, shadow, style.BevelEmboss.Shadow, bevelEmbossOpacity(style.BevelEmboss.ShadowO, style.BevelEmboss.Depth), nil)
 	case LayerStyleKindSatin:
-		compositeDocumentSurface(dst, buildSatinSurface(sourceSurface, docW, docH, style.Satin), style.Satin.BlendMode, style.Satin.Opacity)
+		compositeDocumentSurface(dst, buildSatinSurface(sourceSurface, docW, docH, style.Satin), style.Satin.BlendMode, style.Satin.Opacity, nil)
 	case LayerStyleKindDropShadow:
-		compositeDocumentSurface(dst, buildDropShadowSurface(sourceSurface, docW, docH, style.DropShadow), style.DropShadow.BlendMode, style.DropShadow.Opacity)
+		compositeDocumentSurface(dst, buildDropShadowSurface(sourceSurface, docW, docH, style.DropShadow), style.DropShadow.BlendMode, style.DropShadow.Opacity, nil)
 	case LayerStyleKindOuterGlow:
-		compositeDocumentSurface(dst, buildOuterGlowSurface(sourceSurface, docW, docH, style.OuterGlow), style.OuterGlow.BlendMode, style.OuterGlow.Opacity)
+		compositeDocumentSurface(dst, buildOuterGlowSurface(sourceSurface, docW, docH, style.OuterGlow), style.OuterGlow.BlendMode, style.OuterGlow.Opacity, nil)
 	}
 }
 
