@@ -423,6 +423,18 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 		}
 		return true, nil
 
+	case commandSetArtboard:
+		var payload SetArtboardPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		if err := inst.executeDocCommand("Update artboard", func(doc *Document) error {
+			return doc.SetArtboard(payload.LayerID, payload.Bounds, payload.Background)
+		}); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case commandSetPointFromSample:
 		if err := inst.handleSetPointFromSample(payloadJSON); err != nil {
 			return true, err

@@ -59,6 +59,7 @@ export enum CommandID {
   UpdateDocumentStylePreset = 0x0126,
   DeleteDocumentStylePreset = 0x0127,
   ApplyDocumentStylePreset = 0x0128,
+  SetArtboard = 0x0129,
 
   // Phase 3: Selection
   NewSelection = 0x0200,
@@ -477,6 +478,9 @@ export interface AddLayerCommand {
   strokeWidth?: number;
   cachedRaster?: number[];
   isolated?: boolean;
+  isArtboard?: boolean;
+  artboardBounds?: LayerBoundsCommand;
+  artboardBackground?: [number, number, number, number];
 }
 
 export interface DeleteLayerCommand {
@@ -648,6 +652,12 @@ export interface TranslateLayerCommand {
   layerId?: string;
   dx: number;
   dy: number;
+}
+
+export interface SetArtboardCommand {
+  layerId: string;
+  bounds: LayerBoundsCommand;
+  background?: [number, number, number, number];
 }
 
 export interface PickLayerAtPointCommand {

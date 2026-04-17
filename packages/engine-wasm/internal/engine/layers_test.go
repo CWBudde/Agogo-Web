@@ -147,6 +147,10 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	group.SetOpacity(0.5)
 	group.SetFillOpacity(0.25)
 	group.SetLockMode(LayerLockPosition)
+	group.Artboard = &ArtboardData{
+		Bounds:     LayerBounds{X: 10, Y: 20, W: 300, H: 200},
+		Background: [4]uint8{240, 240, 240, 255},
+	}
 	group.SetMask(&LayerMask{Enabled: true, Width: 2, Height: 2, Data: []byte{255, 127, 64, 0}})
 	group.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 2}, {X: 3, Y: 4}}}}})
 	group.SetClipToBelow(true)
@@ -177,6 +181,9 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	if clone.LockMode() != LayerLockPosition {
 		t.Fatalf("clone lock mode = %q, want %q", clone.LockMode(), LayerLockPosition)
 	}
+	if clone.Artboard == nil || clone.Artboard.Bounds != group.Artboard.Bounds || clone.Artboard.Background != group.Artboard.Background {
+		t.Fatalf("clone artboard = %#v, want %#v", clone.Artboard, group.Artboard)
+	}
 	if !clone.ClipToBelow() {
 		t.Fatal("clone lost clip-to-below flag")
 	}
@@ -204,6 +211,11 @@ func TestGroupLayerCloneDeepCopiesNestedState(t *testing.T) {
 	clone.Mask().Data[0] = 1
 	if group.Mask().Data[0] == 1 {
 		t.Fatal("mask data share backing storage between original and clone")
+	}
+
+	clone.Artboard.Bounds.X = 999
+	if group.Artboard.Bounds.X == 999 {
+		t.Fatal("artboard data share backing storage between original and clone")
 	}
 
 	clone.VectorMask().Subpaths[0].Points[0].X = 42

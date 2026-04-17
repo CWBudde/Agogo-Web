@@ -323,9 +323,7 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 		for _, key := range record.UnsupportedBlocks {
 			warnings = append(warnings, fmt.Sprintf("layer %q: unsupported metadata block %s imported as flattened pixel layer", name, key))
 		}
-		for _, warning := range record.MetadataWarnings {
-			warnings = append(warnings, warning)
-		}
+		warnings = append(warnings, record.MetadataWarnings...)
 		if record.HasLayerMask && record.LayerMaskBounds.W > 0 && record.LayerMaskBounds.H > 0 {
 			layer.SetMask(&LayerMask{
 				Enabled: record.LayerMaskEnabled,

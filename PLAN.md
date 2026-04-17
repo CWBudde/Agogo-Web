@@ -1156,17 +1156,17 @@
 ### Phase 7.3: Artboards
 
 - [ ] **Artboard data model:**
-  - [ ] An artboard is a special `GroupLayer` with a fixed rectangular bounds in doc-space
-  - [ ] Document can contain multiple artboards (or none — traditional document)
-  - [ ] Artboard has its own background color
+  - [x] An artboard is a special `GroupLayer` with a fixed rectangular bounds in doc-space
+  - [x] Document can contain multiple artboards (or none — traditional document)
+  - [x] Artboard has its own background color
   - [ ] Artboards are visible as labeled frames on the canvas; content outside bounds is clipped during export
 - [ ] **Artboard tool:**
-  - [ ] Create artboard: drag on canvas (similar to shape tool)
-  - [ ] Resize artboard: drag handles (like free transform)
-  - [ ] Move artboard with content
-  - [ ] Preset sizes: iPhone, iPad, Desktop, Custom
+  - [x] Create artboard: drag on canvas (similar to shape tool)
+  - [x] Resize artboard: drag handles (like free transform)
+  - [x] Move artboard with content
+  - [x] Preset sizes: iPhone, iPad, Desktop, Custom
 - [ ] **Artboards Panel / Layers Panel integration:**
-  - [ ] Artboards appear as top-level groups with special icon
+  - [x] Artboards appear as top-level groups with special icon
   - [ ] Layers inside artboards are children
 - [ ] **Export artboards:**
   - [ ] File > Export > Artboards to Files → choose format (PNG/JPG/PDF), naming, destination

@@ -140,6 +140,19 @@ export function CropToolIcon(props: IconProps) {
   );
 }
 
+export function ArtboardToolIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="1.5" />
+      <path d="M8 8h8" />
+      <path d="M8 12h5" />
+      <path d="M8 16h7" />
+      <path d="M3 7h2" />
+      <path d="M19 21v-2" />
+    </IconBase>
+  );
+}
+
 export function NewDocumentIcon(props: IconProps) {
   return (
     <IconBase {...props}>

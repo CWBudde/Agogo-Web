@@ -37,6 +37,7 @@ import {
   ClipboardIcon,
   CopyIcon,
   CropToolIcon,
+  ArtboardToolIcon,
   EraserToolIcon,
   EyedropperToolIcon,
   FitScreenIcon,
@@ -398,7 +399,7 @@ const menuItems: MenuPreviewMenu[] = [
   },
 ];
 
-type EditorTool = ShortcutTool | "mixerBrush" | "type" | "shape" | "transform";
+type EditorTool = ShortcutTool | "mixerBrush" | "type" | "shape" | "transform" | "artboard";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
 type LassoMode = "freehand" | "polygon" | "magnetic";
@@ -427,6 +428,7 @@ const toolItems: {
   { id: "directSelect", label: "Direct Selection", Icon: DirectSelectIcon },
   { id: "type", label: "Type", Icon: TypeToolIcon },
   { id: "shape", label: "Shape", Icon: ShapeToolIcon },
+  { id: "artboard", label: "Artboard", Icon: ArtboardToolIcon },
   { id: "transform", label: "Transform", Icon: SlidersIcon },
   { id: "hand", label: "Hand", Icon: HandToolIcon },
   { id: "zoom", label: "Zoom", Icon: ZoomToolIcon },
@@ -451,6 +453,14 @@ const presets = [
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
 type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches" | "paths" | "styles";
+type ArtboardPreset = "custom" | "hd" | "iphone" | "ipad" | "a4";
+
+const artboardPresetMap: Record<Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }> = {
+  hd: { width: 1920, height: 1080, label: "HD" },
+  iphone: { width: 1179, height: 2556, label: "iPhone" },
+  ipad: { width: 1668, height: 2388, label: "iPad" },
+  a4: { width: 2480, height: 3508, label: "A4" },
+};
 
 const unitSteps: Record<DocumentUnit, number> = {
   px: 1,
@@ -756,6 +766,8 @@ export default function App() {
   const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
   const [shapeStrokeColor, setShapeStrokeColor] = useState<[number, number, number, number]>([0, 0, 0, 0]);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
+  const [artboardPreset, setArtboardPreset] = useState<ArtboardPreset>("custom");
+  const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([255, 255, 255, 255]);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -847,6 +859,10 @@ export default function App() {
   const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
   const editingTextLayerID = render?.uiMeta.editingTextLayerId ?? "";
   const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
+  const activeArtboard =
+    render?.uiMeta.activeLayerId
+      ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
+      : null;
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
@@ -855,6 +871,8 @@ export default function App() {
   const gradientPreviewStyle = {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
+  const artboardPresetSize =
+    artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
     { key: "green", label: "Green Output" },
@@ -876,6 +894,27 @@ export default function App() {
     { key: "neutrals", label: "Neutrals" },
     { key: "blacks", label: "Blacks" },
   ] as const;
+
+  useEffect(() => {
+    const activeLayerId = render?.uiMeta.activeLayerId ?? null;
+    if (!activeLayerId) {
+      setSelectedLayerIds([]);
+      return;
+    }
+    setSelectedLayerIds((current) =>
+      current.length > 0 && current.includes(activeLayerId) ? current : [activeLayerId],
+    );
+  }, [render?.uiMeta.activeLayerId]);
+
+  useEffect(() => {
+    if (activeArtboard?.isArtboard && activeArtboard.artboardBackground) {
+      setArtboardBackground((current) =>
+        current.every((value, index) => value === activeArtboard.artboardBackground?.[index])
+          ? current
+          : activeArtboard.artboardBackground,
+      );
+    }
+  }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground]);
   const selectiveColorFields = [
     { key: "cyanRed", label: "Cyan / Red" },
     { key: "magentaGreen", label: "Magenta / Green" },
@@ -1716,6 +1755,53 @@ export default function App() {
         >
           Cancel
         </Button>
+      </>
+    ) : activeTool === "artboard" ? (
+      <>
+        <ToolOptionGroup label="Preset">
+          <ToolChoiceButton
+            active={artboardPreset === "custom"}
+            onClick={() => setArtboardPreset("custom")}
+          >
+            Custom
+          </ToolChoiceButton>
+          {(Object.entries(artboardPresetMap) as Array<[Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }]>).map(([presetId, preset]) => (
+            <ToolChoiceButton
+              key={presetId}
+              active={artboardPreset === presetId}
+              onClick={() => setArtboardPreset(presetId)}
+            >
+              {preset.label}
+            </ToolChoiceButton>
+          ))}
+        </ToolOptionGroup>
+        {artboardPresetSize ? (
+          <span className="text-[11px] text-slate-400">
+            {artboardPresetSize.width} × {artboardPresetSize.height}
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-400">Drag freely to size the artboard.</span>
+        )}
+        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">BG</span>
+          <input
+            type="color"
+            className="h-6 w-8 rounded border border-white/10 bg-transparent"
+            value={rgbaToHex(artboardBackground)}
+            onChange={(event) => {
+              const next = hexToRgba(event.target.value);
+              setArtboardBackground(next);
+              if (activeArtboard?.isArtboard && activeArtboard.artboardBounds) {
+                engine.dispatchCommand(CommandID.SetArtboard, {
+                  layerId: activeArtboard.id,
+                  bounds: activeArtboard.artboardBounds,
+                  background: next,
+                });
+              }
+            }}
+          />
+          <span>{rgbaToHex(artboardBackground).toUpperCase()}</span>
+        </div>
       </>
     ) : activeTool === "lasso" ? (
       <>
@@ -2619,6 +2705,10 @@ export default function App() {
                       fillColor: shapeFillColor,
                       strokeColor: shapeStrokeColor,
                       strokeWidth: shapeStrokeWidth,
+                    }}
+                    artboardOptions={{
+                      presetSize: artboardPresetSize,
+                      background: artboardBackground,
                     }}
                     cropDeletePixels={cropDeletePixels}
                     transformSelectionActive={transformSelectionActive}

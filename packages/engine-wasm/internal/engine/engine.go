@@ -105,6 +105,7 @@ const (
 	commandUpdateDocumentStylePreset = 0x0126
 	commandDeleteDocumentStylePreset = 0x0127
 	commandApplyDocumentStylePreset  = 0x0128
+	commandSetArtboard               = 0x0129
 	commandApplyFilter               = 0x0500
 	commandReapplyFilter             = 0x0501
 	commandPreviewFilter             = 0x0502
@@ -988,7 +989,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandSetLayerStyleParams, commandCopyLayerStyle, commandPasteLayerStyle,
 		commandClearLayerStyle, commandCreateDocumentStylePreset,
 		commandUpdateDocumentStylePreset, commandDeleteDocumentStylePreset,
-		commandApplyDocumentStylePreset:
+		commandApplyDocumentStylePreset, commandSetArtboard:
 		handled, err := inst.dispatchLayerCommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err

@@ -139,6 +139,11 @@ type LayerBounds struct {
 	H int `json:"h"`
 }
 
+type ArtboardData struct {
+	Bounds     LayerBounds `json:"bounds"`
+	Background [4]uint8    `json:"background"`
+}
+
 type layerBase struct {
 	id           string
 	name         string
@@ -518,7 +523,8 @@ func (l *AdjustmentLayer) Clone() LayerNode {
 type GroupLayer struct {
 	layerBase
 	children []LayerNode
-	Isolated bool `json:"isolated"`
+	Isolated bool          `json:"isolated"`
+	Artboard *ArtboardData `json:"artboard,omitempty"`
 }
 
 func NewGroupLayer(name string) *GroupLayer {
@@ -548,6 +554,7 @@ func (l *GroupLayer) Clone() LayerNode {
 	clone := &GroupLayer{
 		layerBase: l.cloneBase(),
 		Isolated:  l.Isolated,
+		Artboard:  cloneArtboard(l.Artboard),
 	}
 	children := make([]LayerNode, 0, len(l.children))
 	for _, child := range l.children {
@@ -567,6 +574,14 @@ func cloneLayerMask(mask *LayerMask) *LayerMask {
 	copyMask := *mask
 	copyMask.Data = append([]byte(nil), mask.Data...)
 	return &copyMask
+}
+
+func cloneArtboard(artboard *ArtboardData) *ArtboardData {
+	if artboard == nil {
+		return nil
+	}
+	copyArtboard := *artboard
+	return &copyArtboard
 }
 
 func clonePath(path *Path) *Path {
@@ -717,6 +732,13 @@ func layerTreeEqual(a, b LayerNode) bool {
 	case *GroupLayer:
 		right, ok := b.(*GroupLayer)
 		if !ok || left.Isolated != right.Isolated {
+			return false
+		}
+		switch {
+		case left.Artboard == nil && right.Artboard == nil:
+		case left.Artboard == nil || right.Artboard == nil:
+			return false
+		case left.Artboard.Bounds != right.Artboard.Bounds || left.Artboard.Background != right.Artboard.Background:
 			return false
 		}
 	default:

@@ -1,4 +1,4 @@
-import { CommandID, type AddTextLayerCommand, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand } from "@agogo/proto";
+import { CommandID, type AddLayerCommand, type AddTextLayerCommand, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand, type SetArtboardCommand } from "@agogo/proto";
 import { PathOverlayRenderer } from "./path-overlay";
 import {
   useCallback,
@@ -37,7 +37,8 @@ type EditorCanvasProps = {
     | "hand"
     | "zoom"
     | "transform"
-    | "crop";
+    | "crop"
+    | "artboard";
   isPanMode: boolean;
   isZoomTool: boolean;
   selectionOptions: {
@@ -95,6 +96,10 @@ type EditorCanvasProps = {
     fillColor: [number, number, number, number];
     strokeColor: [number, number, number, number];
     strokeWidth: number;
+  };
+  artboardOptions: {
+    presetSize: { width: number; height: number } | null;
+    background: [number, number, number, number];
   };
   cropDeletePixels: boolean;
   transformSelectionActive: boolean;
@@ -274,6 +279,22 @@ type SelectionTransformDraft = {
   centerY: number;
 };
 
+type ArtboardCreateDraft = {
+  pointerId: number;
+  start: DocumentPoint;
+  current: DocumentPoint;
+};
+
+type ArtboardEditDraft = {
+  pointerId: number;
+  layerId: string;
+  background: [number, number, number, number];
+  kind: CropDragKind;
+  startDoc: DocumentPoint;
+  startBounds: { x: number; y: number; w: number; h: number };
+  currentBounds: { x: number; y: number; w: number; h: number };
+};
+
 function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
   if (shiftKey && altKey) {
     return "intersect" as const;
@@ -340,9 +361,13 @@ function constrainedMarqueeEnd(
 
 type LayerMetaSlim = {
   id: string;
+  name?: string;
   lockMode: string;
   layerType?: string;
   parentId?: string;
+  isArtboard?: boolean;
+  artboardBounds?: { x: number; y: number; w: number; h: number };
+  artboardBackground?: [number, number, number, number];
   children?: unknown[];
 };
 
@@ -568,6 +593,49 @@ function cropHitTest(
   return null;
 }
 
+type ArtboardMeta = {
+  id: string;
+  name: string;
+  bounds: { x: number; y: number; w: number; h: number };
+  background: [number, number, number, number];
+};
+
+function collectArtboards(layers: Array<LayerMetaSlim>): ArtboardMeta[] {
+  return layers
+    .filter((layer) => layer.layerType === "group" && layer.isArtboard && layer.artboardBounds)
+    .map((layer) => ({
+      id: layer.id,
+      name: layer.name ?? "Artboard",
+      bounds: layer.artboardBounds as { x: number; y: number; w: number; h: number },
+      background: layer.artboardBackground ?? [255, 255, 255, 255],
+    }));
+}
+
+function resolveArtboardBounds(
+  start: DocumentPoint,
+  current: DocumentPoint,
+  presetSize: { width: number; height: number } | null,
+) {
+  if (!presetSize) {
+    return {
+      x: Math.min(start.x, current.x),
+      y: Math.min(start.y, current.y),
+      w: Math.max(1, Math.abs(current.x - start.x)),
+      h: Math.max(1, Math.abs(current.y - start.y)),
+    };
+  }
+  const width = presetSize.width;
+  const height = presetSize.height;
+  const dx = current.x - start.x;
+  const dy = current.y - start.y;
+  return {
+    x: dx < 0 ? start.x - width : start.x,
+    y: dy < 0 ? start.y - height : start.y,
+    w: width,
+    h: height,
+  };
+}
+
 function findLayerMetaByID(
   layers: Array<LayerMetaSlim>,
   targetID: string,
@@ -626,6 +694,7 @@ export function EditorCanvas({
   eyedropperSampleMerged,
   eyedropperSampleAllLayersNoAdj,
   shapeOptions,
+  artboardOptions,
   cropDeletePixels,
   transformSelectionActive,
   onTransformSelectionCommit,
@@ -667,6 +736,8 @@ export function EditorCanvas({
   );
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
   const [shapeDraft, setShapeDraft] = useState<{ start: DocumentPoint; current: DocumentPoint } | null>(null);
+  const [artboardCreateDraft, setArtboardCreateDraft] = useState<ArtboardCreateDraft | null>(null);
+  const [artboardEditDraft, setArtboardEditDraft] = useState<ArtboardEditDraft | null>(null);
   const [magneticLassoDraft, setMagneticLassoDraft] =
     useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
@@ -771,6 +842,10 @@ export function EditorCanvas({
     }
     if (activeTool !== "shape") {
       setShapeDraft(null);
+    }
+    if (activeTool !== "artboard") {
+      setArtboardCreateDraft(null);
+      setArtboardEditDraft(null);
     }
   }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
@@ -1330,6 +1405,16 @@ export function EditorCanvas({
         return { start: startC, current: endC };
       })()
     : null;
+  const artboards = collectArtboards((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>);
+  const activeLayerMeta = render?.uiMeta.activeLayerId
+    ? findLayerMetaByID((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>, render.uiMeta.activeLayerId)
+    : null;
+  const selectedArtboardId = activeLayerMeta?.isArtboard ? activeLayerMeta.id : null;
+  const previewArtboardBounds = artboardEditDraft?.currentBounds
+    ?? (selectedArtboardId ? artboards.find((artboard) => artboard.id === selectedArtboardId)?.bounds ?? null : null);
+  const artboardCreateOverlay = artboardCreateDraft
+    ? resolveArtboardBounds(artboardCreateDraft.start, artboardCreateDraft.current, artboardOptions.presetSize)
+    : null;
 
   return (
     <div
@@ -1787,6 +1872,50 @@ export function EditorCanvas({
             }
           }
         }
+        if (activeTool === "artboard" && event.button === 0 && !isPanMode) {
+          const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
+          if (!canvasPoint) return;
+          for (let index = artboards.length - 1; index >= 0; index--) {
+            const artboard = artboards[index];
+            const kind = cropHitTest({ ...artboard.bounds, rotation: 0 }, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
+            if (!kind) {
+              continue;
+            }
+            engine.dispatchCommand(CommandID.SetActiveLayer, { layerId: artboard.id });
+            if (kind === "move") {
+              engine.beginTransaction("Move artboard");
+              setMoveDraft({
+                pointerId: event.pointerId,
+                layerIds: [artboard.id],
+                start: { x: docPoint.x, y: docPoint.y },
+                appliedDX: 0,
+                appliedDY: 0,
+                moved: false,
+              });
+            } else {
+              setArtboardEditDraft({
+                pointerId: event.pointerId,
+                layerId: artboard.id,
+                background: artboard.background,
+                kind,
+                startDoc: { x: docPoint.x, y: docPoint.y },
+                startBounds: { ...artboard.bounds },
+                currentBounds: { ...artboard.bounds },
+              });
+            }
+            event.currentTarget.setPointerCapture(event.pointerId);
+            event.preventDefault();
+            return;
+          }
+          setArtboardCreateDraft({
+            pointerId: event.pointerId,
+            start: { x: docPoint.x, y: docPoint.y },
+            current: { x: docPoint.x, y: docPoint.y },
+          });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
         if (activeTool === "eraser" && eraserMode === "magic" && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
@@ -2043,6 +2172,12 @@ export function EditorCanvas({
         }
         if (shapeDraft && activeTool === "shape" && docPoint) {
           setShapeDraft((d) => d ? { ...d, current: { x: docPoint.x, y: docPoint.y } } : d);
+          return;
+        }
+        if (artboardCreateDraft && artboardCreateDraft.pointerId === event.pointerId && docPoint) {
+          setArtboardCreateDraft((current) =>
+            current ? { ...current, current: { x: docPoint.x, y: docPoint.y } } : current,
+          );
           return;
         }
         if (
@@ -2307,6 +2442,73 @@ export function EditorCanvas({
             case "scale-l":  newX += dx; newW -= dx; break;
           }
           setSelTransformBox({ x: newX, y: newY, w: Math.max(newW, 1), h: Math.max(newH, 1), rotation: newRotation });
+          return;
+        }
+        if (artboardEditDraft && artboardEditDraft.pointerId === event.pointerId && docPoint) {
+          const ad = artboardEditDraft;
+          const dx = docPoint.x - ad.startDoc.x;
+          const dy = docPoint.y - ad.startDoc.y;
+          let newX = ad.startBounds.x;
+          let newY = ad.startBounds.y;
+          let newW = ad.startBounds.w;
+          let newH = ad.startBounds.h;
+
+          switch (ad.kind) {
+            case "move":
+              newX += dx;
+              newY += dy;
+              break;
+            case "scale-tl":
+              newX += dx;
+              newY += dy;
+              newW -= dx;
+              newH -= dy;
+              break;
+            case "scale-t":
+              newY += dy;
+              newH -= dy;
+              break;
+            case "scale-tr":
+              newY += dy;
+              newW += dx;
+              newH -= dy;
+              break;
+            case "scale-r":
+              newW += dx;
+              break;
+            case "scale-br":
+              newW += dx;
+              newH += dy;
+              break;
+            case "scale-b":
+              newH += dy;
+              break;
+            case "scale-bl":
+              newX += dx;
+              newW -= dx;
+              newH += dy;
+              break;
+            case "scale-l":
+              newX += dx;
+              newW -= dx;
+              break;
+            default:
+              break;
+          }
+
+          setArtboardEditDraft((current) =>
+            current
+              ? {
+                  ...current,
+                  currentBounds: {
+                    x: newX,
+                    y: newY,
+                    w: Math.max(newW, 1),
+                    h: Math.max(newH, 1),
+                  },
+                }
+              : current,
+          );
           return;
         }
         if (
@@ -2583,6 +2785,41 @@ export function EditorCanvas({
           } satisfies DrawShapeCommand);
           return;
         }
+        if (artboardCreateDraft && artboardCreateDraft.pointerId === event.pointerId && event.button === 0) {
+          const draft = artboardCreateDraft;
+          setArtboardCreateDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          const bounds = resolveArtboardBounds(draft.start, draft.current, artboardOptions.presetSize);
+          engine.dispatchCommand(CommandID.AddLayer, {
+            layerType: "group",
+            name: `Artboard ${artboards.length + 1}`,
+            isArtboard: true,
+            artboardBounds: {
+              x: Math.round(bounds.x),
+              y: Math.round(bounds.y),
+              w: Math.max(1, Math.round(bounds.w)),
+              h: Math.max(1, Math.round(bounds.h)),
+            },
+            artboardBackground: artboardOptions.background,
+          } satisfies AddLayerCommand);
+          return;
+        }
+        if (artboardEditDraft && artboardEditDraft.pointerId === event.pointerId) {
+          const draft = artboardEditDraft;
+          setArtboardEditDraft(null);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          engine.dispatchCommand(CommandID.SetArtboard, {
+            layerId: draft.layerId,
+            bounds: {
+              x: Math.round(draft.currentBounds.x),
+              y: Math.round(draft.currentBounds.y),
+              w: Math.max(1, Math.round(draft.currentBounds.w)),
+              h: Math.max(1, Math.round(draft.currentBounds.h)),
+            },
+            background: draft.background,
+          } satisfies SetArtboardCommand);
+          return;
+        }
         if (gradientDragStart && activeTool === "gradient" && event.button === 0) {
           const point = clientPointToDocument(event.clientX, event.clientY);
           const end = gradientDragCurrent ?? point ?? gradientDragStart;
@@ -2717,6 +2954,9 @@ export function EditorCanvas({
       magneticLassoDraft ||
       gradientDragStart ||
       shapeOverlay ||
+      artboards.length > 0 ||
+      artboardCreateOverlay ||
+      previewArtboardBounds ||
       (transformSelectionActive && selTransformBox) ? (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -2724,6 +2964,104 @@ export function EditorCanvas({
           aria-hidden="true"
         >
           <title>Selection preview overlay</title>
+          {artboards.map((artboard) => {
+            const bounds =
+              selectedArtboardId === artboard.id && previewArtboardBounds
+                ? previewArtboardBounds
+                : artboard.bounds;
+            const corners = [
+              documentPointToCanvas({ x: bounds.x, y: bounds.y }),
+              documentPointToCanvas({ x: bounds.x + bounds.w, y: bounds.y }),
+              documentPointToCanvas({ x: bounds.x + bounds.w, y: bounds.y + bounds.h }),
+              documentPointToCanvas({ x: bounds.x, y: bounds.y + bounds.h }),
+            ];
+            if (corners.some((corner) => !corner)) {
+              return null;
+            }
+            const [topLeft] = corners as Array<{ x: number; y: number }>;
+            const polygonPoints = (corners as Array<{ x: number; y: number }>)
+              .map((corner) => `${corner.x},${corner.y}`)
+              .join(" ");
+            const isActiveArtboard = artboard.id === selectedArtboardId;
+            const showHandles = activeTool === "artboard" && isActiveArtboard;
+            const handlePositions = showHandles
+              ? [
+                  { id: "tl", x: bounds.x, y: bounds.y },
+                  { id: "t", x: bounds.x + bounds.w / 2, y: bounds.y },
+                  { id: "tr", x: bounds.x + bounds.w, y: bounds.y },
+                  { id: "r", x: bounds.x + bounds.w, y: bounds.y + bounds.h / 2 },
+                  { id: "br", x: bounds.x + bounds.w, y: bounds.y + bounds.h },
+                  { id: "b", x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h },
+                  { id: "bl", x: bounds.x, y: bounds.y + bounds.h },
+                  { id: "l", x: bounds.x, y: bounds.y + bounds.h / 2 },
+                ]
+              : [];
+            return (
+              <g key={artboard.id}>
+                <polygon
+                  points={polygonPoints}
+                  fill={`rgba(${artboard.background[0]}, ${artboard.background[1]}, ${artboard.background[2]}, 0.04)`}
+                  stroke={isActiveArtboard ? "rgba(34, 211, 238, 0.95)" : "rgba(226, 232, 240, 0.75)"}
+                  strokeDasharray={isActiveArtboard ? "10 6" : "8 5"}
+                  strokeWidth={isActiveArtboard ? "2" : "1.25"}
+                />
+                <rect
+                  x={topLeft.x + 8}
+                  y={topLeft.y + 8}
+                  width={Math.max(54, artboard.name.length * 7.2)}
+                  height={18}
+                  rx={9}
+                  fill={isActiveArtboard ? "rgba(8, 145, 178, 0.92)" : "rgba(15, 23, 42, 0.84)"}
+                />
+                <text
+                  x={topLeft.x + 16}
+                  y={topLeft.y + 20.5}
+                  fill="rgba(248, 250, 252, 0.95)"
+                  fontSize="10"
+                  fontWeight="600"
+                  letterSpacing="0.08em"
+                >
+                  {artboard.name}
+                </text>
+                {handlePositions.map((handle) => {
+                  const point = documentPointToCanvas({ x: handle.x, y: handle.y });
+                  if (!point) {
+                    return null;
+                  }
+                  return (
+                    <rect
+                      key={handle.id}
+                      x={point.x - 4}
+                      y={point.y - 4}
+                      width={8}
+                      height={8}
+                      fill="rgba(15, 23, 42, 0.92)"
+                      stroke="rgba(34, 211, 238, 0.95)"
+                      strokeWidth="1.5"
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+          {artboardCreateOverlay ? (() => {
+            const corners = [
+              documentPointToCanvas({ x: artboardCreateOverlay.x, y: artboardCreateOverlay.y }),
+              documentPointToCanvas({ x: artboardCreateOverlay.x + artboardCreateOverlay.w, y: artboardCreateOverlay.y }),
+              documentPointToCanvas({ x: artboardCreateOverlay.x + artboardCreateOverlay.w, y: artboardCreateOverlay.y + artboardCreateOverlay.h }),
+              documentPointToCanvas({ x: artboardCreateOverlay.x, y: artboardCreateOverlay.y + artboardCreateOverlay.h }),
+            ];
+            if (corners.some((corner) => !corner)) return null;
+            return (
+              <polygon
+                points={(corners as Array<{ x: number; y: number }>).map((corner) => `${corner.x},${corner.y}`).join(" ")}
+                fill="rgba(14, 165, 233, 0.05)"
+                stroke="rgba(14, 165, 233, 0.95)"
+                strokeDasharray="10 6"
+                strokeWidth="2"
+              />
+            );
+          })() : null}
           {marqueeOverlay ? (
             selectionOptions.marqueeShape === "ellipse" ? (
               <ellipse

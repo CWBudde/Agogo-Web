@@ -48,6 +48,9 @@ type projectLayerArchive struct {
 	StyleStack        []LayerStyle          `json:"styleStack,omitempty"`
 	BlendIf           *BlendIfConfig        `json:"blendIf,omitempty"`
 	Isolated          bool                  `json:"isolated,omitempty"`
+	IsArtboard        bool                  `json:"isArtboard,omitempty"`
+	ArtboardBounds    *LayerBounds          `json:"artboardBounds,omitempty"`
+	ArtboardBG        *[4]uint8             `json:"artboardBackground,omitempty"`
 	Bounds            *LayerBounds          `json:"bounds,omitempty"`
 	Pixels            []byte                `json:"pixels,omitempty"`
 	AdjustmentKind    string                `json:"adjustmentKind,omitempty"`
@@ -165,6 +168,13 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 	}
 	if group, ok := layer.(*GroupLayer); ok {
 		archive.Isolated = group.Isolated
+		if group.Artboard != nil {
+			bounds := group.Artboard.Bounds
+			background := group.Artboard.Background
+			archive.IsArtboard = true
+			archive.ArtboardBounds = &bounds
+			archive.ArtboardBG = &background
+		}
 		children := group.Children()
 		archive.Children = make([]projectLayerArchive, 0, len(children))
 		for _, child := range children {
@@ -265,6 +275,19 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 	case LayerTypeGroup:
 		group := NewGroupLayer(archive.Name)
 		group.Isolated = archive.Isolated
+		if archive.IsArtboard {
+			background := defaultArtboardBackground()
+			if archive.ArtboardBG != nil {
+				background = *archive.ArtboardBG
+			}
+			if archive.ArtboardBounds == nil {
+				return nil, fmt.Errorf("artboard group %q missing bounds", archive.Name)
+			}
+			group.Artboard = &ArtboardData{
+				Bounds:     *archive.ArtboardBounds,
+				Background: background,
+			}
+		}
 		layer = group
 	case LayerTypeAdjustment:
 		layer = NewAdjustmentLayer(archive.Name, archive.AdjustmentKind, archive.Params)

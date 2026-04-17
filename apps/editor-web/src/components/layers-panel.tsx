@@ -411,9 +411,15 @@ export function LayersPanel({
     if (!targetLayer) {
       return;
     }
+    const draggedLayer = findLayerById(layers, layerId);
+    const draggedIsArtboard = Boolean(draggedLayer?.isArtboard);
 
     if (position === "inside") {
-      if (targetLayer.layerType !== "group" || isDescendantLayer(layers, layerId, targetLayer.id)) {
+      if (
+        draggedIsArtboard ||
+        targetLayer.layerType !== "group" ||
+        isDescendantLayer(layers, layerId, targetLayer.id)
+      ) {
         return;
       }
       engine.dispatchCommand(CommandID.MoveLayer, {
@@ -429,10 +435,13 @@ export function LayersPanel({
     if (targetIndex < 0) {
       return;
     }
+    if (draggedIsArtboard && targetLayer.parentId) {
+      return;
+    }
 
     engine.dispatchCommand(CommandID.MoveLayer, {
       layerId,
-      parentLayerId: targetLayer.parentId || undefined,
+      parentLayerId: draggedIsArtboard ? undefined : targetLayer.parentId || undefined,
       index: position === "before" ? targetIndex + 1 : targetIndex,
     });
   };
@@ -481,9 +490,27 @@ export function LayersPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-[var(--ui-gap-1)]">
+      <div className="grid grid-cols-6 gap-[var(--ui-gap-1)]">
         <ToolbarAction label="+L" title="New Layer" onClick={addPixelLayer} />
         <ToolbarAction label="+G" title="New Group" onClick={addGroupLayer} />
+        <ToolbarAction
+          label="+A"
+          title="New Artboard"
+          onClick={() =>
+            engine.dispatchCommand(CommandID.AddLayer, {
+              layerType: "group",
+              name: `Artboard ${layerCount + 1}`,
+              isArtboard: true,
+              artboardBounds: {
+                x: Math.round(documentWidth * 0.1),
+                y: Math.round(documentHeight * 0.1),
+                w: Math.max(320, Math.round(documentWidth * 0.6)),
+                h: Math.max(240, Math.round(documentHeight * 0.6)),
+              },
+              artboardBackground: [255, 255, 255, 255],
+            })
+          }
+        />
         <ToolbarAction
           label="Mask"
           title="Add Mask"
@@ -1073,6 +1100,7 @@ function LayerTreeRow({
                 )}
                 {layer.clippingBase ? <MiniBadge label="base" tone="amber" /> : null}
                 {layer.clipToBelow ? <MiniBadge label="clip" tone="sky" /> : null}
+                {layer.isArtboard ? <MiniBadge label="artboard" tone="sky" /> : null}
                 {layer.hasMask ? <MiniBadge label="mask" tone="fuchsia" /> : null}
                 {layer.hasVectorMask ? <MiniBadge label="vmask" tone="emerald" /> : null}
               </div>
@@ -1245,7 +1273,9 @@ function LayerThumbnail({
   onDoubleClick?: () => void;
 }) {
   const toneClass =
-    layer.layerType === "group"
+    layer.isArtboard
+      ? "from-cyan-500/30 via-slate-800/70 to-slate-950"
+      : layer.layerType === "group"
       ? "from-slate-500/60 via-slate-700/60 to-slate-950"
       : layer.layerType === "pixel"
         ? "from-cyan-500/25 via-slate-800/60 to-slate-950"
@@ -1286,7 +1316,7 @@ function LayerThumbnail({
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_60%)]" />
             <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-slate-100">
-              {layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
+              {layer.isArtboard ? "ab" : layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
             </span>
           </>
         )}

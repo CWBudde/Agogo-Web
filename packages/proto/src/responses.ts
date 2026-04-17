@@ -128,6 +128,9 @@ export interface LayerNodeMeta {
 	maskEnabled: boolean;
 	hasVectorMask: boolean;
 	isolated?: boolean;
+	isArtboard?: boolean;
+	artboardBounds?: DirtyRect;
+	artboardBackground?: [number, number, number, number];
 	children?: LayerNodeMeta[];
 	styleStack?: LayerStyleEntryCommand[];
 	// VectorLayer-specific style fields. Only present when layerType === "vector".

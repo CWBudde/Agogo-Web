@@ -209,6 +209,104 @@ func TestRenameLayerSupportsUndo(t *testing.T) {
 	}
 }
 
+func TestAddArtboardLayerAndResize(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:      LayerTypeGroup,
+		Name:           "Board 1",
+		IsArtboard:     true,
+		ArtboardBounds: &LayerBounds{X: 12, Y: 24, W: 640, H: 480},
+		ArtboardBackground: &[4]uint8{
+			255, 250, 240, 255,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("add artboard: %v", err)
+	}
+	layerID := added.UIMeta.ActiveLayerID
+	meta, ok := findLayerMetaByID(added.UIMeta.Layers, layerID)
+	if !ok {
+		t.Fatalf("artboard layer %q missing", layerID)
+	}
+	if !meta.IsArtboard || meta.ArtboardBounds == nil || meta.ArtboardBG == nil {
+		t.Fatalf("artboard meta = %+v, want artboard fields", meta)
+	}
+	if *meta.ArtboardBounds != (LayerBounds{X: 12, Y: 24, W: 640, H: 480}) {
+		t.Fatalf("artboard bounds = %+v, want 12,24,640,480", *meta.ArtboardBounds)
+	}
+
+	updated, err := DispatchCommand(h, commandSetArtboard, mustJSON(t, SetArtboardPayload{
+		LayerID: layerID,
+		Bounds:  LayerBounds{X: 30, Y: 40, W: 800, H: 600},
+		Background: &[4]uint8{
+			245, 245, 255, 255,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("set artboard: %v", err)
+	}
+	meta, ok = findLayerMetaByID(updated.UIMeta.Layers, layerID)
+	if !ok || meta.ArtboardBounds == nil || meta.ArtboardBG == nil {
+		t.Fatalf("updated artboard meta missing: %+v", meta)
+	}
+	if *meta.ArtboardBounds != (LayerBounds{X: 30, Y: 40, W: 800, H: 600}) {
+		t.Fatalf("updated artboard bounds = %+v, want 30,40,800,600", *meta.ArtboardBounds)
+	}
+	if *meta.ArtboardBG != ([4]uint8{245, 245, 255, 255}) {
+		t.Fatalf("updated artboard background = %v, want light blue", *meta.ArtboardBG)
+	}
+}
+
+func TestTranslateArtboardMovesChildrenAndFrame(t *testing.T) {
+	doc := &Document{
+		Width:      64,
+		Height:     64,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Artboard Translate",
+	}
+	root := doc.ensureLayerRoot()
+	board := NewGroupLayer("Board")
+	board.Artboard = &ArtboardData{
+		Bounds:     LayerBounds{X: 5, Y: 6, W: 200, H: 120},
+		Background: [4]uint8{255, 255, 255, 255},
+	}
+	child := NewPixelLayer("Child", LayerBounds{X: 10, Y: 12, W: 1, H: 1}, []byte{255, 0, 0, 255})
+	board.SetChildren([]LayerNode{child})
+	if err := doc.AddLayer(board, root.ID(), -1); err != nil {
+		t.Fatalf("add artboard group directly: %v", err)
+	}
+
+	if err := doc.TranslateLayer(board.ID(), 7, 9); err != nil {
+		t.Fatalf("translate artboard: %v", err)
+	}
+	meta, ok := findLayerMetaByID(doc.LayerMeta(), board.ID())
+	if !ok || meta.ArtboardBounds == nil {
+		t.Fatalf("translated artboard meta missing: %+v", meta)
+	}
+	if *meta.ArtboardBounds != (LayerBounds{X: 12, Y: 15, W: 200, H: 120}) {
+		t.Fatalf("translated artboard bounds = %+v, want 12,15,200,120", *meta.ArtboardBounds)
+	}
+	group, ok := doc.findLayer(board.ID()).(*GroupLayer)
+	if !ok {
+		t.Fatalf("translated layer type = %T, want *GroupLayer", doc.findLayer(board.ID()))
+	}
+	if group.Artboard == nil || group.Artboard.Bounds != (LayerBounds{X: 12, Y: 15, W: 200, H: 120}) {
+		t.Fatalf("stored artboard bounds = %#v, want translated bounds", group.Artboard)
+	}
+	movedChild, ok := group.Children()[0].(*PixelLayer)
+	if !ok {
+		t.Fatalf("artboard child type = %T, want *PixelLayer", group.Children()[0])
+	}
+	if movedChild.Bounds != (LayerBounds{X: 17, Y: 21, W: 1, H: 1}) {
+		t.Fatalf("child bounds after artboard move = %+v, want 17,21,1,1", movedChild.Bounds)
+	}
+}
+
 func TestFlattenMergeDownAndMergeVisible(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)

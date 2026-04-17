@@ -63,6 +63,10 @@ func TestProjectArchiveRoundTripPreservesDocument(t *testing.T) {
 	top.SetClipToBelow(true)
 	group := NewGroupLayer("Group")
 	group.Isolated = true
+	group.Artboard = &ArtboardData{
+		Bounds:     LayerBounds{X: 40, Y: 60, W: 1200, H: 800},
+		Background: [4]uint8{250, 250, 250, 255},
+	}
 	group.SetChildren([]LayerNode{base, top})
 	doc.LayerRoot.SetChildren([]LayerNode{group})
 	doc.normalizeClippingState()

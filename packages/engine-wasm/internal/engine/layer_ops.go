@@ -9,24 +9,27 @@ import (
 )
 
 type AddLayerPayload struct {
-	LayerType      LayerType       `json:"layerType"`
-	Name           string          `json:"name"`
-	ParentLayerID  string          `json:"parentLayerId"`
-	Index          *int            `json:"index,omitempty"`
-	Bounds         LayerBounds     `json:"bounds"`
-	Pixels         []byte          `json:"pixels,omitempty"`
-	AdjustmentKind string          `json:"adjustmentKind,omitempty"`
-	Params         json.RawMessage `json:"params,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	FontFamily     string          `json:"fontFamily,omitempty"`
-	FontSize       float64         `json:"fontSize,omitempty"`
-	Color          [4]uint8        `json:"color,omitempty"`
-	Path           *Path           `json:"path,omitempty"`
-	FillColor      [4]uint8        `json:"fillColor,omitempty"`
-	StrokeColor    [4]uint8        `json:"strokeColor,omitempty"`
-	StrokeWidth    float64         `json:"strokeWidth,omitempty"`
-	CachedRaster   []byte          `json:"cachedRaster,omitempty"`
-	Isolated       bool            `json:"isolated,omitempty"`
+	LayerType          LayerType       `json:"layerType"`
+	Name               string          `json:"name"`
+	ParentLayerID      string          `json:"parentLayerId"`
+	Index              *int            `json:"index,omitempty"`
+	Bounds             LayerBounds     `json:"bounds"`
+	Pixels             []byte          `json:"pixels,omitempty"`
+	AdjustmentKind     string          `json:"adjustmentKind,omitempty"`
+	Params             json.RawMessage `json:"params,omitempty"`
+	Text               string          `json:"text,omitempty"`
+	FontFamily         string          `json:"fontFamily,omitempty"`
+	FontSize           float64         `json:"fontSize,omitempty"`
+	Color              [4]uint8        `json:"color,omitempty"`
+	Path               *Path           `json:"path,omitempty"`
+	FillColor          [4]uint8        `json:"fillColor,omitempty"`
+	StrokeColor        [4]uint8        `json:"strokeColor,omitempty"`
+	StrokeWidth        float64         `json:"strokeWidth,omitempty"`
+	CachedRaster       []byte          `json:"cachedRaster,omitempty"`
+	Isolated           bool            `json:"isolated,omitempty"`
+	IsArtboard         bool            `json:"isArtboard,omitempty"`
+	ArtboardBounds     *LayerBounds    `json:"artboardBounds,omitempty"`
+	ArtboardBackground *[4]uint8       `json:"artboardBackground,omitempty"`
 }
 
 type OpenImageFilePayload struct {
@@ -188,6 +191,12 @@ type TranslateLayerPayload struct {
 	DY      int    `json:"dy"`
 }
 
+type SetArtboardPayload struct {
+	LayerID    string      `json:"layerId"`
+	Bounds     LayerBounds `json:"bounds"`
+	Background *[4]uint8   `json:"background,omitempty"`
+}
+
 type PickLayerAtPointPayload struct {
 	X int `json:"x"`
 	Y int `json:"y"`
@@ -265,6 +274,9 @@ type LayerNodeMeta struct {
 	StyleStack     []LayerStyle    `json:"styleStack,omitempty"`
 	BlendIf        *BlendIfConfig  `json:"blendIf,omitempty"`
 	Isolated       bool            `json:"isolated,omitempty"`
+	IsArtboard     bool            `json:"isArtboard,omitempty"`
+	ArtboardBounds *LayerBounds    `json:"artboardBounds,omitempty"`
+	ArtboardBG     *[4]uint8       `json:"artboardBackground,omitempty"`
 	Children       []LayerNodeMeta `json:"children,omitempty"`
 	// VectorLayer-specific style fields. Only populated when LayerType == "vector".
 	VecFillColor   *[4]uint8 `json:"fillColor,omitempty"`
@@ -1004,6 +1016,38 @@ func (doc *Document) touchModifiedAt() {
 	doc.ContentVersion = atomic.AddInt64(&nextDocVersion, 1)
 }
 
+func defaultArtboardBackground() [4]uint8 {
+	return [4]uint8{255, 255, 255, 255}
+}
+
+func (doc *Document) SetArtboard(layerID string, bounds LayerBounds, background *[4]uint8) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	if bounds.W <= 0 || bounds.H <= 0 {
+		return fmt.Errorf("artboard requires positive bounds, got %dx%d", bounds.W, bounds.H)
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	group, ok := layer.(*GroupLayer)
+	if !ok {
+		return fmt.Errorf("layer %q is not a group", layerID)
+	}
+	artboard := cloneArtboard(group.Artboard)
+	if artboard == nil {
+		artboard = &ArtboardData{Background: defaultArtboardBackground()}
+	}
+	artboard.Bounds = bounds
+	if background != nil {
+		artboard.Background = *background
+	}
+	group.Artboard = artboard
+	doc.touchModifiedAt()
+	return nil
+}
+
 func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, error) {
 	switch payload.LayerType {
 	case LayerTypePixel:
@@ -1018,6 +1062,23 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 	case LayerTypeGroup:
 		group := NewGroupLayer(payload.Name)
 		group.Isolated = payload.Isolated
+		if payload.IsArtboard {
+			bounds := LayerBounds{}
+			if payload.ArtboardBounds != nil {
+				bounds = *payload.ArtboardBounds
+			}
+			if bounds.W <= 0 || bounds.H <= 0 {
+				return nil, fmt.Errorf("artboard group requires valid bounds, got %dx%d", bounds.W, bounds.H)
+			}
+			background := defaultArtboardBackground()
+			if payload.ArtboardBackground != nil {
+				background = *payload.ArtboardBackground
+			}
+			group.Artboard = &ArtboardData{
+				Bounds:     bounds,
+				Background: background,
+			}
+		}
 		return group, nil
 	case LayerTypeAdjustment:
 		if payload.AdjustmentKind == "" {
@@ -1559,6 +1620,13 @@ func buildLayerNodeMeta(layer LayerNode) LayerNodeMeta {
 	}
 	if group, ok := layer.(*GroupLayer); ok {
 		meta.Isolated = group.Isolated
+		if group.Artboard != nil {
+			bounds := group.Artboard.Bounds
+			background := group.Artboard.Background
+			meta.IsArtboard = true
+			meta.ArtboardBounds = &bounds
+			meta.ArtboardBG = &background
+		}
 		children := group.Children()
 		meta.Children = make([]LayerNodeMeta, 0, len(children))
 		for _, child := range children {
@@ -1744,6 +1812,10 @@ func translateLayerNode(layer LayerNode, dx, dy int) error {
 		typed.Bounds.Y += dy
 		return nil
 	case *GroupLayer:
+		if typed.Artboard != nil {
+			typed.Artboard.Bounds.X += dx
+			typed.Artboard.Bounds.Y += dy
+		}
 		for _, child := range typed.Children() {
 			if err := translateLayerNode(child, dx, dy); err != nil {
 				return err
