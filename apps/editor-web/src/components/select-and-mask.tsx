@@ -1,12 +1,7 @@
-import {
-  CommandID,
-  type AddLayerMaskMode,
-} from "@agogo/proto";
+import { type AddLayerMaskMode, CommandID, type OutputSelectionMode } from "@agogo/proto";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { EngineContextValue } from "@/wasm/types";
-
-type OutputMode = "selection" | "layer-mask";
 
 export function SelectAndMaskWorkspace({
   open,
@@ -22,11 +17,14 @@ export function SelectAndMaskWorkspace({
   const [smooth, setSmooth] = useState(0);
   const [feather, setFeather] = useState(0);
   const [shiftEdge, setShiftEdge] = useState(0);
-  const [output, setOutput] = useState<OutputMode>("selection");
+  const [smartRadius, setSmartRadius] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [output, setOutput] = useState<OutputSelectionMode>("selection");
 
   if (!open) return null;
 
   const handleApply = () => {
+    engine.beginTransaction("Select and Mask");
     if (smooth > 0) {
       engine.dispatchCommand(CommandID.SmoothSelection, { radius: smooth });
     }
@@ -38,12 +36,25 @@ export function SelectAndMaskWorkspace({
     } else if (shiftEdge < 0) {
       engine.dispatchCommand(CommandID.ContractSelection, { pixels: -shiftEdge });
     }
+    if (smartRadius > 0 || contrast > 0) {
+      engine.dispatchCommand(CommandID.RefineSelection, {
+        smartRadius,
+        contrast,
+        layerId: activeLayerId ?? undefined,
+      });
+    }
     if (output === "layer-mask" && activeLayerId) {
       engine.dispatchCommand(CommandID.AddLayerMask, {
         layerId: activeLayerId,
         mode: "from-selection" as AddLayerMaskMode,
       });
+    } else if (output !== "selection") {
+      engine.dispatchCommand(CommandID.OutputSelection, {
+        mode: output,
+        layerId: activeLayerId ?? undefined,
+      });
     }
+    engine.endTransaction(true);
     onClose();
   };
 
@@ -51,6 +62,8 @@ export function SelectAndMaskWorkspace({
     setSmooth(0);
     setFeather(0);
     setShiftEdge(0);
+    setSmartRadius(0);
+    setContrast(0);
     setOutput("selection");
     onClose();
   };
@@ -86,6 +99,22 @@ export function SelectAndMaskWorkspace({
             value={shiftEdge}
             onChange={setShiftEdge}
           />
+          <SliderField
+            label={`Smart Radius: ${smartRadius.toFixed(1)} px`}
+            min={0}
+            max={20}
+            step={0.5}
+            value={smartRadius}
+            onChange={setSmartRadius}
+          />
+          <SliderField
+            label={`Contrast: ${contrast.toFixed(0)}%`}
+            min={0}
+            max={100}
+            step={1}
+            value={contrast}
+            onChange={setContrast}
+          />
         </div>
 
         <div className="mt-auto space-y-3">
@@ -96,10 +125,13 @@ export function SelectAndMaskWorkspace({
             <select
               className="h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40"
               value={output}
-              onChange={(e) => setOutput(e.target.value as OutputMode)}
+              onChange={(e) => setOutput(e.target.value as OutputSelectionMode)}
             >
               <option value="selection">Selection</option>
               <option value="layer-mask">Layer Mask</option>
+              <option value="new-layer">New Layer</option>
+              <option value="new-layer-with-mask">New Layer with Mask</option>
+              <option value="document">Document</option>
             </select>
           </label>
 

@@ -14,22 +14,23 @@ type projectArchive struct {
 }
 
 type projectDocumentArchive struct {
-	Width         int                   `json:"width"`
-	Height        int                   `json:"height"`
-	Resolution    float64               `json:"resolution"`
-	ColorMode     string                `json:"colorMode"`
-	BitDepth      int                   `json:"bitDepth"`
-	Background    Background            `json:"background"`
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	CreatedAt     string                `json:"createdAt"`
-	CreatedBy     string                `json:"createdBy"`
-	ModifiedAt    string                `json:"modifiedAt"`
-	ActiveLayer   string                `json:"activeLayerId,omitempty"`
-	Layers        []projectLayerArchive `json:"layers"`
-	Paths         []NamedPath           `json:"paths,omitempty"`
-	ActivePathIdx int                   `json:"activePathIdx,omitempty"`
-	StylePresets  []DocumentStylePreset `json:"stylePresets,omitempty"`
+	Width           int                     `json:"width"`
+	Height          int                     `json:"height"`
+	Resolution      float64                 `json:"resolution"`
+	ColorMode       string                  `json:"colorMode"`
+	BitDepth        int                     `json:"bitDepth"`
+	Background      Background              `json:"background"`
+	ID              string                  `json:"id"`
+	Name            string                  `json:"name"`
+	CreatedAt       string                  `json:"createdAt"`
+	CreatedBy       string                  `json:"createdBy"`
+	ModifiedAt      string                  `json:"modifiedAt"`
+	ActiveLayer     string                  `json:"activeLayerId,omitempty"`
+	Layers          []projectLayerArchive   `json:"layers"`
+	Paths           []NamedPath             `json:"paths,omitempty"`
+	ActivePathIdx   int                     `json:"activePathIdx,omitempty"`
+	SavedSelections []SavedSelectionChannel `json:"savedSelections,omitempty"`
+	StylePresets    []DocumentStylePreset   `json:"stylePresets,omitempty"`
 }
 
 type projectLayerArchive struct {
@@ -98,22 +99,23 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 	archive := projectArchive{
 		Version: projectArchiveVersion,
 		Document: projectDocumentArchive{
-			Width:         doc.Width,
-			Height:        doc.Height,
-			Resolution:    doc.Resolution,
-			ColorMode:     doc.ColorMode,
-			BitDepth:      doc.BitDepth,
-			Background:    doc.Background,
-			ID:            doc.ID,
-			Name:          doc.Name,
-			CreatedAt:     doc.CreatedAt,
-			CreatedBy:     doc.CreatedBy,
-			ModifiedAt:    doc.ModifiedAt,
-			ActiveLayer:   doc.ActiveLayerID,
-			Layers:        make([]projectLayerArchive, 0),
-			Paths:         cloneNamedPaths(doc.Paths),
-			ActivePathIdx: doc.ActivePathIdx,
-			StylePresets:  cloneDocumentStylePresets(doc.StylePresets),
+			Width:           doc.Width,
+			Height:          doc.Height,
+			Resolution:      doc.Resolution,
+			ColorMode:       doc.ColorMode,
+			BitDepth:        doc.BitDepth,
+			Background:      doc.Background,
+			ID:              doc.ID,
+			Name:            doc.Name,
+			CreatedAt:       doc.CreatedAt,
+			CreatedBy:       doc.CreatedBy,
+			ModifiedAt:      doc.ModifiedAt,
+			ActiveLayer:     doc.ActiveLayerID,
+			Layers:          make([]projectLayerArchive, 0),
+			Paths:           cloneNamedPaths(doc.Paths),
+			ActivePathIdx:   doc.ActivePathIdx,
+			SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
+			StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
 		},
 		History: append([]HistoryEntry(nil), history...),
 	}
@@ -234,22 +236,23 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 
 func (archive projectDocumentArchive) toDocument() (*Document, error) {
 	doc := &Document{
-		Width:         archive.Width,
-		Height:        archive.Height,
-		Resolution:    archive.Resolution,
-		ColorMode:     archive.ColorMode,
-		BitDepth:      archive.BitDepth,
-		Background:    archive.Background,
-		ID:            archive.ID,
-		Name:          archive.Name,
-		CreatedAt:     archive.CreatedAt,
-		CreatedBy:     archive.CreatedBy,
-		ModifiedAt:    archive.ModifiedAt,
-		ActiveLayerID: archive.ActiveLayer,
-		LayerRoot:     NewGroupLayer("Root"),
-		Paths:         cloneNamedPaths(archive.Paths),
-		ActivePathIdx: archive.ActivePathIdx,
-		StylePresets:  cloneDocumentStylePresets(archive.StylePresets),
+		Width:           archive.Width,
+		Height:          archive.Height,
+		Resolution:      archive.Resolution,
+		ColorMode:       archive.ColorMode,
+		BitDepth:        archive.BitDepth,
+		Background:      archive.Background,
+		ID:              archive.ID,
+		Name:            archive.Name,
+		CreatedAt:       archive.CreatedAt,
+		CreatedBy:       archive.CreatedBy,
+		ModifiedAt:      archive.ModifiedAt,
+		ActiveLayerID:   archive.ActiveLayer,
+		LayerRoot:       NewGroupLayer("Root"),
+		Paths:           cloneNamedPaths(archive.Paths),
+		ActivePathIdx:   archive.ActivePathIdx,
+		SavedSelections: cloneSavedSelectionChannels(archive.SavedSelections),
+		StylePresets:    cloneDocumentStylePresets(archive.StylePresets),
 	}
 	children := make([]LayerNode, 0, len(archive.Layers))
 	for _, childArchive := range archive.Layers {

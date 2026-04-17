@@ -653,14 +653,14 @@
   - [x] Feather, Modify (Expand/Contract/Smooth/Border)
   - [x] Transform Selection
   - [x] Color Range dialog
-  - [ ] Save/Load selection to/from channel
+  - [x] Save/Load selection to/from channel
 - [x] Select and Mask workspace (Refine Edge):
   - [x] Dedicated full-screen workspace mode
   - [ ] View modes: Onion Skin, Marching Ants, Overlay, Black/White, Black, White, Layer
   - [x] Edge refinement controls: Smooth, Feather, Shift Edge (expand/contract)
-  - [ ] Edge refinement controls: Smart Radius, Contrast (require new engine commands)
+  - [x] Edge refinement controls: Smart Radius, Contrast (require new engine commands)
   - [x] Output to: Selection, Layer Mask
-  - [ ] Output to: New Layer, New Layer with Mask, Document
+  - [x] Output to: New Layer, New Layer with Mask, Document
 - [x] Transform Options bar: all numeric fields editable (X/Y/W/H/R), interpolation dropdown, warp toggle
 
 ---

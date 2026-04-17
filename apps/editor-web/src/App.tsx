@@ -130,6 +130,8 @@ type MenuActionId =
   | "select-border"
   | "select-transform"
   | "select-color-range"
+  | "select-save-channel"
+  | "select-load-channel"
   | "select-and-mask"
   | "view-toggle-guides";
 
@@ -316,6 +318,8 @@ const menuItems: MenuPreviewMenu[] = [
           { label: "Border...", actionId: "select-border" as const },
           { label: "Transform Selection", actionId: "select-transform" as const },
           { label: "Color Range...", actionId: "select-color-range" as const },
+          { label: "Save Selection...", actionId: "select-save-channel" as const },
+          { label: "Load Selection...", actionId: "select-load-channel" as const },
         ],
       },
       {
@@ -648,6 +652,10 @@ export default function App() {
   const [colorRangeColor, setColorRangeColor] = useState<Rgba>([128, 128, 128, 255]);
   const [colorRangeFuzziness, setColorRangeFuzziness] = useState(40);
   const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
+  const [saveSelectionOpen, setSaveSelectionOpen] = useState(false);
+  const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
+  const [loadSelectionOpen, setLoadSelectionOpen] = useState(false);
+  const [loadSelectionName, setLoadSelectionName] = useState("");
   const [transformSelectionActive, setTransformSelectionActive] = useState(false);
   const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -804,6 +812,16 @@ export default function App() {
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
+
+  const savedSelectionChannels = render?.uiMeta.savedSelectionChannels ?? [];
+  const nextSavedSelectionName = () => {
+    const existing = new Set(savedSelectionChannels.map((channel) => channel.name.toLowerCase()));
+    let index = 1;
+    while (existing.has(`alpha ${index}`)) {
+      index += 1;
+    }
+    return `Alpha ${index}`;
+  };
 
   const contentVersion = render?.uiMeta.contentVersion;
   useEffect(() => {
@@ -1300,6 +1318,10 @@ export default function App() {
       case "select-color-range":
       case "select-and-mask":
         return !render;
+      case "select-save-channel":
+        return !render?.uiMeta.selection.active;
+      case "select-load-channel":
+        return !render || savedSelectionChannels.length === 0;
       case "edit-fill":
         return !render?.uiMeta.activeLayerId;
       default:
@@ -1349,6 +1371,24 @@ export default function App() {
       mode: "replace",
     });
     setColorRangeOpen(false);
+  };
+
+  const commitSaveSelection = () => {
+    engine.dispatchCommand(CommandID.SaveSelectionToChannel, {
+      name: saveSelectionName.trim() || nextSavedSelectionName(),
+    });
+    setSaveSelectionOpen(false);
+  };
+
+  const commitLoadSelection = () => {
+    if (!loadSelectionName) {
+      return;
+    }
+    engine.dispatchCommand(CommandID.LoadSelectionFromChannel, {
+      name: loadSelectionName,
+      mode: "replace",
+    });
+    setLoadSelectionOpen(false);
   };
 
   const handleMenuAction = (actionId: MenuActionId) => {
@@ -1450,6 +1490,14 @@ export default function App() {
         break;
       case "select-color-range":
         setColorRangeOpen(true);
+        break;
+      case "select-save-channel":
+        setSaveSelectionName(nextSavedSelectionName());
+        setSaveSelectionOpen(true);
+        break;
+      case "select-load-channel":
+        setLoadSelectionName(savedSelectionChannels[0]?.name ?? "");
+        setLoadSelectionOpen(true);
         break;
       case "select-and-mask":
         setSelectAndMaskOpen(true);
@@ -3274,7 +3322,9 @@ export default function App() {
                         </div>
                       ) : null}
 
-                      {activeAuxPanel === "channels" ? <ChannelsPanel /> : null}
+                      {activeAuxPanel === "channels" ? (
+                        <ChannelsPanel savedSelections={savedSelectionChannels} />
+                      ) : null}
 
                       {activeAuxPanel === "paths" ? (
                         <PathsPanel engine={engine} paths={render?.uiMeta.paths ?? []} />
@@ -4320,6 +4370,63 @@ export default function App() {
         </div>
       </Dialog>
 
+      <Dialog
+        open={saveSelectionOpen}
+        title="Save Selection"
+        description="Store the current selection as an alpha channel."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <Field label="Channel Name">
+            <input
+              type="text"
+              className={fieldClassName}
+              value={saveSelectionName}
+              onChange={(e) => setSaveSelectionName(e.target.value)}
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setSaveSelectionOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={commitSaveSelection}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={loadSelectionOpen}
+        title="Load Selection"
+        description="Restore a saved alpha channel as the current selection."
+        className="max-w-sm"
+      >
+        <div className="space-y-4">
+          <Field label="Saved Channel">
+            <select
+              className={fieldClassName}
+              value={loadSelectionName}
+              onChange={(e) => setLoadSelectionName(e.target.value)}
+            >
+              {savedSelectionChannels.map((channel) => (
+                <option key={channel.name} value={channel.name}>
+                  {channel.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setLoadSelectionOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={!loadSelectionName} onClick={commitLoadSelection}>
+              Load
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
       <ColorPickerDialog
         open={colorPickerOpen}
         title={colorPickerTarget === "foreground" ? "Foreground Color" : "Background Color"}
@@ -4867,7 +4974,11 @@ const CHANNELS = [
   { id: "a", label: "A", name: "Alpha", color: "bg-slate-300", shortcut: "4" },
 ] as const;
 
-function ChannelsPanel() {
+function ChannelsPanel({
+  savedSelections,
+}: {
+  savedSelections: Array<{ name: string; pixelCount: number }>;
+}) {
   // Channel visibility is cosmetic for now; actual channel isolation is Phase 3+.
   const [visible, setVisible] = useState<Record<string, boolean>>({
     rgb: true,
@@ -4910,6 +5021,25 @@ function ChannelsPanel() {
           <span className="text-[11px] text-slate-500">{ch.shortcut}</span>
         </div>
       ))}
+      {savedSelections.length > 0 ? (
+        <>
+          <div className="px-1 pt-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            Alpha Channels
+          </div>
+          {savedSelections.map((channel) => (
+            <div
+              key={channel.name}
+              className="flex items-center gap-2 rounded-[var(--ui-radius-sm)] border border-white/8 bg-white/[0.02] px-2 py-1.5"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] bg-black/20 text-[10px] text-slate-400">
+                A
+              </span>
+              <span className="flex-1 text-[12px] font-medium text-slate-100">{channel.name}</span>
+              <span className="text-[11px] text-slate-500">{channel.pixelCount}px</span>
+            </div>
+          ))}
+        </>
+      ) : null}
       <p className="px-1 pt-1 text-[11px] text-slate-600">Channel isolation active in Phase 3+.</p>
     </div>
   );

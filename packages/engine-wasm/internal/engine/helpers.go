@@ -14,6 +14,7 @@ func cloneDocument(doc *Document) *Document {
 	copyDoc.LayerRoot = cloneGroupLayer(doc.LayerRoot)
 	copyDoc.Selection = cloneSelection(doc.Selection)
 	copyDoc.LastSelection = cloneSelection(doc.LastSelection)
+	copyDoc.SavedSelections = cloneSavedSelectionChannels(doc.SavedSelections)
 	copyDoc.Paths = cloneNamedPaths(doc.Paths)
 	copyDoc.StylePresets = cloneDocumentStylePresets(doc.StylePresets)
 	return &copyDoc
@@ -55,6 +56,9 @@ func documentsEqual(a, b *Document) bool {
 		return false
 	}
 	if !selectionEqual(a.Selection, b.Selection) || !selectionEqual(a.LastSelection, b.LastSelection) {
+		return false
+	}
+	if !savedSelectionChannelsEqual(a.SavedSelections, b.SavedSelections) {
 		return false
 	}
 	if a.ActivePathIdx != b.ActivePathIdx || len(a.Paths) != len(b.Paths) {

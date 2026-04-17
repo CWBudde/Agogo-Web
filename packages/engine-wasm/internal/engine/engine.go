@@ -68,6 +68,10 @@ const (
 	commandQuickSelect               = 0x020c
 	commandMagicWand                 = 0x020d
 	commandMagneticLassoSuggestPath  = 0x020e
+	commandSaveSelectionToChannel    = 0x020f
+	commandLoadSelectionFromChannel  = 0x0210
+	commandRefineSelection           = 0x0211
+	commandOutputSelection           = 0x0212
 	commandBeginFreeTransform        = 0x0300
 	commandUpdateFreeTransform       = 0x0301
 	commandCommitFreeTransform       = 0x0302
@@ -173,25 +177,26 @@ type Background struct {
 }
 
 type Document struct {
-	Width          int                   `json:"width"`
-	Height         int                   `json:"height"`
-	Resolution     float64               `json:"resolution"`
-	ColorMode      string                `json:"colorMode"`
-	BitDepth       int                   `json:"bitDepth"`
-	Background     Background            `json:"background"`
-	ID             string                `json:"id"`
-	Name           string                `json:"name"`
-	CreatedAt      string                `json:"createdAt"`
-	CreatedBy      string                `json:"createdBy"`
-	ModifiedAt     string                `json:"modifiedAt"`
-	ActiveLayerID  string                `json:"activeLayerId,omitempty"`
-	LayerRoot      *GroupLayer           `json:"-"`
-	Selection      *Selection            `json:"-"`
-	LastSelection  *Selection            `json:"-"`
-	ContentVersion int64                 `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
-	Paths          []NamedPath           `json:"-"`
-	ActivePathIdx  int                   `json:"-"`
-	StylePresets   []DocumentStylePreset `json:"-"`
+	Width           int                     `json:"width"`
+	Height          int                     `json:"height"`
+	Resolution      float64                 `json:"resolution"`
+	ColorMode       string                  `json:"colorMode"`
+	BitDepth        int                     `json:"bitDepth"`
+	Background      Background              `json:"background"`
+	ID              string                  `json:"id"`
+	Name            string                  `json:"name"`
+	CreatedAt       string                  `json:"createdAt"`
+	CreatedBy       string                  `json:"createdBy"`
+	ModifiedAt      string                  `json:"modifiedAt"`
+	ActiveLayerID   string                  `json:"activeLayerId,omitempty"`
+	LayerRoot       *GroupLayer             `json:"-"`
+	Selection       *Selection              `json:"-"`
+	LastSelection   *Selection              `json:"-"`
+	SavedSelections []SavedSelectionChannel `json:"-"`
+	ContentVersion  int64                   `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
+	Paths           []NamedPath             `json:"-"`
+	ActivePathIdx   int                     `json:"-"`
+	StylePresets    []DocumentStylePreset   `json:"-"`
 }
 
 type ViewportState struct {
@@ -249,12 +254,13 @@ type UIMeta struct {
 	ContentVersion int64 `json:"contentVersion"`
 	// MaskEditLayerID is set when the user is actively editing a layer mask.
 	// The UI uses this to show the mask-edit border indicator.
-	MaskEditLayerID string             `json:"maskEditLayerId,omitempty"`
-	Selection       SelectionMeta      `json:"selection"`
-	FreeTransform   *FreeTransformMeta `json:"freeTransform,omitempty"`
-	Crop            *CropMeta          `json:"crop,omitempty"`
-	Paths           []PathMeta         `json:"paths,omitempty"`
-	PathOverlay     *PathOverlay       `json:"pathOverlay,omitempty"`
+	MaskEditLayerID        string                      `json:"maskEditLayerId,omitempty"`
+	Selection              SelectionMeta               `json:"selection"`
+	SavedSelectionChannels []SavedSelectionChannelMeta `json:"savedSelectionChannels,omitempty"`
+	FreeTransform          *FreeTransformMeta          `json:"freeTransform,omitempty"`
+	Crop                   *CropMeta                   `json:"crop,omitempty"`
+	Paths                  []PathMeta                  `json:"paths,omitempty"`
+	PathOverlay            *PathOverlay                `json:"pathOverlay,omitempty"`
 	// EditingVectorLayerID is non-empty while a VectorLayer's path is being
 	// edited. The UI uses this to show the "editing path" indicator.
 	EditingVectorLayerID string `json:"editingVectorLayerId,omitempty"`
@@ -1028,10 +1034,11 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandReselect, commandInvertSelection, commandFeatherSelection, commandExpandSelection,
 		commandContractSelection, commandSmoothSelection, commandBorderSelection,
 		commandTransformSelection, commandSelectColorRange, commandQuickSelect,
-		commandMagicWand, commandMagneticLassoSuggestPath, commandBeginPaintStroke,
-		commandContinuePaintStroke, commandEndPaintStroke, commandSetForegroundColor,
-		commandSetBackgroundColor, commandSampleMergedColor, commandMagicErase,
-		commandFill, commandApplyGradient:
+		commandMagicWand, commandMagneticLassoSuggestPath, commandSaveSelectionToChannel,
+		commandLoadSelectionFromChannel, commandRefineSelection, commandOutputSelection,
+		commandBeginPaintStroke, commandContinuePaintStroke, commandEndPaintStroke,
+		commandSetForegroundColor, commandSetBackgroundColor, commandSampleMergedColor,
+		commandMagicErase, commandFill, commandApplyGradient:
 		handled, customResult, nextSuggestedPath, err := inst.dispatchSelectionPaintCommand(commandID, payloadJSON, suggestedPath)
 		if err != nil {
 			return RenderResult{}, err

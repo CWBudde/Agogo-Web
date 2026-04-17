@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON string, suggestedPath []SelectionPoint) (bool, *RenderResult, []SelectionPoint, error) {
@@ -194,6 +195,65 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 		result.SuggestedPath = suggestedPath
 		return true, &result, suggestedPath, nil
 
+	case commandSaveSelectionToChannel:
+		var payload SaveSelectionToChannelPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		if err := inst.executeDocCommand("Save selection to channel", func(doc *Document) error {
+			return doc.SaveSelectionToChannel(payload.Name)
+		}); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		return true, nil, suggestedPath, nil
+
+	case commandLoadSelectionFromChannel:
+		var payload LoadSelectionFromChannelPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		if err := inst.executeDocCommand("Load selection from channel", func(doc *Document) error {
+			return doc.LoadSelectionFromChannel(payload.Name, payload.Mode)
+		}); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		return true, nil, suggestedPath, nil
+
+	case commandRefineSelection:
+		var payload RefineSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		if err := inst.executeDocCommand("Refine selection", func(doc *Document) error {
+			return doc.RefineSelectionEdges(payload.SmartRadius, payload.Contrast, payload.LayerID, payload.SampleMerged)
+		}); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		return true, nil, suggestedPath, nil
+
+	case commandOutputSelection:
+		var payload OutputSelectionPayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		command := &snapshotCommand{
+			description: "Output selection",
+			applyFn: func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := inst.outputSelection(doc, payload); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			},
+		}
+		if err := inst.history.Execute(inst, command); err != nil {
+			return true, nil, suggestedPath, err
+		}
+		return true, nil, suggestedPath, nil
+
 	case commandBeginPaintStroke:
 		var payload BeginPaintStrokePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -313,4 +373,150 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 	}
 
 	return false, nil, suggestedPath, nil
+}
+
+func (inst *instance) outputSelection(doc *Document, payload OutputSelectionPayload) error {
+	mode := payload.Mode
+	if mode == "" {
+		mode = OutputSelectionSelection
+	}
+	switch mode {
+	case OutputSelectionSelection:
+		return nil
+	case OutputSelectionLayerMask:
+		layerID := payload.LayerID
+		if layerID == "" {
+			layerID = doc.ActiveLayerID
+		}
+		if layerID == "" {
+			return fmt.Errorf("no active layer")
+		}
+		if err := doc.AddLayerMask(layerID, AddLayerMaskFromSelection); err != nil {
+			return err
+		}
+		doc.touchModifiedAt()
+		return inst.manager.ReplaceActive(doc)
+	case OutputSelectionNewLayer:
+		return inst.outputSelectionToNewLayer(doc, payload, false)
+	case OutputSelectionNewLayerWithMask:
+		return inst.outputSelectionToNewLayer(doc, payload, true)
+	case OutputSelectionDocument:
+		return inst.outputSelectionToDocument(doc, payload)
+	default:
+		return fmt.Errorf("unsupported output selection mode %q", mode)
+	}
+}
+
+func (inst *instance) outputSelectionToNewLayer(doc *Document, payload OutputSelectionPayload, withMask bool) error {
+	selection := normalizeSelection(cloneSelection(doc.Selection))
+	if selection == nil {
+		return fmt.Errorf("no active selection")
+	}
+	layerID := payload.LayerID
+	if layerID == "" {
+		layerID = doc.ActiveLayerID
+	}
+	if layerID == "" {
+		return fmt.Errorf("no active layer")
+	}
+	surface, err := doc.selectionSourceSurface(layerID, payload.SampleMerged)
+	if err != nil {
+		return err
+	}
+	bounds, ok := selectionBounds(selection)
+	if !ok {
+		return fmt.Errorf("selection has no bounds")
+	}
+	var pixels []byte
+	if withMask {
+		pixels = cropSurfaceBounds(surface, doc.Width, doc.Height, bounds)
+	} else {
+		var extractedBounds LayerBounds
+		pixels, extractedBounds, ok = extractSelectionFromSurface(surface, doc.Width, doc.Height, selection)
+		if !ok {
+			return fmt.Errorf("selection contains no source pixels")
+		}
+		bounds = extractedBounds
+	}
+	newLayer := NewPixelLayer(outputSelectionLayerName(doc, layerID, payload.Name, withMask), bounds, pixels)
+	_, parent, index, found := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !found || parent == nil {
+		parent = doc.ensureLayerRoot()
+		index = len(parent.Children()) - 1
+	}
+	insertChild(parent, newLayer, index+1)
+	doc.ActiveLayerID = newLayer.ID()
+	if withMask {
+		if err := doc.AddLayerMask(newLayer.ID(), AddLayerMaskFromSelection); err != nil {
+			return err
+		}
+	}
+	doc.touchModifiedAt()
+	return inst.manager.ReplaceActive(doc)
+}
+
+func (inst *instance) outputSelectionToDocument(doc *Document, payload OutputSelectionPayload) error {
+	selection := normalizeSelection(cloneSelection(doc.Selection))
+	if selection == nil {
+		return fmt.Errorf("no active selection")
+	}
+	layerID := payload.LayerID
+	if layerID == "" {
+		layerID = doc.ActiveLayerID
+	}
+	surface, err := doc.selectionSourceSurface(layerID, payload.SampleMerged)
+	if err != nil {
+		return err
+	}
+	pixels, bounds, ok := extractSelectionFromSurface(surface, doc.Width, doc.Height, selection)
+	if !ok {
+		return fmt.Errorf("selection contains no source pixels")
+	}
+	newDoc := inst.newDocument(CreateDocumentPayload{
+		Name:       outputSelectionDocumentName(doc, payload.Name),
+		Width:      bounds.W,
+		Height:     bounds.H,
+		Resolution: doc.Resolution,
+		ColorMode:  doc.ColorMode,
+		BitDepth:   doc.BitDepth,
+		Background: "transparent",
+	})
+	layer := NewPixelLayer(outputSelectionLayerName(doc, layerID, "", false), LayerBounds{X: 0, Y: 0, W: bounds.W, H: bounds.H}, pixels)
+	insertChild(newDoc.ensureLayerRoot(), layer, 0)
+	newDoc.ActiveLayerID = layer.ID()
+	inst.manager.Create(newDoc)
+	inst.viewport.CenterX = float64(newDoc.Width) * 0.5
+	inst.viewport.CenterY = float64(newDoc.Height) * 0.5
+	inst.fitViewportToActiveDocument()
+	return nil
+}
+
+func outputSelectionLayerName(doc *Document, layerID, explicitName string, withMask bool) string {
+	name := strings.TrimSpace(explicitName)
+	if name != "" {
+		return name
+	}
+	if doc != nil {
+		if layer := doc.findLayer(layerID); layer != nil {
+			suffix := " Selection"
+			if withMask {
+				suffix = " Masked"
+			}
+			return layer.Name() + suffix
+		}
+	}
+	if withMask {
+		return "Masked Selection"
+	}
+	return "Selection"
+}
+
+func outputSelectionDocumentName(doc *Document, explicitName string) string {
+	if name := strings.TrimSpace(explicitName); name != "" {
+		return name
+	}
+	if doc != nil && doc.Name != "" {
+		return doc.Name + " Selection"
+	}
+	return "Selection Document"
 }

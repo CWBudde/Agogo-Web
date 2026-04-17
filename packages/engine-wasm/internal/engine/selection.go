@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"strings"
 )
 
 type SelectionCombineMode string
@@ -39,6 +40,16 @@ type SelectionMeta struct {
 	Bounds                 *DirtyRect `json:"bounds,omitempty"`
 	PixelCount             int        `json:"pixelCount"`
 	LastSelectionAvailable bool       `json:"lastSelectionAvailable"`
+}
+
+type SavedSelectionChannel struct {
+	Name      string     `json:"name"`
+	Selection *Selection `json:"selection"`
+}
+
+type SavedSelectionChannelMeta struct {
+	Name       string `json:"name"`
+	PixelCount int    `json:"pixelCount"`
 }
 
 type CreateSelectionPayload struct {
@@ -107,6 +118,39 @@ type MagicWandPayload struct {
 	Mode         SelectionCombineMode `json:"mode"`
 }
 
+type SaveSelectionToChannelPayload struct {
+	Name string `json:"name"`
+}
+
+type LoadSelectionFromChannelPayload struct {
+	Name string               `json:"name"`
+	Mode SelectionCombineMode `json:"mode"`
+}
+
+type RefineSelectionPayload struct {
+	SmartRadius  float64 `json:"smartRadius,omitempty"`
+	Contrast     float64 `json:"contrast,omitempty"`
+	LayerID      string  `json:"layerId,omitempty"`
+	SampleMerged bool    `json:"sampleMerged,omitempty"`
+}
+
+type OutputSelectionMode string
+
+const (
+	OutputSelectionSelection        OutputSelectionMode = "selection"
+	OutputSelectionLayerMask        OutputSelectionMode = "layer-mask"
+	OutputSelectionNewLayer         OutputSelectionMode = "new-layer"
+	OutputSelectionNewLayerWithMask OutputSelectionMode = "new-layer-with-mask"
+	OutputSelectionDocument         OutputSelectionMode = "document"
+)
+
+type OutputSelectionPayload struct {
+	Mode         OutputSelectionMode `json:"mode"`
+	LayerID      string              `json:"layerId,omitempty"`
+	Name         string              `json:"name,omitempty"`
+	SampleMerged bool                `json:"sampleMerged,omitempty"`
+}
+
 func cloneSelection(selection *Selection) *Selection {
 	if selection == nil {
 		return nil
@@ -124,6 +168,32 @@ func selectionEqual(a, b *Selection) bool {
 		return true
 	}
 	return a.Width == b.Width && a.Height == b.Height && bytes.Equal(a.Mask, b.Mask)
+}
+
+func cloneSavedSelectionChannels(channels []SavedSelectionChannel) []SavedSelectionChannel {
+	if channels == nil {
+		return nil
+	}
+	cloned := make([]SavedSelectionChannel, len(channels))
+	for i := range channels {
+		cloned[i] = SavedSelectionChannel{
+			Name:      channels[i].Name,
+			Selection: cloneSelection(channels[i].Selection),
+		}
+	}
+	return cloned
+}
+
+func savedSelectionChannelsEqual(a, b []SavedSelectionChannel) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || !selectionEqual(a[i].Selection, b[i].Selection) {
+			return false
+		}
+	}
+	return true
 }
 
 func (selection *Selection) bounds() (DirtyRect, bool) {
@@ -223,6 +293,24 @@ func (doc *Document) selectionMeta() SelectionMeta {
 	meta.PixelCount = selection.pixelCount()
 	if bounds, ok := selection.bounds(); ok {
 		meta.Bounds = &bounds
+	}
+	return meta
+}
+
+func (doc *Document) savedSelectionChannelMeta() []SavedSelectionChannelMeta {
+	if doc == nil || len(doc.SavedSelections) == 0 {
+		return nil
+	}
+	meta := make([]SavedSelectionChannelMeta, 0, len(doc.SavedSelections))
+	for _, channel := range doc.SavedSelections {
+		selection := normalizeSelection(cloneSelection(channel.Selection))
+		if selection == nil {
+			continue
+		}
+		meta = append(meta, SavedSelectionChannelMeta{
+			Name:       channel.Name,
+			PixelCount: selection.pixelCount(),
+		})
 	}
 	return meta
 }
@@ -341,6 +429,59 @@ func (doc *Document) BorderSelection(width int) error {
 		return fmt.Errorf("no active selection")
 	}
 	doc.Selection = normalizeSelection(&Selection{Width: selection.Width, Height: selection.Height, Mask: borderMask(selection.Mask, selection.Width, selection.Height, width)})
+	return nil
+}
+
+func (doc *Document) SaveSelectionToChannel(name string) error {
+	selection := normalizeSelection(cloneSelection(doc.Selection))
+	if selection == nil {
+		return fmt.Errorf("no active selection")
+	}
+	name = defaultSavedSelectionName(name)
+	saved := SavedSelectionChannel{Name: name, Selection: selection}
+	for i := range doc.SavedSelections {
+		if doc.SavedSelections[i].Name == name {
+			doc.SavedSelections[i] = saved
+			return nil
+		}
+	}
+	doc.SavedSelections = append(doc.SavedSelections, saved)
+	return nil
+}
+
+func (doc *Document) LoadSelectionFromChannel(name string, mode SelectionCombineMode) error {
+	name = defaultSavedSelectionName(name)
+	for _, channel := range doc.SavedSelections {
+		if channel.Name != name {
+			continue
+		}
+		selection := normalizeSelection(cloneSelection(channel.Selection))
+		if selection == nil {
+			return fmt.Errorf("saved selection %q is empty", name)
+		}
+		doc.Selection = combineSelection(doc.Selection, selection, mode)
+		return nil
+	}
+	return fmt.Errorf("saved selection %q not found", name)
+}
+
+func (doc *Document) RefineSelectionEdges(smartRadius, contrast float64, layerID string, sampleMerged bool) error {
+	selection := normalizeSelection(cloneSelection(doc.Selection))
+	if selection == nil {
+		return fmt.Errorf("no active selection")
+	}
+	refined := cloneSelection(selection)
+	if smartRadius > 0 {
+		surface, err := doc.selectionSourceSurface(layerID, sampleMerged)
+		if err != nil {
+			return err
+		}
+		refined = smartRefineSelection(refined, smartRadius, surface, doc.Width, doc.Height)
+	}
+	if contrast != 0 {
+		refined = applySelectionContrast(refined, contrast)
+	}
+	doc.Selection = normalizeSelection(refined)
 	return nil
 }
 
@@ -585,6 +726,143 @@ func combineSelection(current, next *Selection, mode SelectionCombineMode) *Sele
 		}
 	}
 	return normalizeSelection(combined)
+}
+
+func defaultSavedSelectionName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Alpha 1"
+	}
+	return name
+}
+
+func smartRefineSelection(selection *Selection, radius float64, surface []byte, width, height int) *Selection {
+	if selection == nil || radius <= 0 {
+		return cloneSelection(selection)
+	}
+	edges := &Selection{
+		Width:  selection.Width,
+		Height: selection.Height,
+		Mask:   edgeMask(selection.Mask, selection.Width, selection.Height),
+	}
+	edgeInfluence := featherSelection(edges, radius)
+	softened := featherSelection(selection, radius)
+	refined := cloneSelection(selection)
+	for i := range refined.Mask {
+		influence := float64(edgeInfluence.Mask[i]) / 255
+		if influence <= 0 {
+			continue
+		}
+		gradient := localSurfaceEdgeStrength(surface, width, height, i%selection.Width, i/selection.Width)
+		adapt := influence * (1 - gradient)
+		if adapt <= 0 {
+			continue
+		}
+		base := float64(selection.Mask[i])
+		soft := float64(softened.Mask[i])
+		refined.Mask[i] = byte(math.Round(clampFloat(base+(soft-base)*adapt, 0, 255)))
+	}
+	return refined
+}
+
+func applySelectionContrast(selection *Selection, contrast float64) *Selection {
+	if selection == nil || contrast == 0 {
+		return cloneSelection(selection)
+	}
+	factor := 1 + clampFloat(contrast, -100, 100)/100
+	refined := cloneSelection(selection)
+	for i, alpha := range refined.Mask {
+		normalized := float64(alpha) / 255
+		value := (normalized-0.5)*factor + 0.5
+		refined.Mask[i] = byte(math.Round(clampFloat(value*255, 0, 255)))
+	}
+	return refined
+}
+
+func localSurfaceEdgeStrength(surface []byte, width, height, x, y int) float64 {
+	if len(surface) < width*height*4 || x < 0 || y < 0 || x >= width || y >= height {
+		return 0
+	}
+	center := localSurfaceLuminance(surface[(y*width+x)*4:])
+	maxDelta := 0.0
+	for _, delta := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+		sx := x + delta[0]
+		sy := y + delta[1]
+		if sx < 0 || sy < 0 || sx >= width || sy >= height {
+			continue
+		}
+		neighbor := localSurfaceLuminance(surface[(sy*width+sx)*4:])
+		diff := math.Abs(center - neighbor)
+		if diff > maxDelta {
+			maxDelta = diff
+		}
+	}
+	return clampFloat(maxDelta/255, 0, 1)
+}
+
+func localSurfaceLuminance(px []byte) float64 {
+	if len(px) < 3 {
+		return 0
+	}
+	return 0.299*float64(px[0]) + 0.587*float64(px[1]) + 0.114*float64(px[2])
+}
+
+func selectionBounds(selection *Selection) (LayerBounds, bool) {
+	bounds, ok := selection.bounds()
+	if !ok {
+		return LayerBounds{}, false
+	}
+	return LayerBounds{X: bounds.X, Y: bounds.Y, W: bounds.W, H: bounds.H}, true
+}
+
+func extractSelectionFromSurface(surface []byte, width, height int, selection *Selection) ([]byte, LayerBounds, bool) {
+	selection = normalizeSelection(cloneSelection(selection))
+	if selection == nil || width <= 0 || height <= 0 || len(surface) < width*height*4 {
+		return nil, LayerBounds{}, false
+	}
+	bounds, ok := selectionBounds(selection)
+	if !ok {
+		return nil, LayerBounds{}, false
+	}
+	pixels := make([]byte, bounds.W*bounds.H*4)
+	for y := 0; y < bounds.H; y++ {
+		for x := 0; x < bounds.W; x++ {
+			docX := bounds.X + x
+			docY := bounds.Y + y
+			if docX < 0 || docY < 0 || docX >= width || docY >= height {
+				continue
+			}
+			srcIndex := (docY*width + docX) * 4
+			dstIndex := (y*bounds.W + x) * 4
+			alpha := selection.Mask[docY*selection.Width+docX]
+			if alpha == 0 {
+				continue
+			}
+			copy(pixels[dstIndex:dstIndex+4], surface[srcIndex:srcIndex+4])
+			pixels[dstIndex+3] = scaleMaskedAlpha(surface[srcIndex+3], alpha)
+		}
+	}
+	return pixels, bounds, true
+}
+
+func cropSurfaceBounds(surface []byte, width, height int, bounds LayerBounds) []byte {
+	if bounds.W <= 0 || bounds.H <= 0 || len(surface) < width*height*4 {
+		return nil
+	}
+	cropped := make([]byte, bounds.W*bounds.H*4)
+	for y := 0; y < bounds.H; y++ {
+		for x := 0; x < bounds.W; x++ {
+			docX := bounds.X + x
+			docY := bounds.Y + y
+			if docX < 0 || docY < 0 || docX >= width || docY >= height {
+				continue
+			}
+			srcIndex := (docY*width + docX) * 4
+			dstIndex := (y*bounds.W + x) * 4
+			copy(cropped[dstIndex:dstIndex+4], surface[srcIndex:srcIndex+4])
+		}
+	}
+	return cropped
 }
 
 func featherSelection(selection *Selection, radius float64) *Selection {

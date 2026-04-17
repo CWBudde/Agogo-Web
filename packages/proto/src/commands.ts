@@ -77,6 +77,10 @@ export enum CommandID {
   QuickSelect = 0x020c,
   MagicWand = 0x020d,
   MagneticLassoSuggestPath = 0x020e,
+  SaveSelectionToChannel = 0x020f,
+  LoadSelectionFromChannel = 0x0210,
+  RefineSelection = 0x0211,
+  OutputSelection = 0x0212,
 
   // Phase 3.3: Free Transform
   BeginFreeTransform = 0x0300,
@@ -614,6 +618,36 @@ export interface MagneticLassoSuggestPathCommand {
   x2: number;
   y2: number;
   layerId?: string;
+  sampleMerged?: boolean;
+}
+
+export interface SaveSelectionToChannelCommand {
+  name: string;
+}
+
+export interface LoadSelectionFromChannelCommand {
+  name: string;
+  mode?: SelectionCombineMode;
+}
+
+export interface RefineSelectionCommand {
+  smartRadius?: number;
+  contrast?: number;
+  layerId?: string;
+  sampleMerged?: boolean;
+}
+
+export type OutputSelectionMode =
+  | "selection"
+  | "layer-mask"
+  | "new-layer"
+  | "new-layer-with-mask"
+  | "document";
+
+export interface OutputSelectionCommand {
+  mode: OutputSelectionMode;
+  layerId?: string;
+  name?: string;
   sampleMerged?: boolean;
 }
 

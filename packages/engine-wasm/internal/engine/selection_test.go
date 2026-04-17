@@ -1,6 +1,9 @@
 package engine
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestSelectionCommandsCombineAndUndo(t *testing.T) {
 	h := Init("")
@@ -216,6 +219,210 @@ func TestSelectionTransformColorRangeQuickSelectAndMask(t *testing.T) {
 	if mask.Data[1] == 0 || mask.Data[0] != 0 {
 		t.Fatalf("mask data = %v, want translated selection starting at x=1", mask.Data)
 	}
+}
+
+func TestSelectionSaveLoadChannelAndRefine(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:   "Saved Selection",
+		Width:  6,
+		Height: 6,
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Base",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 6, H: 6},
+		Pixels:    filledPixels(6, 6, [4]byte{200, 100, 50, 255}),
+	})); err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+		Shape: SelectionShapeRect,
+		Rect:  LayerBounds{X: 1, Y: 1, W: 3, H: 3},
+	})); err != nil {
+		t.Fatalf("new selection: %v", err)
+	}
+
+	saved, err := DispatchCommand(h, commandSaveSelectionToChannel, mustJSON(t, SaveSelectionToChannelPayload{Name: "Alpha 1"}))
+	if err != nil {
+		t.Fatalf("save selection: %v", err)
+	}
+	if len(saved.UIMeta.SavedSelectionChannels) != 1 || saved.UIMeta.SavedSelectionChannels[0].Name != "Alpha 1" {
+		t.Fatalf("saved channels = %+v, want Alpha 1", saved.UIMeta.SavedSelectionChannels)
+	}
+
+	doc := instances[h].manager.Active()
+	beforeRefine := append([]byte(nil), doc.Selection.Mask...)
+
+	if _, err := DispatchCommand(h, commandRefineSelection, mustJSON(t, RefineSelectionPayload{
+		SmartRadius: 1.5,
+		Contrast:    50,
+	})); err != nil {
+		t.Fatalf("refine selection: %v", err)
+	}
+	afterRefine := instances[h].manager.Active().Selection
+	if afterRefine == nil || bytes.Equal(beforeRefine, afterRefine.Mask) {
+		t.Fatal("refine selection should change the mask")
+	}
+
+	if _, err := DispatchCommand(h, commandDeselect, ""); err != nil {
+		t.Fatalf("deselect: %v", err)
+	}
+	loaded, err := DispatchCommand(h, commandLoadSelectionFromChannel, mustJSON(t, LoadSelectionFromChannelPayload{Name: "Alpha 1"}))
+	if err != nil {
+		t.Fatalf("load selection: %v", err)
+	}
+	if !loaded.UIMeta.Selection.Active || loaded.UIMeta.Selection.PixelCount != 9 {
+		t.Fatalf("loaded selection meta = %+v, want active 3x3 selection", loaded.UIMeta.Selection)
+	}
+}
+
+func TestSelectionOutputModes(t *testing.T) {
+	t.Run("NewLayer", func(t *testing.T) {
+		h := Init("")
+		defer Free(h)
+
+		if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+			Name:   "Output Layer",
+			Width:  4,
+			Height: 2,
+		})); err != nil {
+			t.Fatalf("create document: %v", err)
+		}
+		added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+			LayerType: LayerTypePixel,
+			Name:      "Base",
+			Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 2},
+			Pixels: []byte{
+				10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255,
+				50, 0, 0, 255, 60, 0, 0, 255, 70, 0, 0, 255, 80, 0, 0, 255,
+			},
+		}))
+		if err != nil {
+			t.Fatalf("add layer: %v", err)
+		}
+		layerID := added.UIMeta.ActiveLayerID
+		if _, err := DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+			Shape: SelectionShapeRect,
+			Rect:  LayerBounds{X: 1, Y: 0, W: 2, H: 1},
+		})); err != nil {
+			t.Fatalf("new selection: %v", err)
+		}
+		if _, err := DispatchCommand(h, commandOutputSelection, mustJSON(t, OutputSelectionPayload{
+			Mode:    OutputSelectionNewLayer,
+			LayerID: layerID,
+		})); err != nil {
+			t.Fatalf("output selection new layer: %v", err)
+		}
+		doc := instances[h].manager.Active()
+		if len(doc.ensureLayerRoot().Children()) != 2 {
+			t.Fatalf("layer count = %d, want 2", len(doc.ensureLayerRoot().Children()))
+		}
+		layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+		if !ok {
+			t.Fatal("new layer not found")
+		}
+		pixel, ok := layer.(*PixelLayer)
+		if !ok {
+			t.Fatalf("new layer type = %T, want *PixelLayer", layer)
+		}
+		if pixel.Bounds != (LayerBounds{X: 1, Y: 0, W: 2, H: 1}) {
+			t.Fatalf("new layer bounds = %+v, want x=1 y=0 w=2 h=1", pixel.Bounds)
+		}
+		if pixel.Pixels[3] == 0 || pixel.Pixels[7] == 0 {
+			t.Fatalf("new layer alpha = [%d %d], want opaque selected pixels", pixel.Pixels[3], pixel.Pixels[7])
+		}
+	})
+
+	t.Run("NewLayerWithMask", func(t *testing.T) {
+		h := Init("")
+		defer Free(h)
+
+		if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+			Name:   "Output Mask",
+			Width:  3,
+			Height: 1,
+		})); err != nil {
+			t.Fatalf("create document: %v", err)
+		}
+		added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+			LayerType: LayerTypePixel,
+			Name:      "Base",
+			Bounds:    LayerBounds{X: 0, Y: 0, W: 3, H: 1},
+			Pixels: []byte{
+				10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255,
+			},
+		}))
+		if err != nil {
+			t.Fatalf("add layer: %v", err)
+		}
+		if _, err := DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+			Shape: SelectionShapeRect,
+			Rect:  LayerBounds{X: 1, Y: 0, W: 1, H: 1},
+		})); err != nil {
+			t.Fatalf("new selection: %v", err)
+		}
+		if _, err := DispatchCommand(h, commandOutputSelection, mustJSON(t, OutputSelectionPayload{
+			Mode:    OutputSelectionNewLayerWithMask,
+			LayerID: added.UIMeta.ActiveLayerID,
+		})); err != nil {
+			t.Fatalf("output selection new layer with mask: %v", err)
+		}
+		doc := instances[h].manager.Active()
+		layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+		if !ok {
+			t.Fatal("masked layer not found")
+		}
+		if layer.Mask() == nil {
+			t.Fatal("expected new layer mask")
+		}
+	})
+
+	t.Run("Document", func(t *testing.T) {
+		h := Init("")
+		defer Free(h)
+
+		if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+			Name:   "Output Document",
+			Width:  4,
+			Height: 2,
+		})); err != nil {
+			t.Fatalf("create document: %v", err)
+		}
+		if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+			LayerType: LayerTypePixel,
+			Name:      "Base",
+			Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 2},
+			Pixels:    filledPixels(4, 2, [4]byte{120, 90, 60, 255}),
+		})); err != nil {
+			t.Fatalf("add layer: %v", err)
+		}
+		if _, err := DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+			Shape: SelectionShapeRect,
+			Rect:  LayerBounds{X: 1, Y: 0, W: 2, H: 2},
+		})); err != nil {
+			t.Fatalf("new selection: %v", err)
+		}
+		exported, err := DispatchCommand(h, commandOutputSelection, mustJSON(t, OutputSelectionPayload{
+			Mode: OutputSelectionDocument,
+		}))
+		if err != nil {
+			t.Fatalf("output selection document: %v", err)
+		}
+		if exported.UIMeta.DocumentWidth != 2 || exported.UIMeta.DocumentHeight != 2 {
+			t.Fatalf("new document size = %dx%d, want 2x2", exported.UIMeta.DocumentWidth, exported.UIMeta.DocumentHeight)
+		}
+		doc := instances[h].manager.Active()
+		if len(doc.ensureLayerRoot().Children()) != 1 {
+			t.Fatalf("new document layer count = %d, want 1", len(doc.ensureLayerRoot().Children()))
+		}
+	})
 }
 
 func TestRenderSelectionOverlayMarches(t *testing.T) {

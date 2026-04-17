@@ -41,6 +41,11 @@ export interface SelectionMeta {
 	lastSelectionAvailable: boolean;
 }
 
+export interface SavedSelectionChannelMeta {
+	name: string;
+	pixelCount: number;
+}
+
 export interface UIMeta {
 	activeLayerId: string | null;
 	activeLayerName: string | null;
@@ -64,6 +69,7 @@ export interface UIMeta {
 	/** Set when the user is actively editing a layer mask; empty/absent otherwise. */
 	maskEditLayerId?: string;
 	selection: SelectionMeta;
+	savedSelectionChannels?: SavedSelectionChannelMeta[];
 	/** Present when free transform is active. */
 	freeTransform?: FreeTransformMeta;
 	/** Present when crop tool is active. */
