@@ -81,6 +81,7 @@ export enum CommandID {
   LoadSelectionFromChannel = 0x0210,
   RefineSelection = 0x0211,
   OutputSelection = 0x0212,
+  SetSelectionViewMode = 0x0213,
 
   // Phase 3.3: Free Transform
   BeginFreeTransform = 0x0300,
@@ -635,6 +636,19 @@ export interface RefineSelectionCommand {
   contrast?: number;
   layerId?: string;
   sampleMerged?: boolean;
+}
+
+export type SelectionViewMode =
+  | "onion-skin"
+  | "marching-ants"
+  | "overlay"
+  | "black-white"
+  | "black"
+  | "white"
+  | "layer";
+
+export interface SetSelectionViewModeCommand {
+  mode: SelectionViewMode;
 }
 
 export type OutputSelectionMode =

@@ -44,6 +44,18 @@ func (inst *instance) dispatchUICommand(commandID int32, payloadJSON string) (bo
 		result := inst.render()
 		result.IdentifiedHueRange = rangeName
 		return true, &result, nil
+
+	case commandSetSelectionViewMode:
+		var payload SetSelectionViewModePayload
+		if err := decodePayload(payloadJSON, &payload); err != nil {
+			return true, nil, err
+		}
+		if payload.Mode == "" {
+			inst.selectionViewMode = SelectionViewModeMarchingAnts
+		} else {
+			inst.selectionViewMode = payload.Mode
+		}
+		return true, nil, nil
 	}
 
 	return false, nil, nil

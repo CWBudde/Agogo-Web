@@ -439,13 +439,67 @@ func TestRenderSelectionOverlayMarches(t *testing.T) {
 	vp := &ViewportState{CenterX: 4, CenterY: 4, Zoom: 1, CanvasW: 8, CanvasH: 8, DevicePixelRatio: 1}
 
 	base := RenderViewport(doc, vp, nil, nil)
-	first := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0)
-	second := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 8)
+	first := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeMarchingAnts)
+	second := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 8, SelectionViewModeMarchingAnts)
 
 	firstPixel := rgbaPixelAt(first, 8, 2, 2)
 	secondPixel := rgbaPixelAt(second, 8, 2, 2)
 	if firstPixel == secondPixel {
 		t.Fatalf("overlay pixel did not animate: first=%v second=%v", firstPixel, secondPixel)
+	}
+}
+
+func TestRenderSelectionOverlayViewModes(t *testing.T) {
+	doc := &Document{
+		Width:      4,
+		Height:     4,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("white"),
+		Name:       "Overlay Modes",
+		Selection:  newRectSelection(4, 4, LayerBounds{X: 1, Y: 1, W: 2, H: 2}),
+	}
+	vp := &ViewportState{CenterX: 2, CenterY: 2, Zoom: 1, CanvasW: 4, CanvasH: 4, DevicePixelRatio: 1}
+	base := RenderViewport(doc, vp, nil, filledPixels(4, 4, [4]byte{80, 120, 160, 255}))
+
+	onion := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeOnionSkin)
+	overlay := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeOverlay)
+	blackWhite := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeBlackWhite)
+	black := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeBlack)
+	white := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeWhite)
+	layer := RenderSelectionOverlay(doc, vp, append([]byte(nil), base...), doc.Selection, 0, SelectionViewModeLayer)
+
+	outside := rgbaPixelAt(onion, 4, 0, 0)
+	inside := rgbaPixelAt(onion, 4, 1, 1)
+	if outside[0] >= inside[0] {
+		t.Fatalf("onion skin outside pixel = %v, want dimmer than inside %v", outside, inside)
+	}
+
+	overlayOutside := rgbaPixelAt(overlay, 4, 0, 0)
+	if overlayOutside[0] <= overlayOutside[1] {
+		t.Fatalf("overlay outside pixel = %v, want red-tinted mask preview", overlayOutside)
+	}
+
+	bwOutside := rgbaPixelAt(blackWhite, 4, 0, 0)
+	bwInside := rgbaPixelAt(blackWhite, 4, 1, 1)
+	if bwOutside != ([4]uint8{0, 0, 0, 255}) || bwInside != ([4]uint8{255, 255, 255, 255}) {
+		t.Fatalf("black/white pixels = outside %v inside %v, want black and white", bwOutside, bwInside)
+	}
+
+	blackOutside := rgbaPixelAt(black, 4, 0, 0)
+	if blackOutside != ([4]uint8{0, 0, 0, 255}) {
+		t.Fatalf("black mode outside pixel = %v, want opaque black", blackOutside)
+	}
+
+	whiteOutside := rgbaPixelAt(white, 4, 0, 0)
+	if whiteOutside != ([4]uint8{255, 255, 255, 255}) {
+		t.Fatalf("white mode outside pixel = %v, want opaque white", whiteOutside)
+	}
+
+	layerOutside := rgbaPixelAt(layer, 4, 0, 0)
+	if layerOutside[3] != 0 {
+		t.Fatalf("layer mode outside alpha = %d, want 0", layerOutside[3])
 	}
 }
 

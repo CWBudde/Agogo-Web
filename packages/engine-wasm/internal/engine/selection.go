@@ -134,6 +134,22 @@ type RefineSelectionPayload struct {
 	SampleMerged bool    `json:"sampleMerged,omitempty"`
 }
 
+type SelectionViewMode string
+
+const (
+	SelectionViewModeOnionSkin    SelectionViewMode = "onion-skin"
+	SelectionViewModeMarchingAnts SelectionViewMode = "marching-ants"
+	SelectionViewModeOverlay      SelectionViewMode = "overlay"
+	SelectionViewModeBlackWhite   SelectionViewMode = "black-white"
+	SelectionViewModeBlack        SelectionViewMode = "black"
+	SelectionViewModeWhite        SelectionViewMode = "white"
+	SelectionViewModeLayer        SelectionViewMode = "layer"
+)
+
+type SetSelectionViewModePayload struct {
+	Mode SelectionViewMode `json:"mode"`
+}
+
 type OutputSelectionMode string
 
 const (
@@ -1284,13 +1300,16 @@ func antiAliasSelectionMask(mask []byte, width, height int) []byte {
 	return result
 }
 
-func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, selection *Selection, animationFrame int64) []byte {
+func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, selection *Selection, animationFrame int64, viewMode SelectionViewMode) []byte {
 	if doc == nil || vp == nil || selection == nil || len(reuse) == 0 {
 		return reuse
 	}
 	bounds, ok := selection.bounds()
 	if !ok {
 		return reuse
+	}
+	if viewMode == "" {
+		viewMode = SelectionViewModeMarchingAnts
 	}
 	canvasW := maxInt(vp.CanvasW, 1)
 	canvasH := maxInt(vp.CanvasH, 1)
@@ -1300,6 +1319,20 @@ func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, sele
 	sinTheta := math.Sin(radians)
 	halfCanvasW := float64(canvasW) * 0.5
 	halfCanvasH := float64(canvasH) * 0.5
+	clipX0, clipY0, clipX1, clipY1 := docBoundsOnCanvas(doc, vp, canvasW, canvasH, zoom, cosTheta, sinTheta, halfCanvasW, halfCanvasH)
+	if viewMode != SelectionViewModeMarchingAnts {
+		for canvasY := clipY0; canvasY < clipY1; canvasY++ {
+			for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+				docX, docY := viewportPixelToDocument(vp, canvasX, canvasY, zoom, cosTheta, sinTheta, halfCanvasW, halfCanvasH)
+				alpha := bilinearSelectionSample(selection, docX, docY)
+				index := (canvasY*canvasW + canvasX) * 4
+				applySelectionViewModePixel(reuse[index:index+4], alpha, viewMode)
+			}
+		}
+		if viewMode != SelectionViewModeLayer {
+			return reuse
+		}
+	}
 	phase := int(animationFrame/2) & 7
 	for y := bounds.Y; y < bounds.Y+bounds.H; y++ {
 		for x := bounds.X; x < bounds.X+bounds.W; x++ {
@@ -1328,6 +1361,55 @@ func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, sele
 		}
 	}
 	return reuse
+}
+
+func viewportPixelToDocument(vp *ViewportState, canvasX, canvasY int, zoom, cosTheta, sinTheta, halfCanvasW, halfCanvasH float64) (float64, float64) {
+	deltaX := (float64(canvasX) + 0.5) - halfCanvasW
+	deltaY := (float64(canvasY) + 0.5) - halfCanvasH
+	docX := (deltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
+	docY := (-deltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
+	return docX, docY
+}
+
+func applySelectionViewModePixel(pixel []byte, alpha byte, viewMode SelectionViewMode) {
+	if len(pixel) < 4 {
+		return
+	}
+	alphaF := float64(alpha) / 255
+	switch viewMode {
+	case SelectionViewModeOnionSkin:
+		factor := 0.2 + 0.8*alphaF
+		pixel[0] = byte(math.Round(float64(pixel[0]) * factor))
+		pixel[1] = byte(math.Round(float64(pixel[1]) * factor))
+		pixel[2] = byte(math.Round(float64(pixel[2]) * factor))
+	case SelectionViewModeOverlay:
+		tint := 0.7 * (1 - alphaF)
+		pixel[0] = byte(math.Round(float64(pixel[0])*(1-tint) + 255*tint))
+		pixel[1] = byte(math.Round(float64(pixel[1]) * (1 - tint)))
+		pixel[2] = byte(math.Round(float64(pixel[2]) * (1 - tint)))
+	case SelectionViewModeBlackWhite:
+		pixel[0] = alpha
+		pixel[1] = alpha
+		pixel[2] = alpha
+		pixel[3] = 255
+	case SelectionViewModeBlack:
+		pixel[0] = byte(math.Round(float64(pixel[0]) * alphaF))
+		pixel[1] = byte(math.Round(float64(pixel[1]) * alphaF))
+		pixel[2] = byte(math.Round(float64(pixel[2]) * alphaF))
+		pixel[3] = 255
+	case SelectionViewModeWhite:
+		pixel[0] = byte(math.Round(float64(pixel[0])*alphaF + 255*(1-alphaF)))
+		pixel[1] = byte(math.Round(float64(pixel[1])*alphaF + 255*(1-alphaF)))
+		pixel[2] = byte(math.Round(float64(pixel[2])*alphaF + 255*(1-alphaF)))
+		pixel[3] = 255
+	case SelectionViewModeLayer:
+		pixel[3] = scaleMaskedAlpha(pixel[3], alpha)
+		if pixel[3] == 0 {
+			pixel[0] = 0
+			pixel[1] = 0
+			pixel[2] = 0
+		}
+	}
 }
 
 func selectionEdgeAt(selection *Selection, x, y int) bool {

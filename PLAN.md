@@ -656,7 +656,7 @@
   - [x] Save/Load selection to/from channel
 - [x] Select and Mask workspace (Refine Edge):
   - [x] Dedicated full-screen workspace mode
-  - [ ] View modes: Onion Skin, Marching Ants, Overlay, Black/White, Black, White, Layer
+  - [x] View modes: Onion Skin, Marching Ants, Overlay, Black/White, Black, White, Layer
   - [x] Edge refinement controls: Smooth, Feather, Shift Edge (expand/contract)
   - [x] Edge refinement controls: Smart Radius, Contrast (require new engine commands)
   - [x] Output to: Selection, Layer Mask

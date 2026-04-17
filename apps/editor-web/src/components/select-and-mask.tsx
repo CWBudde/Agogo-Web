@@ -1,5 +1,10 @@
-import { type AddLayerMaskMode, CommandID, type OutputSelectionMode } from "@agogo/proto";
-import { useState } from "react";
+import {
+  type AddLayerMaskMode,
+  CommandID,
+  type OutputSelectionMode,
+  type SelectionViewMode,
+} from "@agogo/proto";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { EngineContextValue } from "@/wasm/types";
 
@@ -19,7 +24,18 @@ export function SelectAndMaskWorkspace({
   const [shiftEdge, setShiftEdge] = useState(0);
   const [smartRadius, setSmartRadius] = useState(0);
   const [contrast, setContrast] = useState(0);
+  const [viewMode, setViewMode] = useState<SelectionViewMode>("marching-ants");
   const [output, setOutput] = useState<OutputSelectionMode>("selection");
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    engine.dispatchCommand(CommandID.SetSelectionViewMode, { mode: viewMode });
+    return () => {
+      engine.dispatchCommand(CommandID.SetSelectionViewMode, { mode: "marching-ants" });
+    };
+  }, [engine, open, viewMode]);
 
   if (!open) return null;
 
@@ -64,6 +80,7 @@ export function SelectAndMaskWorkspace({
     setShiftEdge(0);
     setSmartRadius(0);
     setContrast(0);
+    setViewMode("marching-ants");
     setOutput("selection");
     onClose();
   };
@@ -75,6 +92,22 @@ export function SelectAndMaskWorkspace({
         <h2 className="text-sm font-semibold text-slate-100">Select and Mask</h2>
 
         <div className="space-y-5">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">View</span>
+            <select
+              className="h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40"
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value as SelectionViewMode)}
+            >
+              <option value="onion-skin">Onion Skin</option>
+              <option value="marching-ants">Marching Ants</option>
+              <option value="overlay">Overlay</option>
+              <option value="black-white">Black / White</option>
+              <option value="black">Black</option>
+              <option value="white">White</option>
+              <option value="layer">Layer</option>
+            </select>
+          </label>
           <SliderField
             label={`Smooth: ${smooth}`}
             min={0}

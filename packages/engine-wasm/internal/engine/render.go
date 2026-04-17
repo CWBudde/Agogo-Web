@@ -68,7 +68,7 @@ func (inst *instance) renderRaw() RawRenderResult {
 	}
 
 	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
-	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID)
+	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID, inst.selectionViewMode)
 	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
 	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
 	inst.cachedRawFrameKey = key

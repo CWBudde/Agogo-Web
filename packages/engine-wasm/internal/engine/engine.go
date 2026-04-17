@@ -72,6 +72,7 @@ const (
 	commandLoadSelectionFromChannel  = 0x0210
 	commandRefineSelection           = 0x0211
 	commandOutputSelection           = 0x0212
+	commandSetSelectionViewMode      = 0x0213
 	commandBeginFreeTransform        = 0x0300
 	commandUpdateFreeTransform       = 0x0301
 	commandCommitFreeTransform       = 0x0302
@@ -866,6 +867,9 @@ type instance struct {
 	// freeTransform holds the live state while free transform is active.
 	// It is UI-only state not included in history snapshots.
 	freeTransform *FreeTransformState
+	// selectionViewMode controls the Select and Mask preview rendering.
+	// UI-only — not included in history snapshots.
+	selectionViewMode SelectionViewMode
 	// lastTransform records the most recently committed transform (free or
 	// discrete) so that Transform Again can replay it on any layer.
 	lastTransform *LastTransformRecord
@@ -1022,7 +1026,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 				return RenderResult{}, err
 			}
 		}
-	case commandSetMaskEditMode, commandGetLayerThumbnails, commandComputeHistogram, commandIdentifyHueRange:
+	case commandSetMaskEditMode, commandGetLayerThumbnails, commandComputeHistogram, commandIdentifyHueRange, commandSetSelectionViewMode:
 		handled, customResult, err := inst.dispatchUICommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err
