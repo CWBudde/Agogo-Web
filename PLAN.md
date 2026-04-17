@@ -1108,7 +1108,7 @@
 
 ### Phase 7.1: PSD Parser (Read)
 
-- [ ] Implement PSD/PSB file format reader per Adobe specification:
+- [x] Implement PSD/PSB file format reader per Adobe specification:
   - [x] **File header:** magic (`8BPS`), version (1=PSD, 2=PSB), channels, height, width, depth, color mode
   - [x] **Color mode data section**
   - [x] **Image resources section:** DPI (0x03ED), ICC profile (0x040F), guides (0x0408), slices (0x041A), layer comps (0x0435)
@@ -1127,7 +1127,7 @@
     - [x] Vector mask data (vmsk / vsms)
     - [x] Adjustment layer params per type (leve, curv, hue2, etc.)
     - [x] Smart object data (PlLd, SoLd, lsct descriptors)
-  - [ ] **Image data section:** channel pixel data (raw, RLE, zip with/without prediction)
+  - [x] **Image data section:** channel pixel data (raw, RLE, zip with/without prediction)
     - [x] raw
     - [x] RLE
     - [x] zip without prediction (zip stream)
@@ -1139,19 +1139,19 @@
 
 ### Phase 7.2: PSD Writer (Save)
 
-- [ ] Serialize internal document to PSD/PSB byte stream:
-  - [ ] Write file header
-  - [ ] Serialize all image resources
-  - [ ] Serialize layer tree (order, bounding rects, pixel data, blend mode, opacity)
-  - [ ] Serialize masks per layer
-  - [ ] Serialize layer effects as descriptors
-  - [ ] Serialize text layers as TySh descriptors
-  - [ ] Serialize adjustment layer params
-  - [ ] Serialize merged image data (composite of all visible layers)
-  - [ ] RLE compression for pixel data (PackBits)
-- [ ] Round-trip test: open PSD → modify → save → re-open, verify no loss for supported features
-- [ ] PSB write for documents exceeding PSD limits (30,000px)
-- [ ] Save as PSD / Save as PSB in File menu
+- [x] Serialize internal document to PSD/PSB byte stream:
+  - [x] Write file header
+  - [x] Serialize all image resources
+  - [x] Serialize layer tree (order, bounding rects, pixel data, blend mode, opacity)
+  - [x] Serialize masks per layer
+  - [x] Serialize layer effects as descriptors
+  - [x] Serialize text layers as TySh descriptors
+  - [x] Serialize adjustment layer params
+  - [x] Serialize merged image data (composite of all visible layers)
+  - [x] RLE compression for pixel data (PackBits)
+- [x] Round-trip test: open PSD → modify → save → re-open, verify no loss for supported features
+- [x] PSB write for documents exceeding PSD limits (30,000px)
+- [x] Save as PSD / Save as PSB in File menu
 
 ### Phase 7.3: Artboards
 

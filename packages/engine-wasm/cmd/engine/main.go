@@ -65,6 +65,19 @@ func main() {
 		return result
 	}))
 
+	js.Global().Set("ExportDocument", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		handle := int32(args[0].Int())
+		format := ""
+		if len(args) > 1 {
+			format = args[1].String()
+		}
+		result, err := engine.ExportDocument(handle, format)
+		if err != nil {
+			return encodeResult(map[string]string{"error": err.Error()})
+		}
+		return result
+	}))
+
 	js.Global().Set("ImportProject", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		handle := int32(args[0].Int())
 		payload := ""

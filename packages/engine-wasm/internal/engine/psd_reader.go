@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -58,6 +59,7 @@ type psdImageResources struct {
 	HasGuides     bool
 	HasSlices     bool
 	HasLayerComps bool
+	AgogoProject  []byte
 }
 
 type psdLayerEffectsMeta struct {
@@ -173,6 +175,13 @@ func LoadPSD(data []byte) (*Document, []string, error) {
 	resources, err := parser.parseImageResources()
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(resources.AgogoProject) > 0 {
+		doc, _, loadErr := LoadProject(resources.AgogoProject)
+		if loadErr == nil {
+			return doc, append([]string(nil), parser.warnings...), nil
+		}
+		parser.warnings = append(parser.warnings, fmt.Sprintf("embedded Agogo project metadata ignored: %v", loadErr))
 	}
 	layers, err := parser.parseLayerAndMaskInfo(header)
 	if err != nil {
@@ -511,6 +520,8 @@ func (p *psdParser) parseImageResources() (psdImageResources, error) {
 			resources.HasSlices = true
 		case psdImageResourceLayerComps:
 			resources.HasLayerComps = true
+		case psdImageResourceAgogoProject:
+			resources.AgogoProject = append([]byte(nil), payload...)
 		}
 	}
 	return resources, nil
@@ -781,6 +792,10 @@ func parsePSDLayerExtraData(data []byte, record *psdLayerRecord) error {
 			if err := parsePSDLayerAdjustmentMetadata(key, payload, record); err != nil {
 				addMetadataWarning("layer %q: malformed adjustment metadata (%s) ignored", record.Name, key)
 			}
+		case "AgAJ":
+			if err := parsePSDLayerAdjustmentMetadata(key, payload, record); err != nil {
+				addMetadataWarning("layer %q: malformed adjustment metadata (%s) ignored", record.Name, key)
+			}
 		case "plLd", "PlLd", "SoLd":
 			if err := parsePSDLayerSmartObjectMetadata(key, payload, record); err != nil {
 				addMetadataWarning("layer %q: malformed smart object metadata (%s) ignored", record.Name, key)
@@ -1025,6 +1040,8 @@ func parsePSDLayerAdjustmentMetadata(key string, payload []byte, record *psdLaye
 		adjustment.Kind = "curves"
 	case "hue2":
 		adjustment.Kind = "hue-saturation"
+	case "AgAJ":
+		adjustment.Kind = "custom"
 	default:
 		adjustment.Kind = strings.ToLower(key)
 	}
@@ -1033,6 +1050,14 @@ func parsePSDLayerAdjustmentMetadata(key string, payload []byte, record *psdLaye
 		if err == nil {
 			adjustment.Version = version
 			adjustment.HasVersion = true
+		}
+	}
+	if key == "AgAJ" && len(payload) > 2 {
+		var decoded struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(payload[2:], &decoded); err == nil && decoded.Kind != "" {
+			adjustment.Kind = decoded.Kind
 		}
 	}
 	record.Adjustments = append(record.Adjustments, adjustment)
@@ -1163,6 +1188,29 @@ func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecor
 		meta.Malformed = true
 		return nil
 	}
+
+	if len(payload) >= 2+48+2+4 {
+		reader := bytes.NewReader(payload)
+		version, err := readUint16From(reader)
+		if err == nil && version == 1 {
+			if _, err := readBytesFrom(reader, 48); err == nil {
+				if _, err := readUint16From(reader); err == nil {
+					if descriptorVersion, err := readUint32From(reader); err == nil {
+						meta.DescriptorVersion = descriptorVersion
+						meta.HasDescriptor = true
+						if text, _, err := parsePSDDescriptorTextValue(payload[len(payload)-reader.Len():], map[string]struct{}{
+							"Txt ": {},
+							"text": {},
+						}); err == nil && text != "" {
+							meta.ParsedText = text
+							return nil
+						}
+					}
+				}
+			}
+		}
+	}
+
 	textPayload := payload
 	if len(payload) >= 4 {
 		version, err := readUint32From(bytes.NewReader(payload))
@@ -1176,6 +1224,88 @@ func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecor
 		meta.ParsedText = text
 	}
 	return nil
+}
+
+func parsePSDDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (string, int, error) {
+	reader := bytes.NewReader(data)
+	if _, err := parsePSDUnicodeStringFromReader(reader); err != nil {
+		return "", 0, err
+	}
+	if _, err := parsePSDDescriptorID(reader); err != nil {
+		return "", 0, err
+	}
+	itemCount, err := readUint32From(reader)
+	if err != nil {
+		return "", 0, err
+	}
+	for i := uint32(0); i < itemCount; i++ {
+		key, err := parsePSDDescriptorID(reader)
+		if err != nil {
+			return "", 0, err
+		}
+		valueType, err := readStringFrom(reader, 4)
+		if err != nil {
+			return "", 0, err
+		}
+		switch valueType {
+		case "TEXT":
+			text, err := parsePSDUnicodeStringFromReader(reader)
+			if err != nil {
+				return "", 0, err
+			}
+			if _, ok := targetKeys[key]; ok {
+				return text, len(data) - reader.Len(), nil
+			}
+		case "bool":
+			if _, err := reader.ReadByte(); err != nil {
+				return "", 0, err
+			}
+		case "doub":
+			if _, err := readBytesFrom(reader, 8); err != nil {
+				return "", 0, err
+			}
+		case "long":
+			if _, err := readBytesFrom(reader, 4); err != nil {
+				return "", 0, err
+			}
+		default:
+			return "", 0, fmt.Errorf("unsupported descriptor value type %q", valueType)
+		}
+	}
+	return "", len(data) - reader.Len(), nil
+}
+
+func parsePSDUnicodeStringFromReader(reader *bytes.Reader) (string, error) {
+	length, err := readUint32From(reader)
+	if err != nil {
+		return "", err
+	}
+	if int(length)*2 > reader.Len() {
+		return "", fmt.Errorf("invalid PSD unicode string length %d", length)
+	}
+	chars := make([]uint16, length)
+	for i := range chars {
+		value, err := readUint16From(reader)
+		if err != nil {
+			return "", err
+		}
+		chars[i] = value
+	}
+	return string(utf16.Decode(chars)), nil
+}
+
+func parsePSDDescriptorID(reader *bytes.Reader) (string, error) {
+	length, err := readUint32From(reader)
+	if err != nil {
+		return "", err
+	}
+	if length == 0 {
+		return readStringFrom(reader, 4)
+	}
+	if int(length) > reader.Len() {
+		return "", fmt.Errorf("invalid descriptor id length %d", length)
+	}
+	return readStringFrom(reader, int(length))
 }
 
 func readUint8From(r io.Reader) (uint8, error) {

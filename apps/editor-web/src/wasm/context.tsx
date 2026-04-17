@@ -201,6 +201,9 @@ export function EngineProvider({ children }: PropsWithChildren) {
       exportProject() {
         return handleRef.current?.exportProject() ?? null;
       },
+      exportDocument(format: string) {
+        return handleRef.current?.exportDocument(format) ?? null;
+      },
       importProject(projectJSON: string) {
         const handle = handleRef.current;
         if (!handle) {

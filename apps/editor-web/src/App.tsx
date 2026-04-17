@@ -89,6 +89,8 @@ type MenuActionId =
   | "open-project"
   | "open-recent"
   | "save-project"
+  | "save-psd"
+  | "save-psb"
   | "export-project"
   | "generate-assets"
   | "canvas-size"
@@ -163,7 +165,9 @@ const menuItems: MenuPreviewMenu[] = [
       {
         title: "Output",
         items: [
-          { label: "Save", shortcut: "Ctrl+S", actionId: "save-project" },
+          { label: "Save Archive", shortcut: "Ctrl+S", actionId: "save-project" },
+          { label: "Save as PSD", actionId: "save-psd" },
+          { label: "Save as PSB", actionId: "save-psb" },
           {
             label: "Export As...",
             shortcut: "Ctrl+Shift+E",
@@ -990,19 +994,35 @@ export default function App() {
     } satisfies AddLayerCommand);
   };
 
-  const saveProject = () => {
-    const base64Zip = engine.exportProject();
-    if (!base64Zip) {
+  const saveDocument = (format: "archive" | "psd" | "psb") => {
+    const documentWidth = render?.uiMeta.documentWidth ?? 0;
+    const documentHeight = render?.uiMeta.documentHeight ?? 0;
+    const normalizedFormat =
+      format === "psd" && (documentWidth > PSD_MAX_DIMENSION || documentHeight > PSD_MAX_DIMENSION)
+        ? "psb"
+        : format;
+    const base64Data =
+      normalizedFormat === "archive"
+        ? engine.exportProject()
+        : engine.exportDocument(normalizedFormat);
+    if (!base64Data) {
       return;
     }
-    const binary = atob(base64Zip);
+    const binary = atob(base64Data);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    const fileName = `${activeDocumentName}.agp`;
-    const blob = new Blob([bytes], { type: "application/zip" });
+    const extension = normalizedFormat === "archive" ? "agp" : normalizedFormat;
+    const mimeType =
+      normalizedFormat === "archive" ? "application/zip" : "image/vnd.adobe.photoshop";
+    const fileName = `${activeDocumentName}.${extension}`;
+    const blob = new Blob([bytes], { type: mimeType });
     downloadBlob(blob, fileName);
+  };
+
+  const saveProject = () => {
+    saveDocument("archive");
   };
 
   const openProject = async (file: File) => {
@@ -1130,6 +1150,8 @@ export default function App() {
   const isMenuActionDisabled = (actionId: MenuActionId) => {
     switch (actionId) {
       case "save-project":
+      case "save-psd":
+      case "save-psb":
       case "export-project":
       case "generate-assets":
       case "canvas-size":
@@ -1239,6 +1261,12 @@ export default function App() {
         break;
       case "save-project":
         saveProject();
+        break;
+      case "save-psd":
+        saveDocument("psd");
+        break;
+      case "save-psb":
+        saveDocument("psb");
         break;
       case "export-project":
         setExportDialogOpen(true);
@@ -1362,7 +1390,7 @@ export default function App() {
     },
     onSaveDocument() {
       if (!isMenuActionDisabled("save-project")) {
-        saveProject();
+        saveDocument("archive");
       }
     },
     onExportDocument() {
@@ -2293,7 +2321,7 @@ export default function App() {
       <input
         ref={projectInputRef}
         type="file"
-        accept=".agp,application/json,image/png,image/jpeg,image/gif,image/webp,image/bmp"
+        accept=".agp,.psd,.psb,application/json,image/png,image/jpeg,image/gif,image/webp,image/bmp"
         className="hidden"
         onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -2301,7 +2329,13 @@ export default function App() {
             return;
           }
 
-          if (file.name.endsWith(".agp") || file.type === "application/json") {
+          const lowerName = file.name.toLowerCase();
+          if (
+            lowerName.endsWith(".agp") ||
+            lowerName.endsWith(".psd") ||
+            lowerName.endsWith(".psb") ||
+            file.type === "application/json"
+          ) {
             await openProject(file);
           } else if (file.type.startsWith("image/")) {
             await openImageFile(file);
@@ -3260,7 +3294,7 @@ export default function App() {
             is not wired into the web shell yet.
           </p>
           <p className="text-slate-400">
-            Use Open to pick an .agp archive or legacy JSON project from disk.
+            Use Open to pick an `.agp`, `.psd`, `.psb`, or legacy JSON project from disk.
           </p>
         </div>
 
@@ -3287,7 +3321,7 @@ export default function App() {
       <Dialog
         open={exportDialogOpen}
         title="Export As"
-        description="Project archive export is available now. Flattened image exports still need dedicated engine support."
+        description="Choose a layered archive, PSD, or PSB export."
         className="max-w-lg"
       >
         <div className="space-y-3 text-[13px] text-slate-300">
@@ -3300,9 +3334,25 @@ export default function App() {
               {activeDocumentName}.agp.
             </div>
           </div>
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
+            <div className="text-[12px] font-medium text-slate-100">
+              Photoshop Document (.psd)
+            </div>
+            <div className="mt-1 text-[12px] text-slate-400">
+              Writes a layered PSD with merged image data and embedded Agogo metadata for lossless reopen.
+            </div>
+          </div>
+          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
+            <div className="text-[12px] font-medium text-slate-100">
+              Large Document Format (.psb)
+            </div>
+            <div className="mt-1 text-[12px] text-slate-400">
+              Use PSB explicitly for large canvases. PSD exports automatically switch to PSB above 30,000 px.
+            </div>
+          </div>
         </div>
 
-        <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
+        <div className="mt-4 flex flex-wrap justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
           <Button
             variant="ghost"
             size="sm"
@@ -3311,13 +3361,33 @@ export default function App() {
             Cancel
           </Button>
           <Button
+            variant="secondary"
             size="sm"
             onClick={() => {
-              saveProject();
+              saveDocument("archive");
               setExportDialogOpen(false);
             }}
           >
             Export Archive
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              saveDocument("psd");
+              setExportDialogOpen(false);
+            }}
+          >
+            Export PSD
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              saveDocument("psb");
+              setExportDialogOpen(false);
+            }}
+          >
+            Export PSB
           </Button>
         </div>
       </Dialog>
@@ -4529,6 +4599,7 @@ function dockTitle(panel: AuxPanel) {
 
 const AUTOSAVE_KEY = "agogo:autosave";
 const AUTOSAVE_EVERY_N_VERSIONS = 10;
+const PSD_MAX_DIMENSION = 30000;
 
 // Channel descriptor: short label, long name, indicator colour class.
 const CHANNELS = [

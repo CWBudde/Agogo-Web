@@ -84,10 +84,10 @@ func TestBlendIfAlpha_UnderlyingLayerFilters(t *testing.T) {
 
 func TestBlendIfAlpha_ThisAndUnderlyingCombine(t *testing.T) {
 	cfg := defaultBlendIfConfig()
-	cfg.ThisLayer.Gray = BlendIfChannel{0, 128, 255, 255}       // source fades in 0..128
-	cfg.UnderlyingLayer.Gray = BlendIfChannel{0, 0, 128, 255}   // backdrop fades out 128..255
-	src := [4]uint8{64, 64, 64, 255}                            // luma 64 -> factor 0.5
-	dst := [4]uint8{192, 192, 192, 255}                         // luma 192 -> factor 0.5
+	cfg.ThisLayer.Gray = BlendIfChannel{0, 128, 255, 255}     // source fades in 0..128
+	cfg.UnderlyingLayer.Gray = BlendIfChannel{0, 0, 128, 255} // backdrop fades out 128..255
+	src := [4]uint8{64, 64, 64, 255}                          // luma 64 -> factor 0.5
+	dst := [4]uint8{192, 192, 192, 255}                       // luma 192 -> factor 0.5
 	got := blendIfAlpha(src, dst, cfg)
 	want := 0.5 * ((255.0 - 192.0) / (255.0 - 128.0))
 	if math.Abs(got-want) > 0.01 {

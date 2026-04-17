@@ -1126,6 +1126,19 @@ func ExportProject(handle int32) (string, error) {
 	return inst.exportProject()
 }
 
+// ExportDocument returns the current active document in the requested format.
+func ExportDocument(handle int32, format string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	inst, ok := instances[handle]
+	if !ok {
+		return "", fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	return inst.exportDocument(format)
+}
+
 // ImportProject loads a JSON project archive into the active engine instance.
 func ImportProject(handle int32, payload string) (RenderResult, error) {
 	mu.Lock()

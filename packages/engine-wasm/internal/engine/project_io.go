@@ -21,6 +21,17 @@ func (inst *instance) exportProject() (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
+func (inst *instance) exportDocument(format string) (string, error) {
+	if inst == nil {
+		return "", fmt.Errorf("engine instance is required")
+	}
+	doc := inst.manager.Active()
+	if doc == nil {
+		return "", fmt.Errorf("no active document")
+	}
+	return exportDocumentPayload(doc, format)
+}
+
 func (inst *instance) importProject(payload string) (RenderResult, error) {
 	if inst == nil {
 		return RenderResult{}, fmt.Errorf("engine instance is required")

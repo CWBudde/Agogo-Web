@@ -26,6 +26,7 @@ export interface EngineHandle {
   renderFrame(): RenderResult;
   renderFrameRaw(): RawRenderResult;
   exportProject(): string;
+  exportDocument(format: string): string;
   importProject(projectJSON: string): RenderResult;
   readPixels(render: { bufferPtr: number; bufferLen: number }): Uint8ClampedArray;
   free(pointer: number): void;
@@ -70,6 +71,7 @@ export interface EngineContextValue {
   fitToView(): RenderResult | null;
   setShowGuides(show: boolean): RenderResult | null;
   exportProject(): string | null;
+  exportDocument(format: string): string | null;
   importProject(projectJSON: string): RenderResult | null;
   undo(): RenderResult | null;
   redo(): RenderResult | null;

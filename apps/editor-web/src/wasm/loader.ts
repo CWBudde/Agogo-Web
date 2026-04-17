@@ -12,6 +12,7 @@ declare global {
     RenderFrame?: (handle: number) => string;
     RenderFrameRaw?: (handle: number) => string;
     ExportProject?: (handle: number) => string;
+    ExportDocument?: (handle: number, format?: string) => string;
     ImportProject?: (handle: number, payloadJSON?: string) => string;
     Free?: (pointer: number) => void;
   }
@@ -145,9 +146,10 @@ export async function loadEngine({
   const renderFrame = window.RenderFrame;
   const renderFrameRaw = window.RenderFrameRaw;
   const exportProject = window.ExportProject;
+  const exportDocument = window.ExportDocument;
   const importProject = window.ImportProject;
 
-  if (!init || !dispatch || !renderFrame || !renderFrameRaw || !exportProject || !importProject) {
+  if (!init || !dispatch || !renderFrame || !renderFrameRaw || !exportProject || !exportDocument || !importProject) {
     throw new WasmEngineLoadError("The Go runtime did not register the expected engine functions.");
   }
 
@@ -180,6 +182,9 @@ export async function loadEngine({
     },
     exportProject() {
       return exportProject(handle);
+    },
+    exportDocument(format: string) {
+      return exportDocument(handle, format);
     },
     importProject(projectJSON: string) {
       return parseRenderResult(importProject(handle, projectJSON));
