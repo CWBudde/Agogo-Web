@@ -475,6 +475,11 @@ type activePaintStroke struct {
 	historySourceX   int
 	historySourceY   int
 	mixer            mixerBrushState
+	lastDabX         float64
+	lastDabY         float64
+	lastDirX         float64
+	lastDirY         float64
+	hasLastDab       bool
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
@@ -494,6 +499,8 @@ type mixerBrushState struct {
 	reservoirColor [4]uint8
 	remainingLoad  float64
 	contamination  float64
+	bristleColors  [7][4]uint8
+	bristleLoads   [7]float64
 	clean          bool
 }
 

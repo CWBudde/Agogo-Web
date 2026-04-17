@@ -8,6 +8,8 @@ import (
 	agglib "github.com/cwbudde/agg_go"
 )
 
+const mixerBrushBristleCount = 7
+
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
 	Size            float64  `json:"size"`                      // Diameter in document pixels
@@ -360,21 +362,150 @@ func (inst *instance) resetMixerBrushState() {
 func (inst *instance) beginMixerBrushStroke(docID string, params BrushParams) mixerBrushState {
 	state := inst.mixerBrush
 	if !state.clean && state.docID == docID {
-		state.remainingLoad = clampFloat(state.remainingLoad, 0, 1)
-		state.contamination = clampFloat(state.contamination, 0, 1)
-		if state.reservoirColor[3] == 0 {
-			state.reservoirColor[3] = params.Color[3]
-		}
-		state.docID = docID
-		return state
+		return normalizeMixerState(state, docID, params)
 	}
-	return mixerBrushState{
+	state = mixerBrushState{
 		docID:          docID,
 		reservoirColor: params.Color,
 		remainingLoad:  clampFloat(params.MixerLoad, 0, 1),
 		contamination:  0,
 		clean:          false,
 	}
+	for i := range state.bristleColors {
+		state.bristleColors[i] = params.Color
+		state.bristleLoads[i] = state.remainingLoad
+	}
+	return state
+}
+
+func normalizeMixerState(state mixerBrushState, docID string, params BrushParams) mixerBrushState {
+	state.docID = docID
+	state.remainingLoad = clampFloat(state.remainingLoad, 0, 1)
+	state.contamination = clampFloat(state.contamination, 0, 1)
+	if state.reservoirColor[3] == 0 {
+		state.reservoirColor = params.Color
+	}
+	missing := true
+	for i := range state.bristleColors {
+		state.bristleLoads[i] = clampFloat(state.bristleLoads[i], 0, 1)
+		if state.bristleLoads[i] > 0 || state.bristleColors[i][3] > 0 {
+			missing = false
+		}
+	}
+	if missing {
+		for i := range state.bristleColors {
+			state.bristleColors[i] = state.reservoirColor
+			state.bristleLoads[i] = state.remainingLoad
+		}
+	}
+	state.clean = false
+	return state
+}
+
+func collapseMixerState(state *mixerBrushState) {
+	if state == nil {
+		return
+	}
+	var totalWeight float64
+	var sumR, sumG, sumB, sumA float64
+	var totalLoad float64
+	for i := range state.bristleColors {
+		load := clampFloat(state.bristleLoads[i], 0, 1)
+		totalLoad += load
+		weight := load + 0.08
+		totalWeight += weight
+		sumR += float64(state.bristleColors[i][0]) * weight
+		sumG += float64(state.bristleColors[i][1]) * weight
+		sumB += float64(state.bristleColors[i][2]) * weight
+		sumA += float64(state.bristleColors[i][3]) * weight
+	}
+	if totalWeight > 0 {
+		state.reservoirColor = [4]uint8{
+			uint8(math.Round(sumR / totalWeight)),
+			uint8(math.Round(sumG / totalWeight)),
+			uint8(math.Round(sumB / totalWeight)),
+			uint8(math.Round(sumA / totalWeight)),
+		}
+	}
+	state.remainingLoad = clampFloat(totalLoad/float64(len(state.bristleLoads)), 0, 1)
+	if state.remainingLoad > 0 {
+		state.clean = false
+	}
+}
+
+func mixerStrokeDirection(stroke *activePaintStroke, cx, cy, fallbackAzimuth float64) (float64, float64) {
+	dirX := math.Cos(fallbackAzimuth)
+	dirY := math.Sin(fallbackAzimuth)
+	if stroke == nil {
+		return dirX, dirY
+	}
+	if stroke.hasLastDab {
+		dx := cx - stroke.lastDabX
+		dy := cy - stroke.lastDabY
+		if dx*dx+dy*dy > 1e-6 {
+			invLen := 1 / math.Sqrt(dx*dx+dy*dy)
+			dirX = dx * invLen
+			dirY = dy * invLen
+		} else if stroke.lastDirX != 0 || stroke.lastDirY != 0 {
+			dirX = stroke.lastDirX
+			dirY = stroke.lastDirY
+		}
+	} else if stroke.lastDirX != 0 || stroke.lastDirY != 0 {
+		dirX = stroke.lastDirX
+		dirY = stroke.lastDirY
+	}
+	return dirX, dirY
+}
+
+func updateMixerStrokeDirection(stroke *activePaintStroke, cx, cy float64) {
+	if stroke == nil {
+		return
+	}
+	if stroke.hasLastDab {
+		dx := cx - stroke.lastDabX
+		dy := cy - stroke.lastDabY
+		if dx*dx+dy*dy > 1e-6 {
+			invLen := 1 / math.Sqrt(dx*dx+dy*dy)
+			stroke.lastDirX = dx * invLen
+			stroke.lastDirY = dy * invLen
+		}
+	}
+	stroke.lastDabX = cx
+	stroke.lastDabY = cy
+	stroke.hasLastDab = true
+}
+
+func mixerBristleOffset(i int) float64 {
+	if mixerBrushBristleCount <= 1 {
+		return 0
+	}
+	return -1 + 2*float64(i)/float64(mixerBrushBristleCount-1)
+}
+
+func mixerBristleSize(size float64) float64 {
+	bristleSize := size * 0.22
+	if bristleSize < 1.5 {
+		return 1.5
+	}
+	return bristleSize
+}
+
+func mixerBristleSampleParams(p BrushParams, size float64) BrushParams {
+	sample := p
+	sample.Size = size * 1.18
+	sample.Hardness = clampFloat(0.2+p.Hardness*0.6, 0, 1)
+	return sample
+}
+
+func mixerBristlePaintParams(p BrushParams, color [4]uint8, load, edgeFactor float64, size float64) BrushParams {
+	dab := p
+	dab.MixerBrush = false
+	dab.Color = color
+	dab.Size = size
+	dab.Hardness = clampFloat(0.55+p.Hardness*0.4, 0, 1)
+	edgeProfile := 0.18 + 1.12*math.Pow(edgeFactor, 0.65)
+	dab.Flow = clampFloat(p.Flow*(0.28+0.72*load)*edgeProfile, 0, 1)
+	return dab
 }
 
 // CloneStampDab copies pixels from a sampled source surface into the dab area
@@ -566,34 +697,73 @@ func mixColorRGBA(a, b [4]uint8, t float64) [4]uint8 {
 	}
 }
 
-func resolveMixerBrushDab(state *mixerBrushState, source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, p BrushParams, azimuth, squish float64) BrushParams {
-	dab := p
+func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerBrushState, source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, p BrushParams, directionAzimuth, squish float64) {
 	if state == nil {
-		return dab
+		paintDabReuse(renderer, layer, cx, cy, p, directionAzimuth, squish)
+		return
 	}
-
-	loadFactor := clampFloat(state.remainingLoad, 0, 1)
-	dab.Color = state.reservoirColor
-	dab.Flow = clampFloat(p.Flow*loadFactor, 0, 1)
-
-	deposited := dab.Flow * 0.35
-	state.remainingLoad = clampFloat(state.remainingLoad-deposited, 0, 1)
-
-	sampled, coverage, ok := sampleSurfaceColorFootprint(source, sourceW, sourceH, sourceX, sourceY, cx, cy, p, azimuth, squish)
-	if !ok {
-		return dab
-	}
-
-	pickup := clampFloat(p.MixerWetness*coverage*(0.25+0.75*p.Flow)*(1-state.remainingLoad), 0, 1)
-	if pickup <= 0 {
-		return dab
-	}
-
-	state.reservoirColor = mixColorRGBA(state.reservoirColor, sampled, pickup)
-	state.remainingLoad = clampFloat(state.remainingLoad+pickup*coverage, 0, 1)
-	state.contamination = clampFloat(state.contamination+pickup*(1-state.contamination), 0, 1)
 	state.clean = false
-	return dab
+
+	dirX := math.Cos(directionAzimuth)
+	dirY := math.Sin(directionAzimuth)
+	lateralX := -dirY
+	lateralY := dirX
+	radius := p.Size * 0.5
+	if radius < 0.5 {
+		radius = 0.5
+	}
+	bristleSize := mixerBristleSize(p.Size)
+	sampleParams := mixerBristleSampleParams(p, bristleSize)
+	squish = math.Max(0.18, squish*0.55)
+	sampleLagBase := radius * (0.18 + 0.52*p.MixerWetness)
+
+	for i := 0; i < mixerBrushBristleCount; i++ {
+		offset := mixerBristleOffset(i)
+		edgeFactor := math.Abs(offset)
+		load := clampFloat(state.bristleLoads[i], 0, 1)
+		lateralOffset := offset * radius * 0.58
+		streakPhase := math.Sin(float64(i)*1.971) * radius * 0.06
+		bristleCX := cx + lateralX*lateralOffset + dirX*streakPhase
+		bristleCY := cy + lateralY*lateralOffset + dirY*streakPhase
+
+		paintParams := mixerBristlePaintParams(p, state.bristleColors[i], load, edgeFactor, bristleSize)
+		if paintParams.Flow > 0 {
+			paintDabReuse(renderer, layer, bristleCX, bristleCY, paintParams, directionAzimuth, squish)
+			if edgeFactor > 0.62 {
+				offsetSign := 1.0
+				if offset < 0 {
+					offsetSign = -1
+				}
+				rim := paintParams
+				rim.Flow = clampFloat(paintParams.Flow*(0.34+0.22*edgeFactor), 0, 1)
+				rim.Size = math.Max(1.2, paintParams.Size*0.9)
+				rimCX := bristleCX + lateralX*offsetSign*paintParams.Size*0.58
+				rimCY := bristleCY + lateralY*offsetSign*paintParams.Size*0.58
+				paintDabReuse(renderer, layer, rimCX, rimCY, rim, directionAzimuth, squish)
+			}
+		}
+
+		deposited := paintParams.Flow * (0.2 + 0.18*edgeFactor)
+		state.bristleLoads[i] = clampFloat(load-deposited, 0, 1)
+
+		sampleLag := sampleLagBase * (0.35 + 0.65*edgeFactor)
+		sampleCX := bristleCX - dirX*sampleLag
+		sampleCY := bristleCY - dirY*sampleLag
+		sampled, coverage, ok := sampleSurfaceColorFootprint(source, sourceW, sourceH, sourceX, sourceY, sampleCX, sampleCY, sampleParams, directionAzimuth, squish)
+		if !ok {
+			continue
+		}
+
+		pickup := clampFloat(p.MixerWetness*coverage*(0.34+0.66*(1-load))*(0.82+0.18*edgeFactor), 0, 1)
+		if pickup <= 0 {
+			continue
+		}
+
+		state.bristleColors[i] = mixColorRGBA(state.bristleColors[i], sampled, pickup)
+		state.bristleLoads[i] = clampFloat(state.bristleLoads[i]+pickup*coverage*0.92, 0, 1)
+		state.contamination = clampFloat(state.contamination+pickup*(1-state.contamination), 0, 1)
+	}
+	collapseMixerState(state)
 }
 
 // saveRowsBeforeDab saves the original (pre-paint) pixel rows that the dab at

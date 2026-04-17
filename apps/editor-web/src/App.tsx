@@ -17,7 +17,7 @@ import {
   type ThumbnailEntry,
   type UpdateCropCommand,
 } from "@agogo/proto";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
   BRUSH_PRESETS,
@@ -29,6 +29,8 @@ import {
   type ColorChannelMode,
   ColorPanel,
   ColorPickerDialog,
+  MIXER_BRUSH_PRESETS,
+  type MixerBrushPreset,
   SwatchesPanel,
 } from "@/components/brush-color-panels";
 import { EditorCanvas } from "@/components/editor-canvas";
@@ -917,6 +919,29 @@ export default function App() {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
   const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
+  const currentMixerPreset = useMemo(() => {
+    const fuzzyEquals = (a: number, b: number) => Math.abs(a - b) < 0.001;
+    return (
+      MIXER_BRUSH_PRESETS.find(
+        (preset) =>
+          preset.baseBrushPresetId === brushPresetId &&
+          preset.tipShape === brushTipShape &&
+          fuzzyEquals(preset.hardness, brushHardness) &&
+          fuzzyEquals(preset.spacing, brushSpacing) &&
+          fuzzyEquals(preset.angle, brushAngle) &&
+          fuzzyEquals(preset.wetness, mixerBrushWetness) &&
+          fuzzyEquals(preset.load, mixerBrushLoad),
+      ) ?? null
+    );
+  }, [
+    brushAngle,
+    brushHardness,
+    brushPresetId,
+    brushSpacing,
+    brushTipShape,
+    mixerBrushLoad,
+    mixerBrushWetness,
+  ]);
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
     { key: "green", label: "Green Output" },
@@ -938,6 +963,24 @@ export default function App() {
     { key: "neutrals", label: "Neutrals" },
     { key: "blacks", label: "Blacks" },
   ] as const;
+
+  const applyBrushPreset = (preset: BrushPreset) => {
+    setBrushPresetId(preset.id);
+    setBrushTipShape(preset.tipShape);
+    setBrushHardness(preset.hardness);
+    setBrushSpacing(preset.spacing);
+    setBrushAngle(preset.angle);
+  };
+
+  const applyMixerBrushPreset = (preset: MixerBrushPreset) => {
+    setBrushPresetId(preset.baseBrushPresetId);
+    setBrushTipShape(preset.tipShape);
+    setBrushHardness(preset.hardness);
+    setBrushSpacing(preset.spacing);
+    setBrushAngle(preset.angle);
+    setMixerBrushWetness(preset.wetness);
+    setMixerBrushLoad(preset.load);
+  };
 
   useEffect(() => {
     const activeLayerId = render?.uiMeta.activeLayerId ?? null;
@@ -2247,16 +2290,26 @@ export default function App() {
       activeTool === "cloneStamp" ||
       activeTool === "historyBrush" ? (
       <>
-        <BrushPresetPicker
-          selectedPresetId={brushPresetId}
-          onSelectPreset={(preset) => {
-            setBrushPresetId(preset.id);
-            setBrushTipShape(preset.tipShape);
-            setBrushHardness(preset.hardness);
-            setBrushSpacing(preset.spacing);
-            setBrushAngle(preset.angle);
-          }}
-        />
+        {activeTool === "mixerBrush" ? (
+          <>
+            <ToolOptionGroup label="Preset">
+              {MIXER_BRUSH_PRESETS.map((preset) => (
+                <ToolChoiceButton
+                  key={preset.id}
+                  active={currentMixerPreset?.id === preset.id}
+                  onClick={() => applyMixerBrushPreset(preset)}
+                >
+                  {preset.name}
+                </ToolChoiceButton>
+              ))}
+            </ToolOptionGroup>
+            <span className="text-[11px] text-slate-400">
+              {currentMixerPreset?.description ?? "Custom mix. Tip or paint settings no longer match a saved preset."}
+            </span>
+          </>
+        ) : (
+          <BrushPresetPicker selectedPresetId={brushPresetId} onSelectPreset={applyBrushPreset} />
+        )}
         <ToolNumberField
           label="Size"
           min={1}
@@ -2295,6 +2348,10 @@ export default function App() {
             >
               Clean Brush
             </ToolChoiceButton>
+            <span className="text-[11px] text-slate-500">
+              {(currentMixerPreset?.name ?? "Custom Mix")} · {Math.round(mixerBrushWetness * 100)}% wet ·{" "}
+              {Math.round(mixerBrushLoad * 100)}% loaded
+            </span>
           </>
         ) : activeTool === "cloneStamp" ? (
           <>
@@ -3120,13 +3177,14 @@ export default function App() {
                         <div className="space-y-3">
                           <BrushSettingsPanel
                             selectedPresetId={brushPresetId}
-                            onSelectPreset={(preset: BrushPreset) => {
-                              setBrushPresetId(preset.id);
-                              setBrushTipShape(preset.tipShape);
-                              setBrushHardness(preset.hardness);
-                              setBrushSpacing(preset.spacing);
-                              setBrushAngle(preset.angle);
-                            }}
+                            onSelectPreset={applyBrushPreset}
+                            title={activeTool === "mixerBrush" ? "Mixer Tip" : undefined}
+                            subtitle={
+                              activeTool === "mixerBrush"
+                                ? currentMixerPreset?.name ?? "Custom tip profile"
+                                : undefined
+                            }
+                            hidePresetPicker={activeTool === "mixerBrush"}
                             tipShape={brushTipShape}
                             onTipShapeChange={setBrushTipShape}
                             size={brushSize}
@@ -3150,10 +3208,47 @@ export default function App() {
                           />
                           {activeTool === "mixerBrush" ? (
                             <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/10 p-3">
-                              <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                                Mixer Brush
-                              </p>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                    Mixer Brush
+                                  </p>
+                                  <p className="mt-1 text-[12px] text-slate-100">
+                                    {currentMixerPreset?.name ?? "Custom Mix"}
+                                  </p>
+                                  <p className="mt-1 max-w-[26rem] text-[11px] text-slate-400">
+                                    {currentMixerPreset?.description ??
+                                      "Current wetness, load, or tip settings differ from the saved Mixer Brush presets."}
+                                  </p>
+                                </div>
+                                <ToolChoiceButton
+                                  active={false}
+                                  onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
+                                >
+                                  Clean Brush
+                                </ToolChoiceButton>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {MIXER_BRUSH_PRESETS.map((preset) => (
+                                  <button
+                                    key={preset.id}
+                                    type="button"
+                                    className={[
+                                      "rounded-[var(--ui-radius-sm)] border px-2.5 py-1.5 text-left transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/30",
+                                      currentMixerPreset?.id === preset.id
+                                        ? "border-cyan-400/35 bg-cyan-400/12 text-slate-50"
+                                        : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20 hover:bg-black/30",
+                                    ].join(" ")}
+                                    onClick={() => applyMixerBrushPreset(preset)}
+                                  >
+                                    <div className="text-[12px]">{preset.name}</div>
+                                    <div className="text-[10px] text-slate-500">
+                                      {Math.round(preset.wetness * 100)}% wet · {Math.round(preset.load * 100)}% load
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
                                 <ToolNumberField
                                   label="Wetness"
                                   min={0}
@@ -3176,12 +3271,10 @@ export default function App() {
                                 >
                                   Sample Merged
                                 </ToolChoiceButton>
-                                <ToolChoiceButton
-                                  active={false}
-                                  onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
-                                >
-                                  Clean Brush
-                                </ToolChoiceButton>
+                              </div>
+                              <div className="mt-2 text-[11px] text-slate-500">
+                                Tip: {brushTipShape} · {Math.round(brushHardness * 100)}% hard ·{" "}
+                                {formatPercent(brushSpacing)} spacing
                               </div>
                             </div>
                           ) : activeTool === "cloneStamp" ? (

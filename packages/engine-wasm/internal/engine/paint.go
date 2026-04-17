@@ -87,9 +87,13 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
-				dabParams = resolveMixerBrushDab(&stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, azimuth, squish)
+				dirX, dirY := mixerStrokeDirection(stroke, dx, dy, azimuth)
+				directionAzimuth := math.Atan2(dirY, dirX)
+				paintMixerBrushDab(stroke.renderer, layer, &stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+				updateMixerStrokeDirection(stroke, dx, dy)
+			} else {
+				paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 			}
-			paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
@@ -128,9 +132,13 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
-				dabParams = resolveMixerBrushDab(&inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, azimuth, squish)
+				dirX, dirY := mixerStrokeDirection(inst.paintStroke, dx, dy, azimuth)
+				directionAzimuth := math.Atan2(dirY, dirX)
+				paintMixerBrushDab(inst.paintStroke.renderer, layer, &inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+				updateMixerStrokeDirection(inst.paintStroke, dx, dy)
+			} else {
+				paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 			}
-			paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}

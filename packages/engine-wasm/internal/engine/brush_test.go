@@ -155,6 +155,36 @@ func maxChannelInRect(layer *PixelLayer, x0, y0, x1, y1, channel int) uint8 {
 	return best
 }
 
+func avgChannelInRect(layer *PixelLayer, x0, y0, x1, y1, channel int) float64 {
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > layer.Bounds.W {
+		x1 = layer.Bounds.W
+	}
+	if y1 > layer.Bounds.H {
+		y1 = layer.Bounds.H
+	}
+	if x1 <= x0 || y1 <= y0 {
+		return 0
+	}
+	var sum float64
+	var count float64
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			sum += float64(layer.Pixels[(y*layer.Bounds.W+x)*4+channel])
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return sum / count
+}
+
 func rectHasPixel(layer *PixelLayer, x0, y0, x1, y1 int, fn func([4]uint8) bool) bool {
 	if x0 < 0 {
 		x0 = 0
@@ -285,9 +315,11 @@ func TestMixerBrushResetState_CleansReservoir(t *testing.T) {
 	if layer == nil {
 		t.Fatal("active layer not found after cleaned mixer stroke")
 	}
-	got := layerPixelAt(layer, 19, 12)
-	if got[2] < 180 || got[0] > 64 {
-		t.Fatalf("cleaned stroke pixel = RGBA(%d,%d,%d,%d), want blue reload after clean", got[0], got[1], got[2], got[3])
+	maxAlpha := maxChannelInRect(layer, 15, 7, 24, 17, 3)
+	if maxAlpha == 0 || !rectHasPixel(layer, 15, 7, 24, 17, func(px [4]uint8) bool {
+		return px[2] >= 80 && px[2] > px[0]+20 && px[2] > px[1]+20 && px[3] > 0
+	}) {
+		t.Fatalf("expected a blue-dominant painted pixel in the cleaned-stroke region, max alpha = %d", maxAlpha)
 	}
 }
 
@@ -363,6 +395,88 @@ func TestMixerBrushStroke_SampleMergedControlsPickup(t *testing.T) {
 	}
 }
 
+func TestMixerBrushStroke_DirectionalBristleStreakingSeparatesBands(t *testing.T) {
+	const w, h = 40, 40
+	inst, background, active := newMixerTestInstance(t, w, h)
+	for y := 0; y < h; y++ {
+		fill := [4]uint8{255, 0, 0, 255}
+		if y >= h/2 {
+			fill = [4]uint8{0, 0, 255, 255}
+		}
+		for x := 0; x < w; x++ {
+			idx := (y*w + x) * 4
+			background.Pixels[idx] = fill[0]
+			background.Pixels[idx+1] = fill[1]
+			background.Pixels[idx+2] = fill[2]
+			background.Pixels[idx+3] = fill[3]
+		}
+	}
+
+	brush := BrushParams{
+		Size:         18,
+		Hardness:     0.9,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		MixerBrush:   true,
+		MixerWetness: 1.0,
+		MixerLoad:    1.0,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 10, Y: 20, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 30, Y: 20, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after streaking test stroke")
+	}
+
+	topRed := maxChannelInRect(layer, 22, 11, 32, 18, 0)
+	topBlue := maxChannelInRect(layer, 22, 11, 32, 18, 2)
+	bottomRed := maxChannelInRect(layer, 22, 22, 32, 29, 0)
+	bottomBlue := maxChannelInRect(layer, 22, 22, 32, 29, 2)
+
+	if topRed <= topBlue+20 {
+		t.Fatalf("top streak max channels = red %d blue %d, want red-dominant top bristles", topRed, topBlue)
+	}
+	if bottomBlue <= bottomRed+20 {
+		t.Fatalf("bottom streak max channels = red %d blue %d, want blue-dominant bottom bristles", bottomRed, bottomBlue)
+	}
+}
+
+func TestMixerBrushStroke_EdgeAccumulationBoostsOuterBristles(t *testing.T) {
+	const w, h = 40, 40
+	inst, _, active := newMixerTestInstance(t, w, h)
+
+	brush := BrushParams{
+		Size:         18,
+		Hardness:     0.9,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		MixerBrush:   true,
+		MixerWetness: 0,
+		MixerLoad:    1.0,
+		SampleMerged: false,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 20, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after edge accumulation test stroke")
+	}
+
+	centerAlpha := avgChannelInRect(layer, 18, 18, 23, 23, 3)
+	topEdgeAlpha := avgChannelInRect(layer, 18, 12, 23, 16, 3)
+	bottomEdgeAlpha := avgChannelInRect(layer, 18, 24, 23, 28, 3)
+	edgeAlpha := (topEdgeAlpha + bottomEdgeAlpha) * 0.5
+	if edgeAlpha <= centerAlpha+4 {
+		t.Fatalf("edge accumulation average alpha = %.1f, centre average alpha = %.1f, want stronger outer bristles", edgeAlpha, centerAlpha)
+	}
+}
+
 func TestMixerBrushStroke_UndoRestoresPixels(t *testing.T) {
 	const w, h = 24, 24
 	inst, background, active := newMixerTestInstance(t, w, h)
@@ -387,8 +501,8 @@ func TestMixerBrushStroke_UndoRestoresPixels(t *testing.T) {
 	if layer == nil {
 		t.Fatal("active layer not found after mixer stroke")
 	}
-	if got := layerPixelAt(layer, 14, 12); got[3] == 0 {
-		t.Fatal("expected mixer stroke to paint at the test pixel")
+	if maxAlpha := maxChannelInRect(layer, 9, 7, 18, 17, 3); maxAlpha == 0 {
+		t.Fatal("expected mixer stroke to paint within the test region")
 	}
 
 	if err := inst.history.Undo(inst); err != nil {
@@ -400,8 +514,8 @@ func TestMixerBrushStroke_UndoRestoresPixels(t *testing.T) {
 	if layer == nil {
 		t.Fatal("active layer not found after undo")
 	}
-	if got := layerPixelAt(layer, 14, 12); got[3] != 0 {
-		t.Fatalf("undo pixel = RGBA(%d,%d,%d,%d), want transparent after undo", got[0], got[1], got[2], got[3])
+	if maxAlpha := maxChannelInRect(layer, 9, 7, 18, 17, 3); maxAlpha != 0 {
+		t.Fatalf("undo region alpha = %d, want transparent after undo", maxAlpha)
 	}
 }
 

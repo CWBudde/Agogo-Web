@@ -706,13 +706,13 @@
   - [x] Tool exists in the frontend and can be selected from the toolrail
   - [x] Stroke payload now carries mixer-specific parameters through the existing paint ABI
   - [x] Engine samples the underlying canvas at stroke start and blends the sampled color into each dab before AGG rasterization
-  - [x] Supports a `Mix` strength control and a `Sample Merged` toggle
-  - [ ] Missing: true wet-paint simulation
-  - [ ] Missing: brush-load / paint-load state, cleanup/clean-brush behavior, and wetness decay over time
-  - [ ] Missing: sampling from the full dab footprint rather than a center-point sample
-  - [ ] Missing: directional smear / bristle streaking and edge accumulation specific to Photoshop-style Mixer Brush
-  - [ ] Missing: interaction tuning with pressure, flow, scatter, and tilt for more natural paint pickup
-  - [ ] Missing: Mixer Brush-specific presets and options-bar polish
+  - [x] Supports `Wetness`, `Load`, `Clean Brush`, and `Sample Merged` controls
+  - [x] True wet-paint simulation: persistent runtime paint reservoir carries load/contamination across strokes until cleaned or depleted
+  - [x] Brush-load / paint-load state, clean-brush reset, and dab-driven wetness decay are implemented
+  - [x] Sampling now uses the full dab footprint instead of a center-point sample
+  - [x] Directional smear / bristle streaking and edge accumulation specific to Photoshop-style Mixer Brush
+  - [x] Basic interaction tuning with pressure, flow, scatter, and tilt now affects pickup/deposit behaviour
+  - [x] Mixer Brush-specific presets and options-bar polish
 - [x] **Clone Stamp (S) (later, Phase 4.2b):**
   - [x] Tool exists in the frontend and can be selected from the toolrail / `S` shortcut
   - [x] Alt+click on the canvas defines a clone source point

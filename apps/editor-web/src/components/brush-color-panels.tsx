@@ -38,9 +38,76 @@ export const BRUSH_PRESETS: BrushPreset[] = [
   { id: "marker-line", name: "Marker Line", tipShape: "line", hardness: 0.7, spacing: 0.3, angle: 0 },
 ];
 
+export type MixerBrushPreset = {
+  id: string;
+  name: string;
+  description: string;
+  baseBrushPresetId: BrushPreset["id"];
+  tipShape: BrushTipShape;
+  hardness: number;
+  spacing: number;
+  angle: number;
+  wetness: number;
+  load: number;
+};
+
+export const MIXER_BRUSH_PRESETS: MixerBrushPreset[] = [
+  {
+    id: "feather-blend",
+    name: "Feather Blend",
+    description: "Soft, wet transitions for colour melting and gentle pickup.",
+    baseBrushPresetId: "soft-round",
+    tipShape: "round",
+    hardness: 0.28,
+    spacing: 0.08,
+    angle: 0,
+    wetness: 0.9,
+    load: 0.58,
+  },
+  {
+    id: "loaded-bristle",
+    name: "Loaded Bristle",
+    description: "Heavy paint charge with firmer edges for visible dragged colour.",
+    baseBrushPresetId: "painter-round",
+    tipShape: "round",
+    hardness: 0.72,
+    spacing: 0.14,
+    angle: 10,
+    wetness: 0.62,
+    load: 0.95,
+  },
+  {
+    id: "fan-smear",
+    name: "Fan Smear",
+    description: "Broad directional streaks that pull sampled colour into ribbons.",
+    baseBrushPresetId: "flat-diamond",
+    tipShape: "diamond",
+    hardness: 0.82,
+    spacing: 0.18,
+    angle: 32,
+    wetness: 0.88,
+    load: 0.72,
+  },
+  {
+    id: "dry-drag",
+    name: "Dry Drag",
+    description: "Low-load, scratchier pulls that preserve broken bristle marks.",
+    baseBrushPresetId: "marker-line",
+    tipShape: "line",
+    hardness: 0.9,
+    spacing: 0.26,
+    angle: 0,
+    wetness: 0.28,
+    load: 0.34,
+  },
+];
+
 type BrushSettingsPanelProps = {
   selectedPresetId: string;
   onSelectPreset: (preset: BrushPreset) => void;
+  title?: string;
+  subtitle?: string;
+  hidePresetPicker?: boolean;
   tipShape: BrushTipShape;
   onTipShapeChange: (shape: BrushTipShape) => void;
   size: number;
@@ -178,6 +245,9 @@ export function BrushPresetPicker({
 export function BrushSettingsPanel({
   selectedPresetId,
   onSelectPreset,
+  title = "Brush Tip",
+  subtitle,
+  hidePresetPicker = false,
   tipShape,
   onTipShapeChange,
   size,
@@ -209,11 +279,13 @@ export function BrushSettingsPanel({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            Brush Tip
+            {title}
           </p>
-          <p className="text-[12px] text-slate-200">{currentPreset.name}</p>
+          <p className="text-[12px] text-slate-200">{subtitle ?? currentPreset.name}</p>
         </div>
-        <BrushPresetPicker selectedPresetId={selectedPresetId} onSelectPreset={onSelectPreset} />
+        {hidePresetPicker ? null : (
+          <BrushPresetPicker selectedPresetId={selectedPresetId} onSelectPreset={onSelectPreset} />
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
