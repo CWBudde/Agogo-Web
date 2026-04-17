@@ -1,47 +1,48 @@
 import {
-  CommandID,
+  type AddLayerCommand,
   type AdjustmentKind,
   type AdjustmentLayerParams,
-  type AddLayerCommand,
+  CommandID,
   type CreateDocumentCommand,
-  type GradientStopCommand,
-  type FreeTransformMeta,
-  type InterpolMode,
+  type CropOverlayType,
   type FillCommand,
   type FillSource,
+  type FreeTransformMeta,
+  type GradientStopCommand,
   type GradientType,
+  type InterpolMode,
   type LayerNodeMeta,
   type SetColorCommand,
   type TextEditInputCommand,
   type ThumbnailEntry,
+  type UpdateCropCommand,
 } from "@agogo/proto";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { EditorCanvas } from "@/components/editor-canvas";
+import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
   BRUSH_PRESETS,
-  BrushPresetPicker,
-  BrushSettingsPanel,
   type BrushControlSource,
   type BrushPreset,
+  BrushPresetPicker,
+  BrushSettingsPanel,
   type BrushTipShape,
-  ColorPickerDialog,
-  ColorPanel,
-  SwatchesPanel,
   type ColorChannelMode,
+  ColorPanel,
+  ColorPickerDialog,
+  SwatchesPanel,
 } from "@/components/brush-color-panels";
-import { GradientEditorDialog } from "@/components/gradient-editor";
-import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
-import { WelcomeScreen } from "@/components/welcome-screen";
+import { EditorCanvas } from "@/components/editor-canvas";
 import {
+  ArtboardToolIcon,
   BrushToolIcon,
   ClipboardIcon,
   CopyIcon,
   CropToolIcon,
-  ArtboardToolIcon,
+  DirectSelectIcon,
   EraserToolIcon,
   EyedropperToolIcon,
-  FitScreenIcon,
   FillToolIcon,
+  FitScreenIcon,
   GradientToolIcon,
   HandToolIcon,
   InfoIcon,
@@ -53,6 +54,7 @@ import {
   OpenFolderIcon,
   PanelsIcon,
   PencilToolIcon,
+  PenToolIcon,
   RedoIcon,
   SaveIcon,
   ScissorsIcon,
@@ -62,25 +64,27 @@ import {
   TypeToolIcon,
   UndoIcon,
   ZoomToolIcon,
-  PenToolIcon,
-  DirectSelectIcon,
 } from "@/components/editor-icons";
-import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
+import { GradientEditorDialog } from "@/components/gradient-editor";
 import { LayersPanel } from "@/components/layers-panel";
 import { PathsPanel } from "@/components/paths-panel";
+import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { StylesPanel } from "@/components/styles-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import {
-  DropdownMenuItem,
-  DropdownMenuContent,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { WelcomeScreen } from "@/components/welcome-screen";
+import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
-  type ShortcutTool,
-  useKeyboardShortcuts,
-} from "@/hooks/use-keyboard-shortcuts";
-import { hexToRgba, rgbaToCss, rgbaToHex, snapToWebSafeColor, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
+  hexToRgba,
+  type Rgba,
+  rgbaToCss,
+  rgbaToHex,
+  snapToWebSafeColor,
+  toMutableRgba,
+  toRgba,
+} from "@/lib/color";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -206,24 +210,34 @@ const menuItems: MenuPreviewMenu[] = [
       {
         title: "Fill",
         items: [
-          { label: "Fill...", shortcut: "Shift+F5", actionId: "edit-fill" as const, tone: "accent" },
+          {
+            label: "Fill...",
+            shortcut: "Shift+F5",
+            actionId: "edit-fill" as const,
+            tone: "accent",
+          },
         ],
       },
       {
         title: "Transform",
         items: [
-          { label: "Free Transform", shortcut: "Ctrl+T", tone: "accent", actionId: "transform-free" as const },
-          { label: "Scale",          actionId: "transform-scale"       as const },
-          { label: "Rotate",         actionId: "transform-rotate"      as const },
-          { label: "Skew",           actionId: "transform-skew"        as const },
-          { label: "Distort",        actionId: "transform-distort"     as const },
-          { label: "Perspective",    actionId: "transform-perspective" as const },
-          { label: "Warp",           actionId: "transform-warp"        as const },
+          {
+            label: "Free Transform",
+            shortcut: "Ctrl+T",
+            tone: "accent",
+            actionId: "transform-free" as const,
+          },
+          { label: "Scale", actionId: "transform-scale" as const },
+          { label: "Rotate", actionId: "transform-rotate" as const },
+          { label: "Skew", actionId: "transform-skew" as const },
+          { label: "Distort", actionId: "transform-distort" as const },
+          { label: "Perspective", actionId: "transform-perspective" as const },
+          { label: "Warp", actionId: "transform-warp" as const },
           { label: "Flip Horizontal", actionId: "transform-flip-h" as const },
-          { label: "Flip Vertical",   actionId: "transform-flip-v" as const },
-          { label: "Rotate 90° CW",   actionId: "transform-rotate-cw" as const },
-          { label: "Rotate 90° CCW",  actionId: "transform-rotate-ccw" as const },
-          { label: "Rotate 180°",     actionId: "transform-rotate-180" as const },
+          { label: "Flip Vertical", actionId: "transform-flip-v" as const },
+          { label: "Rotate 90° CW", actionId: "transform-rotate-cw" as const },
+          { label: "Rotate 90° CCW", actionId: "transform-rotate-ccw" as const },
+          { label: "Rotate 180°", actionId: "transform-rotate-180" as const },
         ],
       },
     ],
@@ -286,29 +300,27 @@ const menuItems: MenuPreviewMenu[] = [
       {
         title: "Global",
         items: [
-          { label: "All",      shortcut: "Ctrl+A",       actionId: "select-all"      as const },
-          { label: "Deselect", shortcut: "Ctrl+D",       actionId: "select-deselect" as const },
+          { label: "All", shortcut: "Ctrl+A", actionId: "select-all" as const },
+          { label: "Deselect", shortcut: "Ctrl+D", actionId: "select-deselect" as const },
           { label: "Reselect", shortcut: "Ctrl+Shift+D", actionId: "select-reselect" as const },
-          { label: "Inverse",  shortcut: "Ctrl+Shift+I", actionId: "select-invert"   as const },
+          { label: "Inverse", shortcut: "Ctrl+Shift+I", actionId: "select-invert" as const },
         ],
       },
       {
         title: "Modify",
         items: [
-          { label: "Feather...",          actionId: "select-feather"      as const },
-          { label: "Expand...",           actionId: "select-expand"       as const },
-          { label: "Contract...",         actionId: "select-contract"     as const },
-          { label: "Smooth...",           actionId: "select-smooth"       as const },
-          { label: "Border...",           actionId: "select-border"       as const },
-          { label: "Transform Selection", actionId: "select-transform"    as const },
-          { label: "Color Range...",      actionId: "select-color-range"  as const },
+          { label: "Feather...", actionId: "select-feather" as const },
+          { label: "Expand...", actionId: "select-expand" as const },
+          { label: "Contract...", actionId: "select-contract" as const },
+          { label: "Smooth...", actionId: "select-smooth" as const },
+          { label: "Border...", actionId: "select-border" as const },
+          { label: "Transform Selection", actionId: "select-transform" as const },
+          { label: "Color Range...", actionId: "select-color-range" as const },
         ],
       },
       {
         title: "Refine",
-        items: [
-          { label: "Select and Mask", actionId: "select-and-mask" as const },
-        ],
+        items: [{ label: "Select and Mask", actionId: "select-and-mask" as const }],
       },
     ],
   },
@@ -358,19 +370,11 @@ const menuItems: MenuPreviewMenu[] = [
     sections: [
       {
         title: "Panels",
-        items: [
-          { label: "Layers", tone: "accent" },
-          { label: "Navigator" },
-          { label: "History" },
-        ],
+        items: [{ label: "Layers", tone: "accent" }, { label: "Navigator" }, { label: "History" }],
       },
       {
         title: "Workspace",
-        items: [
-          { label: "Essentials" },
-          { label: "Painting" },
-          { label: "Reset Workspace" },
-        ],
+        items: [{ label: "Essentials" }, { label: "Painting" }, { label: "Reset Workspace" }],
       },
     ],
   },
@@ -452,10 +456,23 @@ const presets = [
 ];
 
 type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel = "properties" | "adjustments" | "history" | "navigator" | "channels" | "brush" | "color" | "swatches" | "paths" | "styles";
+type AuxPanel =
+  | "properties"
+  | "adjustments"
+  | "history"
+  | "navigator"
+  | "channels"
+  | "brush"
+  | "color"
+  | "swatches"
+  | "paths"
+  | "styles";
 type ArtboardPreset = "custom" | "hd" | "iphone" | "ipad" | "a4";
 
-const artboardPresetMap: Record<Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }> = {
+const artboardPresetMap: Record<
+  Exclude<ArtboardPreset, "custom">,
+  { width: number; height: number; label: string }
+> = {
   hd: { width: 1920, height: 1080, label: "HD" },
   iphone: { width: 1179, height: 2556, label: "iPhone" },
   ipad: { width: 1668, height: 2388, label: "iPad" },
@@ -524,12 +541,7 @@ function loadColorList(key: string, fallback: Rgba[]): Rgba[] {
         if (!Array.isArray(entry) || entry.length < 4) {
           return null;
         }
-        return [
-          Number(entry[0]),
-          Number(entry[1]),
-          Number(entry[2]),
-          Number(entry[3]),
-        ] as Rgba;
+        return [Number(entry[0]), Number(entry[1]), Number(entry[2]), Number(entry[3])] as Rgba;
       })
       .filter((entry): entry is Rgba => entry !== null);
   } catch {
@@ -585,10 +597,7 @@ function gradientStopsToCss(stops: GradientStopCommand[]) {
     return "linear-gradient(90deg, rgba(0, 0, 0, 1), rgba(255, 255, 255, 1))";
   }
   return `linear-gradient(90deg, ${normalized
-    .map(
-      (stop) =>
-        `${rgbaToCss(toRgba(stop.color))} ${Math.round(stop.position * 100)}%`,
-    )
+    .map((stop) => `${rgbaToCss(toRgba(stop.color))} ${Math.round(stop.position * 100)}%`)
     .join(", ")})`;
 }
 
@@ -615,6 +624,9 @@ export default function App() {
   const [moveAutoSelectGroup, setMoveAutoSelectGroup] = useState(false);
   const [transformRefPoint, setTransformRefPoint] = useState<[number, number]>([1, 1]);
   const [cropDeletePixels, setCropDeletePixels] = useState(false);
+  const [cropResolution, setCropResolution] = useState(72);
+  const [cropOverlayType, setCropOverlayType] = useState<CropOverlayType>("thirds");
+  const [cropStraightenActive, setCropStraightenActive] = useState(false);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
@@ -624,7 +636,11 @@ export default function App() {
   const [featherDialogOpen, setFeatherDialogOpen] = useState(false);
   const [featherDialogValue, setFeatherDialogValue] = useState(5);
   type ModifyKind = "expand" | "contract" | "smooth" | "border";
-  const [modifyDialog, setModifyDialog] = useState<{ open: boolean; kind: ModifyKind; value: number }>({ open: false, kind: "expand", value: 4 });
+  const [modifyDialog, setModifyDialog] = useState<{
+    open: boolean;
+    kind: ModifyKind;
+    value: number;
+  }>({ open: false, kind: "expand", value: 4 });
   const openModifyDialog = (kind: ModifyKind) =>
     setModifyDialog({ open: true, kind, value: kind === "smooth" ? 2 : 4 });
   const [colorRangeOpen, setColorRangeOpen] = useState(false);
@@ -634,12 +650,20 @@ export default function App() {
   const [transformSelectionActive, setTransformSelectionActive] = useState(false);
   const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [draft, setDraft] =
-    useState<CreateDocumentCommand>(defaultDocumentDraft);
+  const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
     width: number;
     height: number;
-    anchor: "top-left" | "top-center" | "top-right" | "middle-left" | "center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+    anchor:
+      | "top-left"
+      | "top-center"
+      | "top-right"
+      | "middle-left"
+      | "center"
+      | "middle-right"
+      | "bottom-left"
+      | "bottom-center"
+      | "bottom-right";
   }>({
     width: 0,
     height: 0,
@@ -653,14 +677,14 @@ export default function App() {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(328);
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
-  const [layerThumbnails, setLayerThumbnails] = useState<
-    Record<string, ThumbnailEntry>
-  >({});
+  const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [foregroundColor, setForegroundColor] = useState<Rgba>([0, 0, 0, 255]);
   const [backgroundColor, setBackgroundColor] = useState<Rgba>([255, 255, 255, 255]);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
-  const [colorPickerTarget, setColorPickerTarget] = useState<"foreground" | "background">("foreground");
+  const [colorPickerTarget, setColorPickerTarget] = useState<"foreground" | "background">(
+    "foreground",
+  );
   const [colorChannelMode, setColorChannelMode] = useState<ColorChannelMode>("rgb");
   const [onlyWebColors, setOnlyWebColors] = useState(false);
   const [recentColors, setRecentColors] = useState<Rgba[]>(() =>
@@ -747,7 +771,9 @@ export default function App() {
     blacks: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
   });
   const [photoFilterDialogOpen, setPhotoFilterDialogOpen] = useState(false);
-  const [photoFilterColor, setPhotoFilterColor] = useState<[number, number, number, number]>([255, 190, 120, 255]);
+  const [photoFilterColor, setPhotoFilterColor] = useState<[number, number, number, number]>([
+    255, 190, 120, 255,
+  ]);
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
   const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
@@ -763,11 +789,17 @@ export default function App() {
   const [shapeCornerRadius, setShapeCornerRadius] = useState(10);
   const [shapePolygonSides, setShapePolygonSides] = useState(6);
   const [shapeStarMode, setShapeStarMode] = useState(false);
-  const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([0, 0, 0, 255]);
-  const [shapeStrokeColor, setShapeStrokeColor] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([
+    0, 0, 0, 255,
+  ]);
+  const [shapeStrokeColor, setShapeStrokeColor] = useState<[number, number, number, number]>([
+    0, 0, 0, 0,
+  ]);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
   const [artboardPreset, setArtboardPreset] = useState<ArtboardPreset>("custom");
-  const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([255, 255, 255, 255]);
+  const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([
+    255, 255, 255, 255,
+  ]);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -784,17 +816,10 @@ export default function App() {
   }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
   useEffect(() => {
-    if (
-      !engine.handle ||
-      contentVersion === undefined ||
-      contentVersion === 0
-    ) {
+    if (!engine.handle || contentVersion === undefined || contentVersion === 0) {
       return;
     }
-    if (
-      contentVersion - lastSavedVersionRef.current <
-      AUTOSAVE_EVERY_N_VERSIONS
-    ) {
+    if (contentVersion - lastSavedVersionRef.current < AUTOSAVE_EVERY_N_VERSIONS) {
       return;
     }
     const base64Zip = engine.exportProject();
@@ -859,10 +884,10 @@ export default function App() {
   const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
   const editingTextLayerID = render?.uiMeta.editingTextLayerId ?? "";
   const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
-  const activeArtboard =
-    render?.uiMeta.activeLayerId
-      ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
-      : null;
+  const activeArtboard = render?.uiMeta.activeLayerId
+    ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
+    : null;
+  const activeCrop = render?.uiMeta.crop;
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
@@ -871,8 +896,7 @@ export default function App() {
   const gradientPreviewStyle = {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
-  const artboardPresetSize =
-    artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
+  const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
     { key: "green", label: "Green Output" },
@@ -915,6 +939,27 @@ export default function App() {
       );
     }
   }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground]);
+
+  useEffect(() => {
+    if (!activeCrop?.active) {
+      setCropStraightenActive(false);
+      return;
+    }
+    setCropDeletePixels((current) =>
+      current === activeCrop.deletePixels ? current : activeCrop.deletePixels,
+    );
+    setCropResolution((current) =>
+      current === activeCrop.resolution ? current : activeCrop.resolution,
+    );
+    setCropOverlayType((current) =>
+      current === activeCrop.overlayType ? current : activeCrop.overlayType,
+    );
+  }, [
+    activeCrop?.active,
+    activeCrop?.deletePixels,
+    activeCrop?.overlayType,
+    activeCrop?.resolution,
+  ]);
   const selectiveColorFields = [
     { key: "cyanRed", label: "Cyan / Red" },
     { key: "magentaGreen", label: "Magenta / Green" },
@@ -926,10 +971,29 @@ export default function App() {
     projectInputRef.current?.click();
   };
 
+  const dispatchCropUpdate = (overrides: Partial<UpdateCropCommand>) => {
+    if (!activeCrop?.active) {
+      return;
+    }
+    engine.dispatchCommand(CommandID.UpdateCrop, {
+      x: activeCrop.x,
+      y: activeCrop.y,
+      w: activeCrop.w,
+      h: activeCrop.h,
+      rotation: activeCrop.rotation ?? 0,
+      deletePixels: cropDeletePixels,
+      resolution: cropResolution,
+      overlayType: cropOverlayType,
+      ...overrides,
+    } satisfies UpdateCropCommand);
+  };
+
   const pushRecentColor = (color: Rgba) => {
     const normalized = color;
     setRecentColors((current) => {
-      const withoutDuplicate = current.filter((entry) => !entry.every((value, index) => value === normalized[index]));
+      const withoutDuplicate = current.filter(
+        (entry) => !entry.every((value, index) => value === normalized[index]),
+      );
       return [normalized, ...withoutDuplicate].slice(0, 10);
     });
   };
@@ -963,6 +1027,9 @@ export default function App() {
     if (activeTool === "crop" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelCrop, {});
       setCropDeletePixels(false);
+      setCropResolution(72);
+      setCropOverlayType("thirds");
+      setCropStraightenActive(false);
     }
     if (activeTool === "transform" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelFreeTransform, {});
@@ -992,6 +1059,7 @@ export default function App() {
 
     // Begin special modes
     if (tool === "crop") {
+      setCropStraightenActive(false);
       engine.dispatchCommand(CommandID.BeginCrop, {});
     }
     if (tool === "pen") {
@@ -1016,10 +1084,7 @@ export default function App() {
     if (!render?.uiMeta.activeLayerId) {
       return;
     }
-    const position = findLayerPositionInTree(
-      render.uiMeta.layers,
-      render.uiMeta.activeLayerId,
-    );
+    const position = findLayerPositionInTree(render.uiMeta.layers, render.uiMeta.activeLayerId);
     if (!position) {
       return;
     }
@@ -1094,8 +1159,7 @@ export default function App() {
         name: imported.uiMeta.activeDocumentName || current.name,
         width: imported.uiMeta.documentWidth || current.width,
         height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta
-          .documentBackground as CreateDocumentCommand["background"],
+        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
       }));
     }
   };
@@ -1144,8 +1208,7 @@ export default function App() {
         name: imported.uiMeta.activeDocumentName || current.name,
         width: imported.uiMeta.documentWidth || current.width,
         height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta
-          .documentBackground as CreateDocumentCommand["background"],
+        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
       }));
     }
     localStorage.removeItem(AUTOSAVE_KEY);
@@ -1479,15 +1542,8 @@ export default function App() {
       if (!render?.uiMeta.activeLayerId) {
         return;
       }
-      const activeLayer = findLayerMetaInTree(
-        render.uiMeta.layers,
-        render.uiMeta.activeLayerId,
-      );
-      if (
-        !activeLayer ||
-        activeLayer.lockMode === "position" ||
-        activeLayer.lockMode === "all"
-      ) {
+      const activeLayer = findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId);
+      if (!activeLayer || activeLayer.lockMode === "position" || activeLayer.lockMode === "all") {
         return;
       }
       engine.translateLayer({ dx, dy });
@@ -1499,9 +1555,7 @@ export default function App() {
       });
     },
     onBrushHardnessChange(delta: number) {
-      setBrushHardness((prev) =>
-        Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100)),
-      );
+      setBrushHardness((prev) => Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100)));
     },
     onSwapColors() {
       setForegroundColor(backgroundColor);
@@ -1542,9 +1596,7 @@ export default function App() {
   const documentSize = render
     ? `${render.uiMeta.documentWidth} x ${render.uiMeta.documentHeight}`
     : "No document";
-  const zoomPercent = render
-    ? `${Math.round(render.viewport.zoom * 100)}%`
-    : "0%";
+  const zoomPercent = render ? `${Math.round(render.viewport.zoom * 100)}%` : "0%";
   const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "—";
 
   function handleZoomClick() {
@@ -1598,20 +1650,14 @@ export default function App() {
           >
             Ellipse
           </ToolChoiceButton>
-          <ToolChoiceButton
-            active={marqueeShape === "row"}
-            onClick={() => setMarqueeShape("row")}
-          >
+          <ToolChoiceButton active={marqueeShape === "row"} onClick={() => setMarqueeShape("row")}>
             Row
           </ToolChoiceButton>
-          <ToolChoiceButton
-            active={marqueeShape === "col"}
-            onClick={() => setMarqueeShape("col")}
-          >
+          <ToolChoiceButton active={marqueeShape === "col"} onClick={() => setMarqueeShape("col")}>
             Col
           </ToolChoiceButton>
         </ToolOptionGroup>
-        {(marqueeShape === "rect" || marqueeShape === "ellipse") ? (
+        {marqueeShape === "rect" || marqueeShape === "ellipse" ? (
           <ToolOptionGroup label="Style">
             <ToolChoiceButton
               active={marqueeStyle === "normal"}
@@ -1633,7 +1679,8 @@ export default function App() {
             </ToolChoiceButton>
           </ToolOptionGroup>
         ) : null}
-        {marqueeStyle === "fixed-ratio" && (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
+        {marqueeStyle === "fixed-ratio" &&
+        (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
           <>
             <ToolNumberField
               label="W"
@@ -1653,7 +1700,8 @@ export default function App() {
             />
           </>
         ) : null}
-        {marqueeStyle === "fixed-size" && (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
+        {marqueeStyle === "fixed-size" &&
+        (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
           <>
             <ToolNumberField
               label="W px"
@@ -1695,16 +1743,9 @@ export default function App() {
           min={1}
           max={99999}
           step={1}
-          value={Math.round(render?.uiMeta.crop?.w ?? 0)}
+          value={Math.round(activeCrop?.w ?? 0)}
           onChange={(v) => {
-            if (render?.uiMeta.crop) {
-              engine.dispatchCommand(CommandID.UpdateCrop, {
-                ...render.uiMeta.crop,
-                w: v,
-                rotation: render.uiMeta.crop.rotation ?? 0,
-                deletePixels: cropDeletePixels,
-              });
-            }
+            dispatchCropUpdate({ w: v });
           }}
         />
         <ToolNumberField
@@ -1712,30 +1753,74 @@ export default function App() {
           min={1}
           max={99999}
           step={1}
-          value={Math.round(render?.uiMeta.crop?.h ?? 0)}
+          value={Math.round(activeCrop?.h ?? 0)}
           onChange={(v) => {
-            if (render?.uiMeta.crop) {
-              engine.dispatchCommand(CommandID.UpdateCrop, {
-                ...render.uiMeta.crop,
-                h: v,
-                rotation: render.uiMeta.crop.rotation ?? 0,
-                deletePixels: cropDeletePixels,
-              });
-            }
+            dispatchCropUpdate({ h: v });
           }}
         />
+        <ToolNumberField
+          label="DPI"
+          min={1}
+          max={99999}
+          step={1}
+          value={Math.round(cropResolution)}
+          onChange={(v) => {
+            const next = Math.max(1, v);
+            setCropResolution(next);
+            dispatchCropUpdate({ resolution: next });
+          }}
+        />
+        <ToolChoiceButton
+          active={cropStraightenActive}
+          onClick={() => setCropStraightenActive((current) => !current)}
+        >
+          Straighten
+        </ToolChoiceButton>
+        <ToolOptionGroup label="Overlay">
+          <ToolChoiceButton
+            active={cropOverlayType === "thirds"}
+            onClick={() => {
+              setCropOverlayType("thirds");
+              dispatchCropUpdate({ overlayType: "thirds" });
+            }}
+          >
+            Thirds
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={cropOverlayType === "grid"}
+            onClick={() => {
+              setCropOverlayType("grid");
+              dispatchCropUpdate({ overlayType: "grid" });
+            }}
+          >
+            Grid
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={cropOverlayType === "diagonal"}
+            onClick={() => {
+              setCropOverlayType("diagonal");
+              dispatchCropUpdate({ overlayType: "diagonal" });
+            }}
+          >
+            Diagonal
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={cropOverlayType === "none"}
+            onClick={() => {
+              setCropOverlayType("none");
+              dispatchCropUpdate({ overlayType: "none" });
+            }}
+          >
+            None
+          </ToolChoiceButton>
+        </ToolOptionGroup>
         <label className="ml-3 flex items-center gap-1 text-[10px]">
           <input
             type="checkbox"
             checked={cropDeletePixels}
             onChange={(e) => {
               setCropDeletePixels(e.target.checked);
-              if (render?.uiMeta.crop) {
-                engine.dispatchCommand(CommandID.UpdateCrop, {
-                  ...render.uiMeta.crop,
-                  deletePixels: e.target.checked,
-                });
-              }
+              dispatchCropUpdate({ deletePixels: e.target.checked });
             }}
           />
           Delete
@@ -1743,7 +1828,10 @@ export default function App() {
         <Button
           size="sm"
           className="ml-2 h-6 px-3 text-[10px]"
-          onClick={() => engine.dispatchCommand(CommandID.CommitCrop)}
+          onClick={() => {
+            setCropStraightenActive(false);
+            engine.dispatchCommand(CommandID.CommitCrop);
+          }}
         >
           Apply
         </Button>
@@ -1751,7 +1839,10 @@ export default function App() {
           variant="secondary"
           size="sm"
           className="ml-1 h-6 px-3 text-[10px]"
-          onClick={() => engine.dispatchCommand(CommandID.CancelCrop)}
+          onClick={() => {
+            setCropStraightenActive(false);
+            engine.dispatchCommand(CommandID.CancelCrop);
+          }}
         >
           Cancel
         </Button>
@@ -1765,7 +1856,11 @@ export default function App() {
           >
             Custom
           </ToolChoiceButton>
-          {(Object.entries(artboardPresetMap) as Array<[Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }]>).map(([presetId, preset]) => (
+          {(
+            Object.entries(artboardPresetMap) as Array<
+              [Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }]
+            >
+          ).map(([presetId, preset]) => (
             <ToolChoiceButton
               key={presetId}
               active={artboardPreset === presetId}
@@ -1843,16 +1938,10 @@ export default function App() {
     ) : activeTool === "wand" ? (
       <>
         <ToolOptionGroup label="Mode">
-          <ToolChoiceButton
-            active={wandMode === "magic"}
-            onClick={() => setWandMode("magic")}
-          >
+          <ToolChoiceButton active={wandMode === "magic"} onClick={() => setWandMode("magic")}>
             Magic
           </ToolChoiceButton>
-          <ToolChoiceButton
-            active={wandMode === "quick"}
-            onClick={() => setWandMode("quick")}
-          >
+          <ToolChoiceButton active={wandMode === "quick"} onClick={() => setWandMode("quick")}>
             Quick
           </ToolChoiceButton>
         </ToolOptionGroup>
@@ -1896,9 +1985,14 @@ export default function App() {
               const [px, py] = refPointToPivot(ft.corners, row, col);
               setTransformRefPoint([row, col]);
               engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                a: ft.a, b: ft.b, c: ft.c, d: ft.d,
-                tx: ft.tx, ty: ft.ty,
-                pivotX: px, pivotY: py,
+                a: ft.a,
+                b: ft.b,
+                c: ft.c,
+                d: ft.d,
+                tx: ft.tx,
+                ty: ft.ty,
+                pivotX: px,
+                pivotY: py,
                 interpolation: ft.interpolation as InterpolMode,
               });
             }}
@@ -1913,7 +2007,13 @@ export default function App() {
               const ft = render.uiMeta.freeTransform;
               if (!ft) return;
               const updated = applyTransformFieldChange(ft, "x", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                ...updated,
+                pivotX: ft.pivotX,
+                pivotY: ft.pivotY,
+                interpolation: ft.interpolation as InterpolMode,
+                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
+              });
             }}
           />
           <ToolNumberField
@@ -1926,7 +2026,13 @@ export default function App() {
               const ft = render.uiMeta.freeTransform;
               if (!ft) return;
               const updated = applyTransformFieldChange(ft, "y", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                ...updated,
+                pivotX: ft.pivotX,
+                pivotY: ft.pivotY,
+                interpolation: ft.interpolation as InterpolMode,
+                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
+              });
             }}
           />
           <ToolNumberField
@@ -1939,7 +2045,13 @@ export default function App() {
               const ft = render.uiMeta.freeTransform;
               if (!ft) return;
               const updated = applyTransformFieldChange(ft, "w", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                ...updated,
+                pivotX: ft.pivotX,
+                pivotY: ft.pivotY,
+                interpolation: ft.interpolation as InterpolMode,
+                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
+              });
             }}
           />
           <ToolNumberField
@@ -1952,7 +2064,13 @@ export default function App() {
               const ft = render.uiMeta.freeTransform;
               if (!ft) return;
               const updated = applyTransformFieldChange(ft, "h", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                ...updated,
+                pivotX: ft.pivotX,
+                pivotY: ft.pivotY,
+                interpolation: ft.interpolation as InterpolMode,
+                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
+              });
             }}
           />
           <ToolNumberField
@@ -1965,7 +2083,13 @@ export default function App() {
               const ft = render.uiMeta.freeTransform;
               if (!ft) return;
               const updated = applyTransformFieldChange(ft, "r", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, { ...updated, pivotX: ft.pivotX, pivotY: ft.pivotY, interpolation: ft.interpolation as InterpolMode, ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}) });
+              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
+                ...updated,
+                pivotX: ft.pivotX,
+                pivotY: ft.pivotY,
+                interpolation: ft.interpolation as InterpolMode,
+                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
+              });
             }}
           />
           <ToolOptionGroup label="Interp">
@@ -1977,9 +2101,14 @@ export default function App() {
                   const ft = render.uiMeta.freeTransform;
                   if (!ft) return;
                   engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                    a: ft.a, b: ft.b, c: ft.c, d: ft.d,
-                    tx: ft.tx, ty: ft.ty,
-                    pivotX: ft.pivotX, pivotY: ft.pivotY,
+                    a: ft.a,
+                    b: ft.b,
+                    c: ft.c,
+                    d: ft.d,
+                    tx: ft.tx,
+                    ty: ft.ty,
+                    pivotX: ft.pivotX,
+                    pivotY: ft.pivotY,
                     interpolation: mode,
                   });
                 }}
@@ -1996,17 +2125,27 @@ export default function App() {
               if (ft.warpGrid) {
                 // Exit warp mode → back to affine.
                 engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                  a: ft.a, b: ft.b, c: ft.c, d: ft.d,
-                  tx: ft.tx, ty: ft.ty,
-                  pivotX: ft.pivotX, pivotY: ft.pivotY,
+                  a: ft.a,
+                  b: ft.b,
+                  c: ft.c,
+                  d: ft.d,
+                  tx: ft.tx,
+                  ty: ft.ty,
+                  pivotX: ft.pivotX,
+                  pivotY: ft.pivotY,
                   interpolation: ft.interpolation as InterpolMode,
                 });
               } else {
                 // Enter warp mode: initialize grid from corners.
                 engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                  a: ft.a, b: ft.b, c: ft.c, d: ft.d,
-                  tx: ft.tx, ty: ft.ty,
-                  pivotX: ft.pivotX, pivotY: ft.pivotY,
+                  a: ft.a,
+                  b: ft.b,
+                  c: ft.c,
+                  d: ft.d,
+                  tx: ft.tx,
+                  ty: ft.ty,
+                  pivotX: ft.pivotX,
+                  pivotY: ft.pivotY,
                   interpolation: ft.interpolation as InterpolMode,
                   warpGrid: buildWarpGrid(ft),
                 });
@@ -2035,7 +2174,11 @@ export default function App() {
           Click a layer to begin free transform · Enter to commit · Esc to cancel
         </span>
       )
-    ) : activeTool === "brush" || activeTool === "pencil" || activeTool === "mixerBrush" || activeTool === "cloneStamp" || activeTool === "historyBrush" ? (
+    ) : activeTool === "brush" ||
+      activeTool === "pencil" ||
+      activeTool === "mixerBrush" ||
+      activeTool === "cloneStamp" ||
+      activeTool === "historyBrush" ? (
       <>
         <BrushPresetPicker
           selectedPresetId={brushPresetId}
@@ -2135,10 +2278,7 @@ export default function App() {
           >
             Background
           </ToolChoiceButton>
-          <ToolChoiceButton
-            active={eraserMode === "magic"}
-            onClick={() => setEraserMode("magic")}
-          >
+          <ToolChoiceButton active={eraserMode === "magic"} onClick={() => setEraserMode("magic")}>
             Magic
           </ToolChoiceButton>
         </ToolOptionGroup>
@@ -2173,19 +2313,28 @@ export default function App() {
           />
         ) : null}
       </>
-        ) : activeTool === "fill" ? (
-          <>
-            <ToolOptionGroup label="Source">
-              <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
-                Color
-              </ToolChoiceButton>
-              <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
-                Background
-              </ToolChoiceButton>
-              <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
-                Pattern
-              </ToolChoiceButton>
-            </ToolOptionGroup>
+    ) : activeTool === "fill" ? (
+      <>
+        <ToolOptionGroup label="Source">
+          <ToolChoiceButton
+            active={fillSource === "foreground"}
+            onClick={() => setFillSource("foreground")}
+          >
+            Color
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={fillSource === "background"}
+            onClick={() => setFillSource("background")}
+          >
+            Background
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={fillSource === "pattern"}
+            onClick={() => setFillSource("pattern")}
+          >
+            Pattern
+          </ToolChoiceButton>
+        </ToolOptionGroup>
         <ToolNumberField
           label="Tolerance"
           min={0}
@@ -2233,174 +2382,206 @@ export default function App() {
           Fill Dialog
         </button>
       </>
-        ) : activeTool === "gradient" ? (
-          <>
-            <ToolOptionGroup label="Type">
-              {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
-                <ToolChoiceButton key={type} active={gradientType === type} onClick={() => setGradientType(type)}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </ToolChoiceButton>
-              ))}
-            </ToolOptionGroup>
-            <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
-              Reverse
-            </ToolChoiceButton>
-            <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
-              Dither
-            </ToolChoiceButton>
-            <ToolChoiceButton active={gradientCreateLayer} onClick={() => setGradientCreateLayer((v) => !v)}>
-              New Layer
-            </ToolChoiceButton>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
-              <span
-                className="h-4 w-24 rounded border border-white/10"
-                style={gradientPreviewStyle}
-              />
-              <span>{gradientModeSummary}</span>
-            </div>
-            <button
-              type="button"
-              className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
-              onClick={() => setGradientEditorOpen(true)}
+    ) : activeTool === "gradient" ? (
+      <>
+        <ToolOptionGroup label="Type">
+          {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
+            <ToolChoiceButton
+              key={type}
+              active={gradientType === type}
+              onClick={() => setGradientType(type)}
             >
-              Edit Gradient
-            </button>
-            <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
-          </>
-        ) : activeTool === "eyedropper" ? (
-          <>
-            <ToolOptionGroup label="Sample">
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </ToolChoiceButton>
+          ))}
+        </ToolOptionGroup>
+        <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
+          Reverse
+        </ToolChoiceButton>
+        <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
+          Dither
+        </ToolChoiceButton>
+        <ToolChoiceButton
+          active={gradientCreateLayer}
+          onClick={() => setGradientCreateLayer((v) => !v)}
+        >
+          New Layer
+        </ToolChoiceButton>
+        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
+          <span className="h-4 w-24 rounded border border-white/10" style={gradientPreviewStyle} />
+          <span>{gradientModeSummary}</span>
+        </div>
+        <button
+          type="button"
+          className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
+          onClick={() => setGradientEditorOpen(true)}
+        >
+          Edit Gradient
+        </button>
+        <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
+      </>
+    ) : activeTool === "eyedropper" ? (
+      <>
+        <ToolOptionGroup label="Sample">
           {[1, 3, 5, 11, 31, 51, 101].map((size) => (
-            <ToolChoiceButton key={size} active={eyedropperSampleSize === size} onClick={() => setEyedropperSampleSize(size)}>
+            <ToolChoiceButton
+              key={size}
+              active={eyedropperSampleSize === size}
+              onClick={() => setEyedropperSampleSize(size)}
+            >
               {size === 1 ? "Point" : `${size}x${size}`}
             </ToolChoiceButton>
           ))}
-            </ToolOptionGroup>
-            <ToolChoiceButton active={eyedropperSampleMerged} onClick={() => setEyedropperSampleMerged((v) => !v)}>
-              Sample Merged
+        </ToolOptionGroup>
+        <ToolChoiceButton
+          active={eyedropperSampleMerged}
+          onClick={() => setEyedropperSampleMerged((v) => !v)}
+        >
+          Sample Merged
+        </ToolChoiceButton>
+        <ToolChoiceButton
+          active={eyedropperSampleAllLayersNoAdj}
+          onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}
+        >
+          No Adj
+        </ToolChoiceButton>
+        <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
+        <span className="text-[11px] text-slate-400">
+          Click sets foreground; Alt+click sets background.
+        </span>
+      </>
+    ) : activeTool === "shape" ? (
+      <>
+        <ToolOptionGroup label="Shape">
+          {(
+            ["rect", "rounded-rect", "ellipse", "polygon", "line", "custom-shape"] as ShapeSubTool[]
+          ).map((s) => (
+            <ToolChoiceButton
+              key={s}
+              active={shapeSubTool === s}
+              onClick={() => setShapeSubTool(s)}
+            >
+              {s === "rect"
+                ? "Rect"
+                : s === "rounded-rect"
+                  ? "Round"
+                  : s === "ellipse"
+                    ? "Ellipse"
+                    : s === "polygon"
+                      ? "Polygon"
+                      : s === "line"
+                        ? "Line"
+                        : "Custom Shape"}
             </ToolChoiceButton>
-            <ToolChoiceButton active={eyedropperSampleAllLayersNoAdj} onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}>
-              No Adj
+          ))}
+        </ToolOptionGroup>
+        <ToolOptionGroup label="Mode">
+          {(["shape", "path", "pixels"] as ShapeMode[]).map((m) => (
+            <ToolChoiceButton key={m} active={shapeMode === m} onClick={() => setShapeMode(m)}>
+              {m.charAt(0).toUpperCase() + m.slice(1)}
             </ToolChoiceButton>
-            <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
-            <span className="text-[11px] text-slate-400">Click sets foreground; Alt+click sets background.</span>
-          </>
-        ) : activeTool === "shape" ? (
+          ))}
+        </ToolOptionGroup>
+        {shapeMode !== "path" && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Fill</span>
+            <button
+              type="button"
+              title="Fill color"
+              style={{
+                background: `rgba(${shapeFillColor[0]},${shapeFillColor[1]},${shapeFillColor[2]},${shapeFillColor[3] / 255})`,
+              }}
+              className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
+              onClick={() => {
+                setShapeFillColor([...foregroundColor] as [number, number, number, number]);
+              }}
+            />
+            <button
+              type="button"
+              title="Use foreground color"
+              className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
+              onClick={() =>
+                setShapeFillColor([...foregroundColor] as [number, number, number, number])
+              }
+            >
+              FG
+            </button>
+            <button
+              type="button"
+              title="No fill"
+              className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
+              onClick={() => setShapeFillColor([0, 0, 0, 0])}
+            >
+              None
+            </button>
+          </div>
+        )}
+        {shapeMode !== "path" && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Stroke</span>
+            <button
+              type="button"
+              title="Stroke color"
+              style={{
+                background: `rgba(${shapeStrokeColor[0]},${shapeStrokeColor[1]},${shapeStrokeColor[2]},${shapeStrokeColor[3] / 255})`,
+              }}
+              className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
+              onClick={() =>
+                setShapeStrokeColor([...foregroundColor] as [number, number, number, number])
+              }
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={shapeStrokeWidth}
+              onChange={(e) => setShapeStrokeWidth(Math.max(0, Number(e.target.value)))}
+              className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+            />
+            <span className="text-[10px] text-slate-500">px</span>
+          </div>
+        )}
+        {shapeSubTool === "rounded-rect" && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Radius</span>
+            <input
+              type="number"
+              min={0}
+              max={500}
+              step={1}
+              value={shapeCornerRadius}
+              onChange={(e) => setShapeCornerRadius(Math.max(0, Number(e.target.value)))}
+              className="w-14 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+            />
+            <span className="text-[10px] text-slate-500">px</span>
+          </div>
+        )}
+        {shapeSubTool === "polygon" && (
           <>
-            <ToolOptionGroup label="Shape">
-              {(["rect", "rounded-rect", "ellipse", "polygon", "line", "custom-shape"] as ShapeSubTool[]).map((s) => (
-                <ToolChoiceButton key={s} active={shapeSubTool === s} onClick={() => setShapeSubTool(s)}>
-                  {s === "rect"
-                    ? "Rect"
-                    : s === "rounded-rect"
-                      ? "Round"
-                      : s === "ellipse"
-                        ? "Ellipse"
-                        : s === "polygon"
-                          ? "Polygon"
-                          : s === "line"
-                            ? "Line"
-                            : "Custom Shape"}
-                </ToolChoiceButton>
-              ))}
-            </ToolOptionGroup>
-            <ToolOptionGroup label="Mode">
-              {(["shape", "path", "pixels"] as ShapeMode[]).map((m) => (
-                <ToolChoiceButton key={m} active={shapeMode === m} onClick={() => setShapeMode(m)}>
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
-                </ToolChoiceButton>
-              ))}
-            </ToolOptionGroup>
-            {shapeMode !== "path" && (
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Fill</span>
-                <button
-                  type="button"
-                  title="Fill color"
-                  style={{ background: `rgba(${shapeFillColor[0]},${shapeFillColor[1]},${shapeFillColor[2]},${shapeFillColor[3] / 255})` }}
-                  className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
-                  onClick={() => {
-                    setShapeFillColor([...foregroundColor] as [number, number, number, number]);
-                  }}
-                />
-                <button
-                  type="button"
-                  title="Use foreground color"
-                  className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
-                  onClick={() => setShapeFillColor([...foregroundColor] as [number, number, number, number])}
-                >
-                  FG
-                </button>
-                <button
-                  type="button"
-                  title="No fill"
-                  className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
-                  onClick={() => setShapeFillColor([0, 0, 0, 0])}
-                >
-                  None
-                </button>
-              </div>
-            )}
-            {shapeMode !== "path" && (
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Stroke</span>
-                <button
-                  type="button"
-                  title="Stroke color"
-                  style={{ background: `rgba(${shapeStrokeColor[0]},${shapeStrokeColor[1]},${shapeStrokeColor[2]},${shapeStrokeColor[3] / 255})` }}
-                  className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
-                  onClick={() => setShapeStrokeColor([...foregroundColor] as [number, number, number, number])}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={shapeStrokeWidth}
-                  onChange={(e) => setShapeStrokeWidth(Math.max(0, Number(e.target.value)))}
-                  className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-                />
-                <span className="text-[10px] text-slate-500">px</span>
-              </div>
-            )}
-            {shapeSubTool === "rounded-rect" && (
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Radius</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={500}
-                  step={1}
-                  value={shapeCornerRadius}
-                  onChange={(e) => setShapeCornerRadius(Math.max(0, Number(e.target.value)))}
-                  className="w-14 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-                />
-                <span className="text-[10px] text-slate-500">px</span>
-              </div>
-            )}
-            {shapeSubTool === "polygon" && (
-              <>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Sides</span>
-                  <input
-                    type="number"
-                    min={3}
-                    max={100}
-                    step={1}
-                    value={shapePolygonSides}
-                    onChange={(e) => setShapePolygonSides(Math.max(3, Number(e.target.value)))}
-                    className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-                  />
-                </div>
-                <ToolChoiceButton active={shapeStarMode} onClick={() => setShapeStarMode((v) => !v)}>
-                  Star
-                </ToolChoiceButton>
-              </>
-            )}
-            <span className="text-[11px] text-slate-400">Drag to draw. Shift = constrain aspect ratio.</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Sides</span>
+              <input
+                type="number"
+                min={3}
+                max={100}
+                step={1}
+                value={shapePolygonSides}
+                onChange={(e) => setShapePolygonSides(Math.max(3, Number(e.target.value)))}
+                className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+              />
+            </div>
+            <ToolChoiceButton active={shapeStarMode} onClick={() => setShapeStarMode((v) => !v)}>
+              Star
+            </ToolChoiceButton>
           </>
-        ) : null;
+        )}
+        <span className="text-[11px] text-slate-400">
+          Drag to draw. Shift = constrain aspect ratio.
+        </span>
+      </>
+    ) : null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
@@ -2455,16 +2636,12 @@ export default function App() {
                         type="button"
                         className={[
                           "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
-                          isOpen
-                            ? "text-white"
-                            : "text-slate-400 hover:text-slate-100",
+                          isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
                         ].join(" ")}
                         aria-expanded={isOpen}
                         aria-haspopup="menu"
                         onClick={() =>
-                          setOpenMenu((current) =>
-                            current === menu.label ? null : menu.label,
-                          )
+                          setOpenMenu((current) => (current === menu.label ? null : menu.label))
                         }
                         onPointerEnter={() => {
                           if (openMenu) {
@@ -2502,11 +2679,7 @@ export default function App() {
                 <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
                 New
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => engine.fitToView()}
-              >
+              <Button variant="ghost" size="sm" onClick={() => engine.fitToView()}>
                 <FitScreenIcon className="mr-1.5 h-3.5 w-3.5" />
                 Fit
               </Button>
@@ -2519,11 +2692,7 @@ export default function App() {
                 <UndoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Undo
               </Button>
-              <Button
-                size="sm"
-                onClick={() => engine.redo()}
-                disabled={!render?.uiMeta.canRedo}
-              >
+              <Button size="sm" onClick={() => engine.redo()} disabled={!render?.uiMeta.canRedo}>
                 <RedoIcon className="mr-1.5 h-3.5 w-3.5" />
                 Redo
               </Button>
@@ -2580,10 +2749,7 @@ export default function App() {
             <TextEditOverlay
               engine={engine}
               initialText={
-                findLayerMetaInTree(
-                  render?.uiMeta.layers ?? [],
-                  editingTextLayerID,
-                )?.text ?? ""
+                findLayerMetaInTree(render?.uiMeta.layers ?? [], editingTextLayerID)?.text ?? ""
               }
             />
           ) : null}
@@ -2596,8 +2762,7 @@ export default function App() {
           >
             <aside className="editor-chrome editor-toolrail flex min-h-[36rem] flex-col items-center gap-[var(--ui-gap-1)] border-r border-border px-[var(--ui-gap-1)] py-[var(--ui-gap-2)]">
               {toolItems.map((tool) => {
-                const active =
-                  (isPanMode && tool.id === "hand") || activeTool === tool.id;
+                const active = (isPanMode && tool.id === "hand") || activeTool === tool.id;
                 const ToolIcon = tool.Icon;
                 return (
                   <button
@@ -2711,6 +2876,10 @@ export default function App() {
                       background: artboardBackground,
                     }}
                     cropDeletePixels={cropDeletePixels}
+                    cropResolution={cropResolution}
+                    cropOverlayType={cropOverlayType}
+                    cropStraightenActive={cropStraightenActive}
+                    onCropStraightenActiveChange={setCropStraightenActive}
                     transformSelectionActive={transformSelectionActive}
                     onTransformSelectionCommit={(a, b, c, d, tx, ty) => {
                       engine.dispatchCommand(CommandID.TransformSelection, { a, b, c, d, tx, ty });
@@ -2744,13 +2913,7 @@ export default function App() {
                   const startWidth = panelWidth;
                   const handleMove = (moveEvent: PointerEvent) => {
                     setPanelWidth(
-                      Math.min(
-                        420,
-                        Math.max(
-                          280,
-                          startWidth - (moveEvent.clientX - startX),
-                        ),
-                      ),
+                      Math.min(420, Math.max(280, startWidth - (moveEvent.clientX - startX))),
                     );
                   };
                   const handleUp = () => {
@@ -2833,19 +2996,13 @@ export default function App() {
                           activeLayerId={render?.uiMeta.activeLayerId ?? null}
                           fallback={
                             <div className="space-y-[var(--ui-gap-3)]">
-                              <PropertyGridRow
-                                label="Document"
-                                value={documentSize}
-                              />
+                              <PropertyGridRow label="Document" value={documentSize} />
                               <PropertyGridRow label="Zoom" value={zoomPercent} />
                               <PropertyGridRow
                                 label="Rotation"
                                 value={`${render?.viewport.rotation.toFixed(0) ?? 0}°`}
                               />
-                              <PropertyGridRow
-                                label="DPI"
-                                value={draft.resolution.toString()}
-                              />
+                              <PropertyGridRow label="DPI" value={draft.resolution.toString()} />
                               <CompactRange
                                 id="rotate-view-range"
                                 label="Rotate View"
@@ -2956,7 +3113,8 @@ export default function App() {
                               </p>
                               <div className="space-y-2 text-[11px] text-slate-400">
                                 <div>
-                                  Paints from the previous history state. The source selection is still implicit in this first draft.
+                                  Paints from the previous history state. The source selection is
+                                  still implicit in this first draft.
                                 </div>
                                 <ToolChoiceButton
                                   active={historyBrushSampleMerged}
@@ -3027,9 +3185,13 @@ export default function App() {
                           activeColor={activeColor}
                           onPickForeground={(color) => applyColorToTarget("foreground", color)}
                           onPickBackground={(color) => applyColorToTarget("background", color)}
-                          onAddSwatch={() => setSwatches((current) => [foregroundColor, ...current].slice(0, 24))}
+                          onAddSwatch={() =>
+                            setSwatches((current) => [foregroundColor, ...current].slice(0, 24))
+                          }
                           onDeleteSwatch={(index) =>
-                            setSwatches((current) => current.filter((_, swatchIndex) => swatchIndex !== index))
+                            setSwatches((current) =>
+                              current.filter((_, swatchIndex) => swatchIndex !== index),
+                            )
                           }
                         />
                       ) : null}
@@ -3087,9 +3249,7 @@ export default function App() {
                             min={5}
                             max={3200}
                             step={5}
-                            value={Math.round(
-                              (render?.viewport.zoom ?? 1) * 100,
-                            )}
+                            value={Math.round((render?.viewport.zoom ?? 1) * 100)}
                             onChange={(value) => engine.setZoom(value / 100)}
                           />
                         </div>
@@ -3098,28 +3258,18 @@ export default function App() {
                       {activeAuxPanel === "channels" ? <ChannelsPanel /> : null}
 
                       {activeAuxPanel === "paths" ? (
-                        <PathsPanel
-                          engine={engine}
-                          paths={render?.uiMeta.paths ?? []}
-                        />
+                        <PathsPanel engine={engine} paths={render?.uiMeta.paths ?? []} />
                       ) : null}
                     </DockSection>
 
-                    <DockSection
-                      title="Layers"
-                      className="border-t border-border"
-                    >
+                    <DockSection title="Layers" className="border-t border-border">
                       <LayersPanel
                         engine={engine}
                         layers={render?.uiMeta.layers ?? []}
                         activeLayerId={render?.uiMeta.activeLayerId ?? null}
                         maskEditLayerId={render?.uiMeta.maskEditLayerId ?? null}
-                        documentWidth={
-                          render?.uiMeta.documentWidth ?? draft.width
-                        }
-                        documentHeight={
-                          render?.uiMeta.documentHeight ?? draft.height
-                        }
+                        documentWidth={render?.uiMeta.documentWidth ?? draft.width}
+                        documentHeight={render?.uiMeta.documentHeight ?? draft.height}
                         thumbnails={layerThumbnails}
                         selectedLayerIds={selectedLayerIds}
                         onSelectedLayerIdsChange={setSelectedLayerIds}
@@ -3133,9 +3283,7 @@ export default function App() {
 
           <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-white/8 px-2 text-[11px] text-slate-500">
             <div className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate text-slate-300">
-                {draft.name}.agp
-              </span>
+              <span className="truncate text-slate-300">{draft.name}.agp</span>
               <Separator orientation="vertical" className="h-3 bg-white/8" />
               <span>{documentSize}</span>
               <Separator orientation="vertical" className="h-3 bg-white/8" />
@@ -3201,9 +3349,7 @@ export default function App() {
                   }))
                 }
               >
-                <div className="text-[12px] font-medium text-slate-100">
-                  {preset.label}
-                </div>
+                <div className="text-[12px] font-medium text-slate-100">{preset.label}</div>
                 <div className="mt-1 text-[11px] text-slate-400">
                   {preset.width} x {preset.height} · {preset.resolution} DPI
                 </div>
@@ -3231,8 +3377,7 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    background: event.target
-                      .value as CreateDocumentCommand["background"],
+                    background: event.target.value as CreateDocumentCommand["background"],
                   }))
                 }
               >
@@ -3245,9 +3390,7 @@ export default function App() {
               <select
                 className={fieldClassName}
                 value={documentUnit}
-                onChange={(event) =>
-                  setDocumentUnit(event.target.value as DocumentUnit)
-                }
+                onChange={(event) => setDocumentUnit(event.target.value as DocumentUnit)}
               >
                 <option value="px">Pixels</option>
                 <option value="in">Inches</option>
@@ -3268,11 +3411,7 @@ export default function App() {
                     width: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(
-                          Number(event.target.value),
-                          current.resolution,
-                          documentUnit,
-                        ),
+                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
                       ),
                     ),
                   }))
@@ -3292,11 +3431,7 @@ export default function App() {
                     height: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(
-                          Number(event.target.value),
-                          current.resolution,
-                          documentUnit,
-                        ),
+                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
                       ),
                     ),
                   }))
@@ -3340,8 +3475,7 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    colorMode: event.target
-                      .value as CreateDocumentCommand["colorMode"],
+                    colorMode: event.target.value as CreateDocumentCommand["colorMode"],
                   }))
                 }
               >
@@ -3353,11 +3487,7 @@ export default function App() {
         </div>
 
         <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setNewDocumentOpen(false)}
-          >
+          <Button variant="ghost" size="sm" onClick={() => setNewDocumentOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -3380,8 +3510,8 @@ export default function App() {
       >
         <div className="space-y-3 text-[13px] text-slate-300">
           <p>
-            Recent document tracking needs a persistent file-access layer. That
-            is not wired into the web shell yet.
+            Recent document tracking needs a persistent file-access layer. That is not wired into
+            the web shell yet.
           </p>
           <p className="text-slate-400">
             Use Open to pick an `.agp`, `.psd`, `.psb`, or legacy JSON project from disk.
@@ -3389,11 +3519,7 @@ export default function App() {
         </div>
 
         <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setOpenRecentOpen(false)}
-          >
+          <Button variant="ghost" size="sm" onClick={() => setOpenRecentOpen(false)}>
             Close
           </Button>
           <Button
@@ -3416,20 +3542,16 @@ export default function App() {
       >
         <div className="space-y-3 text-[13px] text-slate-300">
           <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">
-              Project Archive (.agp)
-            </div>
+            <div className="text-[12px] font-medium text-slate-100">Project Archive (.agp)</div>
             <div className="mt-1 text-[12px] text-slate-400">
-              Saves the current document state, layer tree, and history as{" "}
-              {activeDocumentName}.agp.
+              Saves the current document state, layer tree, and history as {activeDocumentName}.agp.
             </div>
           </div>
           <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">
-              Photoshop Document (.psd)
-            </div>
+            <div className="text-[12px] font-medium text-slate-100">Photoshop Document (.psd)</div>
             <div className="mt-1 text-[12px] text-slate-400">
-              Writes a layered PSD with merged image data and embedded Agogo metadata for lossless reopen.
+              Writes a layered PSD with merged image data and embedded Agogo metadata for lossless
+              reopen.
             </div>
           </div>
           <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
@@ -3437,17 +3559,14 @@ export default function App() {
               Large Document Format (.psb)
             </div>
             <div className="mt-1 text-[12px] text-slate-400">
-              Use PSB explicitly for large canvases. PSD exports automatically switch to PSB above 30,000 px.
+              Use PSB explicitly for large canvases. PSD exports automatically switch to PSB above
+              30,000 px.
             </div>
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExportDialogOpen(false)}
-          >
+          <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -3494,9 +3613,7 @@ export default function App() {
               type="number"
               className={fieldClassName}
               value={canvasSizeDraft.width}
-              onChange={(e) =>
-                setCanvasSizeDraft((c) => ({ ...c, width: Number(e.target.value) }))
-              }
+              onChange={(e) => setCanvasSizeDraft((c) => ({ ...c, width: Number(e.target.value) }))}
             />
           </Field>
           <Field label="Height">
@@ -3542,11 +3659,7 @@ export default function App() {
           </Field>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setCanvasSizeOpen(false)}
-          >
+          <Button variant="secondary" size="sm" onClick={() => setCanvasSizeOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -3592,12 +3705,35 @@ export default function App() {
 
       <Dialog
         open={modifyDialog.open}
-        title={{ expand: "Expand Selection", contract: "Contract Selection", smooth: "Smooth Selection", border: "Border Selection" }[modifyDialog.kind]}
-        description={{ expand: "Grow the selection outward.", contract: "Shrink the selection inward.", smooth: "Smooth the selection edges.", border: "Create a border of the specified width." }[modifyDialog.kind]}
+        title={
+          {
+            expand: "Expand Selection",
+            contract: "Contract Selection",
+            smooth: "Smooth Selection",
+            border: "Border Selection",
+          }[modifyDialog.kind]
+        }
+        description={
+          {
+            expand: "Grow the selection outward.",
+            contract: "Shrink the selection inward.",
+            smooth: "Smooth the selection edges.",
+            border: "Create a border of the specified width.",
+          }[modifyDialog.kind]
+        }
         className="max-w-xs"
       >
         <div className="space-y-3">
-          <Field label={{ expand: "Expand By (px)", contract: "Contract By (px)", smooth: "Radius (px)", border: "Width (px)" }[modifyDialog.kind]}>
+          <Field
+            label={
+              {
+                expand: "Expand By (px)",
+                contract: "Contract By (px)",
+                smooth: "Radius (px)",
+                border: "Width (px)",
+              }[modifyDialog.kind]
+            }
+          >
             <input
               type="number"
               className={fieldClassName}
@@ -3609,7 +3745,11 @@ export default function App() {
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setModifyDialog((d) => ({ ...d, open: false }))}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setModifyDialog((d) => ({ ...d, open: false }))}
+            >
               Cancel
             </Button>
             <Button size="sm" onClick={commitModify}>
@@ -3619,21 +3759,25 @@ export default function App() {
         </div>
       </Dialog>
 
-      <Dialog
-        open={fillDialogOpen}
-        title="Fill"
-        description={fillModeSummary}
-        className="max-w-sm"
-      >
+      <Dialog open={fillDialogOpen} title="Fill" description={fillModeSummary} className="max-w-sm">
         <div className="space-y-4">
           <ToolOptionGroup label="Source">
-            <ToolChoiceButton active={fillSource === "foreground"} onClick={() => setFillSource("foreground")}>
+            <ToolChoiceButton
+              active={fillSource === "foreground"}
+              onClick={() => setFillSource("foreground")}
+            >
               Color
             </ToolChoiceButton>
-            <ToolChoiceButton active={fillSource === "background"} onClick={() => setFillSource("background")}>
+            <ToolChoiceButton
+              active={fillSource === "background"}
+              onClick={() => setFillSource("background")}
+            >
               Background
             </ToolChoiceButton>
-            <ToolChoiceButton active={fillSource === "pattern"} onClick={() => setFillSource("pattern")}>
+            <ToolChoiceButton
+              active={fillSource === "pattern"}
+              onClick={() => setFillSource("pattern")}
+            >
               Pattern
             </ToolChoiceButton>
           </ToolOptionGroup>
@@ -3686,7 +3830,9 @@ export default function App() {
                     contiguous: fillContiguous,
                     sampleMerged: fillSampleMerged,
                     source: fillSource,
-                    color: toMutableRgba(fillSource === "background" ? backgroundColor : foregroundColor),
+                    color: toMutableRgba(
+                      fillSource === "background" ? backgroundColor : foregroundColor,
+                    ),
                     createLayer: fillCreateLayer,
                   } satisfies FillCommand);
                 }
@@ -3724,7 +3870,10 @@ export default function App() {
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Preview</p>
             <div className="mt-2 h-5 overflow-hidden rounded border border-white/10 bg-slate-950">
               <div className="flex h-full w-full">
-                <div className="h-full bg-black" style={{ width: `${thresholdValue / 255 * 100}%` }} />
+                <div
+                  className="h-full bg-black"
+                  style={{ width: `${(thresholdValue / 255) * 100}%` }}
+                />
                 <div className="h-full flex-1 bg-white" />
               </div>
             </div>
@@ -3760,7 +3909,9 @@ export default function App() {
               max={255}
               step={1}
               value={thresholdValue}
-              onChange={(event) => setThresholdValue(Math.max(0, Math.min(255, Number(event.target.value) || 0)))}
+              onChange={(event) =>
+                setThresholdValue(Math.max(0, Math.min(255, Number(event.target.value) || 0)))
+              }
             />
           </label>
           <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
@@ -3821,7 +3972,9 @@ export default function App() {
               max={255}
               step={1}
               value={posterizeLevels}
-              onChange={(event) => setPosterizeLevels(Math.max(2, Math.min(255, Number(event.target.value) || 2)))}
+              onChange={(event) =>
+                setPosterizeLevels(Math.max(2, Math.min(255, Number(event.target.value) || 2)))
+              }
             />
           </label>
           <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
@@ -3867,7 +4020,9 @@ export default function App() {
                   className="h-10 rounded border border-white/10"
                   style={{ backgroundColor: rgbaToCss(photoFilterColor) }}
                 />
-                <div className="mt-1 text-[11px] text-slate-500">{rgbaToHex(photoFilterColor).toUpperCase()}</div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {rgbaToHex(photoFilterColor).toUpperCase()}
+                </div>
               </div>
             </div>
           </div>
@@ -4041,7 +4196,11 @@ export default function App() {
             ))}
           </div>
           <div className="flex justify-end gap-2 border-t border-white/8 pt-3">
-            <Button variant="secondary" size="sm" onClick={() => setSelectiveColorDialogOpen(false)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectiveColorDialogOpen(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -4177,7 +4336,17 @@ type FreeTransformCorners = [
 
 /** Recompute affine transform after editing one display field in the options bar. */
 function applyTransformFieldChange(
-  ft: { a: number; b: number; c: number; d: number; tx: number; ty: number; scaleX: number; scaleY: number; rotation: number },
+  ft: {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+    tx: number;
+    ty: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+  },
   field: "x" | "y" | "w" | "h" | "r",
   value: number,
 ): { a: number; b: number; c: number; d: number; tx: number; ty: number } {
@@ -4286,9 +4455,7 @@ function TransformRefGrid({
               title={REF_POINT_LABELS[row][col]}
               className={[
                 "h-[7px] w-[7px] rounded-[1px] focus-visible:outline-none",
-                isActive
-                  ? "bg-cyan-400"
-                  : "bg-slate-500 hover:bg-slate-300",
+                isActive ? "bg-cyan-400" : "bg-slate-500 hover:bg-slate-300",
               ].join(" ")}
               onClick={() => onChange(row, col)}
             />
@@ -4299,13 +4466,7 @@ function TransformRefGrid({
   );
 }
 
-function ToolOptionGroup({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function ToolOptionGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2">
       <span className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -4358,9 +4519,7 @@ function ToolNumberField({
 }) {
   return (
     <label className="flex items-center gap-2 text-[12px] text-slate-300">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </span>
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
       <input
         className="h-7 w-20 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-right text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
         type="number"
@@ -4374,10 +4533,7 @@ function ToolNumberField({
   );
 }
 
-function findLayerMetaInTree(
-  layers: LayerNodeMeta[],
-  targetID: string,
-): LayerNodeMeta | null {
+function findLayerMetaInTree(layers: LayerNodeMeta[], targetID: string): LayerNodeMeta | null {
   for (const layer of layers) {
     if (layer.id === targetID) {
       return layer;
@@ -4442,11 +4598,7 @@ function MenuPreviewPanel({
               item={item}
               disabled={disabled}
               checked={checked}
-              onClick={
-                item.actionId
-                  ? () => onAction(item.actionId as MenuActionId)
-                  : undefined
-              }
+              onClick={item.actionId ? () => onAction(item.actionId as MenuActionId) : undefined}
             />
           );
         })}
@@ -4505,9 +4657,7 @@ function MenuPreviewAction({
       {checked ? (
         <span className="ml-4 shrink-0 text-[11px] text-cyan-400">✓</span>
       ) : item.shortcut ? (
-        <span className="ml-4 shrink-0 text-[11px] text-slate-500">
-          {item.shortcut}
-        </span>
+        <span className="ml-4 shrink-0 text-[11px] text-slate-500">{item.shortcut}</span>
       ) : null}
     </button>
   );
@@ -4522,11 +4672,7 @@ function iconForMenuItem(label: string) {
   if (lower.includes("open")) {
     return OpenFolderIcon;
   }
-  if (
-    lower.includes("save") ||
-    lower.includes("export") ||
-    lower.includes("assets")
-  ) {
+  if (lower.includes("save") || lower.includes("export") || lower.includes("assets")) {
     return SaveIcon;
   }
   if (lower.includes("undo")) {
@@ -4544,18 +4690,10 @@ function iconForMenuItem(label: string) {
   if (lower.includes("paste")) {
     return ClipboardIcon;
   }
-  if (
-    lower.includes("layer") ||
-    lower.includes("rasterize") ||
-    lower.includes("merge")
-  ) {
+  if (lower.includes("layer") || lower.includes("rasterize") || lower.includes("merge")) {
     return LayersIcon;
   }
-  if (
-    lower.includes("select") ||
-    lower.includes("feather") ||
-    lower.includes("inverse")
-  ) {
+  if (lower.includes("select") || lower.includes("feather") || lower.includes("inverse")) {
     return SelectionIcon;
   }
   if (
@@ -4609,9 +4747,7 @@ function DockSection({
       <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
         <h2 className="text-[12px] font-medium text-slate-100">{title}</h2>
       </div>
-      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">
-        {children}
-      </div>
+      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">{children}</div>
     </section>
   );
 }
@@ -4739,9 +4875,7 @@ function ChannelsPanel() {
             title={visible[ch.id] ? "Hide channel" : "Show channel"}
             className={[
               "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
-              visible[ch.id]
-                ? "bg-emerald-400/12 text-emerald-100"
-                : "bg-black/20 text-slate-500",
+              visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",
             ].join(" ")}
             onClick={() =>
               setVisible((current) => ({
@@ -4753,15 +4887,11 @@ function ChannelsPanel() {
             {visible[ch.id] ? "O" : "-"}
           </button>
           <span className={`h-2.5 w-2.5 rounded-full ${ch.color}`} />
-          <span className="flex-1 text-[12px] font-medium text-slate-100">
-            {ch.name}
-          </span>
+          <span className="flex-1 text-[12px] font-medium text-slate-100">{ch.name}</span>
           <span className="text-[11px] text-slate-500">{ch.shortcut}</span>
         </div>
       ))}
-      <p className="px-1 pt-1 text-[11px] text-slate-600">
-        Channel isolation active in Phase 3+.
-      </p>
+      <p className="px-1 pt-1 text-[11px] text-slate-600">Channel isolation active in Phase 3+.</p>
     </div>
   );
 }
@@ -4770,9 +4900,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: label wraps its control via children (implicit label pattern)
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </span>
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
       {children}
     </label>
   );

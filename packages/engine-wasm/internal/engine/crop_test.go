@@ -56,6 +56,12 @@ func TestCrop_BeginActivatesState(t *testing.T) {
 	if crop.W != 100 || crop.H != 80 {
 		t.Errorf("crop size = %.1fx%.1f, want 100x80", crop.W, crop.H)
 	}
+	if crop.Resolution != 72 {
+		t.Errorf("crop resolution = %.1f, want 72", crop.Resolution)
+	}
+	if crop.OverlayType != cropOverlayThirds {
+		t.Errorf("crop overlay = %q, want %q", crop.OverlayType, cropOverlayThirds)
+	}
 }
 
 // TestCrop_UpdateChangesBox verifies that UpdateCrop immediately reflects in
@@ -70,6 +76,8 @@ func TestCrop_UpdateChangesBox(t *testing.T) {
 
 	result, err := DispatchCommand(h, commandUpdateCrop, mustJSON(t, UpdateCropPayload{
 		X: 10, Y: 5, W: 60, H: 40,
+		Resolution:  300,
+		OverlayType: cropOverlayGrid,
 	}))
 	if err != nil {
 		t.Fatalf("UpdateCrop: %v", err)
@@ -81,6 +89,12 @@ func TestCrop_UpdateChangesBox(t *testing.T) {
 	if crop.X != 10 || crop.Y != 5 || crop.W != 60 || crop.H != 40 {
 		t.Errorf("crop box = (%.0f,%.0f,%.0f,%.0f), want (10,5,60,40)",
 			crop.X, crop.Y, crop.W, crop.H)
+	}
+	if crop.Resolution != 300 {
+		t.Errorf("crop resolution = %.1f, want 300", crop.Resolution)
+	}
+	if crop.OverlayType != cropOverlayGrid {
+		t.Errorf("crop overlay = %q, want %q", crop.OverlayType, cropOverlayGrid)
 	}
 }
 
@@ -119,7 +133,7 @@ func TestCrop_CommitChangesDocumentSize(t *testing.T) {
 		t.Fatalf("BeginCrop: %v", err)
 	}
 	if _, err := DispatchCommand(h, commandUpdateCrop, mustJSON(t, UpdateCropPayload{
-		X: 10, Y: 5, W: 60, H: 40,
+		X: 10, Y: 5, W: 60, H: 40, Resolution: 144,
 	})); err != nil {
 		t.Fatalf("UpdateCrop: %v", err)
 	}
@@ -135,6 +149,9 @@ func TestCrop_CommitChangesDocumentSize(t *testing.T) {
 	doc := instances[h].manager.Active()
 	if doc.Width != 60 || doc.Height != 40 {
 		t.Errorf("doc size = %dx%d, want 60x40 after commit", doc.Width, doc.Height)
+	}
+	if doc.Resolution != 144 {
+		t.Errorf("doc resolution = %.1f, want 144 after commit", doc.Resolution)
 	}
 }
 
@@ -191,6 +208,9 @@ func TestCrop_CommitIsUndoable(t *testing.T) {
 	doc := instances[h].manager.Active()
 	if doc.Width != 100 || doc.Height != 80 {
 		t.Errorf("doc size after undo = %dx%d, want 100x80", doc.Width, doc.Height)
+	}
+	if doc.Resolution != 72 {
+		t.Errorf("doc resolution after undo = %.1f, want 72", doc.Resolution)
 	}
 	pl := doc.ActiveLayer().(*PixelLayer)
 	if pl.Bounds.X != 0 || pl.Bounds.Y != 0 {

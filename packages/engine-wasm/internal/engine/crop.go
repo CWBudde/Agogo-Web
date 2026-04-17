@@ -5,6 +5,13 @@ import (
 	"math"
 )
 
+const (
+	cropOverlayThirds   = "thirds"
+	cropOverlayGrid     = "grid"
+	cropOverlayDiagonal = "diagonal"
+	cropOverlayNone     = "none"
+)
+
 // CropState holds the live state while the crop tool is active.
 type CropState struct {
 	Active       bool
@@ -14,6 +21,8 @@ type CropState struct {
 	H            float64
 	Rotation     float64 // degrees, 0 = no rotation
 	DeletePixels bool
+	Resolution   float64
+	OverlayType  string
 }
 
 // CropMeta is serialized into UIMeta so the frontend can render
@@ -26,6 +35,8 @@ type CropMeta struct {
 	H            float64 `json:"h"`
 	Rotation     float64 `json:"rotation"`
 	DeletePixels bool    `json:"deletePixels"`
+	Resolution   float64 `json:"resolution"`
+	OverlayType  string  `json:"overlayType"`
 }
 
 // meta builds the UIMeta representation of the current state.
@@ -41,6 +52,8 @@ func (s *CropState) meta() *CropMeta {
 		H:            s.H,
 		Rotation:     s.Rotation,
 		DeletePixels: s.DeletePixels,
+		Resolution:   s.Resolution,
+		OverlayType:  normalizeCropOverlayType(s.OverlayType),
 	}
 }
 
@@ -52,6 +65,27 @@ type UpdateCropPayload struct {
 	H            float64 `json:"h"`
 	Rotation     float64 `json:"rotation"`
 	DeletePixels bool    `json:"deletePixels"`
+	Resolution   float64 `json:"resolution"`
+	OverlayType  string  `json:"overlayType"`
+}
+
+func normalizeCropOverlayType(value string) string {
+	switch value {
+	case cropOverlayGrid, cropOverlayDiagonal, cropOverlayNone:
+		return value
+	default:
+		return cropOverlayThirds
+	}
+}
+
+func normalizeCropResolution(value, fallback float64) float64 {
+	if value > 0 {
+		return value
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return defaultResolutionDPI
 }
 
 // ResizeCanvasPayload defines the parameters for the Canvas Size command.
@@ -238,22 +272,37 @@ func RenderCropOverlay(state *CropState, vp *ViewportState, reuse []byte) []byte
 	drawLine(x3, y3, x0, y0, boxColor)
 
 	gridColor := overlayColor{255, 255, 255, 100}
-	for i := 1; i < 3; i++ {
-		t := float64(i) / 3.0
-		// Vertical grid line at local x = -halfW + W*t, from top to bottom edge
-		lx := -halfW + state.W*t
-		gADx, gADy := cropLocalToDoc(lx, -halfH)
-		gBDx, gBDy := cropLocalToDoc(lx, halfH)
-		ax, ay := docToCanvas(gADx, gADy)
-		bx, by := docToCanvas(gBDx, gBDy)
+	drawGuideLine := func(axDoc, ayDoc, bxDoc, byDoc float64) {
+		ax, ay := docToCanvas(axDoc, ayDoc)
+		bx, by := docToCanvas(bxDoc, byDoc)
 		drawLine(ax, ay, bx, by, gridColor)
-		// Horizontal grid line at local y = -halfH + H*t, from left to right edge
-		ly := -halfH + state.H*t
-		gCDx, gCDy := cropLocalToDoc(-halfW, ly)
-		gDDx, gDDy := cropLocalToDoc(halfW, ly)
-		cx, cy := docToCanvas(gCDx, gCDy)
-		dx, dy := docToCanvas(gDDx, gDDy)
-		drawLine(cx, cy, dx, dy, gridColor)
+	}
+
+	drawFractionGuides := func(divisions int) {
+		for i := 1; i < divisions; i++ {
+			t := float64(i) / float64(divisions)
+			lx := -halfW + state.W*t
+			topX, topY := cropLocalToDoc(lx, -halfH)
+			bottomX, bottomY := cropLocalToDoc(lx, halfH)
+			drawGuideLine(topX, topY, bottomX, bottomY)
+
+			ly := -halfH + state.H*t
+			leftX, leftY := cropLocalToDoc(-halfW, ly)
+			rightX, rightY := cropLocalToDoc(halfW, ly)
+			drawGuideLine(leftX, leftY, rightX, rightY)
+		}
+	}
+
+	switch normalizeCropOverlayType(state.OverlayType) {
+	case cropOverlayGrid:
+		drawFractionGuides(5)
+	case cropOverlayDiagonal:
+		drawGuideLine(c0dx, c0dy, c2dx, c2dy)
+		drawGuideLine(c1dx, c1dy, c3dx, c3dy)
+	case cropOverlayNone:
+		// Hide interior guides while keeping the crop bounds and handles visible.
+	default:
+		drawFractionGuides(3)
 	}
 
 	// 3. Draw 8 resize handles

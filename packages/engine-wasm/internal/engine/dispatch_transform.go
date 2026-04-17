@@ -371,6 +371,8 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 			H:            float64(doc.Height),
 			Rotation:     0,
 			DeletePixels: false,
+			Resolution:   normalizeCropResolution(doc.Resolution, defaultResolutionDPI),
+			OverlayType:  cropOverlayThirds,
 		}
 		return true, nil
 
@@ -388,6 +390,8 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 		inst.crop.H = payload.H
 		inst.crop.Rotation = payload.Rotation
 		inst.crop.DeletePixels = payload.DeletePixels
+		inst.crop.Resolution = normalizeCropResolution(payload.Resolution, inst.crop.Resolution)
+		inst.crop.OverlayType = normalizeCropOverlayType(payload.OverlayType)
 		return true, nil
 
 	case commandCommitCrop:
@@ -400,6 +404,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 		cropH := inst.crop.H
 		cropRot := inst.crop.Rotation
 		deletePixels := inst.crop.DeletePixels
+		cropResolution := normalizeCropResolution(inst.crop.Resolution, defaultResolutionDPI)
 		command := &snapshotCommand{
 			description: "Crop Document",
 			applyFn: func(inst *instance) (snapshot, error) {
@@ -438,6 +443,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				}
 				doc.Width = w
 				doc.Height = h
+				doc.Resolution = cropResolution
 				doc.ContentVersion++
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err

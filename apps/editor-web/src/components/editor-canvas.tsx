@@ -1,14 +1,24 @@
-import { CommandID, type AddLayerCommand, type AddTextLayerCommand, type ApplyGradientCommand, type BeginPaintStrokeCommand, type ContinuePaintStrokeCommand, type DrawShapeCommand, type FillCommand, type FreeTransformMeta, type GradientStopCommand, type InterpolMode, type MagicEraseCommand, type SampleMergedColorCommand, type SetArtboardCommand } from "@agogo/proto";
-import { PathOverlayRenderer } from "./path-overlay";
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { toMutableRgba, toRgba, type Rgba } from "@/lib/color";
+  type AddLayerCommand,
+  type AddTextLayerCommand,
+  type ApplyGradientCommand,
+  type BeginPaintStrokeCommand,
+  CommandID,
+  type ContinuePaintStrokeCommand,
+  type CropOverlayType,
+  type DrawShapeCommand,
+  type FillCommand,
+  type FreeTransformMeta,
+  type GradientStopCommand,
+  type InterpolMode,
+  type MagicEraseCommand,
+  type SampleMergedColorCommand,
+  type SetArtboardCommand,
+} from "@agogo/proto";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import { useEngine } from "@/wasm/context";
+import { PathOverlayRenderer } from "./path-overlay";
 
 type CursorPosition = {
   x: number;
@@ -102,8 +112,19 @@ type EditorCanvasProps = {
     background: [number, number, number, number];
   };
   cropDeletePixels: boolean;
+  cropResolution: number;
+  cropOverlayType: CropOverlayType;
+  cropStraightenActive: boolean;
+  onCropStraightenActiveChange: (active: boolean) => void;
   transformSelectionActive: boolean;
-  onTransformSelectionCommit: (a: number, b: number, c: number, d: number, tx: number, ty: number) => void;
+  onTransformSelectionCommit: (
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    tx: number,
+    ty: number,
+  ) => void;
   onTransformSelectionCancel: () => void;
 };
 
@@ -262,10 +283,18 @@ type CropDraft = {
   kind: CropDragKind;
   startDoc: DocumentPoint;
   startBox: { x: number; y: number; w: number; h: number };
-  startRotation: number;      // crop rotation (degrees) when drag started
-  startAngle: number;         // atan2 angle from crop center to startDoc (radians)
-  cropCenterX: number;        // crop center X in doc space at drag start
-  cropCenterY: number;        // crop center Y in doc space at drag start
+  startRotation: number; // crop rotation (degrees) when drag started
+  startAngle: number; // atan2 angle from crop center to startDoc (radians)
+  cropCenterX: number; // crop center X in doc space at drag start
+  cropCenterY: number; // crop center Y in doc space at drag start
+};
+
+type CropStraightenDraft = {
+  pointerId: number;
+  startDoc: DocumentPoint;
+  currentDoc: DocumentPoint;
+  startBox: { x: number; y: number; w: number; h: number };
+  startRotation: number;
 };
 
 type SelectionTransformDraft = {
@@ -398,9 +427,12 @@ function transformHitTest(
       }
     }
     // Inside warp bbox → move.
-    const outerPts = [ft.warpGrid[0][0], ft.warpGrid[0][3], ft.warpGrid[3][3], ft.warpGrid[3][0]].map(
-      (p) => docToCanvas({ x: p[0], y: p[1] }),
-    );
+    const outerPts = [
+      ft.warpGrid[0][0],
+      ft.warpGrid[0][3],
+      ft.warpGrid[3][3],
+      ft.warpGrid[3][0],
+    ].map((p) => docToCanvas({ x: p[0], y: p[1] }));
     if (outerPts.every((p): p is { x: number; y: number } => p !== null)) {
       if (pointInQuad(outerPts, canvasX, canvasY)) return "move";
     }
@@ -411,37 +443,13 @@ function transformHitTest(
   // 8 handles: TL, top-mid, TR, right-mid, BR, bottom-mid, BL, left-mid
   const handles: [TransformDragKind, [number, number]][] = [
     ["scale-tl", corners[0]],
-    [
-      "scale-t",
-      [
-        (corners[0][0] + corners[1][0]) * 0.5,
-        (corners[0][1] + corners[1][1]) * 0.5,
-      ],
-    ],
+    ["scale-t", [(corners[0][0] + corners[1][0]) * 0.5, (corners[0][1] + corners[1][1]) * 0.5]],
     ["scale-tr", corners[1]],
-    [
-      "scale-r",
-      [
-        (corners[1][0] + corners[2][0]) * 0.5,
-        (corners[1][1] + corners[2][1]) * 0.5,
-      ],
-    ],
+    ["scale-r", [(corners[1][0] + corners[2][0]) * 0.5, (corners[1][1] + corners[2][1]) * 0.5]],
     ["scale-br", corners[2]],
-    [
-      "scale-b",
-      [
-        (corners[2][0] + corners[3][0]) * 0.5,
-        (corners[2][1] + corners[3][1]) * 0.5,
-      ],
-    ],
+    ["scale-b", [(corners[2][0] + corners[3][0]) * 0.5, (corners[2][1] + corners[3][1]) * 0.5]],
     ["scale-bl", corners[3]],
-    [
-      "scale-l",
-      [
-        (corners[3][0] + corners[0][0]) * 0.5,
-        (corners[3][1] + corners[0][1]) * 0.5,
-      ],
-    ],
+    ["scale-l", [(corners[3][0] + corners[0][0]) * 0.5, (corners[3][1] + corners[0][1]) * 0.5]],
   ];
 
   // Check rotation handle first (above top-mid).
@@ -488,11 +496,7 @@ function transformHitTest(
   return null;
 }
 
-function pointInQuad(
-  pts: { x: number; y: number }[],
-  px: number,
-  py: number,
-): boolean {
+function pointInQuad(pts: { x: number; y: number }[], px: number, py: number): boolean {
   let inside = false;
   const n = pts.length;
   for (let i = 0, j = n - 1; i < n; j = i++) {
@@ -508,10 +512,7 @@ function pointInQuad(
 }
 
 /** Returns the opposite corner (fixed point) in doc space for a scale drag. */
-function oppositeCorner(
-  ft: FreeTransformMeta,
-  kind: TransformDragKind,
-): [number, number] {
+function oppositeCorner(ft: FreeTransformMeta, kind: TransformDragKind): [number, number] {
   const c = ft.corners;
   switch (kind) {
     case "scale-tl":
@@ -556,13 +557,13 @@ function cropHitTest(
 
   const handles: [CropDragKind, [number, number]][] = [
     ["scale-tl", rotateToDoc(-crop.w / 2, -crop.h / 2)],
-    ["scale-t",  rotateToDoc(0, -crop.h / 2)],
+    ["scale-t", rotateToDoc(0, -crop.h / 2)],
     ["scale-tr", rotateToDoc(crop.w / 2, -crop.h / 2)],
-    ["scale-r",  rotateToDoc(crop.w / 2, 0)],
+    ["scale-r", rotateToDoc(crop.w / 2, 0)],
     ["scale-br", rotateToDoc(crop.w / 2, crop.h / 2)],
-    ["scale-b",  rotateToDoc(0, crop.h / 2)],
+    ["scale-b", rotateToDoc(0, crop.h / 2)],
     ["scale-bl", rotateToDoc(-crop.w / 2, crop.h / 2)],
-    ["scale-l",  rotateToDoc(-crop.w / 2, 0)],
+    ["scale-l", rotateToDoc(-crop.w / 2, 0)],
   ];
 
   for (const [kind, docPos] of handles) {
@@ -636,19 +637,13 @@ function resolveArtboardBounds(
   };
 }
 
-function findLayerMetaByID(
-  layers: Array<LayerMetaSlim>,
-  targetID: string,
-): LayerMetaSlim | null {
+function findLayerMetaByID(layers: Array<LayerMetaSlim>, targetID: string): LayerMetaSlim | null {
   for (const layer of layers) {
     if (layer.id === targetID) {
       return layer;
     }
     if (Array.isArray(layer.children)) {
-      const child = findLayerMetaByID(
-        layer.children as Array<LayerMetaSlim>,
-        targetID,
-      );
+      const child = findLayerMetaByID(layer.children as Array<LayerMetaSlim>, targetID);
       if (child) {
         return child;
       }
@@ -696,6 +691,10 @@ export function EditorCanvas({
   shapeOptions,
   artboardOptions,
   cropDeletePixels,
+  cropResolution,
+  cropOverlayType,
+  cropStraightenActive,
+  onCropStraightenActiveChange,
   transformSelectionActive,
   onTransformSelectionCommit,
   onTransformSelectionCancel,
@@ -721,25 +720,30 @@ export function EditorCanvas({
   } | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
   const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
-  const [quickSelectDraft, setQuickSelectDraft] =
-    useState<QuickSelectDraft | null>(null);
-  const [transformDraft, setTransformDraft] =
-    useState<TransformDraft | null>(null);
+  const [quickSelectDraft, setQuickSelectDraft] = useState<QuickSelectDraft | null>(null);
+  const [transformDraft, setTransformDraft] = useState<TransformDraft | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
+  const [cropStraightenDraft, setCropStraightenDraft] = useState<CropStraightenDraft | null>(null);
   const [selTransformDraft, setSelTransformDraft] = useState<SelectionTransformDraft | null>(null);
-  const [selTransformBox, setSelTransformBox] = useState<{ x: number; y: number; w: number; h: number; rotation: number } | null>(null);
+  const [selTransformBox, setSelTransformBox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rotation: number;
+  } | null>(null);
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [gradientDragStart, setGradientDragStart] = useState<DocumentPoint | null>(null);
   const [gradientDragCurrent, setGradientDragCurrent] = useState<DocumentPoint | null>(null);
-  const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(
-    null,
-  );
+  const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(null);
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
-  const [shapeDraft, setShapeDraft] = useState<{ start: DocumentPoint; current: DocumentPoint } | null>(null);
+  const [shapeDraft, setShapeDraft] = useState<{
+    start: DocumentPoint;
+    current: DocumentPoint;
+  } | null>(null);
   const [artboardCreateDraft, setArtboardCreateDraft] = useState<ArtboardCreateDraft | null>(null);
   const [artboardEditDraft, setArtboardEditDraft] = useState<ArtboardEditDraft | null>(null);
-  const [magneticLassoDraft, setMagneticLassoDraft] =
-    useState<MagneticLassoDraft | null>(null);
+  const [magneticLassoDraft, setMagneticLassoDraft] = useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
   const render = engine.render;
   const engineHandle = engine.handle;
@@ -747,6 +751,32 @@ export function EditorCanvas({
   const setPan = engine.setPan;
   const renderRef = useRef(render);
   renderRef.current = render;
+
+  const dispatchCropUpdate = (
+    crop: { x: number; y: number; w: number; h: number; rotation?: number },
+    overrides: Partial<{
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      rotation: number;
+      deletePixels: boolean;
+      resolution: number;
+      overlayType: CropOverlayType;
+    }>,
+  ) => {
+    engine.dispatchCommand(CommandID.UpdateCrop, {
+      x: crop.x,
+      y: crop.y,
+      w: crop.w,
+      h: crop.h,
+      rotation: crop.rotation ?? 0,
+      deletePixels: cropDeletePixels,
+      resolution: cropResolution,
+      overlayType: cropOverlayType,
+      ...overrides,
+    });
+  };
 
   // Keep a stable ref so the resize effect doesn't re-run whenever
   // engine.resizeViewport gets a new identity (it changes on every render
@@ -765,9 +795,7 @@ export function EditorCanvas({
       const devicePixelRatio = window.devicePixelRatio || 1;
       const next = fitCanvasToElement(canvas, host, devicePixelRatio);
       setSize((current) =>
-        current.width === next.width && current.height === next.height
-          ? current
-          : next,
+        current.width === next.width && current.height === next.height ? current : next,
       );
 
       if (!engine.handle) {
@@ -835,6 +863,7 @@ export function EditorCanvas({
     }
     if (activeTool !== "crop") {
       setCropDraft(null);
+      setCropStraightenDraft(null);
     }
     if (activeTool !== "gradient") {
       setGradientDragStart(null);
@@ -847,7 +876,10 @@ export function EditorCanvas({
       setArtboardCreateDraft(null);
       setArtboardEditDraft(null);
     }
-  }, [activeTool, selectionOptions.lassoMode, selectionOptions.wandMode]);
+    if (!cropStraightenActive) {
+      setCropStraightenDraft(null);
+    }
+  }, [activeTool, cropStraightenActive, selectionOptions.lassoMode, selectionOptions.wandMode]);
 
   // Once React commits a new render, if no rAF is pending the pending zoom has
   // been fully processed and render.viewport.zoom is fresh — safe to clear.
@@ -902,20 +934,15 @@ export function EditorCanvas({
       const cos = Math.cos(radians);
       const sin = Math.sin(radians);
       const docPoint = {
-        x:
-          currentRender.viewport.centerX +
-          (dx * cos + dy * sin) / currentRender.viewport.zoom,
-        y:
-          currentRender.viewport.centerY +
-          (-dx * sin + dy * cos) / currentRender.viewport.zoom,
+        x: currentRender.viewport.centerX + (dx * cos + dy * sin) / currentRender.viewport.zoom,
+        y: currentRender.viewport.centerY + (-dx * sin + dy * cos) / currentRender.viewport.zoom,
       };
 
       if (event.altKey) {
         const direction = event.deltaY > 0 ? 1 / 1.1 : 1.1;
         // Read from the pending ref first to avoid stale zoom when wheel events
         // arrive faster than React can re-render.
-        const currentZoom =
-          pendingZoomRef.current?.zoom ?? currentRender.viewport.zoom;
+        const currentZoom = pendingZoomRef.current?.zoom ?? currentRender.viewport.zoom;
         pendingZoomRef.current = {
           zoom: currentZoom * direction,
           anchorX: docPoint.x,
@@ -940,24 +967,14 @@ export function EditorCanvas({
         }
       } else if (event.ctrlKey || event.metaKey) {
         const deltaModeScale =
-          event.deltaMode === 1
-            ? 16
-            : event.deltaMode === 2
-              ? currentRender.viewport.canvasH
-              : 1;
+          event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? currentRender.viewport.canvasH : 1;
         const rawPanDeltaX = event.deltaX !== 0 ? event.deltaX : event.deltaY;
         const screenDeltaX = rawPanDeltaX * deltaModeScale;
         const screenDeltaY = 0;
-        const panDx =
-          (screenDeltaX * cos + screenDeltaY * sin) /
-          currentRender.viewport.zoom;
-        const panDy =
-          (-screenDeltaX * sin + screenDeltaY * cos) /
-          currentRender.viewport.zoom;
-        const currentCenterX =
-          pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
-        const currentCenterY =
-          pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
+        const panDx = (screenDeltaX * cos + screenDeltaY * sin) / currentRender.viewport.zoom;
+        const panDy = (-screenDeltaX * sin + screenDeltaY * cos) / currentRender.viewport.zoom;
+        const currentCenterX = pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
+        const currentCenterY = pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
         pendingPanRef.current = {
           centerX: currentCenterX + panDx,
           centerY: currentCenterY + panDy,
@@ -977,17 +994,11 @@ export function EditorCanvas({
         }
       } else {
         const deltaModeScale =
-          event.deltaMode === 1
-            ? 16
-            : event.deltaMode === 2
-              ? currentRender.viewport.canvasH
-              : 1;
+          event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? currentRender.viewport.canvasH : 1;
         const screenDeltaY = event.deltaY * deltaModeScale;
         const panDy = screenDeltaY / currentRender.viewport.zoom;
-        const currentCenterX =
-          pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
-        const currentCenterY =
-          pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
+        const currentCenterX = pendingPanRef.current?.centerX ?? currentRender.viewport.centerX;
+        const currentCenterY = pendingPanRef.current?.centerY ?? currentRender.viewport.centerY;
         pendingPanRef.current = {
           centerX: currentCenterX,
           centerY: currentCenterY + panDy,
@@ -1105,11 +1116,9 @@ export function EditorCanvas({
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
     const docX =
-      currentRender.viewport.centerX +
-      (dx * cos + dy * sin) / currentRender.viewport.zoom;
+      currentRender.viewport.centerX + (dx * cos + dy * sin) / currentRender.viewport.zoom;
     const docY =
-      currentRender.viewport.centerY +
-      (-dx * sin + dy * cos) / currentRender.viewport.zoom;
+      currentRender.viewport.centerY + (-dx * sin + dy * cos) / currentRender.viewport.zoom;
 
     if (
       docX >= 0 &&
@@ -1139,12 +1148,8 @@ export function EditorCanvas({
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
     return {
-      x:
-        currentRender.viewport.centerX +
-        (dx * cos + dy * sin) / currentRender.viewport.zoom,
-      y:
-        currentRender.viewport.centerY +
-        (-dx * sin + dy * cos) / currentRender.viewport.zoom,
+      x: currentRender.viewport.centerX + (dx * cos + dy * sin) / currentRender.viewport.zoom,
+      y: currentRender.viewport.centerY + (-dx * sin + dy * cos) / currentRender.viewport.zoom,
       canvasX: point.x,
       canvasY: point.y,
     };
@@ -1161,12 +1166,8 @@ export function EditorCanvas({
     const dx = docPoint.x - currentRender.viewport.centerX;
     const dy = docPoint.y - currentRender.viewport.centerY;
     return {
-      x:
-        currentRender.viewport.canvasW * 0.5 +
-        (dx * cos - dy * sin) * currentRender.viewport.zoom,
-      y:
-        currentRender.viewport.canvasH * 0.5 +
-        (dx * sin + dy * cos) * currentRender.viewport.zoom,
+      x: currentRender.viewport.canvasW * 0.5 + (dx * cos - dy * sin) * currentRender.viewport.zoom,
+      y: currentRender.viewport.canvasH * 0.5 + (dx * sin + dy * cos) * currentRender.viewport.zoom,
     };
   };
 
@@ -1179,11 +1180,7 @@ export function EditorCanvas({
   }, [engine, selectionOptions.featherRadius]);
 
   const commitSelection = useCallback(
-    (
-      description: string,
-      applyCommand: () => void,
-      options?: { feather?: boolean },
-    ) => {
+    (description: string, applyCommand: () => void, options?: { feather?: boolean }) => {
       engine.beginTransaction(description);
       let committed = false;
       try {
@@ -1225,11 +1222,7 @@ export function EditorCanvas({
   }, [finalizePolygonDraft, polygonDraft]);
 
   useEffect(() => {
-    if (
-      activeTool !== "lasso" ||
-      selectionOptions.lassoMode !== "polygon" ||
-      !polygonDraft
-    ) {
+    if (activeTool !== "lasso" || selectionOptions.lassoMode !== "polygon" || !polygonDraft) {
       return;
     }
 
@@ -1246,12 +1239,7 @@ export function EditorCanvas({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    activeTool,
-    finalizePolygonSelection,
-    polygonDraft,
-    selectionOptions.lassoMode,
-  ]);
+  }, [activeTool, finalizePolygonSelection, polygonDraft, selectionOptions.lassoMode]);
 
   useEffect(() => {
     if (
@@ -1311,7 +1299,11 @@ export function EditorCanvas({
   // Initialize selection transform box when mode is activated.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally runs only on mode toggle, not on every render update
   useEffect(() => {
-    if (transformSelectionActive && render?.uiMeta.selection?.active && render.uiMeta.selection.bounds) {
+    if (
+      transformSelectionActive &&
+      render?.uiMeta.selection?.active &&
+      render.uiMeta.selection.bounds
+    ) {
       const b = render.uiMeta.selection.bounds;
       setSelTransformBox({ x: b.x, y: b.y, w: b.w, h: b.h, rotation: 0 });
     } else if (!transformSelectionActive) {
@@ -1354,11 +1346,15 @@ export function EditorCanvas({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [transformSelectionActive, selTransformBox, render?.uiMeta.selection, onTransformSelectionCommit, onTransformSelectionCancel]);
+  }, [
+    transformSelectionActive,
+    selTransformBox,
+    render?.uiMeta.selection,
+    onTransformSelectionCommit,
+    onTransformSelectionCancel,
+  ]);
 
-  const marqueeStartCanvas = marqueeDraft
-    ? documentPointToCanvas(marqueeDraft.start)
-    : null;
+  const marqueeStartCanvas = marqueeDraft ? documentPointToCanvas(marqueeDraft.start) : null;
   const marqueeConstrainedCurrent = marqueeDraft
     ? constrainedMarqueeEnd(
         marqueeDraft.start,
@@ -1391,9 +1387,7 @@ export function EditorCanvas({
         points: polygonDraft.points
           .map((point) => documentPointToCanvas(point))
           .filter((point): point is DocumentPoint => point !== null),
-        hoverPoint: polygonDraft.hoverPoint
-          ? documentPointToCanvas(polygonDraft.hoverPoint)
-          : null,
+        hoverPoint: polygonDraft.hoverPoint ? documentPointToCanvas(polygonDraft.hoverPoint) : null,
       }
     : null;
 
@@ -1407,13 +1401,23 @@ export function EditorCanvas({
     : null;
   const artboards = collectArtboards((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>);
   const activeLayerMeta = render?.uiMeta.activeLayerId
-    ? findLayerMetaByID((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>, render.uiMeta.activeLayerId)
+    ? findLayerMetaByID(
+        (render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>,
+        render.uiMeta.activeLayerId,
+      )
     : null;
   const selectedArtboardId = activeLayerMeta?.isArtboard ? activeLayerMeta.id : null;
-  const previewArtboardBounds = artboardEditDraft?.currentBounds
-    ?? (selectedArtboardId ? artboards.find((artboard) => artboard.id === selectedArtboardId)?.bounds ?? null : null);
+  const previewArtboardBounds =
+    artboardEditDraft?.currentBounds ??
+    (selectedArtboardId
+      ? (artboards.find((artboard) => artboard.id === selectedArtboardId)?.bounds ?? null)
+      : null);
   const artboardCreateOverlay = artboardCreateDraft
-    ? resolveArtboardBounds(artboardCreateDraft.start, artboardCreateDraft.current, artboardOptions.presetSize)
+    ? resolveArtboardBounds(
+        artboardCreateDraft.start,
+        artboardCreateDraft.current,
+        artboardOptions.presetSize,
+      )
     : null;
 
   return (
@@ -1423,11 +1427,7 @@ export function EditorCanvas({
       role="application"
       aria-label="Editor canvas"
       onContextMenu={(event) => {
-        if (
-          activeTool === "lasso" &&
-          selectionOptions.lassoMode === "polygon" &&
-          polygonDraft
-        ) {
+        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon" && polygonDraft) {
           event.preventDefault();
           finalizePolygonSelection();
         }
@@ -1441,10 +1441,7 @@ export function EditorCanvas({
           return;
         }
         if (activeTool === "marquee" && event.button === 0) {
-          const marqueeMode = selectionModeFromModifiers(
-            event.shiftKey,
-            event.altKey,
-          );
+          const marqueeMode = selectionModeFromModifiers(event.shiftKey, event.altKey);
           if (selectionOptions.marqueeShape === "row") {
             commitSelection("Create row selection", () => {
               engine.createSelection({
@@ -1485,12 +1482,8 @@ export function EditorCanvas({
                 shape: selectionOptions.marqueeShape as "rect" | "ellipse",
                 mode: marqueeMode,
                 rect: {
-                  x: Math.floor(
-                    docPoint.x - selectionOptions.marqueeSizeW / 2,
-                  ),
-                  y: Math.floor(
-                    docPoint.y - selectionOptions.marqueeSizeH / 2,
-                  ),
+                  x: Math.floor(docPoint.x - selectionOptions.marqueeSizeW / 2),
+                  y: Math.floor(docPoint.y - selectionOptions.marqueeSizeH / 2),
                   w: selectionOptions.marqueeSizeW,
                   h: selectionOptions.marqueeSizeH,
                 },
@@ -1517,14 +1510,8 @@ export function EditorCanvas({
             y: Math.floor(docPoint.y),
           });
           const layerId = picked?.uiMeta.activeLayerId ?? "";
-          const pickedLayer = picked
-            ? findLayerMetaByID(picked.uiMeta.layers, layerId)
-            : null;
-          if (
-            !layerId ||
-            pickedLayer?.lockMode === "position" ||
-            pickedLayer?.lockMode === "all"
-          ) {
+          const pickedLayer = picked ? findLayerMetaByID(picked.uiMeta.layers, layerId) : null;
+          if (!layerId || pickedLayer?.lockMode === "position" || pickedLayer?.lockMode === "all") {
             event.preventDefault();
             return;
           }
@@ -1572,10 +1559,7 @@ export function EditorCanvas({
           event.preventDefault();
           return;
         }
-        if (
-          activeTool === "lasso" &&
-          selectionOptions.lassoMode === "polygon"
-        ) {
+        if (activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
           if (event.button === 2 && polygonDraft) {
             event.preventDefault();
             finalizePolygonSelection();
@@ -1636,9 +1620,7 @@ export function EditorCanvas({
               lastSuggestY: Math.floor(docPoint.y),
             });
           } else {
-            const startCanvas = documentPointToCanvas(
-              magneticLassoDraft.startPoint,
-            );
+            const startCanvas = documentPointToCanvas(magneticLassoDraft.startPoint);
             const currentCanvas = documentPointToCanvas({
               x: docPoint.x,
               y: docPoint.y,
@@ -1651,10 +1633,8 @@ export function EditorCanvas({
             const isDoubleClick = event.detail >= 2;
 
             if (
-              (nearStart &&
-                magneticLassoDraft.confirmedPoints.length >= 3) ||
-              (isDoubleClick &&
-                magneticLassoDraft.confirmedPoints.length >= 3)
+              (nearStart && magneticLassoDraft.confirmedPoints.length >= 3) ||
+              (isDoubleClick && magneticLassoDraft.confirmedPoints.length >= 3)
             ) {
               const allPoints = [
                 ...magneticLassoDraft.confirmedPoints,
@@ -1733,17 +1713,9 @@ export function EditorCanvas({
         if (activeTool === "transform" && event.button === 0) {
           const ft = render.uiMeta.freeTransform;
           if (ft?.active) {
-            const canvasPoint = canvasPointFromClient(
-              event.clientX,
-              event.clientY,
-            );
+            const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
             if (canvasPoint) {
-              let kind = transformHitTest(
-                ft,
-                documentPointToCanvas,
-                canvasPoint.x,
-                canvasPoint.y,
-              );
+              let kind = transformHitTest(ft, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
               // Modifier+drag on handles → skew / distort / perspective.
               if (kind && event.ctrlKey) {
                 if (event.shiftKey && event.altKey) {
@@ -1772,18 +1744,24 @@ export function EditorCanvas({
               }
               if (kind) {
                 // For "move", "skew-*", "distort-*", "perspective-*", and "warp-*", fixedX/fixedY hold the initial mouse doc position.
-                const isSkew = kind === "skew-t" || kind === "skew-b" || kind === "skew-l" || kind === "skew-r";
-                const isDistort = kind === "distort-tl" || kind === "distort-tr" || kind === "distort-br" || kind === "distort-bl";
-                const isPersp = kind === "perspective-tl" || kind === "perspective-tr" || kind === "perspective-br" || kind === "perspective-bl";
+                const isSkew =
+                  kind === "skew-t" || kind === "skew-b" || kind === "skew-l" || kind === "skew-r";
+                const isDistort =
+                  kind === "distort-tl" ||
+                  kind === "distort-tr" ||
+                  kind === "distort-br" ||
+                  kind === "distort-bl";
+                const isPersp =
+                  kind === "perspective-tl" ||
+                  kind === "perspective-tr" ||
+                  kind === "perspective-br" ||
+                  kind === "perspective-bl";
                 const isWarp = kind.startsWith("warp-");
                 const [fixedX, fixedY] =
                   kind === "move" || isSkew || isDistort || isPersp || isWarp
                     ? [docPoint.x, docPoint.y]
                     : oppositeCorner(ft, kind);
-                const startAngle = Math.atan2(
-                  docPoint.y - ft.pivotY,
-                  docPoint.x - ft.pivotX,
-                );
+                const startAngle = Math.atan2(docPoint.y - ft.pivotY, docPoint.x - ft.pivotX);
                 setTransformDraft({
                   pointerId: event.pointerId,
                   kind,
@@ -1816,14 +1794,24 @@ export function EditorCanvas({
         if (transformSelectionActive && event.button === 0 && selTransformBox) {
           const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
           if (canvasPoint) {
-            const kind = cropHitTest(selTransformBox, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
+            const kind = cropHitTest(
+              selTransformBox,
+              documentPointToCanvas,
+              canvasPoint.x,
+              canvasPoint.y,
+            );
             const cx = selTransformBox.x + selTransformBox.w / 2;
             const cy = selTransformBox.y + selTransformBox.h / 2;
             setSelTransformDraft({
               pointerId: event.pointerId,
               kind: kind ?? "rotate",
               startDoc: { x: docPoint.x, y: docPoint.y },
-              startBox: { x: selTransformBox.x, y: selTransformBox.y, w: selTransformBox.w, h: selTransformBox.h },
+              startBox: {
+                x: selTransformBox.x,
+                y: selTransformBox.y,
+                w: selTransformBox.w,
+                h: selTransformBox.h,
+              },
               startRotation: selTransformBox.rotation,
               startAngle: Math.atan2(docPoint.y - cy, docPoint.x - cx),
               centerX: cx,
@@ -1837,6 +1825,18 @@ export function EditorCanvas({
         if (activeTool === "crop" && event.button === 0) {
           const crop = render.uiMeta.crop;
           if (crop?.active) {
+            if (cropStraightenActive) {
+              setCropStraightenDraft({
+                pointerId: event.pointerId,
+                startDoc: { x: docPoint.x, y: docPoint.y },
+                currentDoc: { x: docPoint.x, y: docPoint.y },
+                startBox: { x: crop.x, y: crop.y, w: crop.w, h: crop.h },
+                startRotation: crop.rotation ?? 0,
+              });
+              event.currentTarget.setPointerCapture(event.pointerId);
+              event.preventDefault();
+              return;
+            }
             const canvasPoint = canvasPointFromClient(event.clientX, event.clientY);
             if (canvasPoint) {
               const kind = cropHitTest(crop, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
@@ -1877,7 +1877,12 @@ export function EditorCanvas({
           if (!canvasPoint) return;
           for (let index = artboards.length - 1; index >= 0; index--) {
             const artboard = artboards[index];
-            const kind = cropHitTest({ ...artboard.bounds, rotation: 0 }, documentPointToCanvas, canvasPoint.x, canvasPoint.y);
+            const kind = cropHitTest(
+              { ...artboard.bounds, rotation: 0 },
+              documentPointToCanvas,
+              canvasPoint.x,
+              canvasPoint.y,
+            );
             if (!kind) {
               continue;
             }
@@ -2041,7 +2046,14 @@ export function EditorCanvas({
           } satisfies BeginPaintStrokeCommand);
           return;
         }
-        if ((activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && event.button === 0 && !isPanMode) {
+        if (
+          (activeTool === "brush" ||
+            activeTool === "mixerBrush" ||
+            activeTool === "pencil" ||
+            (activeTool === "eraser" && eraserMode !== "magic")) &&
+          event.button === 0 &&
+          !isPanMode
+        ) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
@@ -2060,8 +2072,12 @@ export function EditorCanvas({
               mixerMix: activeTool === "mixerBrush" ? mixerBrushMix : undefined,
               sampleMerged: activeTool === "mixerBrush" ? mixerBrushSampleMerged : undefined,
               erase: activeTool === "eraser" && eraserMode === "normal" ? true : undefined,
-              eraseBackground: activeTool === "eraser" && eraserMode === "background" ? true : undefined,
-              eraseTolerance: activeTool === "eraser" && eraserMode === "background" ? eraserTolerance : undefined,
+              eraseBackground:
+                activeTool === "eraser" && eraserMode === "background" ? true : undefined,
+              eraseTolerance:
+                activeTool === "eraser" && eraserMode === "background"
+                  ? eraserTolerance
+                  : undefined,
             },
           } satisfies BeginPaintStrokeCommand);
           return;
@@ -2097,11 +2113,7 @@ export function EditorCanvas({
       onPointerMove={(event) => {
         updateCursor(event.clientX, event.clientY);
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
-        if (
-          polygonDraft &&
-          activeTool === "lasso" &&
-          selectionOptions.lassoMode === "polygon"
-        ) {
+        if (polygonDraft && activeTool === "lasso" && selectionOptions.lassoMode === "polygon") {
           setPolygonDraft((current) =>
             current && docPoint
               ? {
@@ -2130,8 +2142,7 @@ export function EditorCanvas({
               y2: pixelY,
               sampleMerged: selectionOptions.wandSampleMerged,
             });
-            const suggestedPath =
-              result?.suggestedPath?.map((p) => ({ x: p.x, y: p.y })) ?? [];
+            const suggestedPath = result?.suggestedPath?.map((p) => ({ x: p.x, y: p.y })) ?? [];
             setMagneticLassoDraft((current) =>
               current
                 ? {
@@ -2145,17 +2156,10 @@ export function EditorCanvas({
           }
           return;
         }
-        if (
-          quickSelectDraft &&
-          quickSelectDraft.pointerId === event.pointerId &&
-          docPoint
-        ) {
+        if (quickSelectDraft && quickSelectDraft.pointerId === event.pointerId && docPoint) {
           const pixelX = Math.floor(docPoint.x);
           const pixelY = Math.floor(docPoint.y);
-          if (
-            pixelX !== quickSelectDraft.lastX ||
-            pixelY !== quickSelectDraft.lastY
-          ) {
+          if (pixelX !== quickSelectDraft.lastX || pixelY !== quickSelectDraft.lastY) {
             engine.quickSelect({
               x: pixelX,
               y: pixelY,
@@ -2171,7 +2175,7 @@ export function EditorCanvas({
           return;
         }
         if (shapeDraft && activeTool === "shape" && docPoint) {
-          setShapeDraft((d) => d ? { ...d, current: { x: docPoint.x, y: docPoint.y } } : d);
+          setShapeDraft((d) => (d ? { ...d, current: { x: docPoint.x, y: docPoint.y } } : d));
           return;
         }
         if (artboardCreateDraft && artboardCreateDraft.pointerId === event.pointerId && docPoint) {
@@ -2180,19 +2184,11 @@ export function EditorCanvas({
           );
           return;
         }
-        if (
-          gradientDragStart &&
-          activeTool === "gradient" &&
-          docPoint
-        ) {
+        if (gradientDragStart && activeTool === "gradient" && docPoint) {
           setGradientDragCurrent({ x: docPoint.x, y: docPoint.y });
           return;
         }
-        if (
-          transformDraft &&
-          transformDraft.pointerId === event.pointerId &&
-          docPoint
-        ) {
+        if (transformDraft && transformDraft.pointerId === event.pointerId && docPoint) {
           const td = transformDraft;
           const ft = render?.uiMeta.freeTransform;
           if (!ft?.active) {
@@ -2281,14 +2277,28 @@ export function EditorCanvas({
             td.kind === "distort-bl"
           ) {
             // Distort: Ctrl+drag corner. Move the dragged corner to mouse; others fixed.
-            const cornerIndex = { "distort-tl": 0, "distort-tr": 1, "distort-br": 2, "distort-bl": 3 }[td.kind];
-            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as
-              [[number, number], [number, number], [number, number], [number, number]];
+            const cornerIndex = {
+              "distort-tl": 0,
+              "distort-tr": 1,
+              "distort-br": 2,
+              "distort-bl": 3,
+            }[td.kind];
+            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as [
+              [number, number],
+              [number, number],
+              [number, number],
+              [number, number],
+            ];
             corners[cornerIndex] = [docPoint.x, docPoint.y];
             engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
-              tx: td.startTX, ty: td.startTY,
-              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              a: td.startA,
+              b: td.startB,
+              c: td.startC,
+              d: td.startD,
+              tx: td.startTX,
+              ty: td.startTY,
+              pivotX: td.startPivotX,
+              pivotY: td.startPivotY,
               interpolation: ft.interpolation as InterpolMode,
               corners,
             });
@@ -2313,24 +2323,41 @@ export function EditorCanvas({
               "perspective-br": 3,
               "perspective-bl": 2,
             };
-            const dragIndex = { "perspective-tl": 0, "perspective-tr": 1, "perspective-br": 2, "perspective-bl": 3 }[td.kind];
+            const dragIndex = {
+              "perspective-tl": 0,
+              "perspective-tr": 1,
+              "perspective-br": 2,
+              "perspective-bl": 3,
+            }[td.kind];
             const mIdx = mirrorIndex[td.kind];
-            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as
-              [[number, number], [number, number], [number, number], [number, number]];
+            const corners = td.startCorners.map((c) => [c[0], c[1]] as [number, number]) as [
+              [number, number],
+              [number, number],
+              [number, number],
+              [number, number],
+            ];
 
             // Delta from drag start to current mouse position.
             const dx = docPoint.x - td.fixedX;
             const dy = docPoint.y - td.fixedY;
 
             // Move the dragged corner.
-            corners[dragIndex] = [td.startCorners[dragIndex][0] + dx, td.startCorners[dragIndex][1] + dy];
+            corners[dragIndex] = [
+              td.startCorners[dragIndex][0] + dx,
+              td.startCorners[dragIndex][1] + dy,
+            ];
             // Mirror: negate X delta, same Y delta.
             corners[mIdx] = [td.startCorners[mIdx][0] - dx, td.startCorners[mIdx][1] + dy];
 
             engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
-              tx: td.startTX, ty: td.startTY,
-              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              a: td.startA,
+              b: td.startB,
+              c: td.startC,
+              d: td.startD,
+              tx: td.startTX,
+              ty: td.startTY,
+              pivotX: td.startPivotX,
+              pivotY: td.startPivotY,
               interpolation: ft.interpolation as InterpolMode,
               corners,
             });
@@ -2343,14 +2370,28 @@ export function EditorCanvas({
             const dx = docPoint.x - td.fixedX;
             const dy = docPoint.y - td.fixedY;
             // Deep-copy the grid.
-            const warpGrid = td.startWarpGrid.map((r) =>
-              r.map((p) => [p[0], p[1]] as [number, number]) as [[number, number], [number, number], [number, number], [number, number]],
+            const warpGrid = td.startWarpGrid.map(
+              (r) =>
+                r.map((p) => [p[0], p[1]] as [number, number]) as [
+                  [number, number],
+                  [number, number],
+                  [number, number],
+                  [number, number],
+                ],
             ) as [[number, number], [number, number], [number, number], [number, number]][];
-            warpGrid[row][col] = [td.startWarpGrid[row][col][0] + dx, td.startWarpGrid[row][col][1] + dy];
+            warpGrid[row][col] = [
+              td.startWarpGrid[row][col][0] + dx,
+              td.startWarpGrid[row][col][1] + dy,
+            ];
             engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-              a: td.startA, b: td.startB, c: td.startC, d: td.startD,
-              tx: td.startTX, ty: td.startTY,
-              pivotX: td.startPivotX, pivotY: td.startPivotY,
+              a: td.startA,
+              b: td.startB,
+              c: td.startC,
+              d: td.startD,
+              tx: td.startTX,
+              ty: td.startTY,
+              pivotX: td.startPivotX,
+              pivotY: td.startPivotY,
               interpolation: ft.interpolation as InterpolMode,
               warpGrid,
             });
@@ -2380,19 +2421,11 @@ export function EditorCanvas({
                 origDragY = td.startD * origH + td.startTY;
                 break;
               default:
-                origDragX =
-                  (td.fixedX + td.startA * origW + td.startTX) * 0.5;
-                origDragY =
-                  (td.fixedY + td.startB * origW + td.startTY) * 0.5;
+                origDragX = (td.fixedX + td.startA * origW + td.startTX) * 0.5;
+                origDragY = (td.fixedY + td.startB * origW + td.startTY) * 0.5;
             }
-            const d0 = Math.hypot(
-              origDragX - td.fixedX,
-              origDragY - td.fixedY,
-            );
-            const d1 = Math.hypot(
-              docPoint.x - td.fixedX,
-              docPoint.y - td.fixedY,
-            );
+            const d0 = Math.hypot(origDragX - td.fixedX, origDragY - td.fixedY);
+            const d1 = Math.hypot(docPoint.x - td.fixedX, docPoint.y - td.fixedY);
             const scale = d0 > 0.01 ? d1 / d0 : 1;
             newA = td.startA * scale;
             newB = td.startB * scale;
@@ -2431,17 +2464,52 @@ export function EditorCanvas({
               newRotation = sd.startRotation + ((currentAngle - sd.startAngle) * 180) / Math.PI;
               break;
             }
-            case "move": newX += dx; newY += dy; break;
-            case "scale-tl": newX += dx; newY += dy; newW -= dx; newH -= dy; break;
-            case "scale-t":  newY += dy; newH -= dy; break;
-            case "scale-tr": newY += dy; newW += dx; newH -= dy; break;
-            case "scale-r":  newW += dx; break;
-            case "scale-br": newW += dx; newH += dy; break;
-            case "scale-b":  newH += dy; break;
-            case "scale-bl": newX += dx; newW -= dx; newH += dy; break;
-            case "scale-l":  newX += dx; newW -= dx; break;
+            case "move":
+              newX += dx;
+              newY += dy;
+              break;
+            case "scale-tl":
+              newX += dx;
+              newY += dy;
+              newW -= dx;
+              newH -= dy;
+              break;
+            case "scale-t":
+              newY += dy;
+              newH -= dy;
+              break;
+            case "scale-tr":
+              newY += dy;
+              newW += dx;
+              newH -= dy;
+              break;
+            case "scale-r":
+              newW += dx;
+              break;
+            case "scale-br":
+              newW += dx;
+              newH += dy;
+              break;
+            case "scale-b":
+              newH += dy;
+              break;
+            case "scale-bl":
+              newX += dx;
+              newW -= dx;
+              newH += dy;
+              break;
+            case "scale-l":
+              newX += dx;
+              newW -= dx;
+              break;
           }
-          setSelTransformBox({ x: newX, y: newY, w: Math.max(newW, 1), h: Math.max(newH, 1), rotation: newRotation });
+          setSelTransformBox({
+            x: newX,
+            y: newY,
+            w: Math.max(newW, 1),
+            h: Math.max(newH, 1),
+            rotation: newRotation,
+          });
           return;
         }
         if (artboardEditDraft && artboardEditDraft.pointerId === event.pointerId && docPoint) {
@@ -2511,11 +2579,29 @@ export function EditorCanvas({
           );
           return;
         }
-        if (
-          cropDraft &&
-          cropDraft.pointerId === event.pointerId &&
-          docPoint
-        ) {
+        if (cropStraightenDraft && cropStraightenDraft.pointerId === event.pointerId && docPoint) {
+          const nextLine = { x: docPoint.x, y: docPoint.y };
+          setCropStraightenDraft((current) =>
+            current ? { ...current, currentDoc: nextLine } : current,
+          );
+          const dx = nextLine.x - cropStraightenDraft.startDoc.x;
+          const dy = nextLine.y - cropStraightenDraft.startDoc.y;
+          if (Math.hypot(dx, dy) >= 0.5) {
+            const lineAngleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+            dispatchCropUpdate(
+              {
+                x: cropStraightenDraft.startBox.x,
+                y: cropStraightenDraft.startBox.y,
+                w: cropStraightenDraft.startBox.w,
+                h: cropStraightenDraft.startBox.h,
+                rotation: cropStraightenDraft.startRotation,
+              },
+              { rotation: cropStraightenDraft.startRotation - lineAngleDeg },
+            );
+          }
+          return;
+        }
+        if (cropDraft && cropDraft.pointerId === event.pointerId && docPoint) {
           const cd = cropDraft;
           const dx = docPoint.x - cd.startDoc.x;
           const dy = docPoint.y - cd.startDoc.y;
@@ -2532,14 +2618,10 @@ export function EditorCanvas({
               );
               const angleDeltaDeg = ((currentAngle - cd.startAngle) * 180) / Math.PI;
               const newRotation = cd.startRotation + angleDeltaDeg;
-              engine.dispatchCommand(CommandID.UpdateCrop, {
-                x: newX,
-                y: newY,
-                w: newW,
-                h: newH,
-                rotation: newRotation,
-                deletePixels: cropDeletePixels,
-              });
+              dispatchCropUpdate(
+                { x: newX, y: newY, w: newW, h: newH, rotation: newRotation },
+                { rotation: newRotation },
+              );
               return;
             }
             case "move":
@@ -2583,8 +2665,11 @@ export function EditorCanvas({
           }
 
           // Shift-key aspect ratio constraint (corner handles only)
-          const isCorner = cd.kind === "scale-tl" || cd.kind === "scale-tr" ||
-                           cd.kind === "scale-br" || cd.kind === "scale-bl";
+          const isCorner =
+            cd.kind === "scale-tl" ||
+            cd.kind === "scale-tr" ||
+            cd.kind === "scale-br" ||
+            cd.kind === "scale-bl";
           if (event.shiftKey && isCorner && cd.startBox.w > 0 && cd.startBox.h > 0) {
             const ratio = cd.startBox.w / cd.startBox.h;
             const dWprop = Math.abs(newW - cd.startBox.w) / cd.startBox.w;
@@ -2620,14 +2705,16 @@ export function EditorCanvas({
             newH = 1;
           }
 
-          engine.dispatchCommand(CommandID.UpdateCrop, {
-            x: newX,
-            y: newY,
-            w: newW,
-            h: newH,
-            rotation: cd.startRotation,
-            deletePixels: cropDeletePixels,
-          });
+          dispatchCropUpdate(
+            { x: newX, y: newY, w: newW, h: newH, rotation: cd.startRotation },
+            {
+              x: newX,
+              y: newY,
+              w: newW,
+              h: newH,
+              rotation: cd.startRotation,
+            },
+          );
           return;
         }
         if (moveDraft && moveDraft.pointerId === event.pointerId && docPoint) {
@@ -2656,11 +2743,7 @@ export function EditorCanvas({
           }
           return;
         }
-        if (
-          marqueeDraft &&
-          marqueeDraft.pointerId === event.pointerId &&
-          docPoint
-        ) {
+        if (marqueeDraft && marqueeDraft.pointerId === event.pointerId && docPoint) {
           setMarqueeDraft((current) =>
             current
               ? {
@@ -2672,11 +2755,7 @@ export function EditorCanvas({
           );
           return;
         }
-        if (
-          freehandDraft &&
-          freehandDraft.pointerId === event.pointerId &&
-          docPoint
-        ) {
+        if (freehandDraft && freehandDraft.pointerId === event.pointerId && docPoint) {
           setFreehandDraft((current) => {
             if (!current) {
               return current;
@@ -2693,7 +2772,15 @@ export function EditorCanvas({
           });
           return;
         }
-        if ((activeTool === "cloneStamp" || activeTool === "historyBrush" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if (
+          (activeTool === "cloneStamp" ||
+            activeTool === "historyBrush" ||
+            activeTool === "brush" ||
+            activeTool === "mixerBrush" ||
+            activeTool === "pencil" ||
+            (activeTool === "eraser" && eraserMode !== "magic")) &&
+          brushActiveRef.current
+        ) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
@@ -2785,11 +2872,19 @@ export function EditorCanvas({
           } satisfies DrawShapeCommand);
           return;
         }
-        if (artboardCreateDraft && artboardCreateDraft.pointerId === event.pointerId && event.button === 0) {
+        if (
+          artboardCreateDraft &&
+          artboardCreateDraft.pointerId === event.pointerId &&
+          event.button === 0
+        ) {
           const draft = artboardCreateDraft;
           setArtboardCreateDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
-          const bounds = resolveArtboardBounds(draft.start, draft.current, artboardOptions.presetSize);
+          const bounds = resolveArtboardBounds(
+            draft.start,
+            draft.current,
+            artboardOptions.presetSize,
+          );
           engine.dispatchCommand(CommandID.AddLayer, {
             layerType: "group",
             name: `Artboard ${artboards.length + 1}`,
@@ -2842,7 +2937,15 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
-        if ((activeTool === "cloneStamp" || activeTool === "historyBrush" || activeTool === "brush" || activeTool === "mixerBrush" || activeTool === "pencil" || (activeTool === "eraser" && eraserMode !== "magic")) && brushActiveRef.current) {
+        if (
+          (activeTool === "cloneStamp" ||
+            activeTool === "historyBrush" ||
+            activeTool === "brush" ||
+            activeTool === "mixerBrush" ||
+            activeTool === "pencil" ||
+            (activeTool === "eraser" && eraserMode !== "magic")) &&
+          brushActiveRef.current
+        ) {
           brushActiveRef.current = false;
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;
@@ -2861,9 +2964,7 @@ export function EditorCanvas({
         }
         if (marqueeDraft && marqueeDraft.pointerId === event.pointerId) {
           const point = clientPointToDocument(event.clientX, event.clientY);
-          const rawEndPoint = point
-            ? { x: point.x, y: point.y }
-            : marqueeDraft.current;
+          const rawEndPoint = point ? { x: point.x, y: point.y } : marqueeDraft.current;
           const constrainedEnd = constrainedMarqueeEnd(
             marqueeDraft.start,
             rawEndPoint,
@@ -2892,6 +2993,12 @@ export function EditorCanvas({
           event.currentTarget.releasePointerCapture(event.pointerId);
           return;
         }
+        if (cropStraightenDraft && cropStraightenDraft.pointerId === event.pointerId) {
+          setCropStraightenDraft(null);
+          onCropStraightenActiveChange(false);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          return;
+        }
         if (freehandDraft && freehandDraft.pointerId === event.pointerId) {
           const point = clientPointToDocument(event.clientX, event.clientY);
           const points = point
@@ -2915,11 +3022,7 @@ export function EditorCanvas({
         if (zoomDrag && zoomDrag.pointerId === event.pointerId) {
           if (!zoomDrag.moved) {
             const step = zoomDrag.zoomOut ? 1 / 1.25 : 1.25;
-            engine.setZoom(
-              zoomDrag.startZoom * step,
-              zoomDrag.anchorX,
-              zoomDrag.anchorY,
-            );
+            engine.setZoom(zoomDrag.startZoom * step, zoomDrag.anchorX, zoomDrag.anchorY);
           }
           engine.endTransaction(true);
           zoomDragRef.current = null;
@@ -2944,15 +3047,13 @@ export function EditorCanvas({
         onCursorChange(null);
       }}
     >
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full bg-slate-950"
-      />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full bg-slate-950" />
       {marqueeOverlay ||
       freehandOverlay.length > 0 ||
       polygonOverlay ||
       magneticLassoDraft ||
       gradientDragStart ||
+      cropStraightenDraft ||
       shapeOverlay ||
       artboards.length > 0 ||
       artboardCreateOverlay ||
@@ -3001,7 +3102,9 @@ export function EditorCanvas({
                 <polygon
                   points={polygonPoints}
                   fill={`rgba(${artboard.background[0]}, ${artboard.background[1]}, ${artboard.background[2]}, 0.04)`}
-                  stroke={isActiveArtboard ? "rgba(34, 211, 238, 0.95)" : "rgba(226, 232, 240, 0.75)"}
+                  stroke={
+                    isActiveArtboard ? "rgba(34, 211, 238, 0.95)" : "rgba(226, 232, 240, 0.75)"
+                  }
                   strokeDasharray={isActiveArtboard ? "10 6" : "8 5"}
                   strokeWidth={isActiveArtboard ? "2" : "1.25"}
                 />
@@ -3044,37 +3147,44 @@ export function EditorCanvas({
               </g>
             );
           })}
-          {artboardCreateOverlay ? (() => {
-            const corners = [
-              documentPointToCanvas({ x: artboardCreateOverlay.x, y: artboardCreateOverlay.y }),
-              documentPointToCanvas({ x: artboardCreateOverlay.x + artboardCreateOverlay.w, y: artboardCreateOverlay.y }),
-              documentPointToCanvas({ x: artboardCreateOverlay.x + artboardCreateOverlay.w, y: artboardCreateOverlay.y + artboardCreateOverlay.h }),
-              documentPointToCanvas({ x: artboardCreateOverlay.x, y: artboardCreateOverlay.y + artboardCreateOverlay.h }),
-            ];
-            if (corners.some((corner) => !corner)) return null;
-            return (
-              <polygon
-                points={(corners as Array<{ x: number; y: number }>).map((corner) => `${corner.x},${corner.y}`).join(" ")}
-                fill="rgba(14, 165, 233, 0.05)"
-                stroke="rgba(14, 165, 233, 0.95)"
-                strokeDasharray="10 6"
-                strokeWidth="2"
-              />
-            );
-          })() : null}
+          {artboardCreateOverlay
+            ? (() => {
+                const corners = [
+                  documentPointToCanvas({ x: artboardCreateOverlay.x, y: artboardCreateOverlay.y }),
+                  documentPointToCanvas({
+                    x: artboardCreateOverlay.x + artboardCreateOverlay.w,
+                    y: artboardCreateOverlay.y,
+                  }),
+                  documentPointToCanvas({
+                    x: artboardCreateOverlay.x + artboardCreateOverlay.w,
+                    y: artboardCreateOverlay.y + artboardCreateOverlay.h,
+                  }),
+                  documentPointToCanvas({
+                    x: artboardCreateOverlay.x,
+                    y: artboardCreateOverlay.y + artboardCreateOverlay.h,
+                  }),
+                ];
+                if (corners.some((corner) => !corner)) return null;
+                return (
+                  <polygon
+                    points={(corners as Array<{ x: number; y: number }>)
+                      .map((corner) => `${corner.x},${corner.y}`)
+                      .join(" ")}
+                    fill="rgba(14, 165, 233, 0.05)"
+                    stroke="rgba(14, 165, 233, 0.95)"
+                    strokeDasharray="10 6"
+                    strokeWidth="2"
+                  />
+                );
+              })()
+            : null}
           {marqueeOverlay ? (
             selectionOptions.marqueeShape === "ellipse" ? (
               <ellipse
                 cx={(marqueeOverlay.start.x + marqueeOverlay.current.x) * 0.5}
                 cy={(marqueeOverlay.start.y + marqueeOverlay.current.y) * 0.5}
-                rx={
-                  Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x) *
-                  0.5
-                }
-                ry={
-                  Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y) *
-                  0.5
-                }
+                rx={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x) * 0.5}
+                ry={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y) * 0.5}
                 fill="rgba(244, 114, 182, 0.12)"
                 stroke="rgba(244, 114, 182, 0.95)"
                 strokeDasharray="8 6"
@@ -3084,12 +3194,8 @@ export function EditorCanvas({
               <rect
                 x={Math.min(marqueeOverlay.start.x, marqueeOverlay.current.x)}
                 y={Math.min(marqueeOverlay.start.y, marqueeOverlay.current.y)}
-                width={Math.abs(
-                  marqueeOverlay.current.x - marqueeOverlay.start.x,
-                )}
-                height={Math.abs(
-                  marqueeOverlay.current.y - marqueeOverlay.start.y,
-                )}
+                width={Math.abs(marqueeOverlay.current.x - marqueeOverlay.start.x)}
+                height={Math.abs(marqueeOverlay.current.y - marqueeOverlay.start.y)}
                 fill="rgba(244, 114, 182, 0.12)"
                 stroke="rgba(244, 114, 182, 0.95)"
                 strokeDasharray="8 6"
@@ -3146,9 +3252,7 @@ export function EditorCanvas({
               <polyline
                 points={[
                   ...polygonOverlay.points,
-                  ...(polygonOverlay.hoverPoint
-                    ? [polygonOverlay.hoverPoint]
-                    : []),
+                  ...(polygonOverlay.hoverPoint ? [polygonOverlay.hoverPoint] : []),
                 ]
                   .map((point) => `${point.x},${point.y}`)
                   .join(" ")}
@@ -3163,11 +3267,7 @@ export function EditorCanvas({
                   cx={point.x}
                   cy={point.y}
                   r={index === 0 ? 4 : 3}
-                  fill={
-                    index === 0
-                      ? "rgba(248, 250, 252, 0.95)"
-                      : "rgba(56, 189, 248, 0.95)"
-                  }
+                  fill={index === 0 ? "rgba(248, 250, 252, 0.95)" : "rgba(56, 189, 248, 0.95)"}
                 />
               ))}
             </>
@@ -3180,22 +3280,14 @@ export function EditorCanvas({
                 ];
                 const allCanvasPoints = allDocPoints
                   .map((p) => documentPointToCanvas(p))
-                  .filter(
-                    (p): p is { x: number; y: number } => p !== null,
-                  );
-                const anchorCanvas = documentPointToCanvas(
-                  magneticLassoDraft.anchorPoint,
-                );
-                const startCanvas = documentPointToCanvas(
-                  magneticLassoDraft.startPoint,
-                );
+                  .filter((p): p is { x: number; y: number } => p !== null);
+                const anchorCanvas = documentPointToCanvas(magneticLassoDraft.anchorPoint);
+                const startCanvas = documentPointToCanvas(magneticLassoDraft.startPoint);
                 return (
                   <>
                     {allCanvasPoints.length >= 2 && (
                       <polyline
-                        points={allCanvasPoints
-                          .map((p) => `${p.x},${p.y}`)
-                          .join(" ")}
+                        points={allCanvasPoints.map((p) => `${p.x},${p.y}`).join(" ")}
                         fill="none"
                         stroke="rgba(56, 189, 248, 0.95)"
                         strokeDasharray="7 5"
@@ -3222,37 +3314,93 @@ export function EditorCanvas({
                 );
               })()
             : null}
-          {gradientDragStart ? (() => {
-            const start = gradientDragStart;
-            const end = gradientDragCurrent ?? gradientDragStart;
-            const midX = (start.x + end.x) * 0.5;
-            const midY = (start.y + end.y) * 0.5;
-            return (
-              <>
-                <line
-                  x1={start.x}
-                  y1={start.y}
-                  x2={end.x}
-                  y2={end.y}
-                  stroke="rgba(56, 189, 248, 0.95)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <circle cx={start.x} cy={start.y} r={4} fill="rgba(248, 250, 252, 0.95)" />
-                <circle cx={end.x} cy={end.y} r={4} fill="rgba(56, 189, 248, 0.95)" />
-                <text
-                  x={midX}
-                  y={midY - 8}
-                  fill="rgba(248, 250, 252, 0.95)"
-                  fontSize="10"
-                  textAnchor="middle"
-                  style={{ paintOrder: "stroke", stroke: "rgba(15, 23, 42, 0.85)", strokeWidth: 3 }}
-                >
-                  {gradientType}
-                </text>
-              </>
-            );
-          })() : null}
+          {gradientDragStart
+            ? (() => {
+                const start = gradientDragStart;
+                const end = gradientDragCurrent ?? gradientDragStart;
+                const midX = (start.x + end.x) * 0.5;
+                const midY = (start.y + end.y) * 0.5;
+                return (
+                  <>
+                    <line
+                      x1={start.x}
+                      y1={start.y}
+                      x2={end.x}
+                      y2={end.y}
+                      stroke="rgba(56, 189, 248, 0.95)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <circle cx={start.x} cy={start.y} r={4} fill="rgba(248, 250, 252, 0.95)" />
+                    <circle cx={end.x} cy={end.y} r={4} fill="rgba(56, 189, 248, 0.95)" />
+                    <text
+                      x={midX}
+                      y={midY - 8}
+                      fill="rgba(248, 250, 252, 0.95)"
+                      fontSize="10"
+                      textAnchor="middle"
+                      style={{
+                        paintOrder: "stroke",
+                        stroke: "rgba(15, 23, 42, 0.85)",
+                        strokeWidth: 3,
+                      }}
+                    >
+                      {gradientType}
+                    </text>
+                  </>
+                );
+              })()
+            : null}
+          {cropStraightenDraft
+            ? (() => {
+                const start = documentPointToCanvas(cropStraightenDraft.startDoc);
+                const end = documentPointToCanvas(cropStraightenDraft.currentDoc);
+                if (!start || !end) {
+                  return null;
+                }
+                const angleDeg =
+                  (Math.atan2(
+                    cropStraightenDraft.currentDoc.y - cropStraightenDraft.startDoc.y,
+                    cropStraightenDraft.currentDoc.x - cropStraightenDraft.startDoc.x,
+                  ) *
+                    180) /
+                  Math.PI;
+                const midpoint = {
+                  x: (start.x + end.x) * 0.5,
+                  y: (start.y + end.y) * 0.5,
+                };
+                return (
+                  <>
+                    <line
+                      x1={start.x}
+                      y1={start.y}
+                      x2={end.x}
+                      y2={end.y}
+                      stroke="rgba(250, 204, 21, 0.96)"
+                      strokeDasharray="8 6"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <circle cx={start.x} cy={start.y} r={4} fill="rgba(254, 249, 195, 0.98)" />
+                    <circle cx={end.x} cy={end.y} r={4} fill="rgba(250, 204, 21, 0.98)" />
+                    <text
+                      x={midpoint.x}
+                      y={midpoint.y - 10}
+                      fill="rgba(254, 249, 195, 0.98)"
+                      fontSize="10"
+                      textAnchor="middle"
+                      style={{
+                        paintOrder: "stroke",
+                        stroke: "rgba(15, 23, 42, 0.9)",
+                        strokeWidth: 3,
+                      }}
+                    >
+                      {`${Math.abs(angleDeg).toFixed(1)}°`}
+                    </text>
+                  </>
+                );
+              })()
+            : null}
           {transformSelectionActive && selTransformBox
             ? (() => {
                 const stb = selTransformBox;
@@ -3277,13 +3425,13 @@ export function EditorCanvas({
                 const polygonPts = pts.map((p) => `${p.x},${p.y}`).join(" ");
                 const handlePositions: [string, DocumentPoint][] = [
                   ["tl", rotateToDoc(-stb.w / 2, -stb.h / 2)],
-                  ["t",  rotateToDoc(0, -stb.h / 2)],
+                  ["t", rotateToDoc(0, -stb.h / 2)],
                   ["tr", rotateToDoc(stb.w / 2, -stb.h / 2)],
-                  ["r",  rotateToDoc(stb.w / 2, 0)],
+                  ["r", rotateToDoc(stb.w / 2, 0)],
                   ["br", rotateToDoc(stb.w / 2, stb.h / 2)],
-                  ["b",  rotateToDoc(0, stb.h / 2)],
+                  ["b", rotateToDoc(0, stb.h / 2)],
                   ["bl", rotateToDoc(-stb.w / 2, stb.h / 2)],
-                  ["l",  rotateToDoc(-stb.w / 2, 0)],
+                  ["l", rotateToDoc(-stb.w / 2, 0)],
                 ];
                 return (
                   <>
@@ -3316,19 +3464,13 @@ export function EditorCanvas({
             : null}
         </svg>
       ) : null}
-      {render?.uiMeta.pathOverlay && (
-        <PathOverlayRenderer overlay={render.uiMeta.pathOverlay} />
-      )}
+      {render?.uiMeta.pathOverlay && <PathOverlayRenderer overlay={render.uiMeta.pathOverlay} />}
       {engine.status !== "ready" ? (
         <div className="editor-backdrop absolute inset-0 flex items-center justify-center p-6">
           <div className="editor-popup max-w-lg rounded-[var(--ui-radius-lg)] p-5 text-center">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">
-              Wasm bridge
-            </p>
+            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Wasm bridge</p>
             <h2 className="mt-2 text-lg font-semibold text-slate-100">
-              {engine.status === "loading"
-                ? "Loading engine"
-                : "Engine not connected"}
+              {engine.status === "loading" ? "Loading engine" : "Engine not connected"}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">
               {engine.status === "error"

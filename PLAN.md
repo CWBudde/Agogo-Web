@@ -640,7 +640,7 @@
   - [x] Move crop box (drag inside)
   - [x] Rotate crop box (drag outside — rotates the canvas, not just view)
   - [x] Constrain aspect ratio (Shift key during corner-handle drag)
-- [x] Options bar: width/height inputs ✓, delete cropped pixels vs hide; [ ] resolution, straighten, overlay type
+- [x] Options bar: width/height inputs ✓, delete cropped pixels vs hide; [x] resolution, straighten, overlay type
 - [x] Commit (Enter) / Cancel (Escape)
 - [ ] Content-Aware Fill for crop expansion (later/optional, Phase 7+)
 - [x] **Image > Canvas Size:** resize canvas independently of content, with anchor grid

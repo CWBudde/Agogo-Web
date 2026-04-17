@@ -805,6 +805,8 @@ export interface FreeTransformMeta {
 }
 
 // Phase 3.4 - Crop
+export type CropOverlayType = "thirds" | "grid" | "diagonal" | "none";
+
 export interface UpdateCropCommand {
   x: number;
   y: number;
@@ -812,6 +814,8 @@ export interface UpdateCropCommand {
   h: number;
   rotation: number;
   deletePixels: boolean;
+  resolution: number;
+  overlayType: CropOverlayType;
 }
 
 export interface ResizeCanvasCommand {
@@ -828,6 +832,8 @@ export interface CropMeta {
   h: number;
   rotation: number;
   deletePixels: boolean;
+  resolution: number;
+  overlayType: CropOverlayType;
 }
 
 // Phase 4: Painting
