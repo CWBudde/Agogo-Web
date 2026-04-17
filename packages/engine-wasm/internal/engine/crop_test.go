@@ -62,6 +62,9 @@ func TestCrop_BeginActivatesState(t *testing.T) {
 	if crop.OverlayType != cropOverlayThirds {
 		t.Errorf("crop overlay = %q, want %q", crop.OverlayType, cropOverlayThirds)
 	}
+	if crop.ContentAwareFill {
+		t.Error("crop content-aware fill should default to false")
+	}
 }
 
 // TestCrop_UpdateChangesBox verifies that UpdateCrop immediately reflects in
@@ -76,8 +79,9 @@ func TestCrop_UpdateChangesBox(t *testing.T) {
 
 	result, err := DispatchCommand(h, commandUpdateCrop, mustJSON(t, UpdateCropPayload{
 		X: 10, Y: 5, W: 60, H: 40,
-		Resolution:  300,
-		OverlayType: cropOverlayGrid,
+		ContentAwareFill: true,
+		Resolution:       300,
+		OverlayType:      cropOverlayGrid,
 	}))
 	if err != nil {
 		t.Fatalf("UpdateCrop: %v", err)
@@ -95,6 +99,9 @@ func TestCrop_UpdateChangesBox(t *testing.T) {
 	}
 	if crop.OverlayType != cropOverlayGrid {
 		t.Errorf("crop overlay = %q, want %q", crop.OverlayType, cropOverlayGrid)
+	}
+	if !crop.ContentAwareFill {
+		t.Error("crop content-aware fill should be true after UpdateCrop")
 	}
 }
 
@@ -152,6 +159,48 @@ func TestCrop_CommitChangesDocumentSize(t *testing.T) {
 	}
 	if doc.Resolution != 144 {
 		t.Errorf("doc resolution = %.1f, want 144 after commit", doc.Resolution)
+	}
+}
+
+func TestCrop_CommitContentAwareFillCreatesExpansionLayer(t *testing.T) {
+	h, layerID := makeDocWithLayer(t, 2, 2)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandBeginCrop, `{}`); err != nil {
+		t.Fatalf("BeginCrop: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandUpdateCrop, mustJSON(t, UpdateCropPayload{
+		X: -1, Y: 0, W: 3, H: 2, ContentAwareFill: true,
+	})); err != nil {
+		t.Fatalf("UpdateCrop: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandCommitCrop, `{}`); err != nil {
+		t.Fatalf("CommitCrop: %v", err)
+	}
+
+	doc := instances[h].manager.Active()
+	if doc.Width != 3 || doc.Height != 2 {
+		t.Fatalf("doc size after content-aware crop = %dx%d, want 3x2", doc.Width, doc.Height)
+	}
+	if doc.ActiveLayerID != layerID {
+		t.Fatalf("active layer after content-aware crop = %q, want %q", doc.ActiveLayerID, layerID)
+	}
+	if len(doc.ensureLayerRoot().Children()) != 2 {
+		t.Fatalf("layer count after content-aware crop = %d, want 2", len(doc.ensureLayerRoot().Children()))
+	}
+	fillLayer, ok := doc.ensureLayerRoot().Children()[1].(*PixelLayer)
+	if !ok {
+		t.Fatal("expected content-aware crop fill to create a pixel layer")
+	}
+	if fillLayer.Name() != "Content-Aware Crop Fill" {
+		t.Fatalf("fill layer name = %q, want Content-Aware Crop Fill", fillLayer.Name())
+	}
+
+	surface := doc.renderCompositeSurface()
+	leftPixel := surface[:4]
+	want := [4]byte{200, 100, 50, 255}
+	if leftPixel[0] != want[0] || leftPixel[1] != want[1] || leftPixel[2] != want[2] || leftPixel[3] != want[3] {
+		t.Fatalf("left expansion pixel = %v, want %v", leftPixel, want)
 	}
 }
 

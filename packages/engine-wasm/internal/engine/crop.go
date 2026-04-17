@@ -14,29 +14,31 @@ const (
 
 // CropState holds the live state while the crop tool is active.
 type CropState struct {
-	Active       bool
-	X            float64
-	Y            float64
-	W            float64
-	H            float64
-	Rotation     float64 // degrees, 0 = no rotation
-	DeletePixels bool
-	Resolution   float64
-	OverlayType  string
+	Active           bool
+	X                float64
+	Y                float64
+	W                float64
+	H                float64
+	Rotation         float64 // degrees, 0 = no rotation
+	DeletePixels     bool
+	ContentAwareFill bool
+	Resolution       float64
+	OverlayType      string
 }
 
 // CropMeta is serialized into UIMeta so the frontend can render
 // the crop overlay and handles.
 type CropMeta struct {
-	Active       bool    `json:"active"`
-	X            float64 `json:"x"`
-	Y            float64 `json:"y"`
-	W            float64 `json:"w"`
-	H            float64 `json:"h"`
-	Rotation     float64 `json:"rotation"`
-	DeletePixels bool    `json:"deletePixels"`
-	Resolution   float64 `json:"resolution"`
-	OverlayType  string  `json:"overlayType"`
+	Active           bool    `json:"active"`
+	X                float64 `json:"x"`
+	Y                float64 `json:"y"`
+	W                float64 `json:"w"`
+	H                float64 `json:"h"`
+	Rotation         float64 `json:"rotation"`
+	DeletePixels     bool    `json:"deletePixels"`
+	ContentAwareFill bool    `json:"contentAwareFill"`
+	Resolution       float64 `json:"resolution"`
+	OverlayType      string  `json:"overlayType"`
 }
 
 // meta builds the UIMeta representation of the current state.
@@ -45,28 +47,30 @@ func (s *CropState) meta() *CropMeta {
 		return nil
 	}
 	return &CropMeta{
-		Active:       true,
-		X:            s.X,
-		Y:            s.Y,
-		W:            s.W,
-		H:            s.H,
-		Rotation:     s.Rotation,
-		DeletePixels: s.DeletePixels,
-		Resolution:   s.Resolution,
-		OverlayType:  normalizeCropOverlayType(s.OverlayType),
+		Active:           true,
+		X:                s.X,
+		Y:                s.Y,
+		W:                s.W,
+		H:                s.H,
+		Rotation:         s.Rotation,
+		DeletePixels:     s.DeletePixels,
+		ContentAwareFill: s.ContentAwareFill,
+		Resolution:       s.Resolution,
+		OverlayType:      normalizeCropOverlayType(s.OverlayType),
 	}
 }
 
 // UpdateCropPayload defines the parameters for updating the crop box.
 type UpdateCropPayload struct {
-	X            float64 `json:"x"`
-	Y            float64 `json:"y"`
-	W            float64 `json:"w"`
-	H            float64 `json:"h"`
-	Rotation     float64 `json:"rotation"`
-	DeletePixels bool    `json:"deletePixels"`
-	Resolution   float64 `json:"resolution"`
-	OverlayType  string  `json:"overlayType"`
+	X                float64 `json:"x"`
+	Y                float64 `json:"y"`
+	W                float64 `json:"w"`
+	H                float64 `json:"h"`
+	Rotation         float64 `json:"rotation"`
+	DeletePixels     bool    `json:"deletePixels"`
+	ContentAwareFill bool    `json:"contentAwareFill"`
+	Resolution       float64 `json:"resolution"`
+	OverlayType      string  `json:"overlayType"`
 }
 
 func normalizeCropOverlayType(value string) string {
@@ -372,6 +376,153 @@ func applyRotatedCropToPixelLayer(pl *PixelLayer, cx, cy, w, h, rotRad float64) 
 		}
 	}
 	return newPixels, LayerBounds{X: 0, Y: 0, W: outW, H: outH}
+}
+
+func buildContentAwareCropFillLayer(source []byte, sourceW, sourceH int, cropX, cropY, cropW, cropH, rotRad float64) ([]byte, bool) {
+	outW := int(math.Round(cropW))
+	outH := int(math.Round(cropH))
+	if outW <= 0 || outH <= 0 || len(source) < sourceW*sourceH*4 {
+		return nil, false
+	}
+
+	fillPixels := make([]byte, outW*outH*4)
+	known := make([]bool, outW*outH)
+	expansionMask := make([]bool, outW*outH)
+	hasExpansion := false
+
+	cx := cropX + cropW/2
+	cy := cropY + cropH/2
+	cosR := math.Cos(rotRad)
+	sinR := math.Sin(rotRad)
+
+	for oy := range outH {
+		for ox := range outW {
+			lx := float64(ox) + 0.5 - cropW/2
+			ly := float64(oy) + 0.5 - cropH/2
+			srcX := cx + lx*cosR - ly*sinR
+			srcY := cy + lx*sinR + ly*cosR
+			idx := oy*outW + ox
+			if srcX >= 0 && srcX < float64(sourceW) && srcY >= 0 && srcY < float64(sourceH) {
+				pix := sampleBilinear(source, sourceW, sourceH, srcX, srcY)
+				copy(fillPixels[idx*4:idx*4+4], pix[:])
+				known[idx] = true
+				continue
+			}
+			expansionMask[idx] = true
+			hasExpansion = true
+		}
+	}
+
+	if !hasExpansion {
+		return nil, false
+	}
+
+	diffuseCropExpansion(fillPixels, outW, outH, known, expansionMask)
+
+	hasOpaqueFill := false
+	for idx := range outW * outH {
+		base := idx * 4
+		if !expansionMask[idx] {
+			fillPixels[base] = 0
+			fillPixels[base+1] = 0
+			fillPixels[base+2] = 0
+			fillPixels[base+3] = 0
+			continue
+		}
+		if fillPixels[base+3] != 0 {
+			hasOpaqueFill = true
+		}
+	}
+
+	if !hasOpaqueFill {
+		return nil, false
+	}
+	return fillPixels, true
+}
+
+func diffuseCropExpansion(pixels []byte, width, height int, known, expansionMask []bool) {
+	if len(pixels) < width*height*4 || len(known) < width*height || len(expansionMask) < width*height {
+		return
+	}
+
+	queue := make([]int, 0, width*height/4)
+	queued := make([]bool, width*height)
+	for idx, masked := range expansionMask {
+		if !masked {
+			continue
+		}
+		if !hasKnownCropNeighbor(idx, width, height, known) {
+			continue
+		}
+		queue = append(queue, idx)
+		queued[idx] = true
+	}
+
+	for head := 0; head < len(queue); head++ {
+		idx := queue[head]
+		if known[idx] || !expansionMask[idx] {
+			continue
+		}
+
+		var sum [4]float64
+		var total float64
+		cx := idx % width
+		cy := idx / width
+		for ny := maxInt(0, cy-1); ny <= minInt(height-1, cy+1); ny++ {
+			for nx := maxInt(0, cx-1); nx <= minInt(width-1, cx+1); nx++ {
+				nidx := ny*width + nx
+				if nidx == idx || !known[nidx] {
+					continue
+				}
+				weight := 1.0
+				if nx != cx && ny != cy {
+					weight = 0.70710678118
+				}
+				base := nidx * 4
+				for channel := range 4 {
+					sum[channel] += float64(pixels[base+channel]) * weight
+				}
+				total += weight
+			}
+		}
+		if total == 0 {
+			continue
+		}
+
+		base := idx * 4
+		for channel := range 4 {
+			pixels[base+channel] = byte(math.Round(sum[channel] / total))
+		}
+		known[idx] = true
+
+		for ny := maxInt(0, cy-1); ny <= minInt(height-1, cy+1); ny++ {
+			for nx := maxInt(0, cx-1); nx <= minInt(width-1, cx+1); nx++ {
+				nidx := ny*width + nx
+				if !expansionMask[nidx] || known[nidx] || queued[nidx] {
+					continue
+				}
+				queue = append(queue, nidx)
+				queued[nidx] = true
+			}
+		}
+	}
+}
+
+func hasKnownCropNeighbor(idx, width, height int, known []bool) bool {
+	if idx < 0 || idx >= width*height {
+		return false
+	}
+	x := idx % width
+	y := idx / width
+	for ny := maxInt(0, y-1); ny <= minInt(height-1, y+1); ny++ {
+		for nx := maxInt(0, x-1); nx <= minInt(width-1, x+1); nx++ {
+			nidx := ny*width + nx
+			if nidx != idx && known[nidx] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // trimPixelLayerToBounds zeros out pixel data outside the given document bounds.

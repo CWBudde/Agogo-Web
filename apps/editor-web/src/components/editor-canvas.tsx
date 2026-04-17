@@ -112,6 +112,7 @@ type EditorCanvasProps = {
     background: [number, number, number, number];
   };
   cropDeletePixels: boolean;
+  cropContentAwareFill: boolean;
   cropResolution: number;
   cropOverlayType: CropOverlayType;
   cropStraightenActive: boolean;
@@ -691,6 +692,7 @@ export function EditorCanvas({
   shapeOptions,
   artboardOptions,
   cropDeletePixels,
+  cropContentAwareFill,
   cropResolution,
   cropOverlayType,
   cropStraightenActive,
@@ -761,6 +763,7 @@ export function EditorCanvas({
       h: number;
       rotation: number;
       deletePixels: boolean;
+      contentAwareFill: boolean;
       resolution: number;
       overlayType: CropOverlayType;
     }>,
@@ -772,6 +775,7 @@ export function EditorCanvas({
       h: crop.h,
       rotation: crop.rotation ?? 0,
       deletePixels: cropDeletePixels,
+      contentAwareFill: cropContentAwareFill,
       resolution: cropResolution,
       overlayType: cropOverlayType,
       ...overrides,

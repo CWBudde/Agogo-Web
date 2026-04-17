@@ -624,6 +624,7 @@ export default function App() {
   const [moveAutoSelectGroup, setMoveAutoSelectGroup] = useState(false);
   const [transformRefPoint, setTransformRefPoint] = useState<[number, number]>([1, 1]);
   const [cropDeletePixels, setCropDeletePixels] = useState(false);
+  const [cropContentAwareFill, setCropContentAwareFill] = useState(false);
   const [cropResolution, setCropResolution] = useState(72);
   const [cropOverlayType, setCropOverlayType] = useState<CropOverlayType>("thirds");
   const [cropStraightenActive, setCropStraightenActive] = useState(false);
@@ -948,6 +949,9 @@ export default function App() {
     setCropDeletePixels((current) =>
       current === activeCrop.deletePixels ? current : activeCrop.deletePixels,
     );
+    setCropContentAwareFill((current) =>
+      current === activeCrop.contentAwareFill ? current : activeCrop.contentAwareFill,
+    );
     setCropResolution((current) =>
       current === activeCrop.resolution ? current : activeCrop.resolution,
     );
@@ -956,6 +960,7 @@ export default function App() {
     );
   }, [
     activeCrop?.active,
+    activeCrop?.contentAwareFill,
     activeCrop?.deletePixels,
     activeCrop?.overlayType,
     activeCrop?.resolution,
@@ -982,6 +987,7 @@ export default function App() {
       h: activeCrop.h,
       rotation: activeCrop.rotation ?? 0,
       deletePixels: cropDeletePixels,
+      contentAwareFill: cropContentAwareFill,
       resolution: cropResolution,
       overlayType: cropOverlayType,
       ...overrides,
@@ -1027,6 +1033,7 @@ export default function App() {
     if (activeTool === "crop" && tool !== "hand" && tool !== "zoom") {
       engine.dispatchCommand(CommandID.CancelCrop, {});
       setCropDeletePixels(false);
+      setCropContentAwareFill(false);
       setCropResolution(72);
       setCropOverlayType("thirds");
       setCropStraightenActive(false);
@@ -1824,6 +1831,17 @@ export default function App() {
             }}
           />
           Delete
+        </label>
+        <label className="ml-2 flex items-center gap-1 text-[10px]">
+          <input
+            type="checkbox"
+            checked={cropContentAwareFill}
+            onChange={(e) => {
+              setCropContentAwareFill(e.target.checked);
+              dispatchCropUpdate({ contentAwareFill: e.target.checked });
+            }}
+          />
+          Content-Aware
         </label>
         <Button
           size="sm"
@@ -2876,6 +2894,7 @@ export default function App() {
                       background: artboardBackground,
                     }}
                     cropDeletePixels={cropDeletePixels}
+                    cropContentAwareFill={cropContentAwareFill}
                     cropResolution={cropResolution}
                     cropOverlayType={cropOverlayType}
                     cropStraightenActive={cropStraightenActive}

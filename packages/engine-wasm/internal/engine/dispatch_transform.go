@@ -364,15 +364,16 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 			return true, fmt.Errorf("no active document")
 		}
 		inst.crop = &CropState{
-			Active:       true,
-			X:            0,
-			Y:            0,
-			W:            float64(doc.Width),
-			H:            float64(doc.Height),
-			Rotation:     0,
-			DeletePixels: false,
-			Resolution:   normalizeCropResolution(doc.Resolution, defaultResolutionDPI),
-			OverlayType:  cropOverlayThirds,
+			Active:           true,
+			X:                0,
+			Y:                0,
+			W:                float64(doc.Width),
+			H:                float64(doc.Height),
+			Rotation:         0,
+			DeletePixels:     false,
+			ContentAwareFill: false,
+			Resolution:       normalizeCropResolution(doc.Resolution, defaultResolutionDPI),
+			OverlayType:      cropOverlayThirds,
 		}
 		return true, nil
 
@@ -390,6 +391,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 		inst.crop.H = payload.H
 		inst.crop.Rotation = payload.Rotation
 		inst.crop.DeletePixels = payload.DeletePixels
+		inst.crop.ContentAwareFill = payload.ContentAwareFill
 		inst.crop.Resolution = normalizeCropResolution(payload.Resolution, inst.crop.Resolution)
 		inst.crop.OverlayType = normalizeCropOverlayType(payload.OverlayType)
 		return true, nil
@@ -404,6 +406,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 		cropH := inst.crop.H
 		cropRot := inst.crop.Rotation
 		deletePixels := inst.crop.DeletePixels
+		contentAwareFill := inst.crop.ContentAwareFill
 		cropResolution := normalizeCropResolution(inst.crop.Resolution, defaultResolutionDPI)
 		command := &snapshotCommand{
 			description: "Crop Document",
@@ -412,6 +415,11 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				if doc == nil {
 					return snapshot{}, fmt.Errorf("no active document")
 				}
+				preCropSurface := doc.renderCompositeSurface()
+				preCropWidth := doc.Width
+				preCropHeight := doc.Height
+				activeLayerID := doc.ActiveLayerID
+
 				w := int(math.Round(cropW))
 				h := int(math.Round(cropH))
 				if w <= 0 || h <= 0 {
@@ -444,6 +452,16 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				doc.Width = w
 				doc.Height = h
 				doc.Resolution = cropResolution
+				if contentAwareFill {
+					fillPixels, ok := buildContentAwareCropFillLayer(preCropSurface, preCropWidth, preCropHeight, cropX, cropY, cropW, cropH, rotRad)
+					if ok {
+						fillLayer := NewPixelLayer("Content-Aware Crop Fill", LayerBounds{X: 0, Y: 0, W: w, H: h}, fillPixels)
+						if err := doc.AddLayer(fillLayer, doc.ensureLayerRoot().ID(), -1); err != nil {
+							return snapshot{}, err
+						}
+						doc.ActiveLayerID = activeLayerID
+					}
+				}
 				doc.ContentVersion++
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err

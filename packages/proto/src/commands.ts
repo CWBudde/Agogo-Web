@@ -814,6 +814,7 @@ export interface UpdateCropCommand {
   h: number;
   rotation: number;
   deletePixels: boolean;
+  contentAwareFill: boolean;
   resolution: number;
   overlayType: CropOverlayType;
 }
@@ -832,6 +833,7 @@ export interface CropMeta {
   h: number;
   rotation: number;
   deletePixels: boolean;
+  contentAwareFill: boolean;
   resolution: number;
   overlayType: CropOverlayType;
 }
