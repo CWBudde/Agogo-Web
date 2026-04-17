@@ -1482,6 +1482,7 @@ func decodeZipPayload(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to init zip stream: %w", err)
 	}
 	defer zr.Close()
+
 	decoded, err := io.ReadAll(zr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode zip stream: %w", err)

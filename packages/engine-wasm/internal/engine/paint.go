@@ -16,6 +16,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		return
 	}
 	brushParams := p.Brush
+	brushParams = normalizeMixerBrushParams(brushParams)
 	if brushParams.AutoErase {
 		// Sample the active layer pixel at the stroke start.
 		// If it matches the brush (foreground) color, switch to background color.
@@ -50,6 +51,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	// reuses the rasterizer's allocated cell blocks instead of re-allocating.
 	stroke.renderer = agglib.NewAgg2D()
 	if brushParams.MixerBrush {
+		stroke.mixer = inst.beginMixerBrushStroke(doc.ID, brushParams)
 		stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY = captureStrokeSourceSurface(doc, layer, brushParams.SampleMerged)
 	}
 	if brushParams.CloneStamp {
@@ -85,7 +87,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
-				dabParams.Color = resolveMixerBrushColor(stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)
+				dabParams = resolveMixerBrushDab(&stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, azimuth, squish)
 			}
 			paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
@@ -126,7 +128,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0)
 		} else {
 			if dabParams.MixerBrush {
-				dabParams.Color = resolveMixerBrushColor(inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams.Color, dabParams.MixerMix)
+				dabParams = resolveMixerBrushDab(&inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, azimuth, squish)
 			}
 			paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
 		}
@@ -146,6 +148,9 @@ func (inst *instance) handleEndPaintStroke() {
 	inst.paintStroke = nil
 
 	if doc == nil || !stroke.hasDirty {
+		if stroke.params.MixerBrush {
+			inst.mixerBrush = stroke.mixer
+		}
 		return
 	}
 	layer := findPixelLayer(doc, stroke.layerID)
@@ -178,6 +183,9 @@ func (inst *instance) handleEndPaintStroke() {
 		delta: delta,
 	}
 	inst.history.push(cmd)
+	if stroke.params.MixerBrush {
+		inst.mixerBrush = stroke.mixer
+	}
 }
 
 // handleMagicErase implements the Magic Eraser: flood-fills (or global-selects)

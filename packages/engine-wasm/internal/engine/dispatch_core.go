@@ -13,6 +13,7 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			description: fmt.Sprintf("New document: %s", defaultDocumentName(payload.Name)),
 			applyFn: func(inst *instance) (snapshot, error) {
 				doc := inst.newDocument(payload)
+				inst.resetMixerBrushState()
 				inst.manager.Create(doc)
 				inst.viewport.CenterX = float64(doc.Width) * 0.5
 				inst.viewport.CenterY = float64(doc.Height) * 0.5
@@ -29,6 +30,7 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 		command := &snapshotCommand{
 			description: "Close document",
 			applyFn: func(inst *instance) (snapshot, error) {
+				inst.resetMixerBrushState()
 				if err := inst.manager.CloseActive(); err != nil {
 					return snapshot{}, err
 				}

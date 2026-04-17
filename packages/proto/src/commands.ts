@@ -112,6 +112,7 @@ export enum CommandID {
   MagicErase = 0x0413,
   Fill = 0x0414,
   ApplyGradient = 0x0415,
+  ResetMixerBrushState = 0x0416,
 
   // Phase 5.4: Filters
   ApplyFilter = 0x0500,
@@ -908,6 +909,8 @@ export interface BrushParams {
   eraseTolerance?: number;   // color tolerance for background eraser, 0–255 Euclidean RGB distance
   mixerBrush?: boolean;      // mix brush color with sampled canvas color before painting
   mixerMix?: number;         // 0.0–1.0 mix strength for the sampled color
+  mixerWetness?: number;     // 0.0–1.0 wet-paint pickup strength
+  mixerLoad?: number;        // 0.0–1.0 initial paint load when the brush is clean
   cloneStamp?: boolean;      // paint from a sampled source point
   cloneSourceX?: number;     // source point X in document space
   cloneSourceY?: number;     // source point Y in document space

@@ -25,6 +25,8 @@ type BrushParams struct {
 	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
 	MixerBrush      bool     `json:"mixerBrush,omitempty"`      // Mix the brush color with sampled canvas color before painting
 	MixerMix        float64  `json:"mixerMix,omitempty"`        // Sampled-color mix strength, 0–1
+	MixerWetness    float64  `json:"mixerWetness,omitempty"`    // Wet-paint pickup strength, 0–1
+	MixerLoad       float64  `json:"mixerLoad,omitempty"`       // Initial paint load when the brush is clean, 0–1
 	CloneStamp      bool     `json:"cloneStamp,omitempty"`      // Clone pixels from a source point
 	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`    // Source point X in document space
 	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`    // Source point Y in document space
@@ -300,6 +302,21 @@ func applyPressure(p BrushParams, pressure float64) BrushParams {
 	return p
 }
 
+func normalizeMixerBrushParams(p BrushParams) BrushParams {
+	if !p.MixerBrush {
+		return p
+	}
+	if p.MixerWetness <= 0 && p.MixerMix > 0 {
+		p.MixerWetness = p.MixerMix
+	}
+	if p.MixerLoad <= 0 {
+		p.MixerLoad = 1
+	}
+	p.MixerWetness = clampFloat(p.MixerWetness, 0, 1)
+	p.MixerLoad = clampFloat(p.MixerLoad, 0, 1)
+	return p
+}
+
 func captureStrokeSourceSurface(doc *Document, layer *PixelLayer, sampleMerged bool) ([]byte, int, int, int, int) {
 	if sampleMerged {
 		if doc == nil {
@@ -334,6 +351,30 @@ func captureHistorySourceSurface(state snapshot, sampleMerged bool) ([]byte, int
 		return nil, 0, 0, 0, 0
 	}
 	return append([]byte(nil), layer.Pixels...), layer.Bounds.W, layer.Bounds.H, layer.Bounds.X, layer.Bounds.Y
+}
+
+func (inst *instance) resetMixerBrushState() {
+	inst.mixerBrush = mixerBrushState{clean: true}
+}
+
+func (inst *instance) beginMixerBrushStroke(docID string, params BrushParams) mixerBrushState {
+	state := inst.mixerBrush
+	if !state.clean && state.docID == docID {
+		state.remainingLoad = clampFloat(state.remainingLoad, 0, 1)
+		state.contamination = clampFloat(state.contamination, 0, 1)
+		if state.reservoirColor[3] == 0 {
+			state.reservoirColor[3] = params.Color[3]
+		}
+		state.docID = docID
+		return state
+	}
+	return mixerBrushState{
+		docID:          docID,
+		reservoirColor: params.Color,
+		remainingLoad:  clampFloat(params.MixerLoad, 0, 1),
+		contamination:  0,
+		clean:          false,
+	}
 }
 
 // CloneStampDab copies pixels from a sampled source surface into the dab area
@@ -417,28 +458,142 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 	}
 }
 
-func resolveMixerBrushColor(source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, baseColor [4]uint8, mix float64) [4]uint8 {
+func brushMaskAlphaAt(dx, dy, radius, hardness, azimuth, squish float64) float64 {
+	if radius <= 0 {
+		return 0
+	}
+	localX := dx
+	localY := dy
+	if azimuth != 0 {
+		cosA := math.Cos(azimuth)
+		sinA := math.Sin(azimuth)
+		localX = dx*cosA + dy*sinA
+		localY = -dx*sinA + dy*cosA
+	}
+	if squish > 0 && squish < 1 {
+		localY /= squish
+	}
+	dist := math.Sqrt(localX*localX+localY*localY) / radius
+	if dist > 1.0 {
+		return 0
+	}
+	if hardness >= 1.0 || dist <= hardness {
+		return 1.0
+	}
+	if hardness <= 0 {
+		return 1.0 - dist
+	}
+	return 1.0 - (dist-hardness)/(1.0-hardness)
+}
+
+func sampleSurfaceColorFootprint(source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, azimuth, squish float64) ([4]uint8, float64, bool) {
+	var zero [4]uint8
 	if len(source) == 0 || sourceW <= 0 || sourceH <= 0 {
-		return baseColor
+		return zero, 0, false
 	}
-	px := int(math.Round(cx)) - sourceX
-	py := int(math.Round(cy)) - sourceY
-	sampled, ok := sampleSurfaceColor(source, sourceW, sourceH, px, py)
-	if !ok || sampled[3] == 0 {
-		return baseColor
+	radius := p.Size * 0.5
+	if radius < 0.5 {
+		radius = 0.5
 	}
-	mix = clampFloat(mix, 0, 1)
-	mix *= float64(sampled[3]) / 255
-	if mix <= 0 {
-		return baseColor
+	hardness := clampFloat(p.Hardness, 0, 1)
+	srcCX := cx - float64(sourceOriginX)
+	srcCY := cy - float64(sourceOriginY)
+	x0 := int(math.Floor(srcCX-radius)) - 1
+	y0 := int(math.Floor(srcCY-radius)) - 1
+	x1 := int(math.Ceil(srcCX+radius)) + 2
+	y1 := int(math.Ceil(srcCY+radius)) + 2
+	if x0 < 0 {
+		x0 = 0
 	}
-	inv := 1 - mix
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > sourceW {
+		x1 = sourceW
+	}
+	if y1 > sourceH {
+		y1 = sourceH
+	}
+
+	var sumR, sumG, sumB float64
+	var weightedCoverage float64
+	var maskSum float64
+	for py := y0; py < y1; py++ {
+		for px := x0; px < x1; px++ {
+			mask := brushMaskAlphaAt(float64(px)+0.5-srcCX, float64(py)+0.5-srcCY, radius, hardness, azimuth, squish)
+			if mask <= 0 {
+				continue
+			}
+			maskSum += mask
+			idx := (py*sourceW + px) * 4
+			alpha := float64(source[idx+3]) / 255
+			if alpha <= 0 {
+				continue
+			}
+			weight := mask * alpha
+			weightedCoverage += weight
+			sumR += float64(source[idx]) * weight
+			sumG += float64(source[idx+1]) * weight
+			sumB += float64(source[idx+2]) * weight
+		}
+	}
+	if weightedCoverage <= 0 || maskSum <= 0 {
+		return zero, 0, false
+	}
+	coverage := clampFloat(weightedCoverage/maskSum, 0, 1)
 	return [4]uint8{
-		uint8(math.Round(float64(baseColor[0])*inv + float64(sampled[0])*mix)),
-		uint8(math.Round(float64(baseColor[1])*inv + float64(sampled[1])*mix)),
-		uint8(math.Round(float64(baseColor[2])*inv + float64(sampled[2])*mix)),
-		uint8(math.Round(float64(baseColor[3])*inv + float64(sampled[3])*mix)),
+		uint8(math.Round(sumR / weightedCoverage)),
+		uint8(math.Round(sumG / weightedCoverage)),
+		uint8(math.Round(sumB / weightedCoverage)),
+		uint8(math.Round(coverage * 255)),
+	}, coverage, true
+}
+
+func mixColorRGBA(a, b [4]uint8, t float64) [4]uint8 {
+	t = clampFloat(t, 0, 1)
+	if t <= 0 {
+		return a
 	}
+	if t >= 1 {
+		return b
+	}
+	inv := 1 - t
+	return [4]uint8{
+		uint8(math.Round(float64(a[0])*inv + float64(b[0])*t)),
+		uint8(math.Round(float64(a[1])*inv + float64(b[1])*t)),
+		uint8(math.Round(float64(a[2])*inv + float64(b[2])*t)),
+		uint8(math.Round(float64(a[3])*inv + float64(b[3])*t)),
+	}
+}
+
+func resolveMixerBrushDab(state *mixerBrushState, source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, p BrushParams, azimuth, squish float64) BrushParams {
+	dab := p
+	if state == nil {
+		return dab
+	}
+
+	loadFactor := clampFloat(state.remainingLoad, 0, 1)
+	dab.Color = state.reservoirColor
+	dab.Flow = clampFloat(p.Flow*loadFactor, 0, 1)
+
+	deposited := dab.Flow * 0.35
+	state.remainingLoad = clampFloat(state.remainingLoad-deposited, 0, 1)
+
+	sampled, coverage, ok := sampleSurfaceColorFootprint(source, sourceW, sourceH, sourceX, sourceY, cx, cy, p, azimuth, squish)
+	if !ok {
+		return dab
+	}
+
+	pickup := clampFloat(p.MixerWetness*coverage*(0.25+0.75*p.Flow)*(1-state.remainingLoad), 0, 1)
+	if pickup <= 0 {
+		return dab
+	}
+
+	state.reservoirColor = mixColorRGBA(state.reservoirColor, sampled, pickup)
+	state.remainingLoad = clampFloat(state.remainingLoad+pickup*coverage, 0, 1)
+	state.contamination = clampFloat(state.contamination+pickup*(1-state.contamination), 0, 1)
+	state.clean = false
+	return dab
 }
 
 // saveRowsBeforeDab saves the original (pre-paint) pixel rows that the dab at

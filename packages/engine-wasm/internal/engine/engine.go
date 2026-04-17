@@ -97,6 +97,7 @@ const (
 	commandMagicErase                = 0x0413
 	commandFill                      = 0x0414
 	commandApplyGradient             = 0x0415
+	commandResetMixerBrushState      = 0x0416
 	commandComputeHistogram          = 0x011c
 	commandSetPointFromSample        = 0x011d
 	commandIdentifyHueRange          = 0x011e
@@ -473,6 +474,7 @@ type activePaintStroke struct {
 	historySourceH   int
 	historySourceX   int
 	historySourceY   int
+	mixer            mixerBrushState
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
@@ -485,6 +487,14 @@ type activePaintStroke struct {
 	beforeRowStart int    // first saved row (layer-local Y)
 	beforeRowEnd   int    // exclusive end row
 	layerW         int    // layer width in pixels (for row stride)
+}
+
+type mixerBrushState struct {
+	docID          string
+	reservoirColor [4]uint8
+	remainingLoad  float64
+	contamination  float64
+	clean          bool
 }
 
 type pointerDragState struct {
@@ -879,6 +889,9 @@ type instance struct {
 	foregroundColor [4]uint8 // RGBA
 	// backgroundColor is the active background color.
 	backgroundColor [4]uint8 // RGBA
+	// mixerBrush stores runtime-only wet-paint reservoir state for the Mixer Brush.
+	// It is intentionally excluded from document snapshots and project files.
+	mixerBrush mixerBrushState
 	// paintStroke is non-nil while a brush stroke is in progress.
 	paintStroke *activePaintStroke
 	// undoRowBuf is a reusable buffer for stroke undo row snapshots.
@@ -945,6 +958,9 @@ func Init(configJSON string) int32 {
 		foregroundColor: [4]uint8{0, 0, 0, 255},
 		backgroundColor: [4]uint8{255, 255, 255, 255},
 		pathTool:        newPathToolState(),
+		mixerBrush: mixerBrushState{
+			clean: true,
+		},
 	}
 
 	if config.DocumentWidth > 0 && config.DocumentHeight > 0 {
@@ -1042,6 +1058,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		commandLoadSelectionFromChannel, commandRefineSelection, commandOutputSelection,
 		commandBeginPaintStroke, commandContinuePaintStroke, commandEndPaintStroke,
 		commandSetForegroundColor, commandSetBackgroundColor, commandSampleMergedColor,
+		commandResetMixerBrushState,
 		commandMagicErase, commandFill, commandApplyGradient:
 		handled, customResult, nextSuggestedPath, err := inst.dispatchSelectionPaintCommand(commandID, payloadJSON, suggestedPath)
 		if err != nil {

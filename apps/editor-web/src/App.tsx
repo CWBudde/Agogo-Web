@@ -725,7 +725,8 @@ export default function App() {
   const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
   const [brushFlowJitter, setBrushFlowJitter] = useState(0);
   const [brushControlSource, setBrushControlSource] = useState<BrushControlSource>("pressure");
-  const [mixerBrushMix, setMixerBrushMix] = useState(0.65);
+  const [mixerBrushWetness, setMixerBrushWetness] = useState(0.65);
+  const [mixerBrushLoad, setMixerBrushLoad] = useState(0.85);
   const [mixerBrushSampleMerged, setMixerBrushSampleMerged] = useState(true);
   const [cloneStampSampleMerged, setCloneStampSampleMerged] = useState(true);
   const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
@@ -2267,18 +2268,32 @@ export default function App() {
         {activeTool === "mixerBrush" ? (
           <>
             <ToolNumberField
-              label="Mix"
+              label="Wetness"
               min={0}
               max={1}
               step={0.05}
-              value={mixerBrushMix}
-              onChange={setMixerBrushMix}
+              value={mixerBrushWetness}
+              onChange={setMixerBrushWetness}
+            />
+            <ToolNumberField
+              label="Load"
+              min={0}
+              max={1}
+              step={0.05}
+              value={mixerBrushLoad}
+              onChange={setMixerBrushLoad}
             />
             <ToolChoiceButton
               active={mixerBrushSampleMerged}
               onClick={() => setMixerBrushSampleMerged((value) => !value)}
             >
               Sample Merged
+            </ToolChoiceButton>
+            <ToolChoiceButton
+              active={false}
+              onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
+            >
+              Clean Brush
             </ToolChoiceButton>
           </>
         ) : activeTool === "cloneStamp" ? (
@@ -2898,12 +2913,13 @@ export default function App() {
                     }}
                     moveAutoSelectGroup={moveAutoSelectGroup}
                     selectedLayerIds={selectedLayerIds}
-                    onCursorChange={setCursor}
-                    brushSize={brushSize}
-                    brushHardness={brushHardness}
-                    brushFlow={brushFlow}
-                    mixerBrushMix={mixerBrushMix}
-                    mixerBrushSampleMerged={mixerBrushSampleMerged}
+	                    onCursorChange={setCursor}
+	                    brushSize={brushSize}
+	                    brushHardness={brushHardness}
+	                    brushFlow={brushFlow}
+	                    mixerBrushWetness={mixerBrushWetness}
+	                    mixerBrushLoad={mixerBrushLoad}
+	                    mixerBrushSampleMerged={mixerBrushSampleMerged}
                     cloneStampSampleMerged={cloneStampSampleMerged}
                     cloneStampSource={cloneStampSource}
                     onCloneStampSourceChange={setCloneStampSource}
@@ -3139,18 +3155,32 @@ export default function App() {
                               </p>
                               <div className="flex items-center gap-2">
                                 <ToolNumberField
-                                  label="Mix"
+                                  label="Wetness"
                                   min={0}
                                   max={1}
                                   step={0.05}
-                                  value={mixerBrushMix}
-                                  onChange={setMixerBrushMix}
+                                  value={mixerBrushWetness}
+                                  onChange={setMixerBrushWetness}
+                                />
+                                <ToolNumberField
+                                  label="Load"
+                                  min={0}
+                                  max={1}
+                                  step={0.05}
+                                  value={mixerBrushLoad}
+                                  onChange={setMixerBrushLoad}
                                 />
                                 <ToolChoiceButton
                                   active={mixerBrushSampleMerged}
                                   onClick={() => setMixerBrushSampleMerged((value) => !value)}
                                 >
                                   Sample Merged
+                                </ToolChoiceButton>
+                                <ToolChoiceButton
+                                  active={false}
+                                  onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
+                                >
+                                  Clean Brush
                                 </ToolChoiceButton>
                               </div>
                             </div>

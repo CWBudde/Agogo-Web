@@ -828,7 +828,7 @@ func selectionBounds(selection *Selection) (LayerBounds, bool) {
 	if !ok {
 		return LayerBounds{}, false
 	}
-	return LayerBounds{X: bounds.X, Y: bounds.Y, W: bounds.W, H: bounds.H}, true
+	return LayerBounds(bounds), true
 }
 
 func extractSelectionFromSurface(surface []byte, width, height int, selection *Selection) ([]byte, LayerBounds, bool) {

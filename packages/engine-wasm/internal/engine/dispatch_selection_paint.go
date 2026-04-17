@@ -329,6 +329,10 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 		}
 		return true, nil, suggestedPath, nil
 
+	case commandResetMixerBrushState:
+		inst.resetMixerBrushState()
+		return true, nil, suggestedPath, nil
+
 	case commandMagicErase:
 		var payload MagicErasePayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {

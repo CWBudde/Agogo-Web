@@ -72,7 +72,8 @@ type EditorCanvasProps = {
   brushSize: number;
   brushHardness: number;
   brushFlow: number;
-  mixerBrushMix: number;
+  mixerBrushWetness: number;
+  mixerBrushLoad: number;
   mixerBrushSampleMerged: boolean;
   cloneStampSampleMerged: boolean;
   cloneStampSource: { x: number; y: number } | null;
@@ -664,7 +665,8 @@ export function EditorCanvas({
   brushSize,
   brushHardness,
   brushFlow,
-  mixerBrushMix,
+  mixerBrushWetness,
+  mixerBrushLoad,
   mixerBrushSampleMerged,
   cloneStampSampleMerged,
   cloneStampSource,
@@ -2073,7 +2075,8 @@ export function EditorCanvas({
               color: toMutableRgba(foregroundColor),
               autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
               mixerBrush: activeTool === "mixerBrush" ? true : undefined,
-              mixerMix: activeTool === "mixerBrush" ? mixerBrushMix : undefined,
+              mixerWetness: activeTool === "mixerBrush" ? mixerBrushWetness : undefined,
+              mixerLoad: activeTool === "mixerBrush" ? mixerBrushLoad : undefined,
               sampleMerged: activeTool === "mixerBrush" ? mixerBrushSampleMerged : undefined,
               erase: activeTool === "eraser" && eraserMode === "normal" ? true : undefined,
               eraseBackground:

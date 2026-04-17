@@ -86,24 +86,179 @@ func TestPaintStroke_NilLayerIsNoop(t *testing.T) {
 	// If we get here without panic: pass
 }
 
-func TestMixerBrushStroke_SamplesMergedCanvasColor(t *testing.T) {
-	const w, h = 20, 20
+func newMixerTestInstance(t *testing.T, w, h int) (*instance, *PixelLayer, *PixelLayer) {
+	t.Helper()
 	inst := &instance{
 		manager:  newDocumentManager(),
 		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
 		history:  newHistoryStack(defaultHistoryMax),
 	}
 	doc := testDocumentFixture("mixer-test", "Mixer", w, h)
-
 	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
-	for i := 0; i < len(background.Pixels); i += 4 {
-		background.Pixels[i] = 255
-		background.Pixels[i+3] = 255
-	}
 	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
 	doc.LayerRoot.SetChildren([]LayerNode{background, active})
 	doc.ActiveLayerID = active.ID()
 	inst.manager.Create(doc)
+	storedDoc := inst.manager.activeMut()
+	if storedDoc == nil {
+		t.Fatal("stored mixer test document missing")
+	}
+	storedBackground := findPixelLayer(storedDoc, background.ID())
+	storedActive := findPixelLayer(storedDoc, active.ID())
+	if storedBackground == nil || storedActive == nil {
+		t.Fatal("stored mixer test layers missing")
+	}
+	return inst, storedBackground, storedActive
+}
+
+func fillLayerSolid(layer *PixelLayer, color [4]uint8) {
+	for i := 0; i < len(layer.Pixels); i += 4 {
+		layer.Pixels[i] = color[0]
+		layer.Pixels[i+1] = color[1]
+		layer.Pixels[i+2] = color[2]
+		layer.Pixels[i+3] = color[3]
+	}
+}
+
+func layerPixelAt(layer *PixelLayer, x, y int) [4]uint8 {
+	idx := (y*layer.Bounds.W + x) * 4
+	return [4]uint8{
+		layer.Pixels[idx],
+		layer.Pixels[idx+1],
+		layer.Pixels[idx+2],
+		layer.Pixels[idx+3],
+	}
+}
+
+func maxChannelInRect(layer *PixelLayer, x0, y0, x1, y1, channel int) uint8 {
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > layer.Bounds.W {
+		x1 = layer.Bounds.W
+	}
+	if y1 > layer.Bounds.H {
+		y1 = layer.Bounds.H
+	}
+	var best uint8
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			value := layer.Pixels[(y*layer.Bounds.W+x)*4+channel]
+			if value > best {
+				best = value
+			}
+		}
+	}
+	return best
+}
+
+func rectHasPixel(layer *PixelLayer, x0, y0, x1, y1 int, fn func([4]uint8) bool) bool {
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > layer.Bounds.W {
+		x1 = layer.Bounds.W
+	}
+	if y1 > layer.Bounds.H {
+		y1 = layer.Bounds.H
+	}
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if fn(layerPixelAt(layer, x, y)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestMixerBrushStroke_SamplesMergedCanvasColor(t *testing.T) {
+	const w, h = 32, 32
+	inst, background, active := newMixerTestInstance(t, w, h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			idx := (y*w + x) * 4
+			if (x+y)%2 == 0 {
+				background.Pixels[idx] = 255
+			} else {
+				background.Pixels[idx+2] = 255
+			}
+			background.Pixels[idx+3] = 255
+		}
+	}
+
+	brush := BrushParams{
+		Size:         12,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		MixerBrush:   true,
+		MixerMix:     1.0,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 16, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 24, Y: 16, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after mixer stroke")
+	}
+	if !rectHasPixel(layer, 18, 10, 28, 22, func(px [4]uint8) bool {
+		return px[0] >= 50 && px[2] >= 50 && px[1] <= 24 && px[3] > 0
+	}) {
+		t.Fatal("expected a later mixer dab to contain both red and blue from the checkerboard footprint")
+	}
+}
+
+func TestMixerBrushStroke_PersistsReservoirAcrossStrokes(t *testing.T) {
+	const w, h = 24, 24
+	inst, background, active := newMixerTestInstance(t, w, h)
+	fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
+
+	brush := BrushParams{
+		Size:         10,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		MixerBrush:   true,
+		MixerWetness: 1.0,
+		MixerLoad:    1.0,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	fillLayerSolid(background, [4]uint8{0, 0, 0, 0})
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 19, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after persistent mixer stroke")
+	}
+	maxRed := maxChannelInRect(layer, 15, 7, 24, 17, 0)
+	maxBlue := maxChannelInRect(layer, 15, 7, 24, 17, 2)
+	maxAlpha := maxChannelInRect(layer, 15, 7, 24, 17, 3)
+	if maxAlpha == 0 || maxRed <= maxBlue {
+		t.Fatalf("persistent stroke region max RGBA = (%d,%d,%d), want visible carried-over red contamination", maxRed, maxBlue, maxAlpha)
+	}
+}
+
+func TestMixerBrushResetState_CleansReservoir(t *testing.T) {
+	const w, h = 24, 24
+	inst, background, active := newMixerTestInstance(t, w, h)
+	fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
 
 	brush := BrushParams{
 		Size:         10,
@@ -111,23 +266,142 @@ func TestMixerBrushStroke_SamplesMergedCanvasColor(t *testing.T) {
 		Flow:         1.0,
 		Color:        [4]uint8{0, 0, 255, 255},
 		MixerBrush:   true,
-		MixerMix:     0.5,
+		MixerWetness: 1.0,
+		MixerLoad:    1.0,
 		SampleMerged: true,
 	}
 
-	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 10, Y: 10, Pressure: 1.0, Brush: brush})
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	fillLayerSolid(background, [4]uint8{0, 0, 0, 0})
+	inst.resetMixerBrushState()
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 19, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after cleaned mixer stroke")
+	}
+	got := layerPixelAt(layer, 19, 12)
+	if got[2] < 180 || got[0] > 64 {
+		t.Fatalf("cleaned stroke pixel = RGBA(%d,%d,%d,%d), want blue reload after clean", got[0], got[1], got[2], got[3])
+	}
+}
+
+func TestMixerBrushWetness_IncreasesPickup(t *testing.T) {
+	runStroke := func(wetness float64) [4]uint8 {
+		inst, background, active := newMixerTestInstance(t, 24, 24)
+		fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
+		brush := BrushParams{
+			Size:         10,
+			Hardness:     1.0,
+			Flow:         1.0,
+			Color:        [4]uint8{0, 0, 0, 255},
+			MixerBrush:   true,
+			MixerWetness: wetness,
+			MixerLoad:    1.0,
+			SampleMerged: true,
+		}
+		inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
+		inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+		inst.handleEndPaintStroke()
+		layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+		if layer == nil {
+			t.Fatal("active layer not found after wetness test stroke")
+		}
+		return [4]uint8{
+			maxChannelInRect(layer, 9, 7, 18, 17, 0),
+			maxChannelInRect(layer, 9, 7, 18, 17, 1),
+			maxChannelInRect(layer, 9, 7, 18, 17, 2),
+			maxChannelInRect(layer, 9, 7, 18, 17, 3),
+		}
+	}
+
+	low := runStroke(0.1)
+	high := runStroke(1.0)
+	if high[0] <= low[0]+25 {
+		t.Fatalf("high-wetness red channel = %d, low-wetness red channel = %d, want substantially more pickup", high[0], low[0])
+	}
+}
+
+func TestMixerBrushStroke_SampleMergedControlsPickup(t *testing.T) {
+	runStroke := func(sampleMerged bool) [4]uint8 {
+		inst, background, active := newMixerTestInstance(t, 24, 24)
+		fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
+		brush := BrushParams{
+			Size:         10,
+			Hardness:     1.0,
+			Flow:         1.0,
+			Color:        [4]uint8{0, 0, 0, 255},
+			MixerBrush:   true,
+			MixerWetness: 1.0,
+			MixerLoad:    1.0,
+			SampleMerged: sampleMerged,
+		}
+		inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
+		inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+		inst.handleEndPaintStroke()
+		layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+		if layer == nil {
+			t.Fatal("active layer not found after sample-merged test stroke")
+		}
+		return [4]uint8{
+			maxChannelInRect(layer, 9, 7, 18, 17, 0),
+			maxChannelInRect(layer, 9, 7, 18, 17, 1),
+			maxChannelInRect(layer, 9, 7, 18, 17, 2),
+			maxChannelInRect(layer, 9, 7, 18, 17, 3),
+		}
+	}
+
+	notMerged := runStroke(false)
+	merged := runStroke(true)
+	if merged[0] <= notMerged[0]+25 {
+		t.Fatalf("sampleMerged red channel = %d, active-layer-only red channel = %d, want more pickup when sampling merged", merged[0], notMerged[0])
+	}
+}
+
+func TestMixerBrushStroke_UndoRestoresPixels(t *testing.T) {
+	const w, h = 24, 24
+	inst, background, active := newMixerTestInstance(t, w, h)
+	fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
+
+	brush := BrushParams{
+		Size:         10,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 255, 255},
+		MixerBrush:   true,
+		MixerWetness: 1.0,
+		MixerLoad:    1.0,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
 	inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
 		t.Fatal("active layer not found after mixer stroke")
 	}
-	idx := (10*20 + 10) * 4
-	if layer.Pixels[idx] < 80 || layer.Pixels[idx+2] < 80 {
-		t.Fatalf("mixed center pixel = RGBA(%d,%d,%d,%d), want blended red+blue", layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3])
+	if got := layerPixelAt(layer, 14, 12); got[3] == 0 {
+		t.Fatal("expected mixer stroke to paint at the test pixel")
 	}
-	if layer.Pixels[idx+1] > 32 {
-		t.Fatalf("mixed center green channel = %d, want near 0", layer.Pixels[idx+1])
+
+	if err := inst.history.Undo(inst); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	inst.manager.activeMut().ContentVersion++
+
+	layer = findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after undo")
+	}
+	if got := layerPixelAt(layer, 14, 12); got[3] != 0 {
+		t.Fatalf("undo pixel = RGBA(%d,%d,%d,%d), want transparent after undo", got[0], got[1], got[2], got[3])
 	}
 }
 
