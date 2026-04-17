@@ -113,3 +113,7 @@ clean:
     rm -f apps/editor-web/public/wasm_exec.js
     rm -rf apps/editor-web/dist
     rm -f packages/engine-wasm/coverage.out packages/engine-wasm/coverage.html
+
+fix:
+    just lint-fix
+    just fmt
