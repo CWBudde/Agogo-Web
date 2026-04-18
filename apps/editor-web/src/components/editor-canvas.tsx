@@ -12,11 +12,18 @@ import {
   type GradientStopCommand,
   type InterpolMode,
   type MagicEraseCommand,
+  type PathPointCommand,
   type SampleMergedColorCommand,
   type SetArtboardCommand,
 } from "@agogo/proto";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
+import {
+  mapShapePresetToBounds,
+  pathPointsToSvgPathData,
+  resolveShapeDragBounds,
+  type ShapePreset,
+} from "@/lib/shape-presets";
 import { useEngine } from "@/wasm/context";
 import { PathOverlayRenderer } from "./path-overlay";
 
@@ -136,6 +143,7 @@ type EditorCanvasProps = {
     cornerRadius: number;
     polygonSides: number;
     starMode: boolean;
+    customPreset: ShapePreset | null;
     fillColor: [number, number, number, number];
     strokeColor: [number, number, number, number];
     strokeWidth: number;
@@ -804,6 +812,7 @@ export function EditorCanvas({
   const [shapeDraft, setShapeDraft] = useState<{
     start: DocumentPoint;
     current: DocumentPoint;
+    constrain: boolean;
   } | null>(null);
   const [artboardCreateDraft, setArtboardCreateDraft] = useState<ArtboardCreateDraft | null>(null);
   const [artboardEditDraft, setArtboardEditDraft] = useState<ArtboardEditDraft | null>(null);
@@ -1510,10 +1519,65 @@ export function EditorCanvas({
 
   const shapeOverlay = shapeDraft
     ? (() => {
-        const startC = documentPointToCanvas(shapeDraft.start);
-        const endC = documentPointToCanvas(shapeDraft.current);
+        if (shapeOptions.subTool === "custom-shape" && shapeOptions.customPreset) {
+          const bounds = resolveShapeDragBounds(
+            shapeDraft.start,
+            shapeDraft.current,
+            shapeDraft.constrain,
+          );
+          if (bounds.w === 0 || bounds.h === 0) {
+            return null;
+          }
+          const mappedPoints = mapShapePresetToBounds(shapeOptions.customPreset, bounds)
+            .map((point) => {
+              const anchor = documentPointToCanvas({ x: point.x, y: point.y });
+              const inHandle = documentPointToCanvas({
+                x: point.inX ?? point.x,
+                y: point.inY ?? point.y,
+              });
+              const outHandle = documentPointToCanvas({
+                x: point.outX ?? point.x,
+                y: point.outY ?? point.y,
+              });
+              if (!anchor || !inHandle || !outHandle) {
+                return null;
+              }
+              return {
+                x: anchor.x,
+                y: anchor.y,
+                inX: inHandle.x,
+                inY: inHandle.y,
+                outX: outHandle.x,
+                outY: outHandle.y,
+                handleType: point.handleType,
+              } satisfies PathPointCommand;
+            })
+            .filter((point): point is PathPointCommand => point !== null);
+          if (mappedPoints.length !== shapeOptions.customPreset.points.length) {
+            return null;
+          }
+          return {
+            kind: "custom-shape" as const,
+            path: pathPointsToSvgPathData(mappedPoints, shapeOptions.customPreset.closed),
+          };
+        }
+
+        if (shapeOptions.subTool === "line") {
+          const startC = documentPointToCanvas(shapeDraft.start);
+          const endC = documentPointToCanvas(shapeDraft.current);
+          if (!startC || !endC) return null;
+          return { kind: "line" as const, start: startC, current: endC };
+        }
+
+        const bounds = resolveShapeDragBounds(
+          shapeDraft.start,
+          shapeDraft.current,
+          shapeDraft.constrain,
+        );
+        const startC = documentPointToCanvas({ x: bounds.x, y: bounds.y });
+        const endC = documentPointToCanvas({ x: bounds.x + bounds.w, y: bounds.y + bounds.h });
         if (!startC || !endC) return null;
-        return { start: startC, current: endC };
+        return { kind: "bounds" as const, start: startC, current: endC };
       })()
     : null;
   const cloneSourcePreview = (() => {
@@ -2113,7 +2177,7 @@ export function EditorCanvas({
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           const start = { x: docPoint.x, y: docPoint.y };
-          setShapeDraft({ start, current: start });
+          setShapeDraft({ start, current: start, constrain: event.shiftKey });
           event.currentTarget.setPointerCapture(event.pointerId);
           event.preventDefault();
           return;
@@ -2383,7 +2447,15 @@ export function EditorCanvas({
           return;
         }
         if (shapeDraft && activeTool === "shape" && docPoint) {
-          setShapeDraft((d) => (d ? { ...d, current: { x: docPoint.x, y: docPoint.y } } : d));
+          setShapeDraft((draft) =>
+            draft
+              ? {
+                  ...draft,
+                  current: { x: docPoint.x, y: docPoint.y },
+                  constrain: event.shiftKey,
+                }
+              : draft,
+          );
           return;
         }
         if (artboardCreateDraft && artboardCreateDraft.pointerId === event.pointerId && docPoint) {
@@ -3051,7 +3123,7 @@ export function EditorCanvas({
           const draft = shapeDraft;
           setShapeDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
-          const shiftKey = event.shiftKey;
+          const constrain = draft.constrain || event.shiftKey;
           let x = Math.min(draft.start.x, draft.current.x);
           let y = Math.min(draft.start.y, draft.current.y);
           let w = Math.abs(draft.current.x - draft.start.x);
@@ -3062,13 +3134,18 @@ export function EditorCanvas({
             y = draft.start.y;
             w = draft.current.x - draft.start.x;
             h = draft.current.y - draft.start.y;
-          } else if (shiftKey) {
-            // Constrain to square / circle
-            const size = Math.max(w, h);
-            w = size;
-            h = size;
+          } else {
+            const bounds = resolveShapeDragBounds(draft.start, draft.current, constrain);
+            x = bounds.x;
+            y = bounds.y;
+            w = bounds.w;
+            h = bounds.h;
           }
           if (w === 0 || h === 0) return;
+          const customShapePoints =
+            shapeOptions.subTool === "custom-shape" && shapeOptions.customPreset
+              ? mapShapePresetToBounds(shapeOptions.customPreset, { x, y, w, h })
+              : undefined;
           engine.dispatchCommand(CommandID.DrawShape, {
             shapeType: shapeOptions.subTool,
             x,
@@ -3082,6 +3159,11 @@ export function EditorCanvas({
             strokeColor: shapeOptions.strokeColor,
             strokeWidth: shapeOptions.strokeWidth,
             mode: shapeOptions.mode,
+            closed:
+              shapeOptions.subTool === "custom-shape"
+                ? shapeOptions.customPreset?.closed
+                : undefined,
+            points: customShapePoints,
           } satisfies DrawShapeCommand);
           return;
         }
@@ -3423,7 +3505,15 @@ export function EditorCanvas({
             )
           ) : null}
           {shapeOverlay ? (
-            shapeOptions.subTool === "ellipse" ? (
+            shapeOverlay.kind === "custom-shape" ? (
+              <path
+                d={shapeOverlay.path}
+                fill="rgba(34, 211, 238, 0.08)"
+                stroke="rgba(34, 211, 238, 0.9)"
+                strokeDasharray="6 5"
+                strokeWidth="1.5"
+              />
+            ) : shapeOptions.subTool === "ellipse" && shapeOverlay.kind === "bounds" ? (
               <ellipse
                 cx={(shapeOverlay.start.x + shapeOverlay.current.x) * 0.5}
                 cy={(shapeOverlay.start.y + shapeOverlay.current.y) * 0.5}
@@ -3434,7 +3524,7 @@ export function EditorCanvas({
                 strokeDasharray="6 5"
                 strokeWidth="1.5"
               />
-            ) : shapeOptions.subTool === "line" ? (
+            ) : shapeOverlay.kind === "line" ? (
               <line
                 x1={shapeOverlay.start.x}
                 y1={shapeOverlay.start.y}
@@ -3474,8 +3564,16 @@ export function EditorCanvas({
                 cx={cloneSourcePreview.sourceCanvas.x}
                 cy={cloneSourcePreview.sourceCanvas.y}
                 r={cloneStampUseHistorySource ? 7 : 6}
-                fill={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.18)" : "rgba(248, 250, 252, 0.08)"}
-                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                fill={
+                  cloneStampUseHistorySource
+                    ? "rgba(96, 165, 250, 0.18)"
+                    : "rgba(248, 250, 252, 0.08)"
+                }
+                stroke={
+                  cloneStampUseHistorySource
+                    ? "rgba(96, 165, 250, 0.95)"
+                    : "rgba(248, 250, 252, 0.95)"
+                }
                 strokeWidth="1.5"
               />
               <line
@@ -3483,7 +3581,11 @@ export function EditorCanvas({
                 y1={cloneSourcePreview.sourceCanvas.y}
                 x2={cloneSourcePreview.sourceCanvas.x + 9}
                 y2={cloneSourcePreview.sourceCanvas.y}
-                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                stroke={
+                  cloneStampUseHistorySource
+                    ? "rgba(96, 165, 250, 0.95)"
+                    : "rgba(248, 250, 252, 0.95)"
+                }
                 strokeWidth="1.5"
               />
               <line
@@ -3491,7 +3593,11 @@ export function EditorCanvas({
                 y1={cloneSourcePreview.sourceCanvas.y - 9}
                 x2={cloneSourcePreview.sourceCanvas.x}
                 y2={cloneSourcePreview.sourceCanvas.y + 9}
-                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                stroke={
+                  cloneStampUseHistorySource
+                    ? "rgba(96, 165, 250, 0.95)"
+                    : "rgba(248, 250, 252, 0.95)"
+                }
                 strokeWidth="1.5"
               />
             </g>

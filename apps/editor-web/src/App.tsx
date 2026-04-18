@@ -74,6 +74,7 @@ import { type ColorSamplerPoint, InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { PathsPanel } from "@/components/paths-panel";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
+import { ShapesPanel } from "@/components/shapes-panel";
 import { StylesPanel } from "@/components/styles-panel";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -92,6 +93,7 @@ import {
   toRgba,
 } from "@/lib/color";
 import { loadBrushPresetFile, parseBrushPresetJSON } from "@/lib/brush-preset-io";
+import { SHAPE_PRESETS } from "@/lib/shape-presets";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import { useEngine } from "@/wasm/context";
 
@@ -493,6 +495,7 @@ type AuxPanel =
   | "color"
   | "swatches"
   | "paths"
+  | "shapes"
   | "styles";
 type ArtboardPreset = "custom" | "hd" | "iphone" | "ipad" | "a4";
 
@@ -608,7 +611,9 @@ function loadStoredName(key: string, fallback: string): string {
 function mergeImportedBrushPresets(existing: BrushPreset[], imported: BrushPreset[]) {
   const merged = [...existing];
   const usedIds = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.id));
-  const usedNames = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()));
+  const usedNames = new Set(
+    [...BRUSH_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
+  );
 
   for (const preset of imported) {
     const normalizedName = preset.name.trim();
@@ -925,6 +930,7 @@ export default function App() {
   const [shapeCornerRadius, setShapeCornerRadius] = useState(10);
   const [shapePolygonSides, setShapePolygonSides] = useState(6);
   const [shapeStarMode, setShapeStarMode] = useState(false);
+  const [shapePresetId, setShapePresetId] = useState(SHAPE_PRESETS[0]?.id ?? "");
   const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([
     0, 0, 0, 255,
   ]);
@@ -932,6 +938,10 @@ export default function App() {
     0, 0, 0, 0,
   ]);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
+  const selectedShapePreset = useMemo(
+    () => SHAPE_PRESETS.find((preset) => preset.id === shapePresetId) ?? SHAPE_PRESETS[0] ?? null,
+    [shapePresetId],
+  );
   const [artboardPreset, setArtboardPreset] = useState<ArtboardPreset>("custom");
   const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([
     255, 255, 255, 255,
@@ -979,6 +989,15 @@ export default function App() {
       // localStorage quota exceeded — silently skip
     }
   }, [contentVersion, engine.exportProject, engine.handle]);
+
+  const wasCustomShapeActiveRef = useRef(false);
+  useEffect(() => {
+    const customShapeActive = activeTool === "shape" && shapeSubTool === "custom-shape";
+    if (customShapeActive && !wasCustomShapeActiveRef.current) {
+      setActiveAuxPanel("shapes");
+    }
+    wasCustomShapeActiveRef.current = customShapeActive;
+  }, [activeTool, shapeSubTool]);
 
   useEffect(() => {
     if (!engine.handle) return;
@@ -1066,14 +1085,12 @@ export default function App() {
     sampleMerged: boolean,
     sampleAllLayersNoAdj: boolean,
   ): Rgba | null => {
-    const sampled = engine.handle
-      ?.dispatchCommand(CommandID.SampleMergedColor, {
-        x,
-        y,
-        sampleSize,
-        sampleMerged: sampleMerged || sampleAllLayersNoAdj,
-      } satisfies SampleMergedColorCommand)
-      ?.sampledColor;
+    const sampled = engine.handle?.dispatchCommand(CommandID.SampleMergedColor, {
+      x,
+      y,
+      sampleSize,
+      sampleMerged: sampleMerged || sampleAllLayersNoAdj,
+    } satisfies SampleMergedColorCommand)?.sampledColor;
     return sampled ? toRgba(sampled) : null;
   };
 
@@ -1968,11 +1985,11 @@ export default function App() {
   const selectedCloneHistoryEntry =
     cloneStampHistorySourceIndex === null
       ? null
-      : historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null;
+      : (historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null);
   const selectedHistoryBrushEntry =
     historyBrushSourceIndex === null
       ? null
-      : historyEntries.find((entry) => entry.id === historyBrushSourceIndex) ?? null;
+      : (historyEntries.find((entry) => entry.id === historyBrushSourceIndex) ?? null);
   const cloneStampOffsetDisplay =
     cloneStampSource && cursor
       ? cloneStampAligned && cloneStampAlignedOffset
@@ -2613,7 +2630,8 @@ export default function App() {
               ))}
             </ToolOptionGroup>
             <span className="text-[11px] text-slate-400">
-              {currentMixerPreset?.description ?? "Custom mix. Tip or paint settings no longer match a saved preset."}
+              {currentMixerPreset?.description ??
+                "Custom mix. Tip or paint settings no longer match a saved preset."}
             </span>
           </>
         ) : (
@@ -2650,7 +2668,10 @@ export default function App() {
           value={brushFlow}
           onChange={setBrushFlow}
         />
-        <ToolChoiceButton active={brushAirbrush} onClick={() => setBrushAirbrush((value) => !value)}>
+        <ToolChoiceButton
+          active={brushAirbrush}
+          onClick={() => setBrushAirbrush((value) => !value)}
+        >
           Airbrush
         </ToolChoiceButton>
         <ToolNumberField
@@ -2720,8 +2741,8 @@ export default function App() {
               Clean Brush
             </ToolChoiceButton>
             <span className="text-[11px] text-slate-500">
-              {(currentMixerPreset?.name ?? "Custom Mix")} · {Math.round(mixerBrushWetness * 100)}% wet ·{" "}
-              {Math.round(mixerBrushLoad * 100)}% loaded
+              {currentMixerPreset?.name ?? "Custom Mix"} · {Math.round(mixerBrushWetness * 100)}%
+              wet · {Math.round(mixerBrushLoad * 100)}% loaded
             </span>
           </>
         ) : activeTool === "cloneStamp" ? (
@@ -2777,9 +2798,7 @@ export default function App() {
                 options={historyEntries.map((entry) => ({
                   value: String(entry.id),
                   label:
-                    entry.state === "undone"
-                      ? `${entry.description} (Undone)`
-                      : entry.description,
+                    entry.state === "undone" ? `${entry.description} (Undone)` : entry.description,
                 }))}
               />
             ) : null}
@@ -2790,7 +2809,8 @@ export default function App() {
             </div>
             {cloneStampOffsetDisplay ? (
               <div className="text-[11px] text-slate-500">
-                Offset {Math.round(cloneStampOffsetDisplay.x)}, {Math.round(cloneStampOffsetDisplay.y)}
+                Offset {Math.round(cloneStampOffsetDisplay.x)},{" "}
+                {Math.round(cloneStampOffsetDisplay.y)}
                 {selectedCloneHistoryEntry ? ` · ${selectedCloneHistoryEntry.description}` : ""}
               </div>
             ) : selectedCloneHistoryEntry ? (
@@ -2831,9 +2851,7 @@ export default function App() {
                 options={historyEntries.map((entry) => ({
                   value: String(entry.id),
                   label:
-                    entry.state === "undone"
-                      ? `${entry.description} (Undone)`
-                      : entry.description,
+                    entry.state === "undone" ? `${entry.description} (Undone)` : entry.description,
                 }))}
               />
             ) : null}
@@ -2901,7 +2919,10 @@ export default function App() {
           value={brushFlow}
           onChange={setBrushFlow}
         />
-        <ToolChoiceButton active={brushAirbrush} onClick={() => setBrushAirbrush((value) => !value)}>
+        <ToolChoiceButton
+          active={brushAirbrush}
+          onClick={() => setBrushAirbrush((value) => !value)}
+        >
           Airbrush
         </ToolChoiceButton>
         <ToolNumberField
@@ -3113,7 +3134,12 @@ export default function App() {
             <ToolChoiceButton
               key={s}
               active={shapeSubTool === s}
-              onClick={() => setShapeSubTool(s)}
+              onClick={() => {
+                setShapeSubTool(s);
+                if (s === "custom-shape") {
+                  setActiveAuxPanel("shapes");
+                }
+              }}
             >
               {s === "rect"
                 ? "Rect"
@@ -3230,6 +3256,21 @@ export default function App() {
             </ToolChoiceButton>
           </>
         )}
+        {shapeSubTool === "custom-shape" && selectedShapePreset ? (
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preset</span>
+            <span className="rounded border border-white/10 bg-black/20 px-2 py-0.5 text-slate-200">
+              {selectedShapePreset.name}
+            </span>
+            <button
+              type="button"
+              className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
+              onClick={() => setActiveAuxPanel("shapes")}
+            >
+              Library
+            </button>
+          </div>
+        ) : null}
         <span className="text-[11px] text-slate-400">
           Drag to draw. Shift = constrain aspect ratio.
         </span>
@@ -3261,7 +3302,9 @@ export default function App() {
             const firstNewPreset = mergedPresets[mergedPresets.length - addedCount];
             setCustomBrushPresets(mergedPresets);
             applyBrushPreset(firstNewPreset);
-            setBrushPresetStatus(`Imported ${addedCount} brush preset${addedCount === 1 ? "" : "s"} from ${sourceName}.`);
+            setBrushPresetStatus(
+              `Imported ${addedCount} brush preset${addedCount === 1 ? "" : "s"} from ${sourceName}.`,
+            );
           } catch (error) {
             const message = error instanceof Error ? error.message : "Brush preset import failed.";
             setBrushPresetStatus(message);
@@ -3284,7 +3327,9 @@ export default function App() {
             const { name, swatches: importedSwatches } = await loadSwatchSetFile(file);
             setSwatches(importedSwatches.slice(0, MAX_SWATCHES));
             setSwatchSetName(name);
-            setSwatchStatus(`Loaded ${Math.min(importedSwatches.length, MAX_SWATCHES)} swatches from ${name}.`);
+            setSwatchStatus(
+              `Loaded ${Math.min(importedSwatches.length, MAX_SWATCHES)} swatches from ${name}.`,
+            );
           } catch (error) {
             const message = error instanceof Error ? error.message : "Swatch import failed.";
             setSwatchStatus(message);
@@ -3603,6 +3648,7 @@ export default function App() {
                       cornerRadius: shapeCornerRadius,
                       polygonSides: shapePolygonSides,
                       starMode: shapeStarMode,
+                      customPreset: selectedShapePreset,
                       fillColor: shapeFillColor,
                       strokeColor: shapeStrokeColor,
                       strokeWidth: shapeStrokeWidth,
@@ -3696,6 +3742,7 @@ export default function App() {
                           ["swatches", "Swatches"],
                           ["channels", "Channels"],
                           ["paths", "Paths"],
+                          ["shapes", "Shapes"],
                           ["history", "History"],
                           ["navigator", "Navigator"],
                         ].map(([id, label]) => (
@@ -3786,6 +3833,15 @@ export default function App() {
                         />
                       ) : null}
 
+                      {activeAuxPanel === "shapes" ? (
+                        <ShapesPanel
+                          active={activeTool === "shape" && shapeSubTool === "custom-shape"}
+                          presets={SHAPE_PRESETS}
+                          selectedPresetId={selectedShapePreset?.id ?? ""}
+                          onSelectPreset={(preset) => setShapePresetId(preset.id)}
+                        />
+                      ) : null}
+
                       {activeAuxPanel === "brush" ? (
                         <div className="space-y-3">
                           <BrushSettingsPanel
@@ -3798,7 +3854,7 @@ export default function App() {
                             title={activeTool === "mixerBrush" ? "Mixer Tip" : undefined}
                             subtitle={
                               activeTool === "mixerBrush"
-                                ? currentMixerPreset?.name ?? "Custom tip profile"
+                                ? (currentMixerPreset?.name ?? "Custom tip profile")
                                 : undefined
                             }
                             hidePresetPicker={activeTool === "mixerBrush"}
@@ -3840,7 +3896,9 @@ export default function App() {
                                 </div>
                                 <ToolChoiceButton
                                   active={false}
-                                  onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
+                                  onClick={() =>
+                                    engine.dispatchCommand(CommandID.ResetMixerBrushState, {})
+                                  }
                                 >
                                   Clean Brush
                                 </ToolChoiceButton>
@@ -3860,7 +3918,8 @@ export default function App() {
                                   >
                                     <div className="text-[12px]">{preset.name}</div>
                                     <div className="text-[10px] text-slate-500">
-                                      {Math.round(preset.wetness * 100)}% wet · {Math.round(preset.load * 100)}% load
+                                      {Math.round(preset.wetness * 100)}% wet ·{" "}
+                                      {Math.round(preset.load * 100)}% load
                                     </div>
                                   </button>
                                 ))}
@@ -3988,7 +4047,9 @@ export default function App() {
                                 {cloneStampUseHistorySource && historyEntries.length > 0 ? (
                                   <ToolSelectField
                                     label="History State"
-                                    value={String(cloneStampHistorySourceIndex ?? currentHistoryIndex)}
+                                    value={String(
+                                      cloneStampHistorySourceIndex ?? currentHistoryIndex,
+                                    )}
                                     onChange={(value) =>
                                       setCloneStampHistorySourceIndex(Number(value))
                                     }
@@ -4142,7 +4203,9 @@ export default function App() {
                           onPickForeground={(color) => applyColorToTarget("foreground", color)}
                           onPickBackground={(color) => applyColorToTarget("background", color)}
                           onAddSwatch={() =>
-                            setSwatches((current) => [foregroundColor, ...current].slice(0, MAX_SWATCHES))
+                            setSwatches((current) =>
+                              [foregroundColor, ...current].slice(0, MAX_SWATCHES),
+                            )
                           }
                           onImportSwatches={openSwatchImport}
                           onExportSwatches={exportSwatchSet}
@@ -5863,6 +5926,8 @@ function dockTitle(panel: AuxPanel) {
       return "Channels";
     case "paths":
       return "Paths";
+    case "shapes":
+      return "Shapes";
     case "adjustments":
       return "Adjustments";
     case "styles":

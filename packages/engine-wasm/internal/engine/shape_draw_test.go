@@ -183,6 +183,102 @@ func TestBuildShapePath_Unknown(t *testing.T) {
 	}
 }
 
+func TestBuildShapePath_CustomShapePreservesHandles(t *testing.T) {
+	payload := DrawShapePayload{
+		ShapeType: "custom-shape",
+		Closed:    true,
+		Points: []PathPoint{
+			{X: 10, Y: 10, OutX: 25, OutY: 5, HandleType: HandleSmooth},
+			{X: 40, Y: 30, InX: 35, InY: 15, HandleType: HandleSmooth},
+		},
+	}
+
+	path, err := buildShapePath(payload)
+	if err != nil {
+		t.Fatalf("buildShapePath(custom-shape): %v", err)
+	}
+	if len(path.Subpaths) != 1 || len(path.Subpaths[0].Points) != 2 {
+		t.Fatalf("unexpected custom-shape path shape: %+v", path.Subpaths)
+	}
+
+	got := path.Subpaths[0].Points
+	if !path.Subpaths[0].Closed {
+		t.Fatal("expected custom-shape subpath to be closed")
+	}
+	if got[0].OutX != 25 || got[0].OutY != 5 {
+		t.Fatalf("first point out-handle = (%v,%v), want (25,5)", got[0].OutX, got[0].OutY)
+	}
+	if got[1].InX != 35 || got[1].InY != 15 {
+		t.Fatalf("second point in-handle = (%v,%v), want (35,15)", got[1].InX, got[1].InY)
+	}
+}
+
+func TestDrawShape_CustomShapeShapeAndPathModes(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	points := []PathPoint{
+		{X: 120, Y: 100},
+		{X: 170, Y: 100},
+		{X: 170, Y: 150},
+		{X: 120, Y: 150},
+	}
+
+	if _, err := DispatchCommand(h, commandDrawShape, mustJSON(t, DrawShapePayload{
+		ShapeType:   "custom-shape",
+		Closed:      true,
+		Points:      points,
+		FillColor:   [4]uint8{255, 0, 0, 255},
+		StrokeColor: [4]uint8{},
+		StrokeWidth: 0,
+		Mode:        "shape",
+	})); err != nil {
+		t.Fatalf("draw custom-shape layer: %v", err)
+	}
+
+	doc := instances[h].manager.Active()
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+	if !ok {
+		t.Fatal("expected active layer after drawing custom-shape")
+	}
+	vectorLayer, ok := layer.(*VectorLayer)
+	if !ok {
+		t.Fatalf("active layer type = %T, want *VectorLayer", layer)
+	}
+	if vectorLayer.Shape == nil || len(vectorLayer.Shape.Subpaths) != 1 {
+		t.Fatal("expected vector layer shape path")
+	}
+	if len(vectorLayer.Shape.Subpaths[0].Points) != len(points) {
+		t.Fatalf("custom-shape point count = %d, want %d", len(vectorLayer.Shape.Subpaths[0].Points), len(points))
+	}
+
+	if _, err := DispatchCommand(h, commandDrawShape, mustJSON(t, DrawShapePayload{
+		ShapeType: "custom-shape",
+		Closed:    true,
+		Points: []PathPoint{
+			{X: 220, Y: 200},
+			{X: 260, Y: 200},
+			{X: 260, Y: 240},
+			{X: 220, Y: 240},
+		},
+		Mode: "path",
+	})); err != nil {
+		t.Fatalf("draw custom-shape path: %v", err)
+	}
+
+	doc = instances[h].manager.Active()
+	if len(doc.Paths) == 0 {
+		t.Fatal("expected custom-shape path in document paths")
+	}
+	lastPath := doc.Paths[len(doc.Paths)-1].Path
+	if len(lastPath.Subpaths) != 1 || len(lastPath.Subpaths[0].Points) != 4 {
+		t.Fatalf("unexpected custom-shape path payload: %+v", lastPath.Subpaths)
+	}
+	if !lastPath.Subpaths[0].Closed {
+		t.Fatal("expected path-mode custom shape to be closed")
+	}
+}
+
 // TestPolygonVerticesOnEllipse checks that all outer vertices of a hexagon lie on the ellipse.
 func TestPolygonVerticesOnEllipse(t *testing.T) {
 	x, y, w, h := 0.0, 0.0, 100.0, 80.0
