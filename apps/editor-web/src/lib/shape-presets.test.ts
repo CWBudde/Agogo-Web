@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRegularPolygonPoints,
   mapShapePresetToBounds,
   pathPointsToSvgPathData,
   resolveShapeDragBounds,
@@ -62,5 +63,14 @@ describe("shape preset helpers", () => {
   it("emits a closed SVG path when the preset is closed", () => {
     const mapped = mapShapePresetToBounds(preset, { x: 0, y: 0, w: 1, h: 1 });
     expect(pathPointsToSvgPathData(mapped, preset.closed)).toContain("Z");
+  });
+
+  it("builds star polygon points with the requested inner radius percentage", () => {
+    const points = buildRegularPolygonPoints({ x: 0, y: 0, w: 100, h: 100 }, 4, true, 0.25);
+
+    expect(points).toHaveLength(8);
+    expect(points[0]).toEqual({ x: 50, y: 0 });
+    expect(points[1].x).toBeCloseTo(58.8388347648);
+    expect(points[1].y).toBeCloseTo(41.1611652352);
   });
 });

@@ -929,6 +929,7 @@ export default function App() {
   const [shapeMode, setShapeMode] = useState<ShapeMode>("shape");
   const [shapeCornerRadius, setShapeCornerRadius] = useState(10);
   const [shapePolygonSides, setShapePolygonSides] = useState(6);
+  const [shapePolygonInnerRadiusPct, setShapePolygonInnerRadiusPct] = useState(50);
   const [shapeStarMode, setShapeStarMode] = useState(false);
   const [shapePresetId, setShapePresetId] = useState(SHAPE_PRESETS[0]?.id ?? "");
   const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([
@@ -3254,6 +3255,27 @@ export default function App() {
             <ToolChoiceButton active={shapeStarMode} onClick={() => setShapeStarMode((v) => !v)}>
               Star
             </ToolChoiceButton>
+            {shapeStarMode ? (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                  Inner
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  step={1}
+                  value={shapePolygonInnerRadiusPct}
+                  onChange={(e) =>
+                    setShapePolygonInnerRadiusPct(
+                      Math.min(99, Math.max(1, Number(e.target.value) || 1)),
+                    )
+                  }
+                  className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
+                />
+                <span className="text-[10px] text-slate-500">%</span>
+              </div>
+            ) : null}
           </>
         )}
         {shapeSubTool === "custom-shape" && selectedShapePreset ? (
@@ -3647,6 +3669,7 @@ export default function App() {
                       mode: shapeMode,
                       cornerRadius: shapeCornerRadius,
                       polygonSides: shapePolygonSides,
+                      polygonInnerRadiusPct: shapePolygonInnerRadiusPct,
                       starMode: shapeStarMode,
                       customPreset: selectedShapePreset,
                       fillColor: shapeFillColor,

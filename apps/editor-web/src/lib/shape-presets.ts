@@ -271,6 +271,33 @@ export function resolveShapeDragBounds(
   return { x, y, w, h };
 }
 
+export function buildRegularPolygonPoints(
+  bounds: ShapeBounds,
+  sides: number,
+  starMode = false,
+  innerRadiusPct = 0.5,
+) {
+  if (sides < 3 || bounds.w === 0 || bounds.h === 0) {
+    return [];
+  }
+
+  const cx = bounds.x + bounds.w * 0.5;
+  const cy = bounds.y + bounds.h * 0.5;
+  const rx = bounds.w * 0.5;
+  const ry = bounds.h * 0.5;
+  const totalPoints = starMode ? sides * 2 : sides;
+  const clampedInnerRadius = Math.min(1, Math.max(0, innerRadiusPct || 0.5));
+
+  return Array.from({ length: totalPoints }, (_, index) => {
+    const radiusScale = starMode && index % 2 === 1 ? clampedInnerRadius : 1;
+    const angle = -Math.PI / 2 + (index * 2 * Math.PI) / totalPoints;
+    return {
+      x: cx + rx * radiusScale * Math.cos(angle),
+      y: cy + ry * radiusScale * Math.sin(angle),
+    };
+  });
+}
+
 export function mapShapePresetToBounds(preset: ShapePreset, bounds: ShapeBounds) {
   const mapX = (value: number) => bounds.x + value * bounds.w;
   const mapY = (value: number) => bounds.y + value * bounds.h;

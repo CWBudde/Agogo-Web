@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import {
+  buildRegularPolygonPoints,
   mapShapePresetToBounds,
   pathPointsToSvgPathData,
   resolveShapeDragBounds,
@@ -142,6 +143,7 @@ type EditorCanvasProps = {
     mode: "shape" | "path" | "pixels";
     cornerRadius: number;
     polygonSides: number;
+    polygonInnerRadiusPct: number;
     starMode: boolean;
     customPreset: ShapePreset | null;
     fillColor: [number, number, number, number];
@@ -1574,6 +1576,20 @@ export function EditorCanvas({
           shapeDraft.current,
           shapeDraft.constrain,
         );
+        if (shapeOptions.subTool === "polygon") {
+          const points = buildRegularPolygonPoints(
+            bounds,
+            shapeOptions.polygonSides,
+            shapeOptions.starMode,
+            shapeOptions.polygonInnerRadiusPct / 100,
+          )
+            .map((point) => documentPointToCanvas(point))
+            .filter((point): point is DocumentPoint => point !== null);
+          if (points.length === 0) {
+            return null;
+          }
+          return { kind: "polygon" as const, points };
+        }
         const startC = documentPointToCanvas({ x: bounds.x, y: bounds.y });
         const endC = documentPointToCanvas({ x: bounds.x + bounds.w, y: bounds.y + bounds.h });
         if (!startC || !endC) return null;
@@ -3155,6 +3171,9 @@ export function EditorCanvas({
             cornerRadius: shapeOptions.cornerRadius,
             sides: shapeOptions.polygonSides,
             starMode: shapeOptions.starMode,
+            innerRadiusPct: shapeOptions.starMode
+              ? shapeOptions.polygonInnerRadiusPct / 100
+              : undefined,
             fillColor: shapeOptions.fillColor,
             strokeColor: shapeOptions.strokeColor,
             strokeWidth: shapeOptions.strokeWidth,
@@ -3530,6 +3549,14 @@ export function EditorCanvas({
                 y1={shapeOverlay.start.y}
                 x2={shapeOverlay.current.x}
                 y2={shapeOverlay.current.y}
+                stroke="rgba(34, 211, 238, 0.9)"
+                strokeDasharray="6 5"
+                strokeWidth="1.5"
+              />
+            ) : shapeOverlay.kind === "polygon" ? (
+              <polygon
+                points={shapeOverlay.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                fill="rgba(34, 211, 238, 0.08)"
                 stroke="rgba(34, 211, 238, 0.9)"
                 strokeDasharray="6 5"
                 strokeWidth="1.5"

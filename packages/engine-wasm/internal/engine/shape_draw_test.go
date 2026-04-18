@@ -105,6 +105,20 @@ func TestMakePolygonPath_Star(t *testing.T) {
 	}
 }
 
+func TestMakePolygonPath_StarInnerRadius(t *testing.T) {
+	p, err := makePolygonPath(0, 0, 100, 100, 4, true, 0.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	centerX, centerY := 50.0, 50.0
+	inner := p.Subpaths[0].Points[1]
+	dist := math.Hypot(inner.X-centerX, inner.Y-centerY)
+	if math.Abs(dist-12.5) > 1e-9 {
+		t.Fatalf("inner radius = %v, want 12.5", dist)
+	}
+}
+
 func TestMakePolygonPath_TooFewSides(t *testing.T) {
 	_, err := makePolygonPath(0, 0, 100, 100, 2, false, 0)
 	if err == nil {
@@ -173,6 +187,29 @@ func TestBuildShapePath_AllTypes(t *testing.T) {
 		if p == nil || len(p.Subpaths) == 0 {
 			t.Errorf("shapeType=%q: got nil or empty path", c.ShapeType)
 		}
+	}
+}
+
+func TestBuildShapePath_PolygonUsesInnerRadiusPct(t *testing.T) {
+	path, err := buildShapePath(DrawShapePayload{
+		ShapeType:      "polygon",
+		X:              0,
+		Y:              0,
+		W:              100,
+		H:              100,
+		Sides:          4,
+		StarMode:       true,
+		InnerRadiusPct: 0.25,
+	})
+	if err != nil {
+		t.Fatalf("buildShapePath(polygon): %v", err)
+	}
+
+	centerX, centerY := 50.0, 50.0
+	inner := path.Subpaths[0].Points[1]
+	dist := math.Hypot(inner.X-centerX, inner.Y-centerY)
+	if math.Abs(dist-12.5) > 1e-9 {
+		t.Fatalf("inner radius = %v, want 12.5", dist)
 	}
 }
 
