@@ -938,11 +938,7 @@ func TestDiscreteTransform_FlipH(t *testing.T) {
 func TestExtractSelectionContent_Basic(t *testing.T) {
 	// 4×4 layer, solid red.
 	pixels := makeSolidPixels(4, 4, 255, 0, 0, 255)
-	pl := &PixelLayer{
-		layerBase: newLayerBase("L"),
-		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
-		Pixels:    pixels,
-	}
+	pl := NewPixelLayer("L", LayerBounds{X: 0, Y: 0, W: 4, H: 4}, pixels)
 	// Select the top-left 2×2 region.
 	sel := newSelection(4, 4)
 	for y := range 2 {
@@ -969,11 +965,7 @@ func TestExtractSelectionContent_Basic(t *testing.T) {
 func TestExtractSelectionContent_NoOverlap(t *testing.T) {
 	// 4×4 layer at origin; selection entirely outside layer bounds.
 	pixels := makeSolidPixels(2, 2, 255, 0, 0, 255)
-	pl := &PixelLayer{
-		layerBase: newLayerBase("L"),
-		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
-		Pixels:    pixels,
-	}
+	pl := NewPixelLayer("L", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, pixels)
 	sel := newSelection(4, 4)
 	// Select only bottom-right corner, outside the 2×2 layer.
 	sel.Mask[3*4+3] = 255
@@ -986,11 +978,7 @@ func TestExtractSelectionContent_NoOverlap(t *testing.T) {
 
 func TestClearSelectionContent(t *testing.T) {
 	pixels := makeSolidPixels(4, 4, 200, 100, 50, 255)
-	pl := &PixelLayer{
-		layerBase: newLayerBase("L"),
-		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
-		Pixels:    append([]byte(nil), pixels...),
-	}
+	pl := NewPixelLayer("L", LayerBounds{X: 0, Y: 0, W: 4, H: 4}, append([]byte(nil), pixels...))
 	// Select the entire layer.
 	sel := newSelection(4, 4)
 	for i := range sel.Mask {
@@ -1008,11 +996,7 @@ func TestClearSelectionContent(t *testing.T) {
 
 func TestMergePixelLayerOnto_Basic(t *testing.T) {
 	// dst: 4×4 solid green.
-	dst := &PixelLayer{
-		layerBase: newLayerBase("dst"),
-		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
-		Pixels:    makeSolidPixels(4, 4, 0, 255, 0, 255),
-	}
+	dst := NewPixelLayer("dst", LayerBounds{X: 0, Y: 0, W: 4, H: 4}, makeSolidPixels(4, 4, 0, 255, 0, 255))
 	// src: 2×2 solid red, overlapping top-left of dst.
 	srcPixels := makeSolidPixels(2, 2, 255, 0, 0, 255)
 	srcBounds := LayerBounds{X: 0, Y: 0, W: 2, H: 2}

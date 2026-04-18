@@ -993,9 +993,11 @@
 - [x] **Ellipse Tool:** drag for ellipse, Shift = circle
 - [x] **Polygon Tool:** N sides, star mode (inner radius %)
 - [x] **Line Tool:** draws 1D path with stroke (width from options bar)
-- [ ] **Custom Shape Tool:**
+- [x] **Custom Shape Tool:**
   - [x] Shape library panel (preset shapes: arrows, logos, nature, ornaments)
-  - [ ] Import custom shapes from `.csh` files (later)
+  - [x] Import custom shapes from `.csh` files
+  - [x] Persist imported shapes in the shape library and expose them in the Custom Shape picker
+  - [x] Preserve compound shapes via multi-subpath custom shape presets
 - [x] Shape layer editing:
   - [x] Double-click shape layer → enters path editing mode
   - [x] Can change fill/stroke without rasterizing

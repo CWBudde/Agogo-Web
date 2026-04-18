@@ -360,9 +360,7 @@ func (archive projectLayerArchive) toLayerNode() (LayerNode, error) {
 	default:
 		return nil, fmt.Errorf("unsupported layer type %q", archive.LayerType)
 	}
-	if mutable, ok := layer.(mutableLayerNode); ok {
-		mutable.setID(archive.ID)
-	}
+	setLayerID(layer, archive.ID)
 	layer.SetVisible(archive.Visible)
 	layer.SetLockMode(archive.LockMode)
 	layer.SetOpacity(archive.Opacity)

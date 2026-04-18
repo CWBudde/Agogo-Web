@@ -23,7 +23,6 @@ import {
   getShapePresetSubpaths,
   mapShapePresetToBounds,
   mapShapePresetSubpathsToBounds,
-  pathPointsToSvgPathData,
   resolveShapeDragBounds,
   shapeSubpathsToSvgPathData,
   type ShapePreset,

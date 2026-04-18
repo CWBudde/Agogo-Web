@@ -97,7 +97,7 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 		adjustmentCacheMatches(layer, kind, resolvedParams, docW, docH) &&
 		adjustmentSupportsDirtyRegionCache(layer)
 	if canReuseDirtyRegion {
-		copySurfaceOutsideRect(surface, layer.cache.output, rect, docW, docH)
+		copySurfaceOutsideRect(surface, layer.Cache.Output, rect, docW, docH)
 	}
 
 	if err := applyAdjustmentLayerRectToSurface(surface, docW, docH, layer, clipAlpha, resolvedParams, transform, rect); err != nil {
@@ -178,25 +178,25 @@ func adjustmentCacheMatches(layer *AdjustmentLayer, kind string, resolvedParams 
 	if layer == nil {
 		return false
 	}
-	return layer.cache.kind == kind &&
-		layer.cache.docW == docW &&
-		layer.cache.docH == docH &&
-		len(layer.cache.output) == docW*docH*4 &&
-		bytes.Equal(layer.cache.resolvedParams, resolvedParams)
+	return layer.Cache.Kind == kind &&
+		layer.Cache.DocW == docW &&
+		layer.Cache.DocH == docH &&
+		len(layer.Cache.Output) == docW*docH*4 &&
+		bytes.Equal(layer.Cache.ResolvedParams, resolvedParams)
 }
 
 func updateAdjustmentCache(layer *AdjustmentLayer, kind string, resolvedParams json.RawMessage, docW, docH int, surface []byte) {
 	if layer == nil {
 		return
 	}
-	layer.cache.kind = kind
-	layer.cache.docW = docW
-	layer.cache.docH = docH
-	layer.cache.resolvedParams = cloneJSONRawMessage(resolvedParams)
-	if len(layer.cache.output) != len(surface) {
-		layer.cache.output = make([]byte, len(surface))
+	layer.Cache.Kind = kind
+	layer.Cache.DocW = docW
+	layer.Cache.DocH = docH
+	layer.Cache.ResolvedParams = cloneJSONRawMessage(resolvedParams)
+	if len(layer.Cache.Output) != len(surface) {
+		layer.Cache.Output = make([]byte, len(surface))
 	}
-	copy(layer.cache.output, surface)
+	copy(layer.Cache.Output, surface)
 }
 
 func copySurfaceOutsideRect(dest, src []byte, rect DirtyRect, width, height int) {

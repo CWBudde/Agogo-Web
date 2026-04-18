@@ -280,11 +280,7 @@ func TestCrop_CommitErrorsWithoutActiveCrop(t *testing.T) {
 }
 
 func TestApplyRotatedCropToPixelLayerSolidPixels(t *testing.T) {
-	pl := &PixelLayer{
-		layerBase: newLayerBase("Layer"),
-		Bounds:    LayerBounds{X: 0, Y: 0, W: 2, H: 2},
-		Pixels:    makeSolidPixels(2, 2, 200, 100, 50, 255),
-	}
+	pl := NewPixelLayer("Layer", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, makeSolidPixels(2, 2, 200, 100, 50, 255))
 
 	pixels, bounds := applyRotatedCropToPixelLayer(pl, 1, 1, 2, 2, 0)
 	if bounds != (LayerBounds{X: 0, Y: 0, W: 2, H: 2}) {
@@ -301,14 +297,10 @@ func TestApplyRotatedCropToPixelLayerSolidPixels(t *testing.T) {
 }
 
 func TestTrimPixelLayerToBoundsClearsOutsidePixels(t *testing.T) {
-	pl := &PixelLayer{
-		layerBase: newLayerBase("Layer"),
-		Bounds:    LayerBounds{X: -1, Y: 0, W: 2, H: 1},
-		Pixels: []byte{
-			255, 0, 0, 255,
-			0, 255, 0, 255,
-		},
-	}
+	pl := NewPixelLayer("Layer", LayerBounds{X: -1, Y: 0, W: 2, H: 1}, []byte{
+		255, 0, 0, 255,
+		0, 255, 0, 255,
+	})
 
 	trimPixelLayerToBounds(pl, 1, 1)
 	if got := pl.Pixels[:4]; got[0] != 0 || got[1] != 0 || got[2] != 0 || got[3] != 0 {

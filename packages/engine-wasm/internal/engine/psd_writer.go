@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	psdImageResourceAgogoProject = 0x0fa0
-	psdPSDMaxDimension           = 30000
+	psdPSDMaxDimension = 30000
 )
 
 func SavePSD(doc *Document) ([]byte, error) {

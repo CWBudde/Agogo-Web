@@ -5,32 +5,6 @@ import (
 	"reflect"
 )
 
-// BlendIfChannel models a Photoshop "Blend If" channel slider.
-// Values are [lowHard, lowSoft, highSoft, highHard] in the 0..255 domain.
-// A hard cutoff has lowHard == lowSoft and highSoft == highHard.
-// Alt-dragging a handle in the UI splits it, producing a smooth fade
-// between the hard and soft values.
-type BlendIfChannel [4]float64
-
-type BlendIfRange struct {
-	Gray  BlendIfChannel `json:"gray"`
-	Red   BlendIfChannel `json:"red"`
-	Green BlendIfChannel `json:"green"`
-	Blue  BlendIfChannel `json:"blue"`
-}
-
-type BlendChannelsMask struct {
-	R bool `json:"r"`
-	G bool `json:"g"`
-	B bool `json:"b"`
-}
-
-type BlendIfConfig struct {
-	ThisLayer       BlendIfRange      `json:"thisLayer"`
-	UnderlyingLayer BlendIfRange      `json:"underlyingLayer"`
-	Channels        BlendChannelsMask `json:"channels"`
-}
-
 type DropShadowParams struct {
 	BlendMode BlendMode `json:"blendMode"`
 	Color     [4]uint8  `json:"color"`
@@ -414,14 +388,6 @@ func defaultBlendIfConfig() *BlendIfConfig {
 	}
 }
 
-func cloneBlendIfConfig(config *BlendIfConfig) *BlendIfConfig {
-	if config == nil {
-		return nil
-	}
-	cloned := *config
-	return &cloned
-}
-
 func normalizeBlendIfConfig(config *BlendIfConfig) *BlendIfConfig {
 	if config == nil {
 		return defaultBlendIfConfig()
@@ -470,55 +436,6 @@ func clampBlendIfValue(value float64) float64 {
 		return 255
 	}
 	return value
-}
-
-// UnmarshalJSON accepts both the current BlendIfConfig shape and the legacy
-// shape from project archives ({"gray":[min,max], ...}) so older documents
-// continue to load.
-func (c *BlendIfConfig) UnmarshalJSON(data []byte) error {
-	type newShape struct {
-		ThisLayer       BlendIfRange      `json:"thisLayer"`
-		UnderlyingLayer BlendIfRange      `json:"underlyingLayer"`
-		Channels        BlendChannelsMask `json:"channels"`
-	}
-	type legacyShape struct {
-		Gray  [2]float64 `json:"gray"`
-		Red   [2]float64 `json:"red"`
-		Green [2]float64 `json:"green"`
-		Blue  [2]float64 `json:"blue"`
-	}
-
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(data, &probe); err != nil {
-		return err
-	}
-	if _, ok := probe["thisLayer"]; ok {
-		var parsed newShape
-		if err := json.Unmarshal(data, &parsed); err != nil {
-			return err
-		}
-		c.ThisLayer = parsed.ThisLayer
-		c.UnderlyingLayer = parsed.UnderlyingLayer
-		c.Channels = parsed.Channels
-		if _, present := probe["channels"]; !present {
-			c.Channels = defaultBlendChannelsMask()
-		}
-		return nil
-	}
-
-	var legacy legacyShape
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	c.ThisLayer = BlendIfRange{
-		Gray:  BlendIfChannel{legacy.Gray[0], legacy.Gray[0], legacy.Gray[1], legacy.Gray[1]},
-		Red:   BlendIfChannel{legacy.Red[0], legacy.Red[0], legacy.Red[1], legacy.Red[1]},
-		Green: BlendIfChannel{legacy.Green[0], legacy.Green[0], legacy.Green[1], legacy.Green[1]},
-		Blue:  BlendIfChannel{legacy.Blue[0], legacy.Blue[0], legacy.Blue[1], legacy.Blue[1]},
-	}
-	c.UnderlyingLayer = defaultBlendIfRange()
-	c.Channels = defaultBlendChannelsMask()
-	return nil
 }
 
 func decodeJSONInto(params json.RawMessage, target any) {
