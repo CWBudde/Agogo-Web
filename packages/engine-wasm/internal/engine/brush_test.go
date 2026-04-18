@@ -893,6 +893,144 @@ func TestHistoryBrushStroke_RestoresPreviousHistoryState(t *testing.T) {
 	}
 }
 
+func TestHistoryBrushStroke_CanPaintFromSelectedHistoryState(t *testing.T) {
+	const w, h = 24, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("history-selected", "History Selected", w, h)
+	layer := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+	doc.ActiveLayerID = layer.ID()
+	inst.manager.Create(doc)
+
+	red := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	green := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 255, 0, 255}}
+	blue := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: red})
+	inst.handleEndPaintStroke()
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: green})
+	inst.handleEndPaintStroke()
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: blue})
+	inst.handleEndPaintStroke()
+
+	historyBrush := BrushParams{
+		Size:             8,
+		Hardness:         1.0,
+		Flow:             1.0,
+		Color:            [4]uint8{0, 0, 0, 255},
+		HistoryBrush:     true,
+		HistorySourceIdx: 1,
+		SampleMerged:     true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: historyBrush})
+	inst.handleEndPaintStroke()
+
+	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
+	if painted == nil {
+		t.Fatal("layer not found after history brush selected-source stroke")
+	}
+	idx := (12*24 + 12) * 4
+	if painted.Pixels[idx] < 200 || painted.Pixels[idx+1] != 0 || painted.Pixels[idx+2] != 0 {
+		t.Fatalf("selected-source history brush pixel = RGBA(%d,%d,%d,%d), want oldest red state", painted.Pixels[idx], painted.Pixels[idx+1], painted.Pixels[idx+2], painted.Pixels[idx+3])
+	}
+}
+
+func TestHistoryBrushStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
+	const w, h = 28, 20
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("history-load", "History Load", w, h)
+	layer := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+	doc.ActiveLayerID = layer.ID()
+	inst.manager.Create(doc)
+
+	red := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	erase := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 0, 255}, Erase: true}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: red})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: erase})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	historyBrush := BrushParams{
+		Size:           1,
+		Hardness:       1.0,
+		Flow:           1.0,
+		Color:          [4]uint8{0, 0, 0, 255},
+		HistoryBrush:   true,
+		HistoryOpacity: 0.5,
+		HistoryLoad:    0.35,
+		SampleMerged:   true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: historyBrush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
+	if painted == nil {
+		t.Fatal("layer not found after history brush opacity/load stroke")
+	}
+	first := layerPixelAt(painted, 14, 10)
+	second := layerPixelAt(painted, 18, 10)
+	if first[0] < 200 || first[3] == 0 || first[3] >= 255 {
+		t.Fatalf("first history brush dab = %v, want red source color with partial alpha", first)
+	}
+	if second[3] >= first[3] {
+		t.Fatalf("second history brush alpha = %d, want less than first dab alpha %d after load decay", second[3], first[3])
+	}
+}
+
+func TestHistoryBrushStroke_InvalidSelectedStateFallsBackToPreviousSnapshot(t *testing.T) {
+	const w, h = 24, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("history-fallback", "History Fallback", w, h)
+	layer := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+	doc.ActiveLayerID = layer.ID()
+	inst.manager.Create(doc)
+
+	red := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	blue := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: red})
+	inst.handleEndPaintStroke()
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: blue})
+	inst.handleEndPaintStroke()
+
+	historyBrush := BrushParams{
+		Size:             8,
+		Hardness:         1.0,
+		Flow:             1.0,
+		Color:            [4]uint8{0, 0, 0, 255},
+		HistoryBrush:     true,
+		HistorySourceIdx: 999,
+		SampleMerged:     true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: historyBrush})
+	inst.handleEndPaintStroke()
+
+	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
+	if painted == nil {
+		t.Fatal("layer not found after invalid-source history brush stroke")
+	}
+	idx := (12*24 + 12) * 4
+	if painted.Pixels[idx] < 200 || painted.Pixels[idx+1] != 0 || painted.Pixels[idx+2] != 0 {
+		t.Fatalf("invalid-source history brush pixel = RGBA(%d,%d,%d,%d), want fallback previous red state", painted.Pixels[idx], painted.Pixels[idx+1], painted.Pixels[idx+2], painted.Pixels[idx+3])
+	}
+}
+
 func TestPaintDab_HardBrush_CenterPixelFilled(t *testing.T) {
 	bounds := LayerBounds{X: 0, Y: 0, W: 20, H: 20}
 	layer := NewPixelLayer("test", bounds, make([]byte, 20*20*4))

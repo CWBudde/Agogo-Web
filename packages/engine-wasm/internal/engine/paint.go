@@ -18,6 +18,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	brushParams := p.Brush
 	brushParams = normalizeMixerBrushParams(brushParams)
 	brushParams = normalizeCloneStampParams(brushParams)
+	brushParams = normalizeHistoryBrushParams(brushParams)
 	if brushParams.AutoErase {
 		// Sample the active layer pixel at the stroke start.
 		// If it matches the brush (foreground) color, switch to background color.
@@ -68,9 +69,17 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		stroke.cloneRemainingLoad = brushParams.CloneLoad
 	}
 	if brushParams.HistoryBrush {
-		if state, ok := inst.history.PreviousSnapshot(inst); ok {
-			stroke.historySource, stroke.historySourceW, stroke.historySourceH, stroke.historySourceX, stroke.historySourceY = captureHistorySourceSurface(state, brushParams.SampleMerged)
+		if brushParams.HistorySourceIdx > 0 {
+			if state, ok := inst.history.SnapshotAtIndex(inst, brushParams.HistorySourceIdx); ok {
+				stroke.historySource, stroke.historySourceW, stroke.historySourceH, stroke.historySourceX, stroke.historySourceY = captureHistorySourceSurface(state, brushParams.SampleMerged)
+			}
 		}
+		if len(stroke.historySource) == 0 {
+			if state, ok := inst.history.PreviousSnapshot(inst); ok {
+				stroke.historySource, stroke.historySourceW, stroke.historySourceH, stroke.historySourceX, stroke.historySourceY = captureHistorySourceSurface(state, brushParams.SampleMerged)
+			}
+		}
+		stroke.historyRemainingLoad = brushParams.HistoryLoad
 	}
 
 	inst.paintStroke = stroke
@@ -92,7 +101,7 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		} else if dabParams.CloneStamp {
 			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
 		} else if dabParams.HistoryBrush {
-			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, nil)
+			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
 		} else {
 			if dabParams.MixerBrush {
 				dirX, dirY := mixerStrokeDirection(stroke, dx, dy, azimuth)
@@ -137,7 +146,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 		} else if dabParams.CloneStamp {
 			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
 		} else if dabParams.HistoryBrush {
-			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, nil)
+			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
 		} else {
 			if dabParams.MixerBrush {
 				dirX, dirY := mixerStrokeDirection(inst.paintStroke, dx, dy, azimuth)

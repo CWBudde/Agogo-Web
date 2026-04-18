@@ -12,6 +12,7 @@ import {
   type GradientType,
   type InterpolMode,
   type LayerNodeMeta,
+  type SampleMergedColorCommand,
   type SetColorCommand,
   type TextEditInputCommand,
   type ThumbnailEntry,
@@ -68,6 +69,7 @@ import {
   ZoomToolIcon,
 } from "@/components/editor-icons";
 import { GradientEditorDialog } from "@/components/gradient-editor";
+import { type ColorSamplerPoint, InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { PathsPanel } from "@/components/paths-panel";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
@@ -464,6 +466,7 @@ const presets = [
 type DocumentUnit = "px" | "in" | "cm" | "mm";
 type AuxPanel =
   | "properties"
+  | "info"
   | "adjustments"
   | "history"
   | "navigator"
@@ -743,6 +746,9 @@ export default function App() {
     null,
   );
   const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
+  const [historyBrushSourceIndex, setHistoryBrushSourceIndex] = useState<number | null>(null);
+  const [historyBrushOpacity, setHistoryBrushOpacity] = useState(1);
+  const [historyBrushLoad, setHistoryBrushLoad] = useState(1);
   const [historyBrushSampleMerged, setHistoryBrushSampleMerged] = useState(true);
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
   const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
@@ -803,6 +809,8 @@ export default function App() {
   const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
   const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
+  const [colorSamplerPoints, setColorSamplerPoints] = useState<ColorSamplerPoint[]>([]);
+  const nextColorSamplerId = useRef(1);
 
   // Shape tool state
   type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
@@ -930,6 +938,58 @@ export default function App() {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
   const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
+  const sampleColorAtPoint = (
+    x: number,
+    y: number,
+    sampleSize: number,
+    sampleMerged: boolean,
+    sampleAllLayersNoAdj: boolean,
+  ): Rgba | null => {
+    const sampled = engine.handle
+      ?.dispatchCommand(CommandID.SampleMergedColor, {
+        x,
+        y,
+        sampleSize,
+        sampleMerged: sampleMerged || sampleAllLayersNoAdj,
+      } satisfies SampleMergedColorCommand)
+      ?.sampledColor;
+    return sampled ? toRgba(sampled) : null;
+  };
+
+  const addColorSamplerPoint = ({
+    x,
+    y,
+    sampleSize,
+    sampleMerged,
+    sampleAllLayersNoAdj,
+  }: {
+    x: number;
+    y: number;
+    sampleSize: number;
+    sampleMerged: boolean;
+    sampleAllLayersNoAdj: boolean;
+  }) => {
+    if (colorSamplerPoints.length >= 4) {
+      return;
+    }
+    setColorSamplerPoints((current) => {
+      if (current.length >= 4) {
+        return current;
+      }
+      return [
+        ...current,
+        {
+          id: `sampler-${nextColorSamplerId.current++}`,
+          x,
+          y,
+          sampleSize,
+          sampleMerged,
+          sampleAllLayersNoAdj,
+          color: sampleColorAtPoint(x, y, sampleSize, sampleMerged, sampleAllLayersNoAdj),
+        },
+      ];
+    });
+  };
   const currentMixerPreset = useMemo(() => {
     const fuzzyEquals = (a: number, b: number) => Math.abs(a - b) < 0.001;
     return (
@@ -1038,6 +1098,34 @@ export default function App() {
     activeCrop?.overlayType,
     activeCrop?.resolution,
   ]);
+
+  useEffect(() => {
+    if ((render?.uiMeta.documentWidth ?? 0) > 0 || colorSamplerPoints.length === 0) {
+      return;
+    }
+    setColorSamplerPoints([]);
+  }, [colorSamplerPoints.length, render?.uiMeta.documentWidth]);
+
+  useEffect(() => {
+    if (!engine.handle || contentVersion === undefined || colorSamplerPoints.length === 0) {
+      return;
+    }
+    setColorSamplerPoints((current) =>
+      current.map((point) => {
+        const sampled = engine.handle?.dispatchCommand(CommandID.SampleMergedColor, {
+          x: point.x,
+          y: point.y,
+          sampleSize: point.sampleSize,
+          sampleMerged: point.sampleMerged || point.sampleAllLayersNoAdj,
+        } satisfies SampleMergedColorCommand)?.sampledColor;
+        return {
+          ...point,
+          color: sampled ? toRgba(sampled) : null,
+        };
+      }),
+    );
+  }, [colorSamplerPoints.length, contentVersion, engine.handle]);
+
   const selectiveColorFields = [
     { key: "cyanRed", label: "Cyan / Red" },
     { key: "magentaGreen", label: "Magenta / Green" },
@@ -1232,6 +1320,7 @@ export default function App() {
     } else {
       payload = new TextDecoder().decode(bytes);
     }
+    setColorSamplerPoints([]);
     const imported = engine.importProject(payload);
     if (imported) {
       setDraft((current) => ({
@@ -1259,6 +1348,7 @@ export default function App() {
     for (let i = 0; i < data.length; i += chunkSize) {
       binary += String.fromCharCode(...data.subarray(i, i + chunkSize));
     }
+    setColorSamplerPoints([]);
     const result = engine.dispatchCommand(CommandID.OpenImageFile, {
       name: file.name,
       width,
@@ -1281,6 +1371,7 @@ export default function App() {
       setHasAutosave(false);
       return;
     }
+    setColorSamplerPoints([]);
     const imported = engine.importProject(saved);
     if (imported) {
       setDraft((current) => ({
@@ -1731,6 +1822,10 @@ export default function App() {
     cloneStampHistorySourceIndex === null
       ? null
       : historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null;
+  const selectedHistoryBrushEntry =
+    historyBrushSourceIndex === null
+      ? null
+      : historyEntries.find((entry) => entry.id === historyBrushSourceIndex) ?? null;
   const cloneStampOffsetDisplay =
     cloneStampSource && cursor
       ? cloneStampAligned && cloneStampAlignedOffset
@@ -1766,6 +1861,23 @@ export default function App() {
     currentHistoryIndex,
     historyEntries,
   ]);
+  useEffect(() => {
+    if (historyEntries.length === 0) {
+      setHistoryBrushSourceIndex(null);
+      return;
+    }
+    if (
+      historyBrushSourceIndex !== null &&
+      historyEntries.some((entry) => entry.id === historyBrushSourceIndex)
+    ) {
+      return;
+    }
+    const fallback =
+      historyEntries.find((entry) => entry.id === currentHistoryIndex)?.id ??
+      historyEntries[historyEntries.length - 1]?.id ??
+      null;
+    setHistoryBrushSourceIndex(fallback);
+  }, [currentHistoryIndex, historyBrushSourceIndex, historyEntries]);
   const widthValue = formatDimension(
     pixelsToUnit(draft.width, draft.resolution, documentUnit),
     documentUnit,
@@ -2480,15 +2592,50 @@ export default function App() {
           </>
         ) : activeTool === "historyBrush" ? (
           <>
+            <ToolNumberField
+              label="Opacity"
+              min={0}
+              max={1}
+              step={0.05}
+              value={historyBrushOpacity}
+              onChange={setHistoryBrushOpacity}
+            />
+            <ToolNumberField
+              label="Load"
+              min={0}
+              max={1}
+              step={0.05}
+              value={historyBrushLoad}
+              onChange={setHistoryBrushLoad}
+            />
             <ToolChoiceButton
               active={historyBrushSampleMerged}
               onClick={() => setHistoryBrushSampleMerged((value) => !value)}
             >
               Sample Merged
             </ToolChoiceButton>
+            {historyEntries.length > 0 ? (
+              <ToolSelectField
+                label="State"
+                value={String(historyBrushSourceIndex ?? currentHistoryIndex)}
+                onChange={(value) => setHistoryBrushSourceIndex(Number(value))}
+                options={historyEntries.map((entry) => ({
+                  value: String(entry.id),
+                  label:
+                    entry.state === "undone"
+                      ? `${entry.description} (Undone)`
+                      : entry.description,
+                }))}
+              />
+            ) : null}
             <div className="text-[11px] text-slate-400">
-              Paints from the previous history state.
+              Paints from the selected history state at the current cursor position.
             </div>
+            {selectedHistoryBrushEntry ? (
+              <div className="text-[11px] text-slate-500">
+                Source state: {selectedHistoryBrushEntry.description}
+              </div>
+            ) : null}
           </>
         ) : null}
         {activeTool === "pencil" ? (
@@ -2698,6 +2845,9 @@ export default function App() {
         <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
         <span className="text-[11px] text-slate-400">
           Click sets foreground; Alt+click sets background.
+        </span>
+        <span className="text-[11px] text-slate-400">
+          Shift+click adds a sampler point; remove them from the Info panel.
         </span>
       </>
     ) : activeTool === "shape" ? (
@@ -3101,6 +3251,10 @@ export default function App() {
                     onCloneStampAlignedOffsetChange={setCloneStampAlignedOffset}
                     cloneStampUseHistorySource={cloneStampUseHistorySource}
                     cloneStampHistorySourceIndex={cloneStampHistorySourceIndex}
+                    historyBrushOpacity={historyBrushOpacity}
+                    historyBrushLoad={historyBrushLoad}
+                    historyBrushSourceIndex={historyBrushSourceIndex}
+                    historyBrushSourceLabel={selectedHistoryBrushEntry?.description ?? null}
                     historyBrushSampleMerged={historyBrushSampleMerged}
                     pencilAutoErase={pencilAutoErase}
                     eraserMode={eraserMode}
@@ -3121,6 +3275,14 @@ export default function App() {
                     eyedropperSampleSize={eyedropperSampleSize}
                     eyedropperSampleMerged={eyedropperSampleMerged}
                     eyedropperSampleAllLayersNoAdj={eyedropperSampleAllLayersNoAdj}
+                    colorSamplerPoints={colorSamplerPoints.map((point, index) => ({
+                      id: point.id,
+                      label: String(index + 1),
+                      x: point.x,
+                      y: point.y,
+                      color: point.color,
+                    }))}
+                    onColorSamplerAdd={addColorSamplerPoint}
                     shapeOptions={{
                       subTool: shapeSubTool,
                       mode: shapeMode,
@@ -3209,9 +3371,10 @@ export default function App() {
                 <div className="editor-panel flex h-full flex-col overflow-hidden border-l border-border">
                   <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-[var(--ui-gap-1)]">
+                      <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)] overflow-x-auto pb-1">
                         {[
                           ["properties", "Properties"],
+                          ["info", "Info"],
                           ["adjustments", "Adjust"],
                           ["styles", "Styles"],
                           ["brush", "Brush"],
@@ -3275,6 +3438,21 @@ export default function App() {
                               />
                             </div>
                           }
+                        />
+                      ) : null}
+
+                      {activeAuxPanel === "info" ? (
+                        <InfoPanel
+                          cursorText={cursorText}
+                          documentSize={documentSize}
+                          zoomPercent={zoomPercent}
+                          samplerPoints={colorSamplerPoints}
+                          onRemoveSampler={(id) =>
+                            setColorSamplerPoints((current) =>
+                              current.filter((point) => point.id !== id),
+                            )
+                          }
+                          onClearSamplers={() => setColorSamplerPoints([])}
                         />
                       ) : null}
 
@@ -3530,8 +3708,26 @@ export default function App() {
                               </p>
                               <div className="space-y-2 text-[11px] text-slate-400">
                                 <div>
-                                  Paints from the previous history state. The source selection is
-                                  still implicit in this first draft.
+                                  Paints from the selected history state at the current cursor
+                                  position.
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <ToolNumberField
+                                    label="Opacity"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={historyBrushOpacity}
+                                    onChange={setHistoryBrushOpacity}
+                                  />
+                                  <ToolNumberField
+                                    label="Load"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={historyBrushLoad}
+                                    onChange={setHistoryBrushLoad}
+                                  />
                                 </div>
                                 <ToolChoiceButton
                                   active={historyBrushSampleMerged}
@@ -3539,6 +3735,29 @@ export default function App() {
                                 >
                                   Sample Merged
                                 </ToolChoiceButton>
+                                {historyEntries.length > 0 ? (
+                                  <ToolSelectField
+                                    label="History State"
+                                    value={String(historyBrushSourceIndex ?? currentHistoryIndex)}
+                                    onChange={(value) => setHistoryBrushSourceIndex(Number(value))}
+                                    options={historyEntries.map((entry) => ({
+                                      value: String(entry.id),
+                                      label:
+                                        entry.state === "undone"
+                                          ? `${entry.description} (Undone)`
+                                          : entry.description,
+                                    }))}
+                                  />
+                                ) : null}
+                                {selectedHistoryBrushEntry ? (
+                                  <div className="text-[11px] text-slate-500">
+                                    Source state: {selectedHistoryBrushEntry.description}
+                                  </div>
+                                ) : null}
+                                <div className="text-[11px] text-slate-500">
+                                  If the chosen history state is truncated or replaced by branching,
+                                  the brush falls back to the current active history entry.
+                                </div>
                               </div>
                             </div>
                           ) : null}
@@ -3913,6 +4132,7 @@ export default function App() {
             size="sm"
             onClick={() => {
               engine.createDocument(draft);
+              setColorSamplerPoints([]);
               setNewDocumentOpen(false);
             }}
           >
@@ -5305,6 +5525,8 @@ function CompactRange({
 
 function dockTitle(panel: AuxPanel) {
   switch (panel) {
+    case "info":
+      return "Info";
     case "brush":
       return "Brush Settings";
     case "color":

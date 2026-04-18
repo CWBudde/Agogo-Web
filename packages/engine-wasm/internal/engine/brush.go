@@ -12,32 +12,35 @@ const mixerBrushBristleCount = 7
 
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size            float64  `json:"size"`                              // Diameter in document pixels
-	Hardness        float64  `json:"hardness"`                          // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow            float64  `json:"flow"`                              // Per-dab alpha multiplier, 0–1
-	Color           [4]uint8 `json:"color"`                             // RGBA paint color
-	BlendMode       string   `json:"blendMode,omitempty"`               // AGG blend mode string, e.g. "multiply", "screen"
-	WetEdges        bool     `json:"wetEdges,omitempty"`                // Accumulate paint at stroke edges (watercolour effect)
-	Scatter         float64  `json:"scatter,omitempty"`                 // Max random dab offset as a fraction of brush diameter (0 = none)
-	Stabilizer      int      `json:"stabilizer,omitempty"`              // Moving-average lag: number of past input points to average (0 = off)
-	SampleMerged    bool     `json:"sampleMerged,omitempty"`            // Sample composite (all layers) rather than active layer when reading pixels
-	AutoErase       bool     `json:"autoErase,omitempty"`               // If stroke starts on foreground color, paint with background color instead
-	Erase           bool     `json:"erase,omitempty"`                   // Erase to transparency (uses dst-out compositing)
-	EraseBackground bool     `json:"eraseBackground,omitempty"`         // Erase only pixels matching the sampled base color
-	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`          // Color tolerance for background eraser (0–255 Euclidean RGB distance)
-	MixerBrush      bool     `json:"mixerBrush,omitempty"`              // Mix the brush color with sampled canvas color before painting
-	MixerMix        float64  `json:"mixerMix,omitempty"`                // Sampled-color mix strength, 0–1
-	MixerWetness    float64  `json:"mixerWetness,omitempty"`            // Wet-paint pickup strength, 0–1
-	MixerLoad       float64  `json:"mixerLoad,omitempty"`               // Initial paint load when the brush is clean, 0–1
-	CloneStamp      bool     `json:"cloneStamp,omitempty"`              // Clone pixels from a source point
-	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`            // Source point X in document space
-	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`            // Source point Y in document space
-	CloneAligned    bool     `json:"cloneAligned,omitempty"`            // Keep the source offset fixed across strokes until the source changes
-	CloneOpacity    float64  `json:"cloneOpacity,omitempty"`            // Overall source opacity multiplier, 0–1
-	CloneLoad       float64  `json:"cloneLoad,omitempty"`               // Source load carried through the stroke, 0–1
-	CloneHistory    bool     `json:"cloneHistorySource,omitempty"`      // Sample from a history snapshot instead of the live document
-	CloneHistoryIdx int      `json:"cloneHistorySourceIndex,omitempty"` // History entry id used when CloneHistory is enabled
-	HistoryBrush    bool     `json:"historyBrush,omitempty"`            // Restore pixels from a previous history state
+	Size             float64  `json:"size"`                              // Diameter in document pixels
+	Hardness         float64  `json:"hardness"`                          // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow             float64  `json:"flow"`                              // Per-dab alpha multiplier, 0–1
+	Color            [4]uint8 `json:"color"`                             // RGBA paint color
+	BlendMode        string   `json:"blendMode,omitempty"`               // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges         bool     `json:"wetEdges,omitempty"`                // Accumulate paint at stroke edges (watercolour effect)
+	Scatter          float64  `json:"scatter,omitempty"`                 // Max random dab offset as a fraction of brush diameter (0 = none)
+	Stabilizer       int      `json:"stabilizer,omitempty"`              // Moving-average lag: number of past input points to average (0 = off)
+	SampleMerged     bool     `json:"sampleMerged,omitempty"`            // Sample composite (all layers) rather than active layer when reading pixels
+	AutoErase        bool     `json:"autoErase,omitempty"`               // If stroke starts on foreground color, paint with background color instead
+	Erase            bool     `json:"erase,omitempty"`                   // Erase to transparency (uses dst-out compositing)
+	EraseBackground  bool     `json:"eraseBackground,omitempty"`         // Erase only pixels matching the sampled base color
+	EraseTolerance   float64  `json:"eraseTolerance,omitempty"`          // Color tolerance for background eraser (0–255 Euclidean RGB distance)
+	MixerBrush       bool     `json:"mixerBrush,omitempty"`              // Mix the brush color with sampled canvas color before painting
+	MixerMix         float64  `json:"mixerMix,omitempty"`                // Sampled-color mix strength, 0–1
+	MixerWetness     float64  `json:"mixerWetness,omitempty"`            // Wet-paint pickup strength, 0–1
+	MixerLoad        float64  `json:"mixerLoad,omitempty"`               // Initial paint load when the brush is clean, 0–1
+	CloneStamp       bool     `json:"cloneStamp,omitempty"`              // Clone pixels from a source point
+	CloneSourceX     float64  `json:"cloneSourceX,omitempty"`            // Source point X in document space
+	CloneSourceY     float64  `json:"cloneSourceY,omitempty"`            // Source point Y in document space
+	CloneAligned     bool     `json:"cloneAligned,omitempty"`            // Keep the source offset fixed across strokes until the source changes
+	CloneOpacity     float64  `json:"cloneOpacity,omitempty"`            // Overall source opacity multiplier, 0–1
+	CloneLoad        float64  `json:"cloneLoad,omitempty"`               // Source load carried through the stroke, 0–1
+	CloneHistory     bool     `json:"cloneHistorySource,omitempty"`      // Sample from a history snapshot instead of the live document
+	CloneHistoryIdx  int      `json:"cloneHistorySourceIndex,omitempty"` // History entry id used when CloneHistory is enabled
+	HistoryBrush     bool     `json:"historyBrush,omitempty"`            // Restore pixels from a previous history state
+	HistorySourceIdx int      `json:"historySourceIndex,omitempty"`      // History entry id used as the source state for the history brush
+	HistoryOpacity   float64  `json:"historyOpacity,omitempty"`          // Overall history-source opacity multiplier, 0–1
+	HistoryLoad      float64  `json:"historyLoad,omitempty"`             // History-source load carried through the stroke, 0–1
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -342,6 +345,24 @@ func normalizeCloneStampParams(p BrushParams) BrushParams {
 	return p
 }
 
+func normalizeHistoryBrushParams(p BrushParams) BrushParams {
+	if !p.HistoryBrush {
+		return p
+	}
+	if p.HistoryOpacity <= 0 {
+		p.HistoryOpacity = 1
+	}
+	if p.HistoryLoad <= 0 {
+		p.HistoryLoad = 1
+	}
+	p.HistoryOpacity = clampFloat(p.HistoryOpacity, 0, 1)
+	p.HistoryLoad = clampFloat(p.HistoryLoad, 0, 1)
+	if p.HistorySourceIdx < 0 {
+		p.HistorySourceIdx = 0
+	}
+	return p
+}
+
 func captureStrokeSourceSurface(doc *Document, layer *PixelLayer, sampleMerged bool) ([]byte, int, int, int, int) {
 	if sampleMerged {
 		if doc == nil {
@@ -637,8 +658,12 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 	flow := clampFloat(p.Flow, 0, 1)
 	cloneOpacity := 1.0
 	loadFactor := 1.0
-	if p.CloneStamp {
-		cloneOpacity = clampFloat(p.CloneOpacity, 0, 1)
+	if p.CloneStamp || p.HistoryBrush {
+		if p.CloneStamp {
+			cloneOpacity = clampFloat(p.CloneOpacity, 0, 1)
+		} else {
+			cloneOpacity = clampFloat(p.HistoryOpacity, 0, 1)
+		}
 		if remainingLoad != nil {
 			loadFactor = clampFloat(*remainingLoad, 0, 1)
 		}

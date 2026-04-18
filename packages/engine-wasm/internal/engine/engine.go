@@ -449,38 +449,39 @@ type SetShowGuidesPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID            string
-	params             BrushParams
-	strokeState        brushStrokeState
-	stabilizer         stabilizerState
-	dirtyMin           [2]int // min corner of painted dirty rect (layer-local)
-	dirtyMax           [2]int // max corner of painted dirty rect (layer-local)
-	hasDirty           bool
-	bgEraseBaseColor   [4]uint8 // sampled once at stroke begin for background eraser
-	mixerSource        []byte   // sampled once at stroke begin for mixer brush
-	mixerSourceW       int
-	mixerSourceH       int
-	mixerSourceX       int
-	mixerSourceY       int
-	cloneSource        []byte // sampled once at stroke begin for clone stamp
-	cloneSourceW       int
-	cloneSourceH       int
-	cloneSourceX       int
-	cloneSourceY       int
-	cloneOffsetX       float64
-	cloneOffsetY       float64
-	cloneRemainingLoad float64
-	historySource      []byte // sampled once at stroke begin for history brush
-	historySourceW     int
-	historySourceH     int
-	historySourceX     int
-	historySourceY     int
-	mixer              mixerBrushState
-	lastDabX           float64
-	lastDabY           float64
-	lastDirX           float64
-	lastDirY           float64
-	hasLastDab         bool
+	layerID              string
+	params               BrushParams
+	strokeState          brushStrokeState
+	stabilizer           stabilizerState
+	dirtyMin             [2]int // min corner of painted dirty rect (layer-local)
+	dirtyMax             [2]int // max corner of painted dirty rect (layer-local)
+	hasDirty             bool
+	bgEraseBaseColor     [4]uint8 // sampled once at stroke begin for background eraser
+	mixerSource          []byte   // sampled once at stroke begin for mixer brush
+	mixerSourceW         int
+	mixerSourceH         int
+	mixerSourceX         int
+	mixerSourceY         int
+	cloneSource          []byte // sampled once at stroke begin for clone stamp
+	cloneSourceW         int
+	cloneSourceH         int
+	cloneSourceX         int
+	cloneSourceY         int
+	cloneOffsetX         float64
+	cloneOffsetY         float64
+	cloneRemainingLoad   float64
+	historySource        []byte // sampled once at stroke begin for history brush
+	historySourceW       int
+	historySourceH       int
+	historySourceX       int
+	historySourceY       int
+	historyRemainingLoad float64
+	mixer                mixerBrushState
+	lastDabX             float64
+	lastDabY             float64
+	lastDirX             float64
+	lastDirY             float64
+	hasLastDab           bool
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.

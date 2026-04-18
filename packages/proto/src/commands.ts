@@ -920,6 +920,9 @@ export interface BrushParams {
   cloneHistorySource?: boolean; // sample from a selected history snapshot instead of the live document
   cloneHistorySourceIndex?: number; // history entry id used when cloneHistorySource is enabled
   historyBrush?: boolean;    // paint from the previous history state
+  historySourceIndex?: number; // history entry id used as the source state for the history brush
+  historyOpacity?: number;   // 0.0–1.0 overall history-source opacity multiplier
+  historyLoad?: number;      // 0.0–1.0 source load carried through the stroke; lower values fade sooner
 }
 
 export interface BeginPaintStrokeCommand {

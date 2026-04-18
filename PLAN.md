@@ -727,11 +727,11 @@
   - [x] Tool exists in the frontend and can be selected from the toolrail / `Y` shortcut
   - [x] Paint strokes restore pixels from the previous history state
   - [x] Supports `Sample Merged` for history-state source sampling
-  - [ ] Missing: user-selectable history source state
-  - [ ] Missing: source overlay / crosshair preview and source-state UI
-  - [ ] Missing: arbitrary non-destructive history-state painting from older checkpoints
-  - [ ] Missing: fade / opacity-style controls and paint-load behavior
-  - [ ] Missing: persistence rules when the document history is truncated or branched
+  - [x] User-selectable history source state
+  - [x] Source overlay / crosshair preview and source-state UI
+  - [x] Arbitrary non-destructive history-state painting from older checkpoints
+  - [x] Fade / opacity-style controls and paint-load behavior
+  - [x] Persistence rules when the document history is truncated or branched
 
 ### Phase 4.3: Fill & Gradient Tools
 
@@ -754,7 +754,7 @@
   - [x] Alt+click to sample background color
   - [x] Sample size: point / 3×3 avg / 5×5 avg / 11×11 avg / 31×31 avg / 51×51 avg / 101×101 avg
   - [x] Sample: current layer / all layers / all layers no adj
-  - [ ] Color sampler points: place up to 4 persistent sample points (shown in Info panel)
+  - [x] Color sampler points: place up to 4 persistent sample points (shown in Info panel)
 
 ### Phase 4.4: Brush & Color UI Panels
 

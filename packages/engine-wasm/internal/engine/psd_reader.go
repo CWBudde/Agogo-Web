@@ -1481,11 +1481,16 @@ func decodeZipPayload(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init zip stream: %w", err)
 	}
-	defer zr.Close()
 
 	decoded, err := io.ReadAll(zr)
 	if err != nil {
+		if closeErr := zr.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to decode zip stream: %w (close error: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to decode zip stream: %w", err)
+	}
+	if err := zr.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close zip stream: %w", err)
 	}
 	return decoded, nil
 }
@@ -1604,13 +1609,6 @@ func psdDocumentColorMode(colorMode int) string {
 	default:
 		return "rgb"
 	}
-}
-
-func layerPixelCount(bounds LayerBounds) int {
-	if bounds.W <= 0 || bounds.H <= 0 {
-		return 0
-	}
-	return bounds.W * bounds.H
 }
 
 func mapPSDBlendMode(key string) BlendMode {

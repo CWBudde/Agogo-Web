@@ -85,6 +85,10 @@ type EditorCanvasProps = {
   onCloneStampAlignedOffsetChange(offset: { x: number; y: number } | null): void;
   cloneStampUseHistorySource: boolean;
   cloneStampHistorySourceIndex: number | null;
+  historyBrushOpacity: number;
+  historyBrushLoad: number;
+  historyBrushSourceIndex: number | null;
+  historyBrushSourceLabel: string | null;
   historyBrushSampleMerged: boolean;
   pencilAutoErase: boolean;
   eraserMode: "normal" | "background" | "magic";
@@ -105,6 +109,20 @@ type EditorCanvasProps = {
   eyedropperSampleSize: number;
   eyedropperSampleMerged: boolean;
   eyedropperSampleAllLayersNoAdj: boolean;
+  colorSamplerPoints: Array<{
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    color: Rgba | null;
+  }>;
+  onColorSamplerAdd(point: {
+    x: number;
+    y: number;
+    sampleSize: number;
+    sampleMerged: boolean;
+    sampleAllLayersNoAdj: boolean;
+  }): void;
   shapeOptions: {
     subTool: "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
     mode: "shape" | "path" | "pixels";
@@ -685,6 +703,10 @@ export function EditorCanvas({
   onCloneStampAlignedOffsetChange,
   cloneStampUseHistorySource,
   cloneStampHistorySourceIndex,
+  historyBrushOpacity,
+  historyBrushLoad,
+  historyBrushSourceIndex,
+  historyBrushSourceLabel,
   historyBrushSampleMerged,
   pencilAutoErase,
   eraserMode,
@@ -705,6 +727,8 @@ export function EditorCanvas({
   eyedropperSampleSize,
   eyedropperSampleMerged,
   eyedropperSampleAllLayersNoAdj,
+  colorSamplerPoints,
+  onColorSamplerAdd,
   shapeOptions,
   artboardOptions,
   cropDeletePixels,
@@ -1446,6 +1470,16 @@ export function EditorCanvas({
       sourceDoc,
     };
   })();
+  const historyBrushPreview = (() => {
+    if (activeTool !== "historyBrush" || !hoverDocPoint) {
+      return null;
+    }
+    const point = documentPointToCanvas(hoverDocPoint);
+    if (!point) {
+      return null;
+    }
+    return point;
+  })();
   const artboards = collectArtboards((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>);
   const activeLayerMeta = render?.uiMeta.activeLayerId
     ? findLayerMetaByID(
@@ -2030,6 +2064,17 @@ export function EditorCanvas({
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           event.currentTarget.setPointerCapture(event.pointerId);
+          if (event.shiftKey) {
+            onColorSamplerAdd({
+              x: docPoint.x,
+              y: docPoint.y,
+              sampleSize: eyedropperSampleSize,
+              sampleMerged: eyedropperSampleMerged,
+              sampleAllLayersNoAdj: eyedropperSampleAllLayersNoAdj,
+            });
+            event.preventDefault();
+            return;
+          }
           const result = engine.dispatchCommand(CommandID.SampleMergedColor, {
             x: docPoint.x,
             y: docPoint.y,
@@ -2099,6 +2144,9 @@ export function EditorCanvas({
               flow: brushFlow,
               color: toMutableRgba(foregroundColor),
               historyBrush: true,
+              historySourceIndex: historyBrushSourceIndex ?? undefined,
+              historyOpacity: historyBrushOpacity,
+              historyLoad: historyBrushLoad,
               sampleMerged: historyBrushSampleMerged,
             },
           } satisfies BeginPaintStrokeCommand);
@@ -3115,6 +3163,8 @@ export function EditorCanvas({
       gradientDragStart ||
       cropStraightenDraft ||
       cloneSourcePreview ||
+      historyBrushPreview ||
+      colorSamplerPoints.length > 0 ||
       shapeOverlay ||
       artboards.length > 0 ||
       artboardCreateOverlay ||
@@ -3338,6 +3388,129 @@ export function EditorCanvas({
               />
             </g>
           ) : null}
+          {historyBrushPreview ? (
+            <g>
+              <circle
+                cx={historyBrushPreview.x}
+                cy={historyBrushPreview.y}
+                r={7}
+                fill="rgba(34, 197, 94, 0.15)"
+                stroke="rgba(34, 197, 94, 0.95)"
+                strokeWidth="1.5"
+              />
+              <line
+                x1={historyBrushPreview.x - 9}
+                y1={historyBrushPreview.y}
+                x2={historyBrushPreview.x + 9}
+                y2={historyBrushPreview.y}
+                stroke="rgba(34, 197, 94, 0.95)"
+                strokeWidth="1.5"
+              />
+              <line
+                x1={historyBrushPreview.x}
+                y1={historyBrushPreview.y - 9}
+                x2={historyBrushPreview.x}
+                y2={historyBrushPreview.y + 9}
+                stroke="rgba(34, 197, 94, 0.95)"
+                strokeWidth="1.5"
+              />
+              {historyBrushSourceLabel ? (
+                <text
+                  x={historyBrushPreview.x + 12}
+                  y={historyBrushPreview.y - 10}
+                  fill="rgba(220, 252, 231, 0.98)"
+                  fontSize="10"
+                  style={{
+                    paintOrder: "stroke",
+                    stroke: "rgba(15, 23, 42, 0.9)",
+                    strokeWidth: 3,
+                  }}
+                >
+                  {historyBrushSourceLabel}
+                </text>
+              ) : null}
+            </g>
+          ) : null}
+          {colorSamplerPoints.map((point) => {
+            const canvasPoint = documentPointToCanvas({ x: point.x, y: point.y });
+            if (!canvasPoint) {
+              return null;
+            }
+            const badgeX = canvasPoint.x + 10;
+            const badgeY = canvasPoint.y - 18;
+            return (
+              <g key={point.id}>
+                <circle
+                  cx={canvasPoint.x}
+                  cy={canvasPoint.y}
+                  r={7}
+                  fill="rgba(15, 23, 42, 0.72)"
+                  stroke="rgba(248, 250, 252, 0.95)"
+                  strokeWidth="1.5"
+                />
+                <line
+                  x1={canvasPoint.x - 10}
+                  y1={canvasPoint.y}
+                  x2={canvasPoint.x + 10}
+                  y2={canvasPoint.y}
+                  stroke="rgba(248, 250, 252, 0.95)"
+                  strokeWidth="1.25"
+                />
+                <line
+                  x1={canvasPoint.x}
+                  y1={canvasPoint.y - 10}
+                  x2={canvasPoint.x}
+                  y2={canvasPoint.y + 10}
+                  stroke="rgba(248, 250, 252, 0.95)"
+                  strokeWidth="1.25"
+                />
+                <line
+                  x1={canvasPoint.x + 6}
+                  y1={canvasPoint.y - 6}
+                  x2={badgeX + 1}
+                  y2={badgeY + 14}
+                  stroke="rgba(248, 250, 252, 0.45)"
+                  strokeWidth="1"
+                />
+                <rect
+                  x={badgeX}
+                  y={badgeY}
+                  width={18}
+                  height={18}
+                  rx={9}
+                  fill="rgba(15, 23, 42, 0.94)"
+                  stroke="rgba(248, 250, 252, 0.95)"
+                  strokeWidth="1"
+                />
+                <circle
+                  cx={badgeX + 6}
+                  cy={badgeY + 9}
+                  r={3}
+                  fill={
+                    point.color
+                      ? `rgba(${point.color[0]}, ${point.color[1]}, ${point.color[2]}, ${point.color[3] / 255})`
+                      : "rgba(148, 163, 184, 0.65)"
+                  }
+                  stroke="rgba(248, 250, 252, 0.7)"
+                  strokeWidth="0.75"
+                />
+                <text
+                  x={badgeX + 12}
+                  y={badgeY + 12}
+                  fill="rgba(248, 250, 252, 0.98)"
+                  fontSize="9"
+                  textAnchor="middle"
+                  style={{
+                    paintOrder: "stroke",
+                    stroke: "rgba(15, 23, 42, 0.95)",
+                    strokeWidth: 3,
+                  }}
+                >
+                  {point.label}
+                </text>
+              </g>
+            );
+          })}
           {freehandOverlay.length >= 2 ? (
             <path
               d={buildOverlayPath(freehandOverlay)}
