@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -67,17 +68,18 @@ func normalizeAdjustmentKind(kind string) string {
 	return strings.ToLower(strings.TrimSpace(kind))
 }
 
-func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) error {
+func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte, dirtyRect *DirtyRect, allowCache bool) error {
 	if layer == nil || len(surface) == 0 || docW <= 0 || docH <= 0 {
 		return nil
 	}
 
+	kind := normalizeAdjustmentKind(layer.AdjustmentKind)
 	resolvedParams, err := resolveAdjustmentParamsForSurface(surface, docW, docH, layer, clipAlpha)
 	if err != nil {
 		return err
 	}
 
-	transform, err := lookupAdjustmentTransform(layer.AdjustmentKind, resolvedParams)
+	transform, err := lookupAdjustmentTransform(kind, resolvedParams)
 	if err != nil {
 		return err
 	}
@@ -85,9 +87,33 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 		return nil
 	}
 
+	rect := DirtyRect{X: 0, Y: 0, W: docW, H: docH}
+	if normalized, ok := normalizeAdjustmentDirtyRect(dirtyRect, docW, docH); ok {
+		rect = normalized
+	}
+
+	canReuseDirtyRegion := allowCache &&
+		rect != (DirtyRect{X: 0, Y: 0, W: docW, H: docH}) &&
+		adjustmentCacheMatches(layer, kind, resolvedParams, docW, docH) &&
+		adjustmentSupportsDirtyRegionCache(layer)
+	if canReuseDirtyRegion {
+		copySurfaceOutsideRect(surface, layer.cache.output, rect, docW, docH)
+	}
+
+	if err := applyAdjustmentLayerRectToSurface(surface, docW, docH, layer, clipAlpha, resolvedParams, transform, rect); err != nil {
+		return err
+	}
+
+	if allowCache {
+		updateAdjustmentCache(layer, kind, resolvedParams, docW, docH, surface)
+	}
+	return nil
+}
+
+func applyAdjustmentLayerRectToSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte, resolvedParams json.RawMessage, transform AdjustmentPixelFunc, rect DirtyRect) error {
 	mask := layer.Mask()
-	for y := 0; y < docH; y++ {
-		for x := 0; x < docW; x++ {
+	for y := rect.Y; y < rect.Y+rect.H; y++ {
+		for x := rect.X; x < rect.X+rect.W; x++ {
 			index := (y*docW + x) * 4
 			if index < 0 || index+3 >= len(surface) {
 				continue
@@ -118,8 +144,85 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 			surface[index+3] = blendByte(surface[index+3], a, coverage)
 		}
 	}
-
 	return nil
+}
+
+func normalizeAdjustmentDirtyRect(rect *DirtyRect, docW, docH int) (DirtyRect, bool) {
+	if rect == nil {
+		return DirtyRect{}, false
+	}
+	normalized, err := normalizeDirtyRect(*rect, docW, docH)
+	if err != nil {
+		return DirtyRect{}, false
+	}
+	return normalized, true
+}
+
+func adjustmentSupportsDirtyRegionCache(layer *AdjustmentLayer) bool {
+	if layer == nil {
+		return false
+	}
+	switch normalizeAdjustmentKind(layer.AdjustmentKind) {
+	case "levels":
+		cfg, err := decodeAdjustmentParams[levelsParams](layer.Params)
+		return err == nil && !cfg.Auto
+	case "black-white", "blackandwhite", "black & white", "black/white":
+		cfg, err := decodeAdjustmentParams[blackWhiteParams](layer.Params)
+		return err == nil && !cfg.Auto
+	default:
+		return true
+	}
+}
+
+func adjustmentCacheMatches(layer *AdjustmentLayer, kind string, resolvedParams json.RawMessage, docW, docH int) bool {
+	if layer == nil {
+		return false
+	}
+	return layer.cache.kind == kind &&
+		layer.cache.docW == docW &&
+		layer.cache.docH == docH &&
+		len(layer.cache.output) == docW*docH*4 &&
+		bytes.Equal(layer.cache.resolvedParams, resolvedParams)
+}
+
+func updateAdjustmentCache(layer *AdjustmentLayer, kind string, resolvedParams json.RawMessage, docW, docH int, surface []byte) {
+	if layer == nil {
+		return
+	}
+	layer.cache.kind = kind
+	layer.cache.docW = docW
+	layer.cache.docH = docH
+	layer.cache.resolvedParams = cloneJSONRawMessage(resolvedParams)
+	if len(layer.cache.output) != len(surface) {
+		layer.cache.output = make([]byte, len(surface))
+	}
+	copy(layer.cache.output, surface)
+}
+
+func copySurfaceOutsideRect(dest, src []byte, rect DirtyRect, width, height int) {
+	if len(dest) != len(src) || width <= 0 || height <= 0 {
+		return
+	}
+	rowBytes := width * 4
+	rectStartY := rect.Y
+	rectEndY := rect.Y + rect.H
+	rectStartXBytes := rect.X * 4
+	rectEndXBytes := (rect.X + rect.W) * 4
+
+	for y := 0; y < height; y++ {
+		rowStart := y * rowBytes
+		rowEnd := rowStart + rowBytes
+		if y < rectStartY || y >= rectEndY {
+			copy(dest[rowStart:rowEnd], src[rowStart:rowEnd])
+			continue
+		}
+		if rectStartXBytes > 0 {
+			copy(dest[rowStart:rowStart+rectStartXBytes], src[rowStart:rowStart+rectStartXBytes])
+		}
+		if rectEndXBytes < rowBytes {
+			copy(dest[rowStart+rectEndXBytes:rowEnd], src[rowStart+rectEndXBytes:rowEnd])
+		}
+	}
 }
 
 func resolveAdjustmentParamsForSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte) (json.RawMessage, error) {

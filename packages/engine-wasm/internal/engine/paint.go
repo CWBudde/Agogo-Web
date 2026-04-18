@@ -114,7 +114,9 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
-	doc.ContentVersion++
+	if rect, ok := strokeDirtyRectInDocument(stroke, layer); ok {
+		doc.bumpContentVersionRect(rect)
+	}
 }
 
 func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
@@ -159,8 +161,8 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
 	}
-	if len(dabs) > 0 {
-		doc.ContentVersion++
+	if rect, ok := strokeDirtyRectInDocument(inst.paintStroke, layer); ok {
+		doc.bumpContentVersionRect(rect)
 	}
 }
 
@@ -211,6 +213,22 @@ func (inst *instance) handleEndPaintStroke() {
 	if stroke.params.MixerBrush {
 		inst.mixerBrush = stroke.mixer
 	}
+}
+
+func strokeDirtyRectInDocument(stroke *activePaintStroke, layer *PixelLayer) (DirtyRect, bool) {
+	if stroke == nil || layer == nil || !stroke.hasDirty {
+		return DirtyRect{}, false
+	}
+	rect := DirtyRect{
+		X: layer.Bounds.X + stroke.dirtyMin[0],
+		Y: layer.Bounds.Y + stroke.dirtyMin[1],
+		W: stroke.dirtyMax[0] - stroke.dirtyMin[0],
+		H: stroke.dirtyMax[1] - stroke.dirtyMin[1],
+	}
+	if rect.W <= 0 || rect.H <= 0 {
+		return DirtyRect{}, false
+	}
+	return rect, true
 }
 
 // handleMagicErase implements the Magic Eraser: flood-fills (or global-selects)

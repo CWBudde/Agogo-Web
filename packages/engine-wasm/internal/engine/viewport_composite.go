@@ -6,7 +6,7 @@ func (doc *Document) renderCompositeSurface() []byte {
 	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
 		return nil
 	}
-	buffer, err := doc.renderLayersToSurface(doc.ensureLayerRoot().Children())
+	buffer, err := doc.renderLayersToSurfaceWithOptions(doc.ensureLayerRoot().Children(), true)
 	if err != nil {
 		return nil
 	}

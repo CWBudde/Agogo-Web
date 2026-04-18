@@ -1012,8 +1012,65 @@ func (doc *Document) nextActiveLayerID(children []LayerNode, deletedIndex int, d
 }
 
 func (doc *Document) touchModifiedAt() {
+	doc.touchModifiedAtRect(doc.fullDocumentDirtyRect())
+}
+
+func (doc *Document) touchModifiedAtRect(rect DirtyRect) {
 	doc.ModifiedAt = time.Now().UTC().Format(time.RFC3339)
 	doc.ContentVersion = atomic.AddInt64(&nextDocVersion, 1)
+	doc.markDirtyCompositeRect(rect)
+}
+
+func (doc *Document) bumpContentVersionRect(rect DirtyRect) {
+	doc.ContentVersion = atomic.AddInt64(&nextDocVersion, 1)
+	doc.markDirtyCompositeRect(rect)
+}
+
+func (doc *Document) fullDocumentDirtyRect() DirtyRect {
+	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
+		return DirtyRect{}
+	}
+	return DirtyRect{X: 0, Y: 0, W: doc.Width, H: doc.Height}
+}
+
+func (doc *Document) markDirtyCompositeRect(rect DirtyRect) {
+	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
+		return
+	}
+	normalized, err := normalizeDirtyRect(rect, doc.Width, doc.Height)
+	if err != nil {
+		return
+	}
+	if !doc.hasDirtyComposite {
+		doc.dirtyComposite = normalized
+		doc.hasDirtyComposite = true
+		return
+	}
+	doc.dirtyComposite = unionDirtyRects(doc.dirtyComposite, normalized)
+}
+
+func (doc *Document) currentDirtyCompositeRect() *DirtyRect {
+	if doc == nil || !doc.hasDirtyComposite {
+		return nil
+	}
+	rect := doc.dirtyComposite
+	return &rect
+}
+
+func (doc *Document) clearDirtyCompositeRect() {
+	if doc == nil {
+		return
+	}
+	doc.dirtyComposite = DirtyRect{}
+	doc.hasDirtyComposite = false
+}
+
+func unionDirtyRects(a, b DirtyRect) DirtyRect {
+	x1 := minInt(a.X, b.X)
+	y1 := minInt(a.Y, b.Y)
+	x2 := maxInt(a.X+a.W, b.X+b.W)
+	y2 := maxInt(a.Y+a.H, b.Y+b.H)
+	return DirtyRect{X: x1, Y: y1, W: x2 - x1, H: y2 - y1}
 }
 
 func defaultArtboardBackground() [4]uint8 {
@@ -1148,20 +1205,28 @@ func (doc *Document) mergeNodesToPixelLayer(bottom, top LayerNode, name string) 
 }
 
 func (doc *Document) renderLayerToSurface(layer LayerNode) ([]byte, error) {
+	return doc.renderLayerToSurfaceWithOptions(layer, false)
+}
+
+func (doc *Document) renderLayerToSurfaceWithOptions(layer LayerNode, allowAdjustmentCache bool) ([]byte, error) {
 	buffer := make([]byte, doc.Width*doc.Height*4)
 	clipAlpha, err := doc.clippingBaseSurfaceForLayer(layer)
 	if err != nil {
 		return nil, err
 	}
-	if err := doc.compositeLayerOntoWithClip(buffer, layer, clipAlpha); err != nil {
+	if err := doc.compositeLayerOntoWithClipOptions(buffer, layer, clipAlpha, allowAdjustmentCache); err != nil {
 		return nil, err
 	}
 	return buffer, nil
 }
 
 func (doc *Document) renderLayersToSurface(layers []LayerNode) ([]byte, error) {
+	return doc.renderLayersToSurfaceWithOptions(layers, false)
+}
+
+func (doc *Document) renderLayersToSurfaceWithOptions(layers []LayerNode, allowAdjustmentCache bool) ([]byte, error) {
 	buffer := make([]byte, doc.Width*doc.Height*4)
-	if err := doc.compositeLayerStackOnto(buffer, layers, nil); err != nil {
+	if err := doc.compositeLayerStackOntoWithOptions(buffer, layers, nil, allowAdjustmentCache); err != nil {
 		return nil, err
 	}
 	return buffer, nil
@@ -1172,10 +1237,14 @@ func (doc *Document) renderLayersToSurface(layers []LayerNode) ([]byte, error) {
 //
 //nolint:unused
 func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
-	return doc.compositeLayerOntoWithClip(dest, layer, nil)
+	return doc.compositeLayerOntoWithClipOptions(dest, layer, nil, false)
 }
 
 func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, clipAlpha []byte) error {
+	return doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, false)
+}
+
+func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerNode, clipAlpha []byte, allowAdjustmentCache bool) error {
 	if layer == nil || !layer.Visible() {
 		return nil
 	}
@@ -1214,13 +1283,13 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
 		return nil
 	case *AdjustmentLayer:
-		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha)
+		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha, doc.currentDirtyCompositeRect(), allowAdjustmentCache)
 	case *GroupLayer:
 		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
-			return doc.compositeLayerStackOnto(dest, typed.Children(), clipAlpha)
+			return doc.compositeLayerStackOntoWithOptions(dest, typed.Children(), clipAlpha, allowAdjustmentCache)
 		}
 		temp := make([]byte, len(dest))
-		if err := doc.compositeLayerStackOnto(temp, typed.Children(), nil); err != nil {
+		if err := doc.compositeLayerStackOntoWithOptions(temp, typed.Children(), nil, allowAdjustmentCache); err != nil {
 			return err
 		}
 		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask())
@@ -1233,18 +1302,22 @@ func (doc *Document) compositeLayerOntoWithClip(dest []byte, layer LayerNode, cl
 }
 
 func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, clipAlpha []byte) error {
+	return doc.compositeLayerStackOntoWithOptions(dest, layers, clipAlpha, false)
+}
+
+func (doc *Document) compositeLayerStackOntoWithOptions(dest []byte, layers []LayerNode, clipAlpha []byte, allowAdjustmentCache bool) error {
 	for index := 0; index < len(layers); index++ {
 		layer := layers[index]
 		if layer == nil {
 			continue
 		}
 		if layer.ClipToBelow() {
-			if err := doc.compositeLayerOntoWithClip(dest, layer, clipAlpha); err != nil {
+			if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := doc.compositeLayerOntoWithClip(dest, layer, clipAlpha); err != nil {
+		if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache); err != nil {
 			return err
 		}
 		if index+1 >= len(layers) || !layers[index+1].ClipToBelow() {
@@ -1260,7 +1333,7 @@ func (doc *Document) compositeLayerStackOnto(dest []byte, layers []LayerNode, cl
 		}
 		combinedClip := combineClipSurface(baseSurface, clipAlpha)
 		for next := index + 1; next < len(layers) && layers[next].ClipToBelow(); next++ {
-			if err := doc.compositeLayerOntoWithClip(dest, layers[next], combinedClip); err != nil {
+			if err := doc.compositeLayerOntoWithClipOptions(dest, layers[next], combinedClip, allowAdjustmentCache); err != nil {
 				return err
 			}
 			index = next

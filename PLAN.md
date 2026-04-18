@@ -804,7 +804,7 @@
 - [x] Render pipeline integration:
   - [x] Before compositing a layer, walk up the stack to apply all adjustment layers above it (that are clipped or affect the composite group)
   - [x] Apply adjustment as a pixel-space color transform function: `adjustPixel(r, g, b, a, params) -> (r, g, b, a)`
-  - [ ] Cache adjustment result per dirty region; invalidate only when params or input change
+  - [x] Cache adjustment result per dirty region; invalidate only when params or input change
 - [x] Invalidation propagation:
   - [x] Change to adjustment layer params → re-render all layers below in the composite
   - [ ] Upstream invalidation: only dirty the region that needs re-compositing

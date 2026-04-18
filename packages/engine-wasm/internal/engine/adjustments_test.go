@@ -453,6 +453,105 @@ func TestExtendedAdjustmentLayersUseNonDestructiveCompositePath(t *testing.T) {
 	})
 }
 
+func TestAdjustmentLayerCacheReusesOnlyDirtyRegion(t *testing.T) {
+	const kind = "test-dirty-region-cache"
+
+	var calls int
+	RegisterAdjustmentFactory(kind, func(params json.RawMessage) (AdjustmentPixelFunc, error) {
+		return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+			calls++
+			return 255 - r, g, b, a, nil
+		}, nil
+	})
+	t.Cleanup(func() {
+		RegisterAdjustmentFactory(kind, nil)
+	})
+
+	doc := &Document{
+		Width:      4,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Dirty Cache",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 4, H: 1}, []byte{
+		10, 0, 0, 255,
+		20, 0, 0, 255,
+		30, 0, 0, 255,
+		40, 0, 0, 255,
+	})
+	adjustment := NewAdjustmentLayer("Cached", kind, nil)
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	first := doc.renderCompositeSurface()
+	if calls != 4 {
+		t.Fatalf("first render transform calls = %d, want 4", calls)
+	}
+	wantFirst := []byte{
+		245, 0, 0, 255,
+		235, 0, 0, 255,
+		225, 0, 0, 255,
+		215, 0, 0, 255,
+	}
+	if !bytes.Equal(first[:16], wantFirst) {
+		t.Fatalf("first render = %v, want %v", first[:16], wantFirst)
+	}
+
+	calls = 0
+	base.Pixels[4] = 90
+	doc.touchModifiedAtRect(DirtyRect{X: 1, Y: 0, W: 1, H: 1})
+
+	second := doc.renderCompositeSurface()
+	if calls != 1 {
+		t.Fatalf("second render transform calls = %d, want 1 dirty pixel", calls)
+	}
+	wantSecond := []byte{
+		245, 0, 0, 255,
+		165, 0, 0, 255,
+		225, 0, 0, 255,
+		215, 0, 0, 255,
+	}
+	if !bytes.Equal(second[:16], wantSecond) {
+		t.Fatalf("second render = %v, want %v", second[:16], wantSecond)
+	}
+}
+
+func TestAutoLevelsBypassesDirtyRegionCacheWhenResolvedParamsDependOnSurface(t *testing.T) {
+	doc := &Document{
+		Width:      3,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Auto Levels Dirty",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 3, H: 1}, []byte{
+		40, 40, 40, 255,
+		80, 80, 80, 255,
+		120, 120, 120, 255,
+	})
+	adjustment := NewAdjustmentLayer("Levels", "levels", json.RawMessage(`{"auto":true,"channel":"rgb"}`))
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	before := doc.renderCompositeSurface()
+	midBefore := before[4]
+
+	base.Pixels[0] = 60
+	base.Pixels[1] = 60
+	base.Pixels[2] = 60
+	doc.touchModifiedAtRect(DirtyRect{X: 0, Y: 0, W: 1, H: 1})
+
+	after := doc.renderCompositeSurface()
+	if after[4] == midBefore {
+		t.Fatalf("auto-levels midtone stayed unchanged after upstream dirty update: before=%d after=%d", midBefore, after[4])
+	}
+}
+
 func renderAdjustmentTestPixel(t *testing.T, kind, params string, base [4]byte) [4]byte {
 	t.Helper()
 	doc := &Document{

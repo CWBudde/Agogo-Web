@@ -179,26 +179,28 @@ type Background struct {
 }
 
 type Document struct {
-	Width           int                     `json:"width"`
-	Height          int                     `json:"height"`
-	Resolution      float64                 `json:"resolution"`
-	ColorMode       string                  `json:"colorMode"`
-	BitDepth        int                     `json:"bitDepth"`
-	Background      Background              `json:"background"`
-	ID              string                  `json:"id"`
-	Name            string                  `json:"name"`
-	CreatedAt       string                  `json:"createdAt"`
-	CreatedBy       string                  `json:"createdBy"`
-	ModifiedAt      string                  `json:"modifiedAt"`
-	ActiveLayerID   string                  `json:"activeLayerId,omitempty"`
-	LayerRoot       *GroupLayer             `json:"-"`
-	Selection       *Selection              `json:"-"`
-	LastSelection   *Selection              `json:"-"`
-	SavedSelections []SavedSelectionChannel `json:"-"`
-	ContentVersion  int64                   `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
-	Paths           []NamedPath             `json:"-"`
-	ActivePathIdx   int                     `json:"-"`
-	StylePresets    []DocumentStylePreset   `json:"-"`
+	Width             int                     `json:"width"`
+	Height            int                     `json:"height"`
+	Resolution        float64                 `json:"resolution"`
+	ColorMode         string                  `json:"colorMode"`
+	BitDepth          int                     `json:"bitDepth"`
+	Background        Background              `json:"background"`
+	ID                string                  `json:"id"`
+	Name              string                  `json:"name"`
+	CreatedAt         string                  `json:"createdAt"`
+	CreatedBy         string                  `json:"createdBy"`
+	ModifiedAt        string                  `json:"modifiedAt"`
+	ActiveLayerID     string                  `json:"activeLayerId,omitempty"`
+	LayerRoot         *GroupLayer             `json:"-"`
+	Selection         *Selection              `json:"-"`
+	LastSelection     *Selection              `json:"-"`
+	SavedSelections   []SavedSelectionChannel `json:"-"`
+	ContentVersion    int64                   `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
+	dirtyComposite    DirtyRect               `json:"-"`
+	hasDirtyComposite bool                    `json:"-"`
+	Paths             []NamedPath             `json:"-"`
+	ActivePathIdx     int                     `json:"-"`
+	StylePresets      []DocumentStylePreset   `json:"-"`
 }
 
 type ViewportState struct {

@@ -19,6 +19,7 @@ func (inst *instance) compositeSurface(doc *Document) []byte {
 	inst.cachedDocSurface = doc.renderCompositeSurface()
 	inst.cachedDocID = doc.ID
 	inst.cachedDocContentVersion = doc.ContentVersion
+	doc.clearDirtyCompositeRect()
 	return inst.cachedDocSurface
 }
 
@@ -38,7 +39,7 @@ func (inst *instance) render() RenderResult {
 
 func (inst *instance) renderRaw() RawRenderResult {
 	frameID := inst.nextFrameID()
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		inst.pixels = inst.pixels[:0]
 		inst.hasCachedRawFrame = false
@@ -99,7 +100,7 @@ func (inst *instance) canReuseRawFrame(doc *Document) bool {
 }
 
 func (inst *instance) renderUIMeta() UIMeta {
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return UIMeta{
 			CursorType:          "default",

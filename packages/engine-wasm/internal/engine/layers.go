@@ -370,6 +370,15 @@ type AdjustmentLayer struct {
 	layerBase
 	AdjustmentKind string          `json:"adjustmentKind"`
 	Params         json.RawMessage `json:"params,omitempty"`
+	cache          adjustmentCache `json:"-"`
+}
+
+type adjustmentCache struct {
+	kind           string
+	resolvedParams json.RawMessage
+	docW           int
+	docH           int
+	output         []byte
 }
 
 func NewAdjustmentLayer(name, adjustmentKind string, params json.RawMessage) *AdjustmentLayer {
