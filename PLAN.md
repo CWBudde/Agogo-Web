@@ -766,7 +766,7 @@
 - [x] **Brush Preset Picker** (inline dropdown from Options bar):
   - [x] Grid of brush tip previews
   - [x] Search/filter by name
-  - [ ] Import `.abr` brush preset files (later)
+  - [x] Import `.abr` brush preset files (later)
 - [x] **Color Picker (foreground/background):**
   - [x] Foreground/background color state in engine (SetForegroundColor / SetBackgroundColor commands)
   - [x] Foreground/background swatches in toolrail (minimal — click to reset to black/white)
@@ -783,8 +783,8 @@
   - [x] Grid of color swatches
   - [x] Click to set foreground, Alt+click to set background
   - [x] Add current foreground color, delete swatch
-  - [ ] Load/save swatch sets (`.aco` import later)
-- [ ] Options bar per paint tool: blend mode, opacity slider, flow slider, airbrush toggle, smoothing slider, pressure buttons
+  - [x] Load/save swatch sets (`.aco` import later)
+- [x] Options bar per paint tool: blend mode, opacity slider, flow slider, airbrush toggle, smoothing slider, pressure buttons
 
 ---
 

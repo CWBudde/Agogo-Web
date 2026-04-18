@@ -105,6 +105,10 @@ export const MIXER_BRUSH_PRESETS: MixerBrushPreset[] = [
 type BrushSettingsPanelProps = {
   selectedPresetId: string;
   onSelectPreset: (preset: BrushPreset) => void;
+  presets?: BrushPreset[];
+  customPresetIds?: string[];
+  onImportPresets?: () => void;
+  presetStatus?: string | null;
   title?: string;
   subtitle?: string;
   hidePresetPicker?: boolean;
@@ -133,13 +137,22 @@ type BrushSettingsPanelProps = {
 export function BrushPresetPicker({
   selectedPresetId,
   onSelectPreset,
+  presets = BRUSH_PRESETS,
+  customPresetIds = [],
+  onImportPresets,
+  importStatus,
 }: {
   selectedPresetId: string;
   onSelectPreset: (preset: BrushPreset) => void;
+  presets?: BrushPreset[];
+  customPresetIds?: string[];
+  onImportPresets?: () => void;
+  importStatus?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const customPresetIdSet = useMemo(() => new Set(customPresetIds), [customPresetIds]);
 
   useEffect(() => {
     if (!open) {
@@ -164,16 +177,18 @@ export function BrushPresetPicker({
   }, [open]);
 
   const selectedPreset = useMemo(
-    () => BRUSH_PRESETS.find((preset) => preset.id === selectedPresetId) ?? BRUSH_PRESETS[0],
-    [selectedPresetId],
+    () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
+    [presets, selectedPresetId],
   );
   const filteredPresets = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) {
-      return BRUSH_PRESETS;
+      return presets;
     }
-    return BRUSH_PRESETS.filter((preset) => preset.name.toLowerCase().includes(needle));
-  }, [query]);
+    return presets.filter((preset) => preset.name.toLowerCase().includes(needle));
+  }, [presets, query]);
+  const builtInPresets = filteredPresets.filter((preset) => !customPresetIdSet.has(preset.id));
+  const importedPresets = filteredPresets.filter((preset) => customPresetIdSet.has(preset.id));
 
   return (
     <div ref={rootRef} className="relative">
@@ -196,6 +211,15 @@ export function BrushPresetPicker({
               placeholder="Search brush presets"
               onChange={(event) => setQuery(event.target.value)}
             />
+            {onImportPresets ? (
+              <button
+                type="button"
+                className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/6"
+                onClick={onImportPresets}
+              >
+                Import
+              </button>
+            ) : null}
             <button
               type="button"
               className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/6"
@@ -204,37 +228,33 @@ export function BrushPresetPicker({
               Clear
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {filteredPresets.map((preset) => {
-              const active = preset.id === selectedPresetId;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={[
-                    "rounded-[var(--ui-radius-sm)] border p-2 text-left transition focus-visible:outline-none",
-                    active
-                      ? "border-cyan-400/35 bg-cyan-400/12"
-                      : "border-white/8 bg-black/16 hover:border-white/16 hover:bg-white/5",
-                  ].join(" ")}
-                  onClick={() => {
-                    onSelectPreset(preset);
-                    setOpen(false);
-                  }}
-                >
-                  <BrushTipPreview shape={preset.tipShape} />
-                  <div className="mt-2 text-[12px] text-slate-100">{preset.name}</div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">
-                    {formatPercent(preset.spacing)} spacing · {Math.round(preset.hardness * 100)}% hard
-                  </div>
-                </button>
-              );
-            })}
-            {filteredPresets.length === 0 ? (
-              <p className="col-span-2 py-8 text-center text-[12px] text-slate-500">
-                No presets match that search.
-              </p>
+          <div className="mt-3 space-y-3">
+            {builtInPresets.length > 0 ? (
+              <BrushPresetSection
+                label="Built-in"
+                presets={builtInPresets}
+                selectedPresetId={selectedPresetId}
+                onSelectPreset={(preset) => {
+                  onSelectPreset(preset);
+                  setOpen(false);
+                }}
+              />
             ) : null}
+            {importedPresets.length > 0 ? (
+              <BrushPresetSection
+                label="Imported"
+                presets={importedPresets}
+                selectedPresetId={selectedPresetId}
+                onSelectPreset={(preset) => {
+                  onSelectPreset(preset);
+                  setOpen(false);
+                }}
+              />
+            ) : null}
+            {filteredPresets.length === 0 ? (
+              <p className="py-8 text-center text-[12px] text-slate-500">No presets match that search.</p>
+            ) : null}
+            {importStatus ? <p className="text-[11px] text-slate-500">{importStatus}</p> : null}
           </div>
         </div>
       ) : null}
@@ -245,6 +265,10 @@ export function BrushPresetPicker({
 export function BrushSettingsPanel({
   selectedPresetId,
   onSelectPreset,
+  presets = BRUSH_PRESETS,
+  customPresetIds = [],
+  onImportPresets,
+  presetStatus,
   title = "Brush Tip",
   subtitle,
   hidePresetPicker = false,
@@ -270,8 +294,8 @@ export function BrushSettingsPanel({
   onControlSourceChange,
 }: BrushSettingsPanelProps) {
   const currentPreset = useMemo(
-    () => BRUSH_PRESETS.find((preset) => preset.id === selectedPresetId) ?? BRUSH_PRESETS[0],
-    [selectedPresetId],
+    () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
+    [presets, selectedPresetId],
   );
 
   return (
@@ -284,7 +308,14 @@ export function BrushSettingsPanel({
           <p className="text-[12px] text-slate-200">{subtitle ?? currentPreset.name}</p>
         </div>
         {hidePresetPicker ? null : (
-          <BrushPresetPicker selectedPresetId={selectedPresetId} onSelectPreset={onSelectPreset} />
+          <BrushPresetPicker
+            selectedPresetId={selectedPresetId}
+            onSelectPreset={onSelectPreset}
+            presets={presets}
+            customPresetIds={customPresetIds}
+            onImportPresets={onImportPresets}
+            importStatus={presetStatus}
+          />
         )}
       </div>
 
@@ -447,16 +478,24 @@ export function ColorPanel({
 export function SwatchesPanel({
   swatches,
   activeColor,
+  setName,
+  statusMessage,
   onPickForeground,
   onPickBackground,
   onAddSwatch,
+  onImportSwatches,
+  onExportSwatches,
   onDeleteSwatch,
 }: {
   swatches: Rgba[];
   activeColor: Rgba;
+  setName?: string;
+  statusMessage?: string | null;
   onPickForeground: (color: Rgba) => void;
   onPickBackground: (color: Rgba) => void;
   onAddSwatch: () => void;
+  onImportSwatches?: () => void;
+  onExportSwatches?: () => void;
   onDeleteSwatch: (index: number) => void;
 }) {
   return (
@@ -464,12 +503,27 @@ export function SwatchesPanel({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Swatches</p>
-          <p className="text-[12px] text-slate-300">Click to set foreground. Alt+click sets background.</p>
+          <p className="text-[12px] text-slate-300">
+            {setName ? `${setName} · ` : ""}Click to set foreground. Alt+click sets background.
+          </p>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onAddSwatch}>
-          Add current
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {onImportSwatches ? (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onImportSwatches}>
+              Import
+            </Button>
+          ) : null}
+          {onExportSwatches ? (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onExportSwatches}>
+              Save .aco
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onAddSwatch}>
+            Add current
+          </Button>
+        </div>
       </div>
+      {statusMessage ? <p className="text-[11px] text-slate-500">{statusMessage}</p> : null}
 
       <div className="grid grid-cols-6 gap-2">
         {swatches.map((swatch, index) => {
@@ -505,6 +559,53 @@ export function SwatchesPanel({
                 ×
               </button>
             </div>
+          );
+        })}
+        {swatches.length === 0 ? (
+          <p className="col-span-6 py-8 text-center text-[12px] text-slate-500">
+            No swatches loaded yet.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function BrushPresetSection({
+  label,
+  presets,
+  selectedPresetId,
+  onSelectPreset,
+}: {
+  label: string;
+  presets: BrushPreset[];
+  selectedPresetId: string;
+  onSelectPreset: (preset: BrushPreset) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <div className="grid grid-cols-2 gap-2">
+        {presets.map((preset) => {
+          const active = preset.id === selectedPresetId;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              className={[
+                "rounded-[var(--ui-radius-sm)] border p-2 text-left transition focus-visible:outline-none",
+                active
+                  ? "border-cyan-400/35 bg-cyan-400/12"
+                  : "border-white/8 bg-black/16 hover:border-white/16 hover:bg-white/5",
+              ].join(" ")}
+              onClick={() => onSelectPreset(preset)}
+            >
+              <BrushTipPreview shape={preset.tipShape} />
+              <div className="mt-2 text-[12px] text-slate-100">{preset.name}</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">
+                {formatPercent(preset.spacing)} spacing · {Math.round(preset.hardness * 100)}% hard
+              </div>
+            </button>
           );
         })}
       </div>

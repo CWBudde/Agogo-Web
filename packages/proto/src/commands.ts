@@ -923,6 +923,9 @@ export interface BrushParams {
   historySourceIndex?: number; // history entry id used as the source state for the history brush
   historyOpacity?: number;   // 0.0–1.0 overall history-source opacity multiplier
   historyLoad?: number;      // 0.0–1.0 source load carried through the stroke; lower values fade sooner
+  pressureSize?: boolean;    // whether stylus pressure scales brush size
+  pressureOpacity?: boolean; // whether stylus pressure scales dab/source opacity
+  pressureFlow?: boolean;    // whether stylus pressure scales flow
 }
 
 export interface BeginPaintStrokeCommand {

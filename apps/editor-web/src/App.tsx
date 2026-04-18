@@ -11,6 +11,7 @@ import {
   type GradientStopCommand,
   type GradientType,
   type InterpolMode,
+  type LayerBlendMode,
   type LayerNodeMeta,
   type SampleMergedColorCommand,
   type SetColorCommand,
@@ -82,6 +83,7 @@ import { WelcomeScreen } from "@/components/welcome-screen";
 import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   hexToRgba,
+  formatPercent,
   type Rgba,
   rgbaToCss,
   rgbaToHex,
@@ -89,6 +91,8 @@ import {
   toMutableRgba,
   toRgba,
 } from "@/lib/color";
+import { loadBrushPresetFile, parseBrushPresetJSON } from "@/lib/brush-preset-io";
+import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -463,6 +467,20 @@ const presets = [
   { id: "square", label: "Custom", width: 2048, height: 2048, resolution: 144 },
 ];
 
+const paintBlendModeOptions: { value: LayerBlendMode; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "multiply", label: "Multiply" },
+  { value: "screen", label: "Screen" },
+  { value: "overlay", label: "Overlay" },
+  { value: "soft-light", label: "Soft Light" },
+  { value: "hard-light", label: "Hard Light" },
+  { value: "color-dodge", label: "Color Dodge" },
+  { value: "color-burn", label: "Color Burn" },
+  { value: "difference", label: "Difference" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+];
+
 type DocumentUnit = "px" | "in" | "cm" | "mm";
 type AuxPanel =
   | "properties"
@@ -496,8 +514,11 @@ const unitSteps: Record<DocumentUnit, number> = {
 };
 
 const RECENT_COLORS_KEY = "agogo:recent-colors";
+const CUSTOM_BRUSH_PRESETS_KEY = "agogo:custom-brush-presets";
 const CUSTOM_SWATCHES_KEY = "agogo:custom-swatches";
+const CUSTOM_SWATCHES_NAME_KEY = "agogo:custom-swatches-name";
 const GRADIENT_STOPS_KEY = "agogo:gradient-stops";
+const MAX_SWATCHES = 96;
 
 function pixelsToUnit(pixels: number, resolution: number, unit: DocumentUnit) {
   switch (unit) {
@@ -558,6 +579,65 @@ function loadColorList(key: string, fallback: Rgba[]): Rgba[] {
   }
 }
 
+function loadBrushPresetList(key: string, fallback: BrushPreset[] = []): BrushPreset[] {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    return parseBrushPresetJSON(raw, "Imported Brushes");
+  } catch {
+    return fallback;
+  }
+}
+
+function loadStoredName(key: string, fallback: string): string {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function mergeImportedBrushPresets(existing: BrushPreset[], imported: BrushPreset[]) {
+  const merged = [...existing];
+  const usedIds = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.id));
+  const usedNames = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()));
+
+  for (const preset of imported) {
+    const normalizedName = preset.name.trim();
+    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
+      continue;
+    }
+    let id = preset.id;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${preset.id}-${suffix}`;
+      suffix += 1;
+    }
+    merged.push({ ...preset, id, name: normalizedName });
+    usedIds.add(id);
+    usedNames.add(normalizedName.toLowerCase());
+  }
+
+  return merged;
+}
+
+function fileStem(value: string) {
+  const normalized = value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "");
+  return normalized || "swatches";
+}
+
 function loadGradientStops(key: string, fallback: GradientStopCommand[]): GradientStopCommand[] {
   if (typeof window === "undefined") {
     return fallback;
@@ -615,6 +695,8 @@ export default function App() {
   const render = engine.render;
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
+  const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
+  const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
   const lastSavedVersionRef = useRef<number>(0);
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
   const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
@@ -709,6 +791,9 @@ export default function App() {
       [244, 63, 94, 255],
     ]),
   );
+  const [customBrushPresets, setCustomBrushPresets] = useState<BrushPreset[]>(() =>
+    loadBrushPresetList(CUSTOM_BRUSH_PRESETS_KEY),
+  );
   const [swatches, setSwatches] = useState<Rgba[]>(() =>
     loadColorList(CUSTOM_SWATCHES_KEY, [
       [0, 0, 0, 255],
@@ -719,6 +804,11 @@ export default function App() {
       [251, 191, 36, 255],
     ]),
   );
+  const [swatchSetName, setSwatchSetName] = useState(() =>
+    loadStoredName(CUSTOM_SWATCHES_NAME_KEY, "Custom Swatches"),
+  );
+  const [brushPresetStatus, setBrushPresetStatus] = useState<string | null>(null);
+  const [swatchStatus, setSwatchStatus] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState(20);
   const [brushHardness, setBrushHardness] = useState(0.8);
   const [brushAngle, setBrushAngle] = useState(0);
@@ -726,6 +816,13 @@ export default function App() {
   const [brushSpacing, setBrushSpacing] = useState(0.14);
   const [brushTipShape, setBrushTipShape] = useState<BrushTipShape>("round");
   const [brushPresetId, setBrushPresetId] = useState(BRUSH_PRESETS[0].id);
+  const [brushBlendMode, setBrushBlendMode] = useState<LayerBlendMode>("normal");
+  const [brushOpacity, setBrushOpacity] = useState(1);
+  const [brushAirbrush, setBrushAirbrush] = useState(false);
+  const [brushSmoothing, setBrushSmoothing] = useState(0);
+  const [pressureAffectsSize, setPressureAffectsSize] = useState(true);
+  const [pressureAffectsOpacity, setPressureAffectsOpacity] = useState(false);
+  const [pressureAffectsFlow, setPressureAffectsFlow] = useState(true);
   const [brushSizeJitter, setBrushSizeJitter] = useState(0);
   const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
   const [brushFlowJitter, setBrushFlowJitter] = useState(0);
@@ -811,6 +908,14 @@ export default function App() {
   const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
   const [colorSamplerPoints, setColorSamplerPoints] = useState<ColorSamplerPoint[]>([]);
   const nextColorSamplerId = useRef(1);
+  const brushPresets = useMemo(
+    () => [...BRUSH_PRESETS, ...customBrushPresets],
+    [customBrushPresets],
+  );
+  const customBrushPresetIds = useMemo(
+    () => customBrushPresets.map((preset) => preset.id),
+    [customBrushPresets],
+  );
 
   // Shape tool state
   type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
@@ -899,11 +1004,27 @@ export default function App() {
 
   useEffect(() => {
     try {
+      window.localStorage.setItem(CUSTOM_BRUSH_PRESETS_KEY, JSON.stringify(customBrushPresets));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [customBrushPresets]);
+
+  useEffect(() => {
+    try {
       window.localStorage.setItem(CUSTOM_SWATCHES_KEY, JSON.stringify(swatches));
     } catch {
       // Ignore localStorage failures.
     }
   }, [swatches]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CUSTOM_SWATCHES_NAME_KEY, swatchSetName);
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [swatchSetName]);
 
   useEffect(() => {
     try {
@@ -1052,6 +1173,32 @@ export default function App() {
     setMixerBrushWetness(preset.wetness);
     setMixerBrushLoad(preset.load);
   };
+
+  const openBrushPresetImport = () => {
+    brushPresetInputRef.current?.click();
+  };
+
+  const openSwatchImport = () => {
+    swatchSetInputRef.current?.click();
+  };
+
+  const exportSwatchSet = () => {
+    if (swatches.length === 0) {
+      setSwatchStatus("No swatches to export.");
+      return;
+    }
+    const exportName = fileStem(swatchSetName || activeDocumentName);
+    const bytes = exportSwatchesAsAco(swatches);
+    downloadBlob(new Blob([bytes], { type: "application/octet-stream" }), `${exportName}.aco`);
+    setSwatchStatus(`Saved ${swatches.length} swatches to ${exportName}.aco.`);
+  };
+
+  useEffect(() => {
+    if (brushPresets.some((preset) => preset.id === brushPresetId)) {
+      return;
+    }
+    setBrushPresetId(brushPresets[0]?.id ?? BRUSH_PRESETS[0].id);
+  }, [brushPresetId, brushPresets]);
 
   useEffect(() => {
     const activeLayerId = render?.uiMeta.activeLayerId ?? null;
@@ -2470,8 +2617,70 @@ export default function App() {
             </span>
           </>
         ) : (
-          <BrushPresetPicker selectedPresetId={brushPresetId} onSelectPreset={applyBrushPreset} />
+          <BrushPresetPicker
+            selectedPresetId={brushPresetId}
+            onSelectPreset={applyBrushPreset}
+            presets={brushPresets}
+            customPresetIds={customBrushPresetIds}
+            onImportPresets={openBrushPresetImport}
+            importStatus={brushPresetStatus}
+          />
         )}
+        <ToolSelectField
+          label="Blend"
+          value={brushBlendMode}
+          onChange={(value) => setBrushBlendMode(value as LayerBlendMode)}
+          options={paintBlendModeOptions}
+        />
+        {activeTool !== "cloneStamp" && activeTool !== "historyBrush" ? (
+          <ToolNumberField
+            label="Opacity"
+            min={0}
+            max={1}
+            step={0.05}
+            value={brushOpacity}
+            onChange={setBrushOpacity}
+          />
+        ) : null}
+        <ToolNumberField
+          label="Flow"
+          min={0}
+          max={1}
+          step={0.05}
+          value={brushFlow}
+          onChange={setBrushFlow}
+        />
+        <ToolChoiceButton active={brushAirbrush} onClick={() => setBrushAirbrush((value) => !value)}>
+          Airbrush
+        </ToolChoiceButton>
+        <ToolNumberField
+          label="Smooth"
+          min={0}
+          max={20}
+          step={1}
+          value={brushSmoothing}
+          onChange={(value) => setBrushSmoothing(Math.max(0, Math.round(value)))}
+        />
+        <ToolOptionGroup label="Pressure">
+          <ToolChoiceButton
+            active={pressureAffectsSize}
+            onClick={() => setPressureAffectsSize((value) => !value)}
+          >
+            Size
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={pressureAffectsOpacity}
+            onClick={() => setPressureAffectsOpacity((value) => !value)}
+          >
+            Opacity
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={pressureAffectsFlow}
+            onClick={() => setPressureAffectsFlow((value) => !value)}
+          >
+            Flow
+          </ToolChoiceButton>
+        </ToolOptionGroup>
         <ToolNumberField
           label="Size"
           min={1}
@@ -2653,13 +2862,11 @@ export default function App() {
       <>
         <BrushPresetPicker
           selectedPresetId={brushPresetId}
-          onSelectPreset={(preset) => {
-            setBrushPresetId(preset.id);
-            setBrushTipShape(preset.tipShape);
-            setBrushHardness(preset.hardness);
-            setBrushSpacing(preset.spacing);
-            setBrushAngle(preset.angle);
-          }}
+          onSelectPreset={applyBrushPreset}
+          presets={brushPresets}
+          customPresetIds={customBrushPresetIds}
+          onImportPresets={openBrushPresetImport}
+          importStatus={brushPresetStatus}
         />
         <ToolOptionGroup label="Mode">
           <ToolChoiceButton
@@ -2678,6 +2885,53 @@ export default function App() {
             Magic
           </ToolChoiceButton>
         </ToolOptionGroup>
+        <ToolNumberField
+          label="Opacity"
+          min={0}
+          max={1}
+          step={0.05}
+          value={brushOpacity}
+          onChange={setBrushOpacity}
+        />
+        <ToolNumberField
+          label="Flow"
+          min={0}
+          max={1}
+          step={0.05}
+          value={brushFlow}
+          onChange={setBrushFlow}
+        />
+        <ToolChoiceButton active={brushAirbrush} onClick={() => setBrushAirbrush((value) => !value)}>
+          Airbrush
+        </ToolChoiceButton>
+        <ToolNumberField
+          label="Smooth"
+          min={0}
+          max={20}
+          step={1}
+          value={brushSmoothing}
+          onChange={(value) => setBrushSmoothing(Math.max(0, Math.round(value)))}
+        />
+        <ToolOptionGroup label="Pressure">
+          <ToolChoiceButton
+            active={pressureAffectsSize}
+            onClick={() => setPressureAffectsSize((value) => !value)}
+          >
+            Size
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={pressureAffectsOpacity}
+            onClick={() => setPressureAffectsOpacity((value) => !value)}
+          >
+            Opacity
+          </ToolChoiceButton>
+          <ToolChoiceButton
+            active={pressureAffectsFlow}
+            onClick={() => setPressureAffectsFlow((value) => !value)}
+          >
+            Flow
+          </ToolChoiceButton>
+        </ToolOptionGroup>
         {eraserMode !== "magic" ? (
           <>
             <ToolNumberField
@@ -2689,12 +2943,12 @@ export default function App() {
               onChange={setBrushSize}
             />
             <ToolNumberField
-              label="Opacity"
+              label="Hardness"
               min={0}
               max={1}
               step={0.05}
-              value={brushFlow}
-              onChange={setBrushFlow}
+              value={brushHardness}
+              onChange={setBrushHardness}
             />
           </>
         ) : null}
@@ -2985,6 +3239,59 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
       <input
+        ref={brushPresetInputRef}
+        type="file"
+        accept=".abr,.json,application/json"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) {
+            return;
+          }
+
+          try {
+            const { presets, sourceName } = await loadBrushPresetFile(file);
+            const mergedPresets = mergeImportedBrushPresets(customBrushPresets, presets);
+            const addedCount = mergedPresets.length - customBrushPresets.length;
+            if (addedCount === 0) {
+              setBrushPresetStatus(`No new presets were added from ${sourceName}.`);
+              return;
+            }
+            const firstNewPreset = mergedPresets[mergedPresets.length - addedCount];
+            setCustomBrushPresets(mergedPresets);
+            applyBrushPreset(firstNewPreset);
+            setBrushPresetStatus(`Imported ${addedCount} brush preset${addedCount === 1 ? "" : "s"} from ${sourceName}.`);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Brush preset import failed.";
+            setBrushPresetStatus(message);
+          }
+        }}
+      />
+      <input
+        ref={swatchSetInputRef}
+        type="file"
+        accept=".aco,.json,application/json"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) {
+            return;
+          }
+
+          try {
+            const { name, swatches: importedSwatches } = await loadSwatchSetFile(file);
+            setSwatches(importedSwatches.slice(0, MAX_SWATCHES));
+            setSwatchSetName(name);
+            setSwatchStatus(`Loaded ${Math.min(importedSwatches.length, MAX_SWATCHES)} swatches from ${name}.`);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Swatch import failed.";
+            setSwatchStatus(message);
+          }
+        }}
+      />
+      <input
         ref={projectInputRef}
         type="file"
         accept=".agp,.psd,.psb,application/json,image/png,image/jpeg,image/gif,image/webp,image/bmp"
@@ -3235,6 +3542,13 @@ export default function App() {
                     brushSize={brushSize}
                     brushHardness={brushHardness}
                     brushFlow={brushFlow}
+                    brushOpacity={brushOpacity}
+                    brushBlendMode={brushBlendMode}
+                    brushAirbrush={brushAirbrush}
+                    brushSmoothing={brushSmoothing}
+                    pressureAffectsSize={pressureAffectsSize}
+                    pressureAffectsOpacity={pressureAffectsOpacity}
+                    pressureAffectsFlow={pressureAffectsFlow}
                     mixerBrushWetness={mixerBrushWetness}
                     mixerBrushLoad={mixerBrushLoad}
                     mixerBrushSampleMerged={mixerBrushSampleMerged}
@@ -3477,6 +3791,10 @@ export default function App() {
                           <BrushSettingsPanel
                             selectedPresetId={brushPresetId}
                             onSelectPreset={applyBrushPreset}
+                            presets={brushPresets}
+                            customPresetIds={customBrushPresetIds}
+                            onImportPresets={openBrushPresetImport}
+                            presetStatus={brushPresetStatus}
                             title={activeTool === "mixerBrush" ? "Mixer Tip" : undefined}
                             subtitle={
                               activeTool === "mixerBrush"
@@ -3819,11 +4137,15 @@ export default function App() {
                         <SwatchesPanel
                           swatches={swatches}
                           activeColor={activeColor}
+                          setName={swatchSetName}
+                          statusMessage={swatchStatus}
                           onPickForeground={(color) => applyColorToTarget("foreground", color)}
                           onPickBackground={(color) => applyColorToTarget("background", color)}
                           onAddSwatch={() =>
-                            setSwatches((current) => [foregroundColor, ...current].slice(0, 24))
+                            setSwatches((current) => [foregroundColor, ...current].slice(0, MAX_SWATCHES))
                           }
+                          onImportSwatches={openSwatchImport}
+                          onExportSwatches={exportSwatchSet}
                           onDeleteSwatch={(index) =>
                             setSwatches((current) =>
                               current.filter((_, swatchIndex) => swatchIndex !== index),

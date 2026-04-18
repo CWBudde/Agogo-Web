@@ -72,6 +72,13 @@ type EditorCanvasProps = {
   brushSize: number;
   brushHardness: number;
   brushFlow: number;
+  brushOpacity: number;
+  brushBlendMode: string;
+  brushAirbrush: boolean;
+  brushSmoothing: number;
+  pressureAffectsSize: boolean;
+  pressureAffectsOpacity: boolean;
+  pressureAffectsFlow: boolean;
   mixerBrushWetness: number;
   mixerBrushLoad: number;
   mixerBrushSampleMerged: boolean;
@@ -690,6 +697,13 @@ export function EditorCanvas({
   brushSize,
   brushHardness,
   brushFlow,
+  brushOpacity,
+  brushBlendMode,
+  brushAirbrush,
+  brushSmoothing,
+  pressureAffectsSize,
+  pressureAffectsOpacity,
+  pressureAffectsFlow,
   mixerBrushWetness,
   mixerBrushLoad,
   mixerBrushSampleMerged,
@@ -749,6 +763,13 @@ export function EditorCanvas({
   const pendingPanRef = useRef<{ centerX: number; centerY: number } | null>(null);
   const panRafRef = useRef<number | null>(null);
   const brushActiveRef = useRef(false);
+  const airbrushRafRef = useRef<number | null>(null);
+  const airbrushSampleRef = useRef<{
+    x: number;
+    y: number;
+    pressure: number;
+  } | null>(null);
+  const airbrushLastTickRef = useRef(0);
   const lastPresentedFrameRef = useRef<{
     bufferPtr: number;
     bufferLen: number;
@@ -795,6 +816,13 @@ export function EditorCanvas({
   const renderRef = useRef(render);
   renderRef.current = render;
 
+  const brushColorWithOpacity = (color: Rgba): [number, number, number, number] => [
+    color[0],
+    color[1],
+    color[2],
+    Math.max(0, Math.min(255, Math.round(color[3] * brushOpacity))),
+  ];
+
   const dispatchCropUpdate = (
     crop: { x: number; y: number; w: number; h: number; rotation?: number },
     overrides: Partial<{
@@ -828,6 +856,46 @@ export function EditorCanvas({
   // because the context useMemo depends on state.render).
   const resizeViewportRef = useRef(engine.resizeViewport);
   resizeViewportRef.current = engine.resizeViewport;
+
+  const stopAirbrushLoop = useCallback(() => {
+    if (airbrushRafRef.current !== null) {
+      cancelAnimationFrame(airbrushRafRef.current);
+      airbrushRafRef.current = null;
+    }
+    airbrushSampleRef.current = null;
+  }, []);
+
+  const startAirbrushLoop = useCallback(() => {
+    if (!brushAirbrush || airbrushRafRef.current !== null) {
+      return;
+    }
+    airbrushLastTickRef.current = performance.now();
+    const tick = (timestamp: number) => {
+      const sample = airbrushSampleRef.current;
+      if (!brushAirbrush || !brushActiveRef.current || !sample) {
+        stopAirbrushLoop();
+        return;
+      }
+      if (timestamp - airbrushLastTickRef.current >= 45) {
+        engine.dispatchCommand(CommandID.ContinuePaintStroke, {
+          x: sample.x,
+          y: sample.y,
+          pressure: sample.pressure,
+        } satisfies ContinuePaintStrokeCommand);
+        airbrushLastTickRef.current = timestamp;
+      }
+      airbrushRafRef.current = requestAnimationFrame(tick);
+    };
+    airbrushRafRef.current = requestAnimationFrame(tick);
+  }, [brushAirbrush, engine, stopAirbrushLoop]);
+
+  useEffect(() => {
+    if (!brushAirbrush) {
+      stopAirbrushLoop();
+    }
+  }, [brushAirbrush, stopAirbrushLoop]);
+
+  useEffect(() => stopAirbrushLoop, [stopAirbrushLoop]);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -2100,6 +2168,11 @@ export function EditorCanvas({
             return;
           }
           brushActiveRef.current = true;
+          airbrushSampleRef.current = {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+          };
           event.currentTarget.setPointerCapture(event.pointerId);
           if (cloneStampAligned) {
             onCloneStampAlignedOffsetChange({
@@ -2115,7 +2188,9 @@ export function EditorCanvas({
               size: brushSize,
               hardness: brushHardness,
               flow: brushFlow,
-              color: toMutableRgba(foregroundColor),
+              color: brushColorWithOpacity(foregroundColor),
+              blendMode: brushBlendMode === "normal" ? undefined : brushBlendMode,
+              stabilizer: brushSmoothing,
               cloneStamp: true,
               cloneSourceX: cloneStampSource?.x ?? docPoint.x,
               cloneSourceY: cloneStampSource?.y ?? docPoint.y,
@@ -2125,14 +2200,23 @@ export function EditorCanvas({
               cloneHistorySource: cloneStampUseHistorySource,
               cloneHistorySourceIndex: cloneStampHistorySourceIndex ?? undefined,
               sampleMerged: cloneStampSampleMerged,
+              pressureSize: pressureAffectsSize,
+              pressureOpacity: pressureAffectsOpacity,
+              pressureFlow: pressureAffectsFlow,
             },
           } satisfies BeginPaintStrokeCommand);
+          startAirbrushLoop();
           return;
         }
         if (activeTool === "historyBrush" && event.button === 0 && !isPanMode) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
+          airbrushSampleRef.current = {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+          };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
@@ -2142,14 +2226,20 @@ export function EditorCanvas({
               size: brushSize,
               hardness: brushHardness,
               flow: brushFlow,
-              color: toMutableRgba(foregroundColor),
+              color: brushColorWithOpacity(foregroundColor),
+              blendMode: brushBlendMode === "normal" ? undefined : brushBlendMode,
+              stabilizer: brushSmoothing,
               historyBrush: true,
               historySourceIndex: historyBrushSourceIndex ?? undefined,
               historyOpacity: historyBrushOpacity,
               historyLoad: historyBrushLoad,
               sampleMerged: historyBrushSampleMerged,
+              pressureSize: pressureAffectsSize,
+              pressureOpacity: pressureAffectsOpacity,
+              pressureFlow: pressureAffectsFlow,
             },
           } satisfies BeginPaintStrokeCommand);
+          startAirbrushLoop();
           return;
         }
         if (
@@ -2163,6 +2253,11 @@ export function EditorCanvas({
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
           brushActiveRef.current = true;
+          airbrushSampleRef.current = {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+          };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
@@ -2172,7 +2267,9 @@ export function EditorCanvas({
               size: brushSize,
               hardness: activeTool === "pencil" ? 1.0 : brushHardness,
               flow: brushFlow,
-              color: toMutableRgba(foregroundColor),
+              color: brushColorWithOpacity(foregroundColor),
+              blendMode: brushBlendMode === "normal" ? undefined : brushBlendMode,
+              stabilizer: brushSmoothing,
               autoErase: activeTool === "pencil" ? pencilAutoErase : undefined,
               mixerBrush: activeTool === "mixerBrush" ? true : undefined,
               mixerWetness: activeTool === "mixerBrush" ? mixerBrushWetness : undefined,
@@ -2185,8 +2282,12 @@ export function EditorCanvas({
                 activeTool === "eraser" && eraserMode === "background"
                   ? eraserTolerance
                   : undefined,
+              pressureSize: pressureAffectsSize,
+              pressureOpacity: pressureAffectsOpacity,
+              pressureFlow: pressureAffectsFlow,
             },
           } satisfies BeginPaintStrokeCommand);
+          startAirbrushLoop();
           return;
         }
         if (isZoomTool && !isPanMode) {
@@ -2890,6 +2991,11 @@ export function EditorCanvas({
         ) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
+          airbrushSampleRef.current = {
+            x: docPoint.x,
+            y: docPoint.y,
+            pressure: event.pressure || 0.5,
+          };
           engine.dispatchCommand(CommandID.ContinuePaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
@@ -3054,6 +3160,7 @@ export function EditorCanvas({
           brushActiveRef.current
         ) {
           brushActiveRef.current = false;
+          stopAirbrushLoop();
           engine.dispatchCommand(CommandID.EndPaintStroke, {});
           return;
         }
@@ -3151,6 +3258,7 @@ export function EditorCanvas({
         }
       }}
       onPointerLeave={() => {
+        stopAirbrushLoop();
         setHoverDocPoint(null);
         onCursorChange(null);
       }}

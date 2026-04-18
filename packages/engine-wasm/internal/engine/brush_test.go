@@ -1403,6 +1403,71 @@ func TestApplyScatter_CoversDisc(t *testing.T) {
 	}
 }
 
+// ── Pressure toggles ──────────────────────────────────────────────────────────
+
+func TestApplyPressure_DefaultsPreserveLegacyBehavior(t *testing.T) {
+	base := BrushParams{
+		Size:  20,
+		Flow:  1,
+		Color: [4]uint8{10, 20, 30, 200},
+	}
+	got := applyPressure(base, 0.25)
+	if math.Abs(got.Size-12.5) > 0.001 {
+		t.Fatalf("size = %.3f, want 12.5", got.Size)
+	}
+	if math.Abs(got.Flow-0.25) > 0.001 {
+		t.Fatalf("flow = %.3f, want 0.25", got.Flow)
+	}
+	if got.Color[3] != 200 {
+		t.Fatalf("alpha = %d, want unchanged 200", got.Color[3])
+	}
+}
+
+func TestApplyPressure_RespectsToggleFlags(t *testing.T) {
+	falseFlag := false
+	trueFlag := true
+	base := BrushParams{
+		Size:            20,
+		Flow:            0.8,
+		Color:           [4]uint8{10, 20, 30, 200},
+		PressureSize:    &falseFlag,
+		PressureFlow:    &falseFlag,
+		PressureOpacity: &trueFlag,
+	}
+	got := applyPressure(base, 0.25)
+	if got.Size != 20 {
+		t.Fatalf("size = %.3f, want unchanged 20", got.Size)
+	}
+	if math.Abs(got.Flow-0.8) > 0.001 {
+		t.Fatalf("flow = %.3f, want unchanged 0.8", got.Flow)
+	}
+	if got.Color[3] != 50 {
+		t.Fatalf("alpha = %d, want 50", got.Color[3])
+	}
+}
+
+func TestApplyPressure_ScalesHistoryAndCloneOpacityWhenEnabled(t *testing.T) {
+	trueFlag := true
+
+	clone := applyPressure(BrushParams{
+		CloneStamp:      true,
+		CloneOpacity:    0.8,
+		PressureOpacity: &trueFlag,
+	}, 0.5)
+	if math.Abs(clone.CloneOpacity-0.4) > 0.001 {
+		t.Fatalf("clone opacity = %.3f, want 0.4", clone.CloneOpacity)
+	}
+
+	history := applyPressure(BrushParams{
+		HistoryBrush:    true,
+		HistoryOpacity:  0.6,
+		PressureOpacity: &trueFlag,
+	}, 0.5)
+	if math.Abs(history.HistoryOpacity-0.3) > 0.001 {
+		t.Fatalf("history opacity = %.3f, want 0.3", history.HistoryOpacity)
+	}
+}
+
 // ── Pencil / Auto-erase ───────────────────────────────────────────────────────
 
 // newPencilTestInstance creates a minimal instance with a single white-filled

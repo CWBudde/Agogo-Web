@@ -41,6 +41,9 @@ type BrushParams struct {
 	HistorySourceIdx int      `json:"historySourceIndex,omitempty"`      // History entry id used as the source state for the history brush
 	HistoryOpacity   float64  `json:"historyOpacity,omitempty"`          // Overall history-source opacity multiplier, 0–1
 	HistoryLoad      float64  `json:"historyLoad,omitempty"`             // History-source load carried through the stroke, 0–1
+	PressureSize     *bool    `json:"pressureSize,omitempty"`            // Stylus pressure scales brush size when nil/true
+	PressureOpacity  *bool    `json:"pressureOpacity,omitempty"`         // Stylus pressure scales opacity when nil/true
+	PressureFlow     *bool    `json:"pressureFlow,omitempty"`            // Stylus pressure scales flow when nil/true
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -301,14 +304,35 @@ func EraseBackgroundDab(layer *PixelLayer, cx, cy float64, p BrushParams, baseCo
 	}
 }
 
-// applyPressure scales brush Size and Flow by the pointer pressure value (0–1).
-// At pressure=1.0 the brush is full size; at pressure=0.0 it is 50% size.
+func pressureFlagEnabled(flag *bool, defaultValue bool) bool {
+	if flag == nil {
+		return defaultValue
+	}
+	return *flag
+}
+
+// applyPressure scales brush dynamics by the pointer pressure value (0–1).
+// By default size and flow respond to pressure to preserve the legacy brush
+// feel; callers can opt out or route pressure into opacity independently.
 func applyPressure(p BrushParams, pressure float64) BrushParams {
 	if pressure <= 0 {
 		pressure = 0.5
 	}
-	p.Size = p.Size * (0.5 + 0.5*pressure)
-	p.Flow = clampFloat(p.Flow*pressure, 0, 1)
+	if pressureFlagEnabled(p.PressureSize, true) {
+		p.Size = p.Size * (0.5 + 0.5*pressure)
+	}
+	if pressureFlagEnabled(p.PressureFlow, true) {
+		p.Flow = clampFloat(p.Flow*pressure, 0, 1)
+	}
+	if pressureFlagEnabled(p.PressureOpacity, false) {
+		if p.CloneStamp {
+			p.CloneOpacity = clampFloat(p.CloneOpacity*pressure, 0, 1)
+		} else if p.HistoryBrush {
+			p.HistoryOpacity = clampFloat(p.HistoryOpacity*pressure, 0, 1)
+		} else {
+			p.Color[3] = uint8(math.Round(float64(p.Color[3]) * pressure))
+		}
+	}
 	return p
 }
 
