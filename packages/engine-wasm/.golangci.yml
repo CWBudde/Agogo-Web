@@ -9,6 +9,15 @@ linters:
     - unused
     - ineffassign
 
+    - revive
+  settings:
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 1500
+              skip-comments: false
+              skip-blank-lines: false
 formatters:
   enable:
     - gofumpt

@@ -807,7 +807,7 @@
   - [x] Cache adjustment result per dirty region; invalidate only when params or input change
 - [x] Invalidation propagation:
   - [x] Change to adjustment layer params → re-render all layers below in the composite
-  - [ ] Upstream invalidation: only dirty the region that needs re-compositing
+  - [x] Upstream invalidation: only dirty the region that needs re-compositing
 - [x] Non-destructive guarantee: deleting or hiding adjustment layer returns composite to original state
 - [x] Serialize/deserialize adjustment params in `.agp` format
 

@@ -40,7 +40,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 					insertChild(srcParent, floatingLayer, srcIndex+1)
 				}
 				doc.ActiveLayerID = floatingLayer.ID()
-				doc.ContentVersion++
+				doc.touchModifiedAtRect(DirtyRect{X: floatBounds.X, Y: floatBounds.Y, W: floatBounds.W, H: floatBounds.H})
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return true, err
 				}
@@ -123,10 +123,11 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 			inst.freeTransform.DistortCorners = nil
 			inst.freeTransform.WarpGrid = nil
 		}
+		beforeBounds := pl.Bounds
 		previewPixels, previewBounds := applyPixelTransform(inst.freeTransform, InterpolBilinear)
 		pl.Pixels = previewPixels
 		pl.Bounds = previewBounds
-		doc.ContentVersion++
+		doc.touchModifiedAtBounds(beforeBounds, previewBounds)
 		if err := inst.manager.ReplaceActive(doc); err != nil {
 			return true, err
 		}
@@ -167,7 +168,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 					mergePixelLayerOnto(sl, finalPixels, finalBounds)
 					d.Selection = nil
 					d.ActiveLayerID = ft.SourceLayerID
-					d.ContentVersion++
+					d.touchModifiedAtLayer(sl)
 					if err := inst.manager.ReplaceActive(d); err != nil {
 						return snapshot{}, err
 					}
@@ -194,9 +195,10 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				if !ok || p == nil {
 					return snapshot{}, fmt.Errorf("layer not found")
 				}
+				beforeBounds := p.Bounds
 				p.Pixels = finalPixels
 				p.Bounds = finalBounds
-				d.ContentVersion++
+				d.touchModifiedAtBounds(beforeBounds, finalBounds)
 				if err := inst.manager.ReplaceActive(d); err != nil {
 					return snapshot{}, err
 				}
@@ -221,7 +223,13 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 			return true, fmt.Errorf("no active document")
 		}
 		ft := inst.freeTransform
+		var floatingBounds LayerBounds
 		if ft.IsFloating {
+			if layer := doc.findLayer(ft.LayerID); layer != nil {
+				if pl, ok := layer.(*PixelLayer); ok {
+					floatingBounds = pl.Bounds
+				}
+			}
 			if srcLayer := doc.findLayer(ft.SourceLayerID); srcLayer != nil {
 				if sl, ok := srcLayer.(*PixelLayer); ok {
 					sl.Pixels = ft.OriginalSourcePixels
@@ -233,11 +241,15 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 		} else {
 			layer := doc.findLayer(ft.LayerID)
 			if pl, ok := layer.(*PixelLayer); ok && pl != nil {
+				currentBounds := pl.Bounds
 				pl.Pixels = ft.OriginalPixels
 				pl.Bounds = ft.OriginalBounds
+				doc.touchModifiedAtBounds(currentBounds, ft.OriginalBounds)
 			}
 		}
-		doc.ContentVersion++
+		if ft.IsFloating {
+			doc.touchModifiedAtBounds(floatingBounds, ft.OriginalSourceBounds)
+		}
 		if err := inst.manager.ReplaceActive(doc); err != nil {
 			return true, err
 		}
@@ -274,8 +286,9 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				if !ok || pl == nil {
 					return snapshot{}, fmt.Errorf("layer %q is not a pixel layer", layerID)
 				}
+				beforeBounds := pl.Bounds
 				applyDiscreteTransformToLayer(pl, kind)
-				doc.ContentVersion++
+				doc.touchModifiedAtBounds(beforeBounds, pl.Bounds)
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err
 				}
@@ -317,9 +330,10 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 					if !ok || p == nil {
 						return snapshot{}, fmt.Errorf("layer not found")
 					}
+					beforeBounds := p.Bounds
 					p.Pixels = finalPixels
 					p.Bounds = finalBounds
-					d.ContentVersion++
+					d.touchModifiedAtBounds(beforeBounds, finalBounds)
 					if err := inst.manager.ReplaceActive(d); err != nil {
 						return snapshot{}, err
 					}
@@ -343,8 +357,9 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 					if !ok || p == nil {
 						return snapshot{}, fmt.Errorf("active layer is not a pixel layer")
 					}
+					beforeBounds := p.Bounds
 					applyDiscreteTransformToLayer(p, kind)
-					d.ContentVersion++
+					d.touchModifiedAtBounds(beforeBounds, p.Bounds)
 					if err := inst.manager.ReplaceActive(d); err != nil {
 						return snapshot{}, err
 					}
@@ -462,7 +477,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 						doc.ActiveLayerID = activeLayerID
 					}
 				}
-				doc.ContentVersion++
+				doc.touchModifiedAt()
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err
 				}
@@ -495,7 +510,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 				if err := applyResizeCanvas(doc, payload.Width, payload.Height, payload.Anchor); err != nil {
 					return snapshot{}, err
 				}
-				doc.ContentVersion++
+				doc.touchModifiedAt()
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return snapshot{}, err
 				}

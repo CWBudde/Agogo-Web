@@ -364,7 +364,7 @@ func (doc *Document) AddLayer(layer LayerNode, parentLayerID string, index int) 
 	insertChild(parent, layer, index)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = layer.ID()
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -384,7 +384,7 @@ func (doc *Document) DeleteLayer(layerID string) error {
 	if containsLayerID(layer, doc.ActiveLayerID) {
 		doc.ActiveLayerID = nextActive
 	}
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -408,7 +408,7 @@ func (doc *Document) DuplicateLayer(layerID, parentLayerID string, index int) (L
 	insertChild(targetParent, clone, index)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = clone.ID()
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(clone)
 	return clone, nil
 }
 
@@ -442,7 +442,7 @@ func (doc *Document) SetLayerVisibility(layerID string, visible bool) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetVisible(visible)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -457,7 +457,7 @@ func (doc *Document) SetLayerOpacity(layerID string, opacity, fillOpacity *float
 	if fillOpacity != nil {
 		layer.SetFillOpacity(*fillOpacity)
 	}
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -467,7 +467,7 @@ func (doc *Document) SetLayerBlendMode(layerID string, mode BlendMode) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetBlendMode(mode)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -490,7 +490,7 @@ func (doc *Document) SetAdjustmentLayerParams(layerID, adjustmentKind string, pa
 		return fmt.Errorf("adjustment layer %q requires adjustmentKind", layer.Name())
 	}
 	typed.Params = cloneJSONRawMessage(params)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(typed)
 	return nil
 }
 
@@ -552,10 +552,21 @@ func (doc *Document) TranslateLayer(layerID string, dx, dy int) error {
 	if isLayerPositionLocked(layer) {
 		return fmt.Errorf("layer %q position is locked", layer.Name())
 	}
+	beforeRect, hasBefore := doc.layerCompositeDirtyRect(layer)
 	if err := translateLayerNode(layer, dx, dy); err != nil {
 		return err
 	}
-	doc.touchModifiedAt()
+	afterRect, hasAfter := doc.layerCompositeDirtyRect(layer)
+	switch {
+	case hasBefore && hasAfter:
+		doc.touchModifiedAtRect(unionDirtyRects(beforeRect, afterRect))
+	case hasBefore:
+		doc.touchModifiedAtRect(beforeRect)
+	case hasAfter:
+		doc.touchModifiedAtRect(afterRect)
+	default:
+		doc.touchModifiedAt()
+	}
 	return nil
 }
 
@@ -599,13 +610,13 @@ func (doc *Document) AddLayerMask(layerID string, mode AddLayerMaskMode) error {
 			return fmt.Errorf("layer %q cannot create a mask without an active selection", layer.Name())
 		}
 		layer.SetMask(newLayerMaskFromSelection(selection))
-		doc.touchModifiedAt()
+		doc.touchModifiedAtLayer(layer)
 		return nil
 	default:
 		return fmt.Errorf("unsupported layer mask mode %q", mode)
 	}
 	layer.SetMask(newFilledLayerMask(doc.Width, doc.Height, fill))
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -621,7 +632,7 @@ func (doc *Document) DeleteLayerMask(layerID string) error {
 		return fmt.Errorf("layer %q has no mask", layer.Name())
 	}
 	layer.SetMask(nil)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -658,7 +669,7 @@ func (doc *Document) ApplyLayerMask(layerID string) error {
 		return fmt.Errorf("unsupported layer type %T", layer)
 	}
 	layer.SetMask(nil)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -679,7 +690,7 @@ func (doc *Document) InvertLayerMask(layerID string) error {
 		inverted.Data[index] = 255 - inverted.Data[index]
 	}
 	layer.SetMask(inverted)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -698,7 +709,7 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	updated := cloneLayerMask(mask)
 	updated.Enabled = enabled
 	layer.SetMask(updated)
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -751,7 +762,15 @@ func (doc *Document) SetLayerClipToBelow(layerID string, clipToBelow bool) error
 	}
 	layer.SetClipToBelow(clipToBelow)
 	doc.normalizeClippingState()
-	doc.touchModifiedAt()
+	if clipToBelow {
+		children := parent.Children()
+		baseIndex := clippingBaseIndex(children, index)
+		if baseIndex >= 0 {
+			doc.touchModifiedAtLayers(layer, children[baseIndex])
+			return nil
+		}
+	}
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -770,7 +789,7 @@ func (doc *Document) FlattenLayer(layerID string) error {
 	replaceChild(parent, index, flattened)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = flattened.ID()
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayers(layer, flattened)
 	return nil
 }
 
@@ -796,7 +815,7 @@ func (doc *Document) MergeDown(layerID string) error {
 	parent.SetChildren(children)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = merged.ID()
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayers(below, layer, merged)
 	return nil
 }
 
@@ -1071,6 +1090,110 @@ func unionDirtyRects(a, b DirtyRect) DirtyRect {
 	x2 := maxInt(a.X+a.W, b.X+b.W)
 	y2 := maxInt(a.Y+a.H, b.Y+b.H)
 	return DirtyRect{X: x1, Y: y1, W: x2 - x1, H: y2 - y1}
+}
+
+func (doc *Document) touchModifiedAtLayer(layer LayerNode) {
+	if rect, ok := doc.layerCompositeDirtyRect(layer); ok {
+		doc.touchModifiedAtRect(rect)
+		return
+	}
+	doc.touchModifiedAt()
+}
+
+func (doc *Document) touchModifiedAtLayers(layers ...LayerNode) {
+	var combined DirtyRect
+	var hasCombined bool
+	for _, layer := range layers {
+		rect, ok := doc.layerCompositeDirtyRect(layer)
+		if !ok {
+			continue
+		}
+		if !hasCombined {
+			combined = rect
+			hasCombined = true
+			continue
+		}
+		combined = unionDirtyRects(combined, rect)
+	}
+	if hasCombined {
+		doc.touchModifiedAtRect(combined)
+		return
+	}
+	doc.touchModifiedAt()
+}
+
+func (doc *Document) touchModifiedAtBounds(before, after LayerBounds) {
+	beforeRect, hasBefore := layerBoundsDirtyRect(before, doc.Width, doc.Height)
+	afterRect, hasAfter := layerBoundsDirtyRect(after, doc.Width, doc.Height)
+	switch {
+	case hasBefore && hasAfter:
+		doc.touchModifiedAtRect(unionDirtyRects(beforeRect, afterRect))
+	case hasBefore:
+		doc.touchModifiedAtRect(beforeRect)
+	case hasAfter:
+		doc.touchModifiedAtRect(afterRect)
+	default:
+		doc.touchModifiedAt()
+	}
+}
+
+func (doc *Document) layerCompositeDirtyRect(layer LayerNode) (DirtyRect, bool) {
+	if doc == nil || layer == nil {
+		return DirtyRect{}, false
+	}
+	if _, ok := layer.(*AdjustmentLayer); ok {
+		rect := doc.fullDocumentDirtyRect()
+		return rect, rect.W > 0 && rect.H > 0
+	}
+	if hasAnyEnabledLayerStyleEntry(layer.StyleStack()) {
+		rect := doc.fullDocumentDirtyRect()
+		return rect, rect.W > 0 && rect.H > 0
+	}
+
+	switch typed := layer.(type) {
+	case *PixelLayer:
+		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
+	case *TextLayer:
+		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
+	case *VectorLayer:
+		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
+	case *GroupLayer:
+		var combined DirtyRect
+		var hasCombined bool
+		if typed.Artboard != nil {
+			if rect, ok := layerBoundsDirtyRect(typed.Artboard.Bounds, doc.Width, doc.Height); ok {
+				combined = rect
+				hasCombined = true
+			}
+		}
+		for _, child := range typed.Children() {
+			rect, ok := doc.layerCompositeDirtyRect(child)
+			if !ok {
+				continue
+			}
+			if !hasCombined {
+				combined = rect
+				hasCombined = true
+				continue
+			}
+			combined = unionDirtyRects(combined, rect)
+		}
+		return combined, hasCombined
+	default:
+		return DirtyRect{}, false
+	}
+}
+
+func layerBoundsDirtyRect(bounds LayerBounds, docW, docH int) (DirtyRect, bool) {
+	if docW <= 0 || docH <= 0 || bounds.W <= 0 || bounds.H <= 0 {
+		return DirtyRect{}, false
+	}
+	rect := DirtyRect{X: bounds.X, Y: bounds.Y, W: bounds.W, H: bounds.H}
+	normalized, err := normalizeDirtyRect(rect, docW, docH)
+	if err != nil {
+		return DirtyRect{}, false
+	}
+	return normalized, true
 }
 
 func defaultArtboardBackground() [4]uint8 {

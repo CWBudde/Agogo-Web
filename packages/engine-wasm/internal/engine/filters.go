@@ -101,8 +101,7 @@ func (doc *Document) ApplyFilter(layerID, filterID string, params json.RawMessag
 		return fmt.Errorf("apply filter %q: %w", filterID, err)
 	}
 
-	doc.ContentVersion++
-	doc.touchModifiedAt()
+	doc.touchModifiedAtLayer(pl)
 	return nil
 }
 

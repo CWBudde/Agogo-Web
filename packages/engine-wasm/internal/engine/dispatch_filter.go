@@ -270,7 +270,7 @@ func (inst *instance) handlePreviewFilter(payloadJSON string) (bool, error) {
 		}
 	}
 
-	doc.ContentVersion++
+	doc.bumpContentVersionRect(DirtyRect{X: pl.Bounds.X, Y: pl.Bounds.Y, W: pl.Bounds.W, H: pl.Bounds.H})
 	return true, nil
 }
 
@@ -293,7 +293,7 @@ func (inst *instance) handleCancelFilterPreview() (bool, error) {
 	if node != nil {
 		if pl, ok := node.(*PixelLayer); ok {
 			copy(pl.Pixels, inst.filterPreview.OrigPixels)
-			doc.ContentVersion++
+			doc.bumpContentVersionRect(DirtyRect{X: pl.Bounds.X, Y: pl.Bounds.Y, W: pl.Bounds.W, H: pl.Bounds.H})
 		}
 	}
 
@@ -404,8 +404,7 @@ func (inst *instance) handleFadeFilter(payloadJSON string) (bool, error) {
 			compositePixelWithBlend(pl.Pixels[i:i+4], filtered[i:i+4], blendMode, opacity, uint32(i))
 		}
 
-		doc.ContentVersion++
-		doc.touchModifiedAt()
+		doc.touchModifiedAtLayer(pl)
 		return nil
 	}); err != nil {
 		return true, err

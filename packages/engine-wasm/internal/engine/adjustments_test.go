@@ -552,6 +552,118 @@ func TestAutoLevelsBypassesDirtyRegionCacheWhenResolvedParamsDependOnSurface(t *
 	}
 }
 
+func TestTranslateLayerOnlyInvalidatesAffectedAdjustmentRegion(t *testing.T) {
+	const kind = "test-translate-dirty-cache"
+
+	var calls int
+	RegisterAdjustmentFactory(kind, func(params json.RawMessage) (AdjustmentPixelFunc, error) {
+		return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+			calls++
+			return 255 - r, g, b, a, nil
+		}, nil
+	})
+	t.Cleanup(func() {
+		RegisterAdjustmentFactory(kind, nil)
+	})
+
+	doc := &Document{
+		Width:      4,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Translate Dirty",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{10, 0, 0, 255})
+	adjustment := NewAdjustmentLayer("Cached", kind, nil)
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	_ = doc.renderCompositeSurface()
+	calls = 0
+
+	if err := doc.TranslateLayer(base.ID(), 1, 0); err != nil {
+		t.Fatalf("TranslateLayer: %v", err)
+	}
+
+	after := doc.renderCompositeSurface()
+	if calls != 2 {
+		t.Fatalf("translate rerender calls = %d, want 2 for old+new bounds union", calls)
+	}
+	want := []byte{
+		255, 0, 0, 0,
+		245, 0, 0, 255,
+		255, 0, 0, 0,
+		255, 0, 0, 0,
+	}
+	if !bytes.Equal(after[:16], want) {
+		t.Fatalf("translate render = %v, want %v", after[:16], want)
+	}
+}
+
+func TestApplyFilterOnlyInvalidatesAffectedAdjustmentRegion(t *testing.T) {
+	const filterID = "test-upstream-dirty-filter"
+	const kind = "test-filter-dirty-cache"
+
+	RegisterFilter(FilterDef{ID: filterID, Name: "Dirty Filter"}, func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+		for i := 0; i < len(pixels); i += 4 {
+			pixels[i] = 100
+			pixels[i+3] = 255
+		}
+		return nil
+	})
+	t.Cleanup(func() {
+		RegisterFilter(FilterDef{ID: filterID}, nil)
+	})
+
+	var calls int
+	RegisterAdjustmentFactory(kind, func(params json.RawMessage) (AdjustmentPixelFunc, error) {
+		return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
+			calls++
+			return 255 - r, g, b, a, nil
+		}, nil
+	})
+	t.Cleanup(func() {
+		RegisterAdjustmentFactory(kind, nil)
+	})
+
+	doc := &Document{
+		Width:      4,
+		Height:     1,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: parseBackground("transparent"),
+		Name:       "Filter Dirty",
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+	base := NewPixelLayer("Base", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, []byte{10, 0, 0, 255})
+	adjustment := NewAdjustmentLayer("Cached", kind, nil)
+	doc.LayerRoot.SetChildren([]LayerNode{base, adjustment})
+
+	_ = doc.renderCompositeSurface()
+	calls = 0
+
+	if err := doc.ApplyFilter(base.ID(), filterID, nil); err != nil {
+		t.Fatalf("ApplyFilter: %v", err)
+	}
+
+	after := doc.renderCompositeSurface()
+	if calls != 1 {
+		t.Fatalf("filter rerender calls = %d, want 1 for the filtered layer bounds", calls)
+	}
+	want := []byte{
+		255, 0, 0, 0,
+		155, 0, 0, 255,
+		255, 0, 0, 0,
+		255, 0, 0, 0,
+	}
+	if !bytes.Equal(after[:16], want) {
+		t.Fatalf("filter render = %v, want %v", after[:16], want)
+	}
+}
+
 func renderAdjustmentTestPixel(t *testing.T, kind, params string, base [4]byte) [4]byte {
 	t.Helper()
 	doc := &Document{
