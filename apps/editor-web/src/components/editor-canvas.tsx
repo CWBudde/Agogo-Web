@@ -75,9 +75,16 @@ type EditorCanvasProps = {
   mixerBrushWetness: number;
   mixerBrushLoad: number;
   mixerBrushSampleMerged: boolean;
+  cloneStampOpacity: number;
+  cloneStampLoad: number;
   cloneStampSampleMerged: boolean;
+  cloneStampAligned: boolean;
+  cloneStampAlignedOffset: { x: number; y: number } | null;
   cloneStampSource: { x: number; y: number } | null;
   onCloneStampSourceChange(source: { x: number; y: number } | null): void;
+  onCloneStampAlignedOffsetChange(offset: { x: number; y: number } | null): void;
+  cloneStampUseHistorySource: boolean;
+  cloneStampHistorySourceIndex: number | null;
   historyBrushSampleMerged: boolean;
   pencilAutoErase: boolean;
   eraserMode: "normal" | "background" | "magic";
@@ -668,9 +675,16 @@ export function EditorCanvas({
   mixerBrushWetness,
   mixerBrushLoad,
   mixerBrushSampleMerged,
+  cloneStampOpacity,
+  cloneStampLoad,
   cloneStampSampleMerged,
+  cloneStampAligned,
+  cloneStampAlignedOffset,
   cloneStampSource,
   onCloneStampSourceChange,
+  onCloneStampAlignedOffsetChange,
+  cloneStampUseHistorySource,
+  cloneStampHistorySourceIndex,
   historyBrushSampleMerged,
   pencilAutoErase,
   eraserMode,
@@ -739,6 +753,7 @@ export function EditorCanvas({
   const [marqueeDraft, setMarqueeDraft] = useState<MarqueeDraft | null>(null);
   const [gradientDragStart, setGradientDragStart] = useState<DocumentPoint | null>(null);
   const [gradientDragCurrent, setGradientDragCurrent] = useState<DocumentPoint | null>(null);
+  const [hoverDocPoint, setHoverDocPoint] = useState<DocumentPoint | null>(null);
   const [freehandDraft, setFreehandDraft] = useState<FreehandDraft | null>(null);
   const [polygonDraft, setPolygonDraft] = useState<PolygonDraft | null>(null);
   const [shapeDraft, setShapeDraft] = useState<{
@@ -1104,12 +1119,14 @@ export function EditorCanvas({
     const host = hostRef.current;
     const currentRender = renderRef.current;
     if (!host || !currentRender) {
+      setHoverDocPoint(null);
       onCursorChange(null);
       return;
     }
 
     const point = canvasPointFromClient(clientX, clientY);
     if (!point) {
+      setHoverDocPoint(null);
       onCursorChange(null);
       return;
     }
@@ -1132,10 +1149,12 @@ export function EditorCanvas({
       docY >= 0 &&
       docY < currentRender.uiMeta.documentHeight
     ) {
+      setHoverDocPoint({ x: docX, y: docY });
       onCursorChange({ x: Math.floor(docX), y: Math.floor(docY) });
       return;
     }
 
+    setHoverDocPoint(null);
     onCursorChange(null);
   };
 
@@ -1405,6 +1424,28 @@ export function EditorCanvas({
         return { start: startC, current: endC };
       })()
     : null;
+  const cloneSourcePreview = (() => {
+    if (activeTool !== "cloneStamp" || !cloneStampSource) {
+      return null;
+    }
+    const sourceDoc =
+      cloneStampAligned && cloneStampAlignedOffset && hoverDocPoint
+        ? {
+            x: hoverDocPoint.x + cloneStampAlignedOffset.x,
+            y: hoverDocPoint.y + cloneStampAlignedOffset.y,
+          }
+        : cloneStampSource;
+    const sourceCanvas = documentPointToCanvas(sourceDoc);
+    const targetCanvas = hoverDocPoint ? documentPointToCanvas(hoverDocPoint) : null;
+    if (!sourceCanvas) {
+      return null;
+    }
+    return {
+      sourceCanvas,
+      targetCanvas,
+      sourceDoc,
+    };
+  })();
   const artboards = collectArtboards((render?.uiMeta.layers ?? []) as Array<LayerMetaSlim>);
   const activeLayerMeta = render?.uiMeta.activeLayerId
     ? findLayerMetaByID(
@@ -2015,6 +2056,12 @@ export function EditorCanvas({
           }
           brushActiveRef.current = true;
           event.currentTarget.setPointerCapture(event.pointerId);
+          if (cloneStampAligned) {
+            onCloneStampAlignedOffsetChange({
+              x: (cloneStampSource?.x ?? docPoint.x) - docPoint.x,
+              y: (cloneStampSource?.y ?? docPoint.y) - docPoint.y,
+            });
+          }
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
@@ -2027,6 +2074,11 @@ export function EditorCanvas({
               cloneStamp: true,
               cloneSourceX: cloneStampSource?.x ?? docPoint.x,
               cloneSourceY: cloneStampSource?.y ?? docPoint.y,
+              cloneAligned: cloneStampAligned,
+              cloneOpacity: cloneStampOpacity,
+              cloneLoad: cloneStampLoad,
+              cloneHistorySource: cloneStampUseHistorySource,
+              cloneHistorySourceIndex: cloneStampHistorySourceIndex ?? undefined,
               sampleMerged: cloneStampSampleMerged,
             },
           } satisfies BeginPaintStrokeCommand);
@@ -3051,6 +3103,7 @@ export function EditorCanvas({
         }
       }}
       onPointerLeave={() => {
+        setHoverDocPoint(null);
         onCursorChange(null);
       }}
     >
@@ -3061,6 +3114,7 @@ export function EditorCanvas({
       magneticLassoDraft ||
       gradientDragStart ||
       cropStraightenDraft ||
+      cloneSourcePreview ||
       shapeOverlay ||
       artboards.length > 0 ||
       artboardCreateOverlay ||
@@ -3244,6 +3298,45 @@ export function EditorCanvas({
                 strokeWidth="1.5"
               />
             )
+          ) : null}
+          {cloneSourcePreview ? (
+            <g>
+              {cloneSourcePreview.targetCanvas ? (
+                <line
+                  x1={cloneSourcePreview.targetCanvas.x}
+                  y1={cloneSourcePreview.targetCanvas.y}
+                  x2={cloneSourcePreview.sourceCanvas.x}
+                  y2={cloneSourcePreview.sourceCanvas.y}
+                  stroke="rgba(248, 250, 252, 0.5)"
+                  strokeDasharray="5 4"
+                  strokeWidth="1"
+                />
+              ) : null}
+              <circle
+                cx={cloneSourcePreview.sourceCanvas.x}
+                cy={cloneSourcePreview.sourceCanvas.y}
+                r={cloneStampUseHistorySource ? 7 : 6}
+                fill={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.18)" : "rgba(248, 250, 252, 0.08)"}
+                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                strokeWidth="1.5"
+              />
+              <line
+                x1={cloneSourcePreview.sourceCanvas.x - 9}
+                y1={cloneSourcePreview.sourceCanvas.y}
+                x2={cloneSourcePreview.sourceCanvas.x + 9}
+                y2={cloneSourcePreview.sourceCanvas.y}
+                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                strokeWidth="1.5"
+              />
+              <line
+                x1={cloneSourcePreview.sourceCanvas.x}
+                y1={cloneSourcePreview.sourceCanvas.y - 9}
+                x2={cloneSourcePreview.sourceCanvas.x}
+                y2={cloneSourcePreview.sourceCanvas.y + 9}
+                stroke={cloneStampUseHistorySource ? "rgba(96, 165, 250, 0.95)" : "rgba(248, 250, 252, 0.95)"}
+                strokeWidth="1.5"
+              />
+            </g>
           ) : null}
           {freehandOverlay.length >= 2 ? (
             <path

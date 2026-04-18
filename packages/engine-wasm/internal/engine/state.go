@@ -24,6 +24,7 @@ func (inst *instance) restoreSnapshot(state snapshot) error {
 	inst.viewport = state.Viewport
 	inst.manager = newDocumentManager()
 	inst.resetMixerBrushState()
+	inst.resetCloneStampState()
 	if state.Document == nil {
 		return nil
 	}

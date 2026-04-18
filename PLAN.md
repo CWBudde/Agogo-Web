@@ -718,11 +718,11 @@
   - [x] Alt+click on the canvas defines a clone source point
   - [x] Paint strokes clone from the captured source location with a fixed aligned offset
   - [x] Supports `Sample Merged` for source sampling
-  - [ ] Missing: non-aligned mode
-  - [ ] Missing: source overlays/crosshair preview and source-offset UI
-  - [ ] Missing: source cloning from arbitrary history states
-  - [ ] Missing: fade/opacity and paint-load style controls
-  - [ ] Missing: more exact Photoshop-style edge behavior and transform-aware source handling
+  - [x] Supports aligned and non-aligned source-offset modes
+  - [x] Source overlays/crosshair preview and source-offset UI
+  - [x] Source cloning from arbitrary history states
+  - [x] Fade/opacity and paint-load style controls
+  - [x] More exact Photoshop-style edge behavior and transform-aware source handling
 - [x] **History Brush (later, Phase 4.2b):**
   - [x] Tool exists in the frontend and can be selected from the toolrail / `Y` shortcut
   - [x] Paint strokes restore pixels from the previous history state

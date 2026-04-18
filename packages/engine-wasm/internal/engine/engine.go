@@ -449,37 +449,38 @@ type SetShowGuidesPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID          string
-	params           BrushParams
-	strokeState      brushStrokeState
-	stabilizer       stabilizerState
-	dirtyMin         [2]int // min corner of painted dirty rect (layer-local)
-	dirtyMax         [2]int // max corner of painted dirty rect (layer-local)
-	hasDirty         bool
-	bgEraseBaseColor [4]uint8 // sampled once at stroke begin for background eraser
-	mixerSource      []byte   // sampled once at stroke begin for mixer brush
-	mixerSourceW     int
-	mixerSourceH     int
-	mixerSourceX     int
-	mixerSourceY     int
-	cloneSource      []byte // sampled once at stroke begin for clone stamp
-	cloneSourceW     int
-	cloneSourceH     int
-	cloneSourceX     int
-	cloneSourceY     int
-	cloneOffsetX     float64
-	cloneOffsetY     float64
-	historySource    []byte // sampled once at stroke begin for history brush
-	historySourceW   int
-	historySourceH   int
-	historySourceX   int
-	historySourceY   int
-	mixer            mixerBrushState
-	lastDabX         float64
-	lastDabY         float64
-	lastDirX         float64
-	lastDirY         float64
-	hasLastDab       bool
+	layerID            string
+	params             BrushParams
+	strokeState        brushStrokeState
+	stabilizer         stabilizerState
+	dirtyMin           [2]int // min corner of painted dirty rect (layer-local)
+	dirtyMax           [2]int // max corner of painted dirty rect (layer-local)
+	hasDirty           bool
+	bgEraseBaseColor   [4]uint8 // sampled once at stroke begin for background eraser
+	mixerSource        []byte   // sampled once at stroke begin for mixer brush
+	mixerSourceW       int
+	mixerSourceH       int
+	mixerSourceX       int
+	mixerSourceY       int
+	cloneSource        []byte // sampled once at stroke begin for clone stamp
+	cloneSourceW       int
+	cloneSourceH       int
+	cloneSourceX       int
+	cloneSourceY       int
+	cloneOffsetX       float64
+	cloneOffsetY       float64
+	cloneRemainingLoad float64
+	historySource      []byte // sampled once at stroke begin for history brush
+	historySourceW     int
+	historySourceH     int
+	historySourceX     int
+	historySourceY     int
+	mixer              mixerBrushState
+	lastDabX           float64
+	lastDabY           float64
+	lastDirX           float64
+	lastDirY           float64
+	hasLastDab         bool
 	// renderer is a reusable AGG context for the stroke's layer. Created once at
 	// stroke begin and reused across all dabs so the rasterizer's internal cell
 	// blocks stay allocated instead of being re-allocated per dab.
@@ -502,6 +503,15 @@ type mixerBrushState struct {
 	bristleColors  [7][4]uint8
 	bristleLoads   [7]float64
 	clean          bool
+}
+
+type cloneStampState struct {
+	docID            string
+	sourceX          float64
+	sourceY          float64
+	offsetX          float64
+	offsetY          float64
+	hasAlignedOffset bool
 }
 
 type pointerDragState struct {
@@ -702,6 +712,35 @@ func (h *HistoryStack) SnapshotAt(historyIndex int) (snapshot, bool) {
 	}
 }
 
+func (h *HistoryStack) SnapshotAtIndex(inst *instance, historyIndex int) (snapshot, bool) {
+	total := len(h.undo) + len(h.redo)
+	if historyIndex <= 0 || historyIndex > total || inst == nil {
+		return snapshot{}, false
+	}
+	active := inst.manager.Active()
+	if active == nil {
+		return snapshot{}, false
+	}
+	cloneHistory := &HistoryStack{
+		undo:     append([]Command(nil), h.undo...),
+		redo:     append([]Command(nil), h.redo...),
+		maxDepth: h.maxDepth,
+	}
+	cloneInst := &instance{
+		manager:  newDocumentManager(),
+		viewport: inst.viewport,
+		history:  cloneHistory,
+	}
+	cloneInst.manager.Create(active)
+	if inst.manager.ActiveID() != "" {
+		cloneInst.manager.activeID = inst.manager.ActiveID()
+	}
+	if err := cloneHistory.JumpTo(cloneInst, historyIndex); err != nil {
+		return snapshot{}, false
+	}
+	return cloneInst.captureSnapshot(), true
+}
+
 func (h *HistoryStack) PreviousSnapshot(inst *instance) (snapshot, bool) {
 	if len(h.undo) == 0 || inst == nil {
 		return snapshot{}, false
@@ -899,6 +938,9 @@ type instance struct {
 	// mixerBrush stores runtime-only wet-paint reservoir state for the Mixer Brush.
 	// It is intentionally excluded from document snapshots and project files.
 	mixerBrush mixerBrushState
+	// cloneStamp stores runtime-only aligned-offset state for Clone Stamp.
+	// It is intentionally excluded from document snapshots and project files.
+	cloneStamp cloneStampState
 	// paintStroke is non-nil while a brush stroke is in progress.
 	paintStroke *activePaintStroke
 	// undoRowBuf is a reusable buffer for stroke undo row snapshots.

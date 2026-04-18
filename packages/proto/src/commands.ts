@@ -914,6 +914,11 @@ export interface BrushParams {
   cloneStamp?: boolean;      // paint from a sampled source point
   cloneSourceX?: number;     // source point X in document space
   cloneSourceY?: number;     // source point Y in document space
+  cloneAligned?: boolean;    // keep the source offset fixed across strokes until the source changes
+  cloneOpacity?: number;     // 0.0–1.0 overall source opacity multiplier
+  cloneLoad?: number;        // 0.0–1.0 source load carried through the stroke; lower values fade sooner
+  cloneHistorySource?: boolean; // sample from a selected history snapshot instead of the live document
+  cloneHistorySourceIndex?: number; // history entry id used when cloneHistorySource is enabled
   historyBrush?: boolean;    // paint from the previous history state
 }
 

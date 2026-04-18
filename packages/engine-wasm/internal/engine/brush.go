@@ -12,27 +12,32 @@ const mixerBrushBristleCount = 7
 
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size            float64  `json:"size"`                      // Diameter in document pixels
-	Hardness        float64  `json:"hardness"`                  // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow            float64  `json:"flow"`                      // Per-dab alpha multiplier, 0–1
-	Color           [4]uint8 `json:"color"`                     // RGBA paint color
-	BlendMode       string   `json:"blendMode,omitempty"`       // AGG blend mode string, e.g. "multiply", "screen"
-	WetEdges        bool     `json:"wetEdges,omitempty"`        // Accumulate paint at stroke edges (watercolour effect)
-	Scatter         float64  `json:"scatter,omitempty"`         // Max random dab offset as a fraction of brush diameter (0 = none)
-	Stabilizer      int      `json:"stabilizer,omitempty"`      // Moving-average lag: number of past input points to average (0 = off)
-	SampleMerged    bool     `json:"sampleMerged,omitempty"`    // Sample composite (all layers) rather than active layer when reading pixels
-	AutoErase       bool     `json:"autoErase,omitempty"`       // If stroke starts on foreground color, paint with background color instead
-	Erase           bool     `json:"erase,omitempty"`           // Erase to transparency (uses dst-out compositing)
-	EraseBackground bool     `json:"eraseBackground,omitempty"` // Erase only pixels matching the sampled base color
-	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`  // Color tolerance for background eraser (0–255 Euclidean RGB distance)
-	MixerBrush      bool     `json:"mixerBrush,omitempty"`      // Mix the brush color with sampled canvas color before painting
-	MixerMix        float64  `json:"mixerMix,omitempty"`        // Sampled-color mix strength, 0–1
-	MixerWetness    float64  `json:"mixerWetness,omitempty"`    // Wet-paint pickup strength, 0–1
-	MixerLoad       float64  `json:"mixerLoad,omitempty"`       // Initial paint load when the brush is clean, 0–1
-	CloneStamp      bool     `json:"cloneStamp,omitempty"`      // Clone pixels from a source point
-	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`    // Source point X in document space
-	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`    // Source point Y in document space
-	HistoryBrush    bool     `json:"historyBrush,omitempty"`    // Restore pixels from a previous history state
+	Size            float64  `json:"size"`                              // Diameter in document pixels
+	Hardness        float64  `json:"hardness"`                          // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow            float64  `json:"flow"`                              // Per-dab alpha multiplier, 0–1
+	Color           [4]uint8 `json:"color"`                             // RGBA paint color
+	BlendMode       string   `json:"blendMode,omitempty"`               // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges        bool     `json:"wetEdges,omitempty"`                // Accumulate paint at stroke edges (watercolour effect)
+	Scatter         float64  `json:"scatter,omitempty"`                 // Max random dab offset as a fraction of brush diameter (0 = none)
+	Stabilizer      int      `json:"stabilizer,omitempty"`              // Moving-average lag: number of past input points to average (0 = off)
+	SampleMerged    bool     `json:"sampleMerged,omitempty"`            // Sample composite (all layers) rather than active layer when reading pixels
+	AutoErase       bool     `json:"autoErase,omitempty"`               // If stroke starts on foreground color, paint with background color instead
+	Erase           bool     `json:"erase,omitempty"`                   // Erase to transparency (uses dst-out compositing)
+	EraseBackground bool     `json:"eraseBackground,omitempty"`         // Erase only pixels matching the sampled base color
+	EraseTolerance  float64  `json:"eraseTolerance,omitempty"`          // Color tolerance for background eraser (0–255 Euclidean RGB distance)
+	MixerBrush      bool     `json:"mixerBrush,omitempty"`              // Mix the brush color with sampled canvas color before painting
+	MixerMix        float64  `json:"mixerMix,omitempty"`                // Sampled-color mix strength, 0–1
+	MixerWetness    float64  `json:"mixerWetness,omitempty"`            // Wet-paint pickup strength, 0–1
+	MixerLoad       float64  `json:"mixerLoad,omitempty"`               // Initial paint load when the brush is clean, 0–1
+	CloneStamp      bool     `json:"cloneStamp,omitempty"`              // Clone pixels from a source point
+	CloneSourceX    float64  `json:"cloneSourceX,omitempty"`            // Source point X in document space
+	CloneSourceY    float64  `json:"cloneSourceY,omitempty"`            // Source point Y in document space
+	CloneAligned    bool     `json:"cloneAligned,omitempty"`            // Keep the source offset fixed across strokes until the source changes
+	CloneOpacity    float64  `json:"cloneOpacity,omitempty"`            // Overall source opacity multiplier, 0–1
+	CloneLoad       float64  `json:"cloneLoad,omitempty"`               // Source load carried through the stroke, 0–1
+	CloneHistory    bool     `json:"cloneHistorySource,omitempty"`      // Sample from a history snapshot instead of the live document
+	CloneHistoryIdx int      `json:"cloneHistorySourceIndex,omitempty"` // History entry id used when CloneHistory is enabled
+	HistoryBrush    bool     `json:"historyBrush,omitempty"`            // Restore pixels from a previous history state
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -319,6 +324,24 @@ func normalizeMixerBrushParams(p BrushParams) BrushParams {
 	return p
 }
 
+func normalizeCloneStampParams(p BrushParams) BrushParams {
+	if !p.CloneStamp {
+		return p
+	}
+	if p.CloneOpacity <= 0 {
+		p.CloneOpacity = 1
+	}
+	if p.CloneLoad <= 0 {
+		p.CloneLoad = 1
+	}
+	p.CloneOpacity = clampFloat(p.CloneOpacity, 0, 1)
+	p.CloneLoad = clampFloat(p.CloneLoad, 0, 1)
+	if p.CloneHistoryIdx < 0 {
+		p.CloneHistoryIdx = 0
+	}
+	return p
+}
+
 func captureStrokeSourceSurface(doc *Document, layer *PixelLayer, sampleMerged bool) ([]byte, int, int, int, int) {
 	if sampleMerged {
 		if doc == nil {
@@ -357,6 +380,35 @@ func captureHistorySourceSurface(state snapshot, sampleMerged bool) ([]byte, int
 
 func (inst *instance) resetMixerBrushState() {
 	inst.mixerBrush = mixerBrushState{clean: true}
+}
+
+func (inst *instance) resetCloneStampState() {
+	inst.cloneStamp = cloneStampState{}
+}
+
+func (inst *instance) beginCloneStampStroke(docID string, cx, cy float64, params BrushParams) (float64, float64) {
+	offsetX := params.CloneSourceX - cx
+	offsetY := params.CloneSourceY - cy
+	if !params.CloneAligned {
+		inst.resetCloneStampState()
+		return offsetX, offsetY
+	}
+	state := inst.cloneStamp
+	if state.hasAlignedOffset &&
+		state.docID == docID &&
+		math.Abs(state.sourceX-params.CloneSourceX) < 0.001 &&
+		math.Abs(state.sourceY-params.CloneSourceY) < 0.001 {
+		return state.offsetX, state.offsetY
+	}
+	inst.cloneStamp = cloneStampState{
+		docID:            docID,
+		sourceX:          params.CloneSourceX,
+		sourceY:          params.CloneSourceY,
+		offsetX:          offsetX,
+		offsetY:          offsetY,
+		hasAlignedOffset: true,
+	}
+	return offsetX, offsetY
 }
 
 func (inst *instance) beginMixerBrushStroke(docID string, params BrushParams) mixerBrushState {
@@ -508,11 +560,68 @@ func mixerBristlePaintParams(p BrushParams, color [4]uint8, load, edgeFactor flo
 	return dab
 }
 
+func sampleSurfaceBilinearTransparent(source []byte, sourceW, sourceH int, sampleX, sampleY float64) ([4]uint8, bool) {
+	var zero [4]uint8
+	if sourceW <= 0 || sourceH <= 0 || len(source) == 0 {
+		return zero, false
+	}
+	fx := sampleX - 0.5
+	fy := sampleY - 0.5
+	x0 := int(math.Floor(fx))
+	y0 := int(math.Floor(fy))
+	tx := fx - float64(x0)
+	ty := fy - float64(y0)
+	weights := [4]float64{
+		(1 - tx) * (1 - ty),
+		tx * (1 - ty),
+		(1 - tx) * ty,
+		tx * ty,
+	}
+	coords := [4][2]int{
+		{x0, y0},
+		{x0 + 1, y0},
+		{x0, y0 + 1},
+		{x0 + 1, y0 + 1},
+	}
+
+	var sumR, sumG, sumB, sumA float64
+	for i, coord := range coords {
+		x := coord[0]
+		y := coord[1]
+		if x < 0 || y < 0 || x >= sourceW || y >= sourceH {
+			continue
+		}
+		weight := weights[i]
+		if weight <= 0 {
+			continue
+		}
+		idx := (y*sourceW + x) * 4
+		alpha := (float64(source[idx+3]) / 255) * weight
+		if alpha <= 0 {
+			continue
+		}
+		sumA += alpha
+		sumR += (float64(source[idx]) / 255) * alpha
+		sumG += (float64(source[idx+1]) / 255) * alpha
+		sumB += (float64(source[idx+2]) / 255) * alpha
+	}
+	if sumA <= 0 {
+		return zero, false
+	}
+	invAlpha := 1 / sumA
+	return [4]uint8{
+		uint8(math.Round(clampFloat(sumR*invAlpha, 0, 1) * 255)),
+		uint8(math.Round(clampFloat(sumG*invAlpha, 0, 1) * 255)),
+		uint8(math.Round(clampFloat(sumB*invAlpha, 0, 1) * 255)),
+		uint8(math.Round(clampFloat(sumA, 0, 1) * 255)),
+	}, true
+}
+
 // CloneStampDab copies pixels from a sampled source surface into the dab area
-// using the same brush mask profile as PaintDab. This is the first-pass clone
-// stamp implementation: it clones a fixed source offset and applies the current
-// brush opacity/shape, but it does not yet model Photoshop-style paint load.
-func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, sourceOffsetX, sourceOffsetY float64) {
+// using the same brush mask profile as PaintDab. The source is sampled in
+// document space with bilinear filtering so translated/subpixel offsets and
+// source edges behave more like Photoshop's clone tools.
+func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, sourceOffsetX, sourceOffsetY float64, remainingLoad *float64) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 || sourceW <= 0 || sourceH <= 0 || len(source) == 0 {
@@ -526,6 +635,14 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 		radius = 0.5
 	}
 	flow := clampFloat(p.Flow, 0, 1)
+	cloneOpacity := 1.0
+	loadFactor := 1.0
+	if p.CloneStamp {
+		cloneOpacity = clampFloat(p.CloneOpacity, 0, 1)
+		if remainingLoad != nil {
+			loadFactor = clampFloat(*remainingLoad, 0, 1)
+		}
+	}
 
 	x0 := int(lx-radius) - 1
 	y0 := int(ly-radius) - 1
@@ -545,47 +662,34 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 	}
 
 	hardness := clampFloat(p.Hardness, 0, 1)
+	painted := false
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
-			dx := float64(px) - lx
-			dy := float64(py) - ly
-			dist := math.Sqrt(dx*dx+dy*dy) / radius
-			if dist > 1.0 {
-				continue
-			}
-
-			var maskAlpha float64
-			if hardness >= 1.0 || dist <= hardness {
-				maskAlpha = 1.0
-			} else {
-				maskAlpha = 1.0 - (dist-hardness)/(1.0-hardness)
-			}
+			maskAlpha := brushMaskAlphaAt(float64(px)-lx, float64(py)-ly, radius, hardness, 0, 1)
 			if maskAlpha <= 0 {
 				continue
 			}
 
-			sx := int(math.Round(float64(px)+sourceOffsetX)) - sourceOriginX
-			sy := int(math.Round(float64(py)+sourceOffsetY)) - sourceOriginY
-			if sx < 0 || sy < 0 || sx >= sourceW || sy >= sourceH {
-				continue
-			}
-			srcIndex := (sy*sourceW + sx) * 4
-			if srcIndex < 0 || srcIndex+3 >= len(source) {
-				continue
-			}
-			if source[srcIndex+3] == 0 {
+			sampleX := float64(layer.Bounds.X+px) + sourceOffsetX + 0.5 - float64(sourceOriginX)
+			sampleY := float64(layer.Bounds.Y+py) + sourceOffsetY + 0.5 - float64(sourceOriginY)
+			srcPixel, ok := sampleSurfaceBilinearTransparent(source, sourceW, sourceH, sampleX, sampleY)
+			if !ok || srcPixel[3] == 0 {
 				continue
 			}
 
 			destIndex := (py*w + px) * 4
-			opacity := maskAlpha * flow
+			opacity := maskAlpha * flow * cloneOpacity * loadFactor
 			if opacity <= 0 {
 				continue
 			}
 
-			srcPixel := source[srcIndex : srcIndex+4]
-			compositePixelWithBlend(layer.Pixels[destIndex:destIndex+4], srcPixel, BlendMode(p.BlendMode), opacity, 0)
+			compositePixelWithBlend(layer.Pixels[destIndex:destIndex+4], srcPixel[:], BlendMode(p.BlendMode), opacity, 0)
+			painted = true
 		}
+	}
+	if painted && remainingLoad != nil {
+		decay := clampFloat(0.05+flow*0.12, 0, 1)
+		*remainingLoad = clampFloat(*remainingLoad-decay, 0, 1)
 	}
 }
 

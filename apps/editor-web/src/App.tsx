@@ -730,7 +730,18 @@ export default function App() {
   const [mixerBrushWetness, setMixerBrushWetness] = useState(0.65);
   const [mixerBrushLoad, setMixerBrushLoad] = useState(0.85);
   const [mixerBrushSampleMerged, setMixerBrushSampleMerged] = useState(true);
+  const [cloneStampAligned, setCloneStampAligned] = useState(true);
+  const [cloneStampAlignedOffset, setCloneStampAlignedOffset] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [cloneStampSampleMerged, setCloneStampSampleMerged] = useState(true);
+  const [cloneStampOpacity, setCloneStampOpacity] = useState(1);
+  const [cloneStampLoad, setCloneStampLoad] = useState(1);
+  const [cloneStampUseHistorySource, setCloneStampUseHistorySource] = useState(false);
+  const [cloneStampHistorySourceIndex, setCloneStampHistorySourceIndex] = useState<number | null>(
+    null,
+  );
   const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
   const [historyBrushSampleMerged, setHistoryBrushSampleMerged] = useState(true);
   const [pencilAutoErase, setPencilAutoErase] = useState(false);
@@ -1716,6 +1727,45 @@ export default function App() {
   }
   const historyEntries = render?.uiMeta.history ?? [];
   const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
+  const selectedCloneHistoryEntry =
+    cloneStampHistorySourceIndex === null
+      ? null
+      : historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null;
+  const cloneStampOffsetDisplay =
+    cloneStampSource && cursor
+      ? cloneStampAligned && cloneStampAlignedOffset
+        ? cloneStampAlignedOffset
+        : {
+            x: cloneStampSource.x - cursor.x,
+            y: cloneStampSource.y - cursor.y,
+          }
+      : cloneStampAlignedOffset;
+  useEffect(() => {
+    if (!cloneStampUseHistorySource) {
+      return;
+    }
+    if (historyEntries.length === 0) {
+      setCloneStampUseHistorySource(false);
+      setCloneStampHistorySourceIndex(null);
+      return;
+    }
+    if (
+      cloneStampHistorySourceIndex !== null &&
+      historyEntries.some((entry) => entry.id === cloneStampHistorySourceIndex)
+    ) {
+      return;
+    }
+    const fallback =
+      historyEntries.find((entry) => entry.id === currentHistoryIndex)?.id ??
+      historyEntries[historyEntries.length - 1]?.id ??
+      null;
+    setCloneStampHistorySourceIndex(fallback);
+  }, [
+    cloneStampHistorySourceIndex,
+    cloneStampUseHistorySource,
+    currentHistoryIndex,
+    historyEntries,
+  ]);
   const widthValue = formatDimension(
     pixelsToUnit(draft.width, draft.resolution, documentUnit),
     documentUnit,
@@ -2355,17 +2405,78 @@ export default function App() {
           </>
         ) : activeTool === "cloneStamp" ? (
           <>
+            <ToolNumberField
+              label="Opacity"
+              min={0}
+              max={1}
+              step={0.05}
+              value={cloneStampOpacity}
+              onChange={setCloneStampOpacity}
+            />
+            <ToolNumberField
+              label="Load"
+              min={0}
+              max={1}
+              step={0.05}
+              value={cloneStampLoad}
+              onChange={setCloneStampLoad}
+            />
+            <ToolChoiceButton
+              active={cloneStampAligned}
+              onClick={() => setCloneStampAligned((value) => !value)}
+            >
+              Aligned
+            </ToolChoiceButton>
             <ToolChoiceButton
               active={cloneStampSampleMerged}
               onClick={() => setCloneStampSampleMerged((value) => !value)}
             >
               Sample Merged
             </ToolChoiceButton>
+            <ToolChoiceButton
+              active={cloneStampUseHistorySource}
+              onClick={() => {
+                setCloneStampUseHistorySource((value) => !value);
+                if (!cloneStampUseHistorySource && cloneStampHistorySourceIndex === null) {
+                  setCloneStampHistorySourceIndex(
+                    historyEntries.find((entry) => entry.id === currentHistoryIndex)?.id ??
+                      historyEntries[historyEntries.length - 1]?.id ??
+                      null,
+                  );
+                }
+              }}
+            >
+              History Source
+            </ToolChoiceButton>
+            {cloneStampUseHistorySource && historyEntries.length > 0 ? (
+              <ToolSelectField
+                label="State"
+                value={String(cloneStampHistorySourceIndex ?? currentHistoryIndex)}
+                onChange={(value) => setCloneStampHistorySourceIndex(Number(value))}
+                options={historyEntries.map((entry) => ({
+                  value: String(entry.id),
+                  label:
+                    entry.state === "undone"
+                      ? `${entry.description} (Undone)`
+                      : entry.description,
+                }))}
+              />
+            ) : null}
             <div className="text-[11px] text-slate-400">
               {cloneStampSource
-                ? `Source set at ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
+                ? `${cloneStampAligned ? "Aligned" : "Non-aligned"} source at ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
                 : "Alt-click the canvas to set a clone source."}
             </div>
+            {cloneStampOffsetDisplay ? (
+              <div className="text-[11px] text-slate-500">
+                Offset {Math.round(cloneStampOffsetDisplay.x)}, {Math.round(cloneStampOffsetDisplay.y)}
+                {selectedCloneHistoryEntry ? ` · ${selectedCloneHistoryEntry.description}` : ""}
+              </div>
+            ) : selectedCloneHistoryEntry ? (
+              <div className="text-[11px] text-slate-500">
+                Source state: {selectedCloneHistoryEntry.description}
+              </div>
+            ) : null}
           </>
         ) : activeTool === "historyBrush" ? (
           <>
@@ -2970,16 +3081,26 @@ export default function App() {
                     }}
                     moveAutoSelectGroup={moveAutoSelectGroup}
                     selectedLayerIds={selectedLayerIds}
-	                    onCursorChange={setCursor}
-	                    brushSize={brushSize}
-	                    brushHardness={brushHardness}
-	                    brushFlow={brushFlow}
-	                    mixerBrushWetness={mixerBrushWetness}
-	                    mixerBrushLoad={mixerBrushLoad}
-	                    mixerBrushSampleMerged={mixerBrushSampleMerged}
+                    onCursorChange={setCursor}
+                    brushSize={brushSize}
+                    brushHardness={brushHardness}
+                    brushFlow={brushFlow}
+                    mixerBrushWetness={mixerBrushWetness}
+                    mixerBrushLoad={mixerBrushLoad}
+                    mixerBrushSampleMerged={mixerBrushSampleMerged}
+                    cloneStampOpacity={cloneStampOpacity}
+                    cloneStampLoad={cloneStampLoad}
+                    cloneStampAligned={cloneStampAligned}
+                    cloneStampAlignedOffset={cloneStampAlignedOffset}
                     cloneStampSampleMerged={cloneStampSampleMerged}
                     cloneStampSource={cloneStampSource}
-                    onCloneStampSourceChange={setCloneStampSource}
+                    onCloneStampSourceChange={(source) => {
+                      setCloneStampSource(source);
+                      setCloneStampAlignedOffset(null);
+                    }}
+                    onCloneStampAlignedOffsetChange={setCloneStampAlignedOffset}
+                    cloneStampUseHistorySource={cloneStampUseHistorySource}
+                    cloneStampHistorySourceIndex={cloneStampHistorySourceIndex}
                     historyBrushSampleMerged={historyBrushSampleMerged}
                     pencilAutoErase={pencilAutoErase}
                     eraserMode={eraserMode}
@@ -3288,12 +3409,118 @@ export default function App() {
                                     ? `Source: ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
                                     : "Alt-click on the canvas to define the source point."}
                                 </div>
+                                {cloneStampSource ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    <ToolNumberField
+                                      label="Source X"
+                                      min={0}
+                                      max={render?.uiMeta.documentWidth ?? draft.width}
+                                      step={1}
+                                      value={cloneStampSource.x}
+                                      onChange={(value) => {
+                                        setCloneStampSource((current) =>
+                                          current ? { ...current, x: value } : { x: value, y: 0 },
+                                        );
+                                        setCloneStampAlignedOffset(null);
+                                      }}
+                                    />
+                                    <ToolNumberField
+                                      label="Source Y"
+                                      min={0}
+                                      max={render?.uiMeta.documentHeight ?? draft.height}
+                                      step={1}
+                                      value={cloneStampSource.y}
+                                      onChange={(value) => {
+                                        setCloneStampSource((current) =>
+                                          current ? { ...current, y: value } : { x: 0, y: value },
+                                        );
+                                        setCloneStampAlignedOffset(null);
+                                      }}
+                                    />
+                                  </div>
+                                ) : null}
+                                <div className="flex flex-wrap gap-2">
+                                  <ToolNumberField
+                                    label="Opacity"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={cloneStampOpacity}
+                                    onChange={setCloneStampOpacity}
+                                  />
+                                  <ToolNumberField
+                                    label="Load"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={cloneStampLoad}
+                                    onChange={setCloneStampLoad}
+                                  />
+                                </div>
+                                <ToolChoiceButton
+                                  active={cloneStampAligned}
+                                  onClick={() => setCloneStampAligned((value) => !value)}
+                                >
+                                  Aligned
+                                </ToolChoiceButton>
                                 <ToolChoiceButton
                                   active={cloneStampSampleMerged}
                                   onClick={() => setCloneStampSampleMerged((value) => !value)}
                                 >
                                   Sample Merged
                                 </ToolChoiceButton>
+                                <ToolChoiceButton
+                                  active={cloneStampUseHistorySource}
+                                  onClick={() => {
+                                    setCloneStampUseHistorySource((value) => !value);
+                                    if (
+                                      !cloneStampUseHistorySource &&
+                                      cloneStampHistorySourceIndex === null
+                                    ) {
+                                      setCloneStampHistorySourceIndex(
+                                        historyEntries.find(
+                                          (entry) => entry.id === currentHistoryIndex,
+                                        )?.id ??
+                                          historyEntries[historyEntries.length - 1]?.id ??
+                                          null,
+                                      );
+                                    }
+                                  }}
+                                >
+                                  History Source
+                                </ToolChoiceButton>
+                                {cloneStampUseHistorySource && historyEntries.length > 0 ? (
+                                  <ToolSelectField
+                                    label="History State"
+                                    value={String(cloneStampHistorySourceIndex ?? currentHistoryIndex)}
+                                    onChange={(value) =>
+                                      setCloneStampHistorySourceIndex(Number(value))
+                                    }
+                                    options={historyEntries.map((entry) => ({
+                                      value: String(entry.id),
+                                      label:
+                                        entry.state === "undone"
+                                          ? `${entry.description} (Undone)`
+                                          : entry.description,
+                                    }))}
+                                  />
+                                ) : null}
+                                {cloneStampOffsetDisplay ? (
+                                  <div className="text-[11px] text-slate-500">
+                                    Offset: {Math.round(cloneStampOffsetDisplay.x)},{" "}
+                                    {Math.round(cloneStampOffsetDisplay.y)}
+                                  </div>
+                                ) : null}
+                                {selectedCloneHistoryEntry ? (
+                                  <div className="text-[11px] text-slate-500">
+                                    Source state: {selectedCloneHistoryEntry.description}
+                                  </div>
+                                ) : null}
+                                <div className="text-[11px] text-slate-500">
+                                  {cloneStampAligned
+                                    ? "Keeps the sampled offset locked across strokes until the source changes."
+                                    : "Restarts sampling from the source point at the beginning of each new stroke."}
+                                </div>
                               </div>
                             </div>
                           ) : activeTool === "historyBrush" ? (
@@ -4778,6 +5005,35 @@ function ToolNumberField({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
+    </label>
+  );
+}
+
+function ToolSelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[12px] text-slate-300">
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <select
+        className="h-7 max-w-56 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

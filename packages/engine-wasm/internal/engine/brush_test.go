@@ -120,6 +120,18 @@ func fillLayerSolid(layer *PixelLayer, color [4]uint8) {
 	}
 }
 
+func fillLayerCoordinatePattern(layer *PixelLayer) {
+	for y := 0; y < layer.Bounds.H; y++ {
+		for x := 0; x < layer.Bounds.W; x++ {
+			idx := (y*layer.Bounds.W + x) * 4
+			layer.Pixels[idx] = uint8((x*17 + 11) % 251)
+			layer.Pixels[idx+1] = uint8((y*29 + 7) % 251)
+			layer.Pixels[idx+2] = uint8((x*13 + y*5 + 19) % 251)
+			layer.Pixels[idx+3] = 255
+		}
+	}
+}
+
 func layerPixelAt(layer *PixelLayer, x, y int) [4]uint8 {
 	idx := (y*layer.Bounds.W + x) * 4
 	return [4]uint8{
@@ -562,6 +574,279 @@ func TestCloneStampStroke_ClonesMergedSourcePixels(t *testing.T) {
 	}
 	if layer.Pixels[idx+3] < 200 {
 		t.Fatalf("cloned alpha = %d, want opaque", layer.Pixels[idx+3])
+	}
+}
+
+func TestCloneStampStroke_AlignedModePersistsSourceOffsetAcrossStrokes(t *testing.T) {
+	const w, h = 32, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-aligned", "Clone Aligned", w, h)
+
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	fillLayerCoordinatePattern(background)
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         1,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 4,
+		CloneSourceY: 5,
+		CloneAligned: true,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after aligned clone strokes")
+	}
+	got := layerPixelAt(layer, 20, 12)
+	want := layerPixelAt(background, 12, 5)
+	if got != want {
+		t.Fatalf("aligned clone pixel = %v, want continued source pixel %v", got, want)
+	}
+}
+
+func TestCloneStampStroke_NonAlignedModeRestartsFromSourcePoint(t *testing.T) {
+	const w, h = 32, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-nonaligned", "Clone Non-Aligned", w, h)
+
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	fillLayerCoordinatePattern(background)
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         1,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 4,
+		CloneSourceY: 5,
+		SampleMerged: true,
+	}
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 12, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after non-aligned clone strokes")
+	}
+	got := layerPixelAt(layer, 20, 12)
+	want := layerPixelAt(background, 4, 5)
+	if got != want {
+		t.Fatalf("non-aligned clone pixel = %v, want restarted source pixel %v", got, want)
+	}
+}
+
+func TestCloneStampStroke_CanCloneFromSelectedHistoryState(t *testing.T) {
+	const w, h = 24, 24
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-history", "Clone History", w, h)
+	layer := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{layer})
+	doc.ActiveLayerID = layer.ID()
+	inst.manager.Create(doc)
+
+	red := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
+	blue := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 6, Y: 6, Pressure: 1.0, Brush: red})
+	inst.handleEndPaintStroke()
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 6, Y: 6, Pressure: 1.0, Brush: blue})
+	inst.handleEndPaintStroke()
+
+	if err := inst.history.Undo(inst); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	inst.manager.activeMut().ContentVersion++
+
+	clone := BrushParams{
+		Size:            1,
+		Hardness:        1.0,
+		Flow:            1.0,
+		Color:           [4]uint8{0, 0, 0, 255},
+		CloneStamp:      true,
+		CloneSourceX:    6,
+		CloneSourceY:    6,
+		CloneHistory:    true,
+		CloneHistoryIdx: 2,
+		SampleMerged:    true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 6, Pressure: 1.0, Brush: clone})
+	inst.handleEndPaintStroke()
+
+	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
+	if painted == nil {
+		t.Fatal("layer not found after clone-from-history stroke")
+	}
+	got := layerPixelAt(painted, 16, 6)
+	if got[2] < 200 || got[0] > 60 {
+		t.Fatalf("clone-from-history pixel = %v, want blue copied from selected history state", got)
+	}
+}
+
+func TestCloneStampStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
+	const w, h = 28, 20
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-load", "Clone Load", w, h)
+
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	fillLayerSolid(background, [4]uint8{255, 0, 0, 255})
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         1,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 4,
+		CloneSourceY: 4,
+		CloneOpacity: 0.5,
+		CloneLoad:    0.35,
+		SampleMerged: true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 10, Pressure: 1.0, Brush: brush})
+	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 16, Y: 10, Pressure: 1.0})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer not found after opacity/load clone stroke")
+	}
+	first := layerPixelAt(layer, 12, 10)
+	second := layerPixelAt(layer, 16, 10)
+	if first[0] < 200 || first[3] == 0 || first[3] >= 255 {
+		t.Fatalf("first clone dab = %v, want red source color with partial alpha from clone opacity control", first)
+	}
+	if second[3] >= first[3] {
+		t.Fatalf("second clone dab alpha = %d, want less than first dab alpha %d after load decay", second[3], first[3])
+	}
+}
+
+func TestCloneStampStroke_UsesDocumentSpaceOffsetsForTranslatedLayerSource(t *testing.T) {
+	const w, h = 40, 28
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-translated", "Clone Translated", w, h)
+	active := NewPixelLayer("Paint", LayerBounds{X: 8, Y: 6, W: 16, H: 12}, make([]byte, 16*12*4))
+	fillLayerCoordinatePattern(active)
+	doc.LayerRoot.SetChildren([]LayerNode{active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         1,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 10,
+		CloneSourceY: 8,
+		SampleMerged: false,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 18, Y: 14, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("translated active layer missing after clone stroke")
+	}
+	got := layerPixelAt(layer, 10, 8)
+	want := layerPixelAt(layer, 2, 2)
+	if got != want {
+		t.Fatalf("translated-layer clone pixel = %v, want source pixel %v from document-space offset", got, want)
+	}
+}
+
+func TestCloneStampStroke_SubpixelSourceUsesBilinearSampling(t *testing.T) {
+	const w, h = 24, 16
+	inst := &instance{
+		manager:  newDocumentManager(),
+		viewport: ViewportState{Zoom: 1, CanvasW: w, CanvasH: h, DevicePixelRatio: 1},
+		history:  newHistoryStack(defaultHistoryMax),
+	}
+	doc := testDocumentFixture("clone-bilinear", "Clone Bilinear", w, h)
+	background := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	active := NewPixelLayer("Paint", LayerBounds{X: 0, Y: 0, W: w, H: h}, make([]byte, w*h*4))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			idx := (y*w + x) * 4
+			if x <= 5 {
+				background.Pixels[idx] = 255
+			} else {
+				background.Pixels[idx+2] = 255
+			}
+			background.Pixels[idx+3] = 255
+		}
+	}
+	doc.LayerRoot.SetChildren([]LayerNode{background, active})
+	doc.ActiveLayerID = active.ID()
+	inst.manager.Create(doc)
+
+	brush := BrushParams{
+		Size:         1,
+		Hardness:     1.0,
+		Flow:         1.0,
+		Color:        [4]uint8{0, 0, 0, 255},
+		CloneStamp:   true,
+		CloneSourceX: 5.5,
+		CloneSourceY: 5,
+		SampleMerged: true,
+	}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 10, Pressure: 1.0, Brush: brush})
+	inst.handleEndPaintStroke()
+
+	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
+	if layer == nil {
+		t.Fatal("active layer missing after bilinear clone stroke")
+	}
+	got := layerPixelAt(layer, 12, 10)
+	if got[0] < 90 || got[2] < 90 || got[0] > 180 || got[2] > 180 {
+		t.Fatalf("subpixel clone pixel = %v, want blended red/blue sample from bilinear source lookup", got)
 	}
 }
 
