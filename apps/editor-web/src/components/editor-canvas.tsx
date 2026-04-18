@@ -20,9 +20,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import {
   buildRegularPolygonPoints,
+  getShapePresetSubpaths,
   mapShapePresetToBounds,
+  mapShapePresetSubpathsToBounds,
   pathPointsToSvgPathData,
   resolveShapeDragBounds,
+  shapeSubpathsToSvgPathData,
   type ShapePreset,
 } from "@/lib/shape-presets";
 import { useEngine } from "@/wasm/context";
@@ -1530,37 +1533,50 @@ export function EditorCanvas({
           if (bounds.w === 0 || bounds.h === 0) {
             return null;
           }
-          const mappedPoints = mapShapePresetToBounds(shapeOptions.customPreset, bounds)
-            .map((point) => {
-              const anchor = documentPointToCanvas({ x: point.x, y: point.y });
-              const inHandle = documentPointToCanvas({
-                x: point.inX ?? point.x,
-                y: point.inY ?? point.y,
-              });
-              const outHandle = documentPointToCanvas({
-                x: point.outX ?? point.x,
-                y: point.outY ?? point.y,
-              });
-              if (!anchor || !inHandle || !outHandle) {
-                return null;
-              }
-              return {
-                x: anchor.x,
-                y: anchor.y,
-                inX: inHandle.x,
-                inY: inHandle.y,
-                outX: outHandle.x,
-                outY: outHandle.y,
-                handleType: point.handleType,
-              } satisfies PathPointCommand;
-            })
-            .filter((point): point is PathPointCommand => point !== null);
-          if (mappedPoints.length !== shapeOptions.customPreset.points.length) {
+          const mappedSubpaths = mapShapePresetSubpathsToBounds(shapeOptions.customPreset, bounds)
+            .map((subpath) => ({
+              closed: subpath.closed,
+              points: subpath.points
+                .map((point) => {
+                  const anchor = documentPointToCanvas({ x: point.x, y: point.y });
+                  const inHandle = documentPointToCanvas({
+                    x: point.inX ?? point.x,
+                    y: point.inY ?? point.y,
+                  });
+                  const outHandle = documentPointToCanvas({
+                    x: point.outX ?? point.x,
+                    y: point.outY ?? point.y,
+                  });
+                  if (!anchor || !inHandle || !outHandle) {
+                    return null;
+                  }
+                  return {
+                    x: anchor.x,
+                    y: anchor.y,
+                    inX: inHandle.x,
+                    inY: inHandle.y,
+                    outX: outHandle.x,
+                    outY: outHandle.y,
+                    handleType: point.handleType,
+                  } satisfies PathPointCommand;
+                })
+                .filter((point): point is PathPointCommand => point !== null),
+            }))
+            .filter((subpath) => subpath.points.length > 0);
+          const expectedPointCount = getShapePresetSubpaths(shapeOptions.customPreset).reduce(
+            (sum, subpath) => sum + subpath.points.length,
+            0,
+          );
+          const actualPointCount = mappedSubpaths.reduce(
+            (sum, subpath) => sum + subpath.points.length,
+            0,
+          );
+          if (actualPointCount !== expectedPointCount) {
             return null;
           }
           return {
             kind: "custom-shape" as const,
-            path: pathPointsToSvgPathData(mappedPoints, shapeOptions.customPreset.closed),
+            path: shapeSubpathsToSvgPathData(mappedSubpaths),
           };
         }
 
@@ -3162,6 +3178,10 @@ export function EditorCanvas({
             shapeOptions.subTool === "custom-shape" && shapeOptions.customPreset
               ? mapShapePresetToBounds(shapeOptions.customPreset, { x, y, w, h })
               : undefined;
+          const customShapeSubpaths =
+            shapeOptions.subTool === "custom-shape" && shapeOptions.customPreset
+              ? mapShapePresetSubpathsToBounds(shapeOptions.customPreset, { x, y, w, h })
+              : undefined;
           engine.dispatchCommand(CommandID.DrawShape, {
             shapeType: shapeOptions.subTool,
             x,
@@ -3183,6 +3203,7 @@ export function EditorCanvas({
                 ? shapeOptions.customPreset?.closed
                 : undefined,
             points: customShapePoints,
+            subpaths: customShapeSubpaths,
           } satisfies DrawShapeCommand);
           return;
         }

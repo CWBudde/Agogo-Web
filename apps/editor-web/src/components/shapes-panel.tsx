@@ -9,13 +9,17 @@ import {
 type ShapesPanelProps = {
   active: boolean;
   presets: ShapePreset[];
+  customPresetIds?: string[];
   selectedPresetId: string;
   onSelectPreset: (preset: ShapePreset) => void;
+  onImportPresets?: () => void;
+  importStatus?: string | null;
 };
 
 const categoryLabels: Record<"all" | ShapePresetCategory, string> = {
   all: "All",
   arrows: "Arrows",
+  imported: "Imported",
   logos: "Logos",
   nature: "Nature",
   ornaments: "Ornaments",
@@ -24,11 +28,15 @@ const categoryLabels: Record<"all" | ShapePresetCategory, string> = {
 export function ShapesPanel({
   active,
   presets,
+  customPresetIds = [],
   selectedPresetId,
   onSelectPreset,
+  onImportPresets,
+  importStatus,
 }: ShapesPanelProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | ShapePresetCategory>("all");
+  const customPresetIdSet = useMemo(() => new Set(customPresetIds), [customPresetIds]);
 
   const selectedPreset = useMemo(
     () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? null,
@@ -50,13 +58,26 @@ export function ShapesPanel({
     });
   }, [category, presets, query]);
 
+  const visibleCategories = useMemo(
+    () =>
+      [
+        ...SHAPE_PRESET_CATEGORIES,
+        ...(presets.some((preset) => customPresetIdSet.has(preset.id))
+          ? (["imported"] as const)
+          : []),
+      ] satisfies ShapePresetCategory[],
+    [customPresetIdSet, presets],
+  );
+
   const groupedPresets = useMemo(
     () =>
-      SHAPE_PRESET_CATEGORIES.map((group) => ({
-        category: group,
-        presets: filteredPresets.filter((preset) => preset.category === group),
-      })).filter((group) => group.presets.length > 0),
-    [filteredPresets],
+      visibleCategories
+        .map((group) => ({
+          category: group,
+          presets: filteredPresets.filter((preset) => preset.category === group),
+        }))
+        .filter((group) => group.presets.length > 0),
+    [filteredPresets, visibleCategories],
   );
 
   if (!active) {
@@ -95,24 +116,34 @@ export function ShapesPanel({
           className="mt-2 w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 py-1.5 text-[12px] text-slate-100 placeholder:text-slate-500 focus-visible:outline-none"
         />
         <div className="mt-2 flex flex-wrap gap-1">
-          {(["all", ...SHAPE_PRESET_CATEGORIES] as Array<"all" | ShapePresetCategory>).map(
-            (value) => (
-              <button
-                key={value}
-                type="button"
-                data-testid={`shape-category-${value}`}
-                className={[
-                  "rounded border px-2 py-1 text-[11px] transition focus-visible:outline-none",
-                  category === value
-                    ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
-                    : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-slate-200",
-                ].join(" ")}
-                onClick={() => setCategory(value)}
-              >
-                {categoryLabels[value]}
-              </button>
-            ),
-          )}
+          {(["all", ...visibleCategories] as Array<"all" | ShapePresetCategory>).map((value) => (
+            <button
+              key={value}
+              type="button"
+              data-testid={`shape-category-${value}`}
+              className={[
+                "rounded border px-2 py-1 text-[11px] transition focus-visible:outline-none",
+                category === value
+                  ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
+                  : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-slate-200",
+              ].join(" ")}
+              onClick={() => setCategory(value)}
+            >
+              {categoryLabels[value]}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {onImportPresets ? (
+            <button
+              type="button"
+              className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-1 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
+              onClick={onImportPresets}
+            >
+              Import Shapes
+            </button>
+          ) : null}
+          {importStatus ? <span className="text-[11px] text-slate-500">{importStatus}</span> : null}
         </div>
       </div>
 

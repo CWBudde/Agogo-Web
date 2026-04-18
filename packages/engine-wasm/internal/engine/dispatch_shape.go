@@ -19,6 +19,7 @@ type DrawShapePayload struct {
 	Mode           string      `json:"mode,omitempty"`
 	Closed         bool        `json:"closed,omitempty"`
 	Points         []PathPoint `json:"points,omitempty"`
+	Subpaths       []Subpath   `json:"subpaths,omitempty"`
 }
 
 // EnterVectorEditModePayload is the JSON payload for commandEnterVectorEditMode.
@@ -285,6 +286,32 @@ func buildShapePath(p DrawShapePayload) (*Path, error) {
 	case "line":
 		return makeLinePath(p.X, p.Y, p.X+p.W, p.Y+p.H), nil
 	case "custom-shape":
+		if len(p.Subpaths) > 0 {
+			subpaths := make([]Subpath, 0, len(p.Subpaths))
+			for _, rawSubpath := range p.Subpaths {
+				if len(rawSubpath.Points) < 1 {
+					continue
+				}
+				points := make([]PathPoint, 0, len(rawSubpath.Points))
+				for _, raw := range rawSubpath.Points {
+					point := raw
+					if !customShapeHasHandles(point) {
+						point.InX = point.X
+						point.InY = point.Y
+						point.OutX = point.X
+						point.OutY = point.Y
+						point.HandleType = HandleCorner
+					}
+					points = append(points, point)
+				}
+				subpaths = append(subpaths, Subpath{Closed: rawSubpath.Closed, Points: points})
+			}
+			if len(subpaths) == 0 {
+				return nil, fmt.Errorf("custom-shape requires at least 1 point")
+			}
+			return &Path{Subpaths: subpaths}, nil
+		}
+
 		if len(p.Points) < 1 {
 			return nil, fmt.Errorf("custom-shape requires at least 1 point")
 		}

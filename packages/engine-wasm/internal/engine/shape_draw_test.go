@@ -250,6 +250,38 @@ func TestBuildShapePath_CustomShapePreservesHandles(t *testing.T) {
 	}
 }
 
+func TestBuildShapePath_CustomShapeSubpaths(t *testing.T) {
+	path, err := buildShapePath(DrawShapePayload{
+		ShapeType: "custom-shape",
+		Subpaths: []Subpath{
+			{
+				Closed: true,
+				Points: []PathPoint{
+					{X: 0, Y: 0},
+					{X: 10, Y: 0},
+					{X: 10, Y: 10},
+				},
+			},
+			{
+				Closed: false,
+				Points: []PathPoint{
+					{X: 20, Y: 20},
+					{X: 30, Y: 30},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildShapePath(custom-shape subpaths): %v", err)
+	}
+	if len(path.Subpaths) != 2 {
+		t.Fatalf("subpath count = %d, want 2", len(path.Subpaths))
+	}
+	if !path.Subpaths[0].Closed || path.Subpaths[1].Closed {
+		t.Fatalf("unexpected closed flags: %+v", path.Subpaths)
+	}
+}
+
 func TestDrawShape_CustomShapeShapeAndPathModes(t *testing.T) {
 	h := initWithDefaultDoc(t)
 	defer Free(h)

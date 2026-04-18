@@ -1,6 +1,6 @@
-import type { PathPointCommand } from "@agogo/proto";
+import type { PathPointCommand, ShapeSubpathCommand } from "@agogo/proto";
 
-export type ShapePresetCategory = "arrows" | "logos" | "nature" | "ornaments";
+export type ShapePresetCategory = "arrows" | "logos" | "nature" | "ornaments" | "imported";
 
 export interface ShapePreset {
   id: string;
@@ -8,6 +8,7 @@ export interface ShapePreset {
   category: ShapePresetCategory;
   closed: boolean;
   points: PathPointCommand[];
+  subpaths?: ShapeSubpathCommand[];
 }
 
 export interface ShapeBounds {
@@ -67,6 +68,13 @@ export const SHAPE_PRESET_CATEGORIES: ShapePresetCategory[] = [
   "nature",
   "ornaments",
 ];
+
+export function getShapePresetSubpaths(preset: ShapePreset): ShapeSubpathCommand[] {
+  if (preset.subpaths && preset.subpaths.length > 0) {
+    return preset.subpaths;
+  }
+  return [{ closed: preset.closed, points: preset.points }];
+}
 
 export const SHAPE_PRESETS: ShapePreset[] = [
   makePreset("arrow-right", "Arrow Right", "arrows", [
@@ -316,6 +324,27 @@ export function mapShapePresetToBounds(preset: ShapePreset, bounds: ShapeBounds)
   });
 }
 
+export function mapShapePresetSubpathsToBounds(preset: ShapePreset, bounds: ShapeBounds) {
+  const mapX = (value: number) => bounds.x + value * bounds.w;
+  const mapY = (value: number) => bounds.y + value * bounds.h;
+
+  return getShapePresetSubpaths(preset).map((subpath) => ({
+    closed: subpath.closed,
+    points: subpath.points.map((presetPoint) => {
+      const normalized = normalizePoint(presetPoint);
+      return {
+        x: mapX(normalized.x),
+        y: mapY(normalized.y),
+        inX: mapX(normalized.inX),
+        inY: mapY(normalized.inY),
+        outX: mapX(normalized.outX),
+        outY: mapY(normalized.outY),
+        handleType: presetPoint.handleType ?? 0,
+      } satisfies PathPointCommand;
+    }),
+  }));
+}
+
 export function pathPointsToSvgPathData(points: PathPointCommand[], closed: boolean) {
   if (points.length === 0) {
     return "";
@@ -352,6 +381,13 @@ export function pathPointsToSvgPathData(points: PathPointCommand[], closed: bool
   return parts.join(" ");
 }
 
+export function shapeSubpathsToSvgPathData(subpaths: ShapeSubpathCommand[]) {
+  return subpaths
+    .map((subpath) => pathPointsToSvgPathData(subpath.points, subpath.closed))
+    .filter((segment) => segment.length > 0)
+    .join(" ");
+}
+
 export function shapePresetToSvgPathData(preset: ShapePreset) {
-  return pathPointsToSvgPathData(preset.points, preset.closed);
+  return shapeSubpathsToSvgPathData(getShapePresetSubpaths(preset));
 }

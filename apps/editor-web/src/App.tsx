@@ -93,7 +93,8 @@ import {
   toRgba,
 } from "@/lib/color";
 import { loadBrushPresetFile, parseBrushPresetJSON } from "@/lib/brush-preset-io";
-import { SHAPE_PRESETS } from "@/lib/shape-presets";
+import { loadShapePresetFile, parseShapePresetJSON } from "@/lib/shape-preset-io";
+import { SHAPE_PRESETS, type ShapePreset } from "@/lib/shape-presets";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import { useEngine } from "@/wasm/context";
 
@@ -518,6 +519,7 @@ const unitSteps: Record<DocumentUnit, number> = {
 
 const RECENT_COLORS_KEY = "agogo:recent-colors";
 const CUSTOM_BRUSH_PRESETS_KEY = "agogo:custom-brush-presets";
+const CUSTOM_SHAPE_PRESETS_KEY = "agogo:custom-shape-presets";
 const CUSTOM_SWATCHES_KEY = "agogo:custom-swatches";
 const CUSTOM_SWATCHES_NAME_KEY = "agogo:custom-swatches-name";
 const GRADIENT_STOPS_KEY = "agogo:gradient-stops";
@@ -597,6 +599,21 @@ function loadBrushPresetList(key: string, fallback: BrushPreset[] = []): BrushPr
   }
 }
 
+function loadShapePresetList(key: string, fallback: ShapePreset[] = []): ShapePreset[] {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    return parseShapePresetJSON(raw, "Imported Shapes");
+  } catch {
+    return fallback;
+  }
+}
+
 function loadStoredName(key: string, fallback: string): string {
   if (typeof window === "undefined") {
     return fallback;
@@ -627,6 +644,32 @@ function mergeImportedBrushPresets(existing: BrushPreset[], imported: BrushPrese
       suffix += 1;
     }
     merged.push({ ...preset, id, name: normalizedName });
+    usedIds.add(id);
+    usedNames.add(normalizedName.toLowerCase());
+  }
+
+  return merged;
+}
+
+function mergeImportedShapePresets(existing: ShapePreset[], imported: ShapePreset[]) {
+  const merged = [...existing];
+  const usedIds = new Set([...SHAPE_PRESETS, ...existing].map((preset) => preset.id));
+  const usedNames = new Set(
+    [...SHAPE_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
+  );
+
+  for (const preset of imported) {
+    const normalizedName = preset.name.trim();
+    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
+      continue;
+    }
+    let id = preset.id;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${preset.id}-${suffix}`;
+      suffix += 1;
+    }
+    merged.push({ ...preset, id, name: normalizedName, category: "imported" });
     usedIds.add(id);
     usedNames.add(normalizedName.toLowerCase());
   }
@@ -701,6 +744,7 @@ export default function App() {
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
+  const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
   const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
   const lastSavedVersionRef = useRef<number>(0);
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
@@ -799,6 +843,9 @@ export default function App() {
   const [customBrushPresets, setCustomBrushPresets] = useState<BrushPreset[]>(() =>
     loadBrushPresetList(CUSTOM_BRUSH_PRESETS_KEY),
   );
+  const [customShapePresets, setCustomShapePresets] = useState<ShapePreset[]>(() =>
+    loadShapePresetList(CUSTOM_SHAPE_PRESETS_KEY),
+  );
   const [swatches, setSwatches] = useState<Rgba[]>(() =>
     loadColorList(CUSTOM_SWATCHES_KEY, [
       [0, 0, 0, 255],
@@ -813,6 +860,7 @@ export default function App() {
     loadStoredName(CUSTOM_SWATCHES_NAME_KEY, "Custom Swatches"),
   );
   const [brushPresetStatus, setBrushPresetStatus] = useState<string | null>(null);
+  const [shapePresetStatus, setShapePresetStatus] = useState<string | null>(null);
   const [swatchStatus, setSwatchStatus] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState(20);
   const [brushHardness, setBrushHardness] = useState(0.8);
@@ -917,9 +965,17 @@ export default function App() {
     () => [...BRUSH_PRESETS, ...customBrushPresets],
     [customBrushPresets],
   );
+  const shapePresets = useMemo(
+    () => [...SHAPE_PRESETS, ...customShapePresets],
+    [customShapePresets],
+  );
   const customBrushPresetIds = useMemo(
     () => customBrushPresets.map((preset) => preset.id),
     [customBrushPresets],
+  );
+  const customShapePresetIds = useMemo(
+    () => customShapePresets.map((preset) => preset.id),
+    [customShapePresets],
   );
 
   // Shape tool state
@@ -940,8 +996,8 @@ export default function App() {
   ]);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
   const selectedShapePreset = useMemo(
-    () => SHAPE_PRESETS.find((preset) => preset.id === shapePresetId) ?? SHAPE_PRESETS[0] ?? null,
-    [shapePresetId],
+    () => shapePresets.find((preset) => preset.id === shapePresetId) ?? shapePresets[0] ?? null,
+    [shapePresetId, shapePresets],
   );
   const [artboardPreset, setArtboardPreset] = useState<ArtboardPreset>("custom");
   const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([
@@ -1029,6 +1085,14 @@ export default function App() {
       // Ignore localStorage failures.
     }
   }, [customBrushPresets]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CUSTOM_SHAPE_PRESETS_KEY, JSON.stringify(customShapePresets));
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [customShapePresets]);
 
   useEffect(() => {
     try {
@@ -1196,6 +1260,10 @@ export default function App() {
     brushPresetInputRef.current?.click();
   };
 
+  const openShapePresetImport = () => {
+    shapePresetInputRef.current?.click();
+  };
+
   const openSwatchImport = () => {
     swatchSetInputRef.current?.click();
   };
@@ -1217,6 +1285,13 @@ export default function App() {
     }
     setBrushPresetId(brushPresets[0]?.id ?? BRUSH_PRESETS[0].id);
   }, [brushPresetId, brushPresets]);
+
+  useEffect(() => {
+    if (shapePresets.some((preset) => preset.id === shapePresetId)) {
+      return;
+    }
+    setShapePresetId(shapePresets[0]?.id ?? SHAPE_PRESETS[0]?.id ?? "");
+  }, [shapePresetId, shapePresets]);
 
   useEffect(() => {
     const activeLayerId = render?.uiMeta.activeLayerId ?? null;
@@ -3334,6 +3409,40 @@ export default function App() {
         }}
       />
       <input
+        ref={shapePresetInputRef}
+        type="file"
+        accept=".csh,.json,application/json"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) {
+            return;
+          }
+
+          try {
+            const { presets, sourceName } = await loadShapePresetFile(file);
+            const mergedPresets = mergeImportedShapePresets(customShapePresets, presets);
+            const addedCount = mergedPresets.length - customShapePresets.length;
+            if (addedCount === 0) {
+              setShapePresetStatus(`No new shapes were added from ${sourceName}.`);
+              return;
+            }
+            const firstNewPreset = mergedPresets[mergedPresets.length - addedCount];
+            setCustomShapePresets(mergedPresets);
+            setShapePresetId(firstNewPreset.id);
+            setShapePresetStatus(
+              `Imported ${addedCount} custom shape${addedCount === 1 ? "" : "s"} from ${sourceName}.`,
+            );
+            setActiveAuxPanel("shapes");
+            setShapeSubTool("custom-shape");
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Shape import failed.";
+            setShapePresetStatus(message);
+          }
+        }}
+      />
+      <input
         ref={swatchSetInputRef}
         type="file"
         accept=".aco,.json,application/json"
@@ -3859,9 +3968,12 @@ export default function App() {
                       {activeAuxPanel === "shapes" ? (
                         <ShapesPanel
                           active={activeTool === "shape" && shapeSubTool === "custom-shape"}
-                          presets={SHAPE_PRESETS}
+                          presets={shapePresets}
+                          customPresetIds={customShapePresetIds}
                           selectedPresetId={selectedShapePreset?.id ?? ""}
                           onSelectPreset={(preset) => setShapePresetId(preset.id)}
+                          onImportPresets={openShapePresetImport}
+                          importStatus={shapePresetStatus}
                         />
                       ) : null}
 

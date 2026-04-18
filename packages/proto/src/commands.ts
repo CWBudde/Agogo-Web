@@ -380,7 +380,8 @@ export interface AdjustmentParamsByKind {
   "gradient-map": GradientMapAdjustmentParams;
 }
 
-export type AdjustmentLayerParams<K extends AdjustmentKind = AdjustmentKind> = AdjustmentParamsByKind[K];
+export type AdjustmentLayerParams<K extends AdjustmentKind = AdjustmentKind> =
+  AdjustmentParamsByKind[K];
 
 export interface CreateDocumentCommand {
   name: string;
@@ -454,6 +455,11 @@ export interface PathPointCommand {
   outX?: number;
   outY?: number;
   handleType?: number; // 0=corner, 1=smooth, 2=symmetric
+}
+
+export interface ShapeSubpathCommand {
+  closed: boolean;
+  points: PathPointCommand[];
 }
 
 export interface SubpathCommand {
@@ -871,7 +877,16 @@ export interface UpdateCropCommand {
 export interface ResizeCanvasCommand {
   width: number;
   height: number;
-  anchor: "top-left" | "top-center" | "top-right" | "middle-left" | "center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+  anchor:
+    | "top-left"
+    | "top-center"
+    | "top-right"
+    | "middle-left"
+    | "center"
+    | "middle-right"
+    | "bottom-left"
+    | "bottom-center"
+    | "bottom-right";
 }
 
 export interface CropMeta {
@@ -894,46 +909,46 @@ export interface SetColorCommand {
 }
 
 export interface BrushParams {
-  size: number;       // diameter in document pixels
-  hardness: number;   // 0.0–1.0
-  flow: number;       // 0.0–1.0
+  size: number; // diameter in document pixels
+  hardness: number; // 0.0–1.0
+  flow: number; // 0.0–1.0
   color: [number, number, number, number]; // RGBA 0-255
-  blendMode?: string;    // AGG blend mode, e.g. "multiply", "screen", "overlay" (omit for normal)
-  wetEdges?: boolean;    // accumulate paint at stroke edges (watercolour effect)
-  scatter?: number;      // max random dab offset as fraction of diameter, 0 = none
-  stabilizer?: number;   // moving-average lag: number of past input points to average (0 = off)
+  blendMode?: string; // AGG blend mode, e.g. "multiply", "screen", "overlay" (omit for normal)
+  wetEdges?: boolean; // accumulate paint at stroke edges (watercolour effect)
+  scatter?: number; // max random dab offset as fraction of diameter, 0 = none
+  stabilizer?: number; // moving-average lag: number of past input points to average (0 = off)
   sampleMerged?: boolean; // read from composite (all layers) rather than active layer
-  autoErase?: boolean;       // if stroke starts on foreground color, paint with background color instead
-  erase?: boolean;           // erase to transparency (normal eraser mode)
+  autoErase?: boolean; // if stroke starts on foreground color, paint with background color instead
+  erase?: boolean; // erase to transparency (normal eraser mode)
   eraseBackground?: boolean; // erase only pixels matching the sampled base color (background eraser mode)
-  eraseTolerance?: number;   // color tolerance for background eraser, 0–255 Euclidean RGB distance
-  mixerBrush?: boolean;      // mix brush color with sampled canvas color before painting
-  mixerMix?: number;         // 0.0–1.0 mix strength for the sampled color
-  mixerWetness?: number;     // 0.0–1.0 wet-paint pickup strength
-  mixerLoad?: number;        // 0.0–1.0 initial paint load when the brush is clean
-  cloneStamp?: boolean;      // paint from a sampled source point
-  cloneSourceX?: number;     // source point X in document space
-  cloneSourceY?: number;     // source point Y in document space
-  cloneAligned?: boolean;    // keep the source offset fixed across strokes until the source changes
-  cloneOpacity?: number;     // 0.0–1.0 overall source opacity multiplier
-  cloneLoad?: number;        // 0.0–1.0 source load carried through the stroke; lower values fade sooner
+  eraseTolerance?: number; // color tolerance for background eraser, 0–255 Euclidean RGB distance
+  mixerBrush?: boolean; // mix brush color with sampled canvas color before painting
+  mixerMix?: number; // 0.0–1.0 mix strength for the sampled color
+  mixerWetness?: number; // 0.0–1.0 wet-paint pickup strength
+  mixerLoad?: number; // 0.0–1.0 initial paint load when the brush is clean
+  cloneStamp?: boolean; // paint from a sampled source point
+  cloneSourceX?: number; // source point X in document space
+  cloneSourceY?: number; // source point Y in document space
+  cloneAligned?: boolean; // keep the source offset fixed across strokes until the source changes
+  cloneOpacity?: number; // 0.0–1.0 overall source opacity multiplier
+  cloneLoad?: number; // 0.0–1.0 source load carried through the stroke; lower values fade sooner
   cloneHistorySource?: boolean; // sample from a selected history snapshot instead of the live document
   cloneHistorySourceIndex?: number; // history entry id used when cloneHistorySource is enabled
-  historyBrush?: boolean;    // paint from the previous history state
+  historyBrush?: boolean; // paint from the previous history state
   historySourceIndex?: number; // history entry id used as the source state for the history brush
-  historyOpacity?: number;   // 0.0–1.0 overall history-source opacity multiplier
-  historyLoad?: number;      // 0.0–1.0 source load carried through the stroke; lower values fade sooner
-  pressureSize?: boolean;    // whether stylus pressure scales brush size
+  historyOpacity?: number; // 0.0–1.0 overall history-source opacity multiplier
+  historyLoad?: number; // 0.0–1.0 source load carried through the stroke; lower values fade sooner
+  pressureSize?: boolean; // whether stylus pressure scales brush size
   pressureOpacity?: boolean; // whether stylus pressure scales dab/source opacity
-  pressureFlow?: boolean;    // whether stylus pressure scales flow
+  pressureFlow?: boolean; // whether stylus pressure scales flow
 }
 
 export interface BeginPaintStrokeCommand {
   x: number;
   y: number;
   pressure?: number; // 0.0–1.0, defaults to 0.5
-  tiltX?: number;   // stylus tilt, degrees −90…+90
-  tiltY?: number;   // stylus tilt, degrees −90…+90
+  tiltX?: number; // stylus tilt, degrees −90…+90
+  tiltY?: number; // stylus tilt, degrees −90…+90
   brush: BrushParams;
 }
 
@@ -941,8 +956,8 @@ export interface ContinuePaintStrokeCommand {
   x: number;
   y: number;
   pressure?: number;
-  tiltX?: number;   // stylus tilt, degrees −90…+90
-  tiltY?: number;   // stylus tilt, degrees −90…+90
+  tiltX?: number; // stylus tilt, degrees −90…+90
+  tiltY?: number; // stylus tilt, degrees −90…+90
 }
 
 /** Sample the RGBA color of the composite image at a document-space point.
@@ -956,9 +971,9 @@ export interface SampleMergedColorCommand {
 
 /** Flood-erase pixels by color similarity (Magic Eraser tool). */
 export interface MagicEraseCommand {
-  x: number;           // document-space click position
+  x: number; // document-space click position
   y: number;
-  tolerance: number;   // 0–255 Euclidean RGB distance
+  tolerance: number; // 0–255 Euclidean RGB distance
   contiguous: boolean; // true = flood-fill, false = erase all matching pixels in layer
   sampleMerged: boolean;
 }
@@ -1136,6 +1151,8 @@ export interface DrawShapeCommand {
   closed?: boolean;
   /** Explicit points for "custom-shape". */
   points?: PathPointCommand[];
+  /** Explicit subpaths for compound "custom-shape" presets. */
+  subpaths?: ShapeSubpathCommand[];
 }
 
 export interface EnterVectorEditModeCommand {

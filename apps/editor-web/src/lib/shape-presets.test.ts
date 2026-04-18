@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRegularPolygonPoints,
+  getShapePresetSubpaths,
   mapShapePresetToBounds,
+  mapShapePresetSubpathsToBounds,
   pathPointsToSvgPathData,
   resolveShapeDragBounds,
+  shapeSubpathsToSvgPathData,
   type ShapePreset,
 } from "@/lib/shape-presets";
 
@@ -72,5 +75,33 @@ describe("shape preset helpers", () => {
     expect(points[0]).toEqual({ x: 50, y: 0 });
     expect(points[1].x).toBeCloseTo(58.8388347648);
     expect(points[1].y).toBeCloseTo(41.1611652352);
+  });
+
+  it("maps compound subpaths into target bounds", () => {
+    const compoundPreset: ShapePreset = {
+      ...preset,
+      subpaths: [
+        { closed: true, points: preset.points },
+        {
+          closed: false,
+          points: [
+            { x: 0, y: 0.5 },
+            { x: 1, y: 0.5 },
+          ],
+        },
+      ],
+    };
+
+    const mapped = mapShapePresetSubpathsToBounds(compoundPreset, { x: 10, y: 20, w: 100, h: 50 });
+
+    expect(mapped).toHaveLength(2);
+    expect(mapped[1]).toEqual({
+      closed: false,
+      points: [
+        { x: 10, y: 45, inX: 10, inY: 45, outX: 10, outY: 45, handleType: 0 },
+        { x: 110, y: 45, inX: 110, inY: 45, outX: 110, outY: 45, handleType: 0 },
+      ],
+    });
+    expect(shapeSubpathsToSvgPathData(getShapePresetSubpaths(compoundPreset))).toContain("M");
   });
 });
