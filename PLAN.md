@@ -746,7 +746,7 @@
     - [x] Color stops (add/remove/move)
     - [x] Opacity stops
     - [x] Reverse checkbox, dither checkbox
-    - [ ] Gradient presets (save/load)
+    - [x] Gradient presets (save/load)
   - [x] Apply: drag to set direction and length; respects selection
   - [x] Modes: paint over layer, create fill layer (non-destructive gradient fill layer type)
 - [x] **Eyedropper Tool (I):**

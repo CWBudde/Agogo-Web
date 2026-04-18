@@ -75,6 +75,15 @@ function clampPosition(value: number) {
   return clampUnit(value);
 }
 
+function makePresetId(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `preset-${Date.now()}`;
+}
+
 function normalizeStops(stops: GradientStopCommand[]) {
   const normalized = stops.length > 0 ? stops : [
     { position: 0, color: [0, 0, 0, 255] },
@@ -151,6 +160,45 @@ function gradientToCss(stops: GradientStopCommand[]) {
     .join(", ")})`;
 }
 
+function normalizePresetStops(stops: GradientStopCommand[]) {
+  return serializeStops(normalizeStops(stops));
+}
+
+function gradientStopsEqual(left: GradientStopCommand[], right: GradientStopCommand[]) {
+  const normalizedLeft = normalizePresetStops(left);
+  const normalizedRight = normalizePresetStops(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+  return normalizedLeft.every((stop, index) => {
+    const other = normalizedRight[index];
+    return (
+      Math.abs(stop.position - other.position) < 0.0001 &&
+      stop.color.every((channel, channelIndex) => channel === other.color[channelIndex])
+    );
+  });
+}
+
+function sanitizePreset(rawPreset: unknown, index: number): GradientPreset | null {
+  if (!rawPreset || typeof rawPreset !== "object") {
+    return null;
+  }
+  const candidate = rawPreset as Partial<GradientPreset>;
+  const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
+  if (!name || !Array.isArray(candidate.stops)) {
+    return null;
+  }
+  const id =
+    typeof candidate.id === "string" && candidate.id.trim().length > 0
+      ? candidate.id.trim()
+      : `${makePresetId(name)}-${index}`;
+  return {
+    id,
+    name,
+    stops: normalizePresetStops(candidate.stops),
+  };
+}
+
 function loadUserPresets(): GradientPreset[] {
   if (typeof window === "undefined") {
     return [];
@@ -164,10 +212,102 @@ function loadUserPresets(): GradientPreset[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((preset) => typeof preset?.name === "string" && Array.isArray(preset?.stops));
+    const seenNames = new Set<string>();
+    return parsed.flatMap((preset, index) => {
+      const sanitized = sanitizePreset(preset, index);
+      if (!sanitized) {
+        return [];
+      }
+      const normalizedName = sanitized.name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        return [];
+      }
+      seenNames.add(normalizedName);
+      return [sanitized];
+    });
   } catch {
     return [];
   }
+}
+
+function PresetSection({
+  title,
+  presets,
+  activePresetId,
+  emptyLabel,
+  onLoadPreset,
+  onDeletePreset,
+}: {
+  title: string;
+  presets: GradientPreset[];
+  activePresetId: string | null;
+  emptyLabel?: string;
+  onLoadPreset(preset: GradientPreset): void;
+  onDeletePreset?(id: string): void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{title}</p>
+        <span className="text-[11px] text-slate-600">
+          {presets.length} preset{presets.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {presets.length === 0 ? (
+        <div className="rounded border border-dashed border-white/10 bg-black/10 px-3 py-3 text-[12px] text-slate-500">
+          {emptyLabel ?? "No presets available."}
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          {presets.map((preset) => {
+            const active = preset.id === activePresetId;
+            return (
+              <div
+                key={preset.id}
+                className={[
+                  "flex items-center gap-2 rounded border px-2 py-1.5 transition",
+                  active
+                    ? "border-cyan-400/35 bg-cyan-400/10"
+                    : "border-white/8 bg-black/10",
+                ].join(" ")}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={() => onLoadPreset(preset)}
+                >
+                  <span
+                    className="h-8 w-16 shrink-0 rounded border border-white/10"
+                    style={{ backgroundImage: gradientToCss(preset.stops) }}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12px] text-slate-100">{preset.name}</span>
+                    <span className="block text-[11px] text-slate-500">
+                      {preset.stops.length} stops
+                    </span>
+                  </span>
+                </button>
+                {active ? (
+                  <span className="rounded border border-cyan-400/25 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-cyan-200">
+                    Current
+                  </span>
+                ) : null}
+                {onDeletePreset ? (
+                  <button
+                    type="button"
+                    className="rounded border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-400 hover:border-red-400/40 hover:text-red-200"
+                    onClick={() => onDeletePreset(preset.id)}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function GradientEditorDialog({
@@ -206,6 +346,7 @@ export function GradientEditorDialog({
     setEditorStops(normalized);
     setSelectedStopId(normalized[0]?.id ?? null);
     setDraggingStopId(null);
+    setPresetName("");
   }, [open, stops]);
 
   useEffect(() => {
@@ -219,10 +360,24 @@ export function GradientEditorDialog({
     }
   }, [userPresets]);
 
-  const allPresets = useMemo(
-    () => [...DEFAULT_GRADIENT_PRESETS, ...userPresets],
-    [userPresets],
+  const currentStops = useMemo(() => serializeStops(editorStops), [editorStops]);
+  const builtInPresets = useMemo(
+    () => DEFAULT_GRADIENT_PRESETS.map((preset) => ({ ...preset, stops: normalizePresetStops(preset.stops) })),
+    [],
   );
+  const activePresetId = useMemo(() => {
+    const matchingPreset = [...userPresets, ...builtInPresets].find((preset) =>
+      gradientStopsEqual(preset.stops, currentStops),
+    );
+    return matchingPreset?.id ?? null;
+  }, [builtInPresets, currentStops, userPresets]);
+  const existingUserPreset = useMemo(() => {
+    const normalizedName = presetName.trim().toLowerCase();
+    if (!normalizedName) {
+      return null;
+    }
+    return userPresets.find((preset) => preset.name.toLowerCase() === normalizedName) ?? null;
+  }, [presetName, userPresets]);
 
   const selectedStop = editorStops.find((stop) => stop.id === selectedStopId) ?? editorStops[0] ?? null;
 
@@ -334,6 +489,7 @@ export function GradientEditorDialog({
     const loaded = normalizeStops(preset.stops);
     setEditorStops(loaded);
     setSelectedStopId(loaded[0]?.id ?? null);
+    setPresetName(preset.name);
     onStopsChange(serializeStops(loaded));
   };
 
@@ -343,14 +499,17 @@ export function GradientEditorDialog({
       return;
     }
     const nextPreset: GradientPreset = {
-      id: name.toLowerCase().replace(/\s+/g, "-"),
+      id: existingUserPreset?.id ?? makePresetId(name),
       name,
-      stops: serializeStops(editorStops),
+      stops: currentStops,
     };
     setUserPresets((current) => {
-      const withoutDuplicate = current.filter((preset) => preset.name.toLowerCase() !== name.toLowerCase());
+      const withoutDuplicate = current.filter(
+        (preset) => preset.name.toLowerCase() !== name.toLowerCase(),
+      );
       return [nextPreset, ...withoutDuplicate];
     });
+    setPresetName(name);
   };
 
   const handleDeletePreset = (id: string) => {
@@ -541,40 +700,43 @@ export function GradientEditorDialog({
                     placeholder="Preset name"
                     value={presetName}
                     onChange={(event) => setPresetName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleSavePreset();
+                      }
+                    }}
                   />
-                  <Button variant="ghost" size="sm" className="h-8 px-2 text-[11px]" onClick={handleSavePreset}>
-                    Save
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-[11px]"
+                    disabled={presetName.trim().length === 0}
+                    onClick={handleSavePreset}
+                  >
+                    {existingUserPreset ? "Overwrite" : "Save"}
                   </Button>
                 </div>
-                <div className="mt-3 grid gap-2">
-                  {allPresets.map((preset) => {
-                    const saved = userPresets.some((entry) => entry.id === preset.id);
-                    return (
-                      <div key={preset.id} className="flex items-center gap-2 rounded border border-white/8 bg-black/10 px-2 py-1.5">
-                        <button
-                          type="button"
-                          className="flex-1 text-left text-[12px] text-slate-100"
-                          onClick={() => handleLoadPreset(preset)}
-                        >
-                          <div>{preset.name}</div>
-                          <div className="text-[11px] text-slate-500">{preset.stops.length} stops</div>
-                        </button>
-                        {saved ? (
-                          <button
-                            type="button"
-                            className="rounded border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-400 hover:border-red-400/40 hover:text-red-200"
-                            onClick={() => handleDeletePreset(preset.id)}
-                          >
-                            Delete
-                          </button>
-                        ) : (
-                          <span className="rounded border border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-600">
-                            Built-in
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="mt-2 text-[11px] text-slate-500">
+                  {existingUserPreset
+                    ? "Saving will replace the existing custom preset with this name."
+                    : "Save the current gradient as a reusable preset."}
+                </div>
+                <div className="mt-3 space-y-3">
+                  <PresetSection
+                    title="Built-in"
+                    presets={builtInPresets}
+                    activePresetId={activePresetId}
+                    onLoadPreset={handleLoadPreset}
+                  />
+                  <PresetSection
+                    title="Custom"
+                    presets={userPresets}
+                    activePresetId={activePresetId}
+                    emptyLabel="No custom presets saved yet."
+                    onLoadPreset={handleLoadPreset}
+                    onDeletePreset={handleDeletePreset}
+                  />
                 </div>
               </div>
             </div>
