@@ -1,18 +1,10 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
 
-// NamedPath is a path entry in the document's Paths panel.
-type NamedPath struct {
-	Name string `json:"name"`
-	Path Path   `json:"path"`
-}
-
-// PathMeta is the UIMeta representation of a path entry.
-type PathMeta struct {
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
-}
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+)
 
 // --- Payloads ---
 
@@ -110,30 +102,5 @@ func (doc *Document) DuplicatePath(index int) error {
 
 // pathsMeta returns PathMeta slice for UIMeta.
 func (doc *Document) pathsMeta() []PathMeta {
-	if len(doc.Paths) == 0 {
-		return nil
-	}
-	meta := make([]PathMeta, len(doc.Paths))
-	for i, p := range doc.Paths {
-		meta[i] = PathMeta{
-			Name:   p.Name,
-			Active: i == doc.ActivePathIdx,
-		}
-	}
-	return meta
-}
-
-// cloneNamedPaths deep-copies a slice of NamedPath.
-func cloneNamedPaths(paths []NamedPath) []NamedPath {
-	if len(paths) == 0 {
-		return nil
-	}
-	out := make([]NamedPath, len(paths))
-	for i, p := range paths {
-		out[i] = NamedPath{
-			Name: p.Name,
-			Path: *clonePath(&p.Path),
-		}
-	}
-	return out
+	return docpkg.BuildPathsMeta(doc.Paths, doc.ActivePathIdx)
 }

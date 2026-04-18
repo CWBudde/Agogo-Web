@@ -173,11 +173,6 @@ const (
 	defaultDevicePixelRat = 1.0
 )
 
-type Background struct {
-	Kind  string   `json:"kind"`
-	Color [4]uint8 `json:"color,omitempty"`
-}
-
 type Document struct {
 	Width             int                     `json:"width"`
 	Height            int                     `json:"height"`
@@ -214,25 +209,10 @@ type ViewportState struct {
 	ShowGuides       bool    `json:"showGuides"`
 }
 
-type DirtyRect struct {
-	X int `json:"x"`
-	Y int `json:"y"`
-	W int `json:"w"`
-	H int `json:"h"`
-}
-
 type HistoryEntry struct {
 	ID          int64  `json:"id"`
 	Description string `json:"description"`
 	State       string `json:"state"`
-}
-
-// ThumbnailEntry holds base64-encoded RGBA pixel buffers for a layer preview.
-// LayerRGBA is always present (when the layer has rasterizable content).
-// MaskRGBA is only present when the layer has a pixel mask.
-type ThumbnailEntry struct {
-	LayerRGBA string `json:"layerRGBA"`
-	MaskRGBA  string `json:"maskRGBA,omitempty"`
 }
 
 type UIMeta struct {

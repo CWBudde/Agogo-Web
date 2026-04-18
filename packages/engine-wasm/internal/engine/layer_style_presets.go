@@ -10,13 +10,6 @@ import (
 	agglib "github.com/cwbudde/agg_go"
 )
 
-type DocumentStylePreset struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
-	Styles          []LayerStyle `json:"styles"`
-	ThumbnailBase64 string       `json:"thumbnailBase64,omitempty"`
-}
-
 type CreateDocumentStylePresetPayload struct {
 	Name   string              `json:"name"`
 	Styles []LayerStylePayload `json:"styles"`

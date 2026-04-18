@@ -20,14 +20,14 @@ func TestSelectionHelpersCloneNormalizeAndMeta(t *testing.T) {
 		t.Fatal("modified clone should no longer compare equal")
 	}
 
-	bounds, ok := selection.bounds()
+	bounds, ok := selection.Bounds()
 	if !ok {
 		t.Fatal("selection bounds should be available")
 	}
 	if bounds != (DirtyRect{X: 1, Y: 0, W: 2, H: 3}) {
 		t.Fatalf("bounds = %+v, want {X:1 Y:0 W:2 H:3}", bounds)
 	}
-	if got := selection.pixelCount(); got != 3 {
+	if got := selection.PixelCount(); got != 3 {
 		t.Fatalf("pixelCount = %d, want 3", got)
 	}
 
@@ -73,8 +73,8 @@ func TestSelectionCommandsCoverMissingBranches(t *testing.T) {
 	if err := doc.InvertSelection(); err != nil {
 		t.Fatalf("InvertSelection without active selection: %v", err)
 	}
-	if doc.Selection == nil || doc.Selection.pixelCount() != 25 {
-		t.Fatalf("SelectAll via invert fallback produced %v pixels, want 25", doc.Selection.pixelCount())
+	if doc.Selection == nil || doc.Selection.PixelCount() != 25 {
+		t.Fatalf("SelectAll via invert fallback produced %v pixels, want 25", doc.Selection.PixelCount())
 	}
 
 	if err := doc.InvertSelection(); err != nil {
@@ -88,7 +88,7 @@ func TestSelectionCommandsCoverMissingBranches(t *testing.T) {
 	if err := doc.ContractSelection(1); err != nil {
 		t.Fatalf("ContractSelection: %v", err)
 	}
-	if got := doc.Selection.pixelCount(); got != 1 {
+	if got := doc.Selection.PixelCount(); got != 1 {
 		t.Fatalf("contracted pixelCount = %d, want 1", got)
 	}
 
@@ -110,7 +110,7 @@ func TestSelectionCommandsCoverMissingBranches(t *testing.T) {
 	if err := doc.BorderSelection(3); err != nil {
 		t.Fatalf("BorderSelection: %v", err)
 	}
-	if doc.Selection == nil || doc.Selection.pixelCount() == 0 {
+	if doc.Selection == nil || doc.Selection.PixelCount() == 0 {
 		t.Fatal("border selection should remain non-empty")
 	}
 	if doc.Selection.Mask[2*5+2] != 0 {
@@ -120,7 +120,7 @@ func TestSelectionCommandsCoverMissingBranches(t *testing.T) {
 
 func TestSelectionShapeHelpersAndCoverageSampling(t *testing.T) {
 	ellipse := newEllipseSelection(7, 7, LayerBounds{X: 1, Y: 1, W: 5, H: 5}, true)
-	if ellipse == nil || ellipse.pixelCount() == 0 {
+	if ellipse == nil || ellipse.PixelCount() == 0 {
 		t.Fatal("ellipse selection should contain pixels")
 	}
 	if ellipse.Mask[3*7+3] != 255 {

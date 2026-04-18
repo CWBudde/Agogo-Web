@@ -143,6 +143,7 @@ func pathEqual(a, b *Path) bool {
 	return model.PathEqual(a, b)
 }
 
+//nolint:unused // kept for package-local tests
 func layerStylesEqual(a, b []LayerStyle) bool {
 	return model.LayerStylesEqual(a, b)
 }

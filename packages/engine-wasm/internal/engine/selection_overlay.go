@@ -6,7 +6,7 @@ func RenderSelectionOverlay(doc *Document, vp *ViewportState, reuse []byte, sele
 	if doc == nil || vp == nil || selection == nil || len(reuse) == 0 {
 		return reuse
 	}
-	bounds, ok := selection.bounds()
+	bounds, ok := selection.Bounds()
 	if !ok {
 		return reuse
 	}

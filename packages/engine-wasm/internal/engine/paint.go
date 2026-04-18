@@ -306,7 +306,7 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 
 	// Record undo.
 	layerID := layer.ID()
-	delta, err := NewPixelDelta(before, layer.Pixels, lw, lh, DirtyRect{0, 0, lw, lh})
+	delta, err := NewPixelDelta(before, layer.Pixels, lw, lh, DirtyRect{X: 0, Y: 0, W: lw, H: lh})
 	if err != nil {
 		return nil
 	}

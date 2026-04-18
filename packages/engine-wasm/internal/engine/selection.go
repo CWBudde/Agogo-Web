@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -27,29 +26,6 @@ const (
 type SelectionPoint struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
-}
-
-type Selection struct {
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
-	Mask   []byte `json:"mask,omitempty"`
-}
-
-type SelectionMeta struct {
-	Active                 bool       `json:"active"`
-	Bounds                 *DirtyRect `json:"bounds,omitempty"`
-	PixelCount             int        `json:"pixelCount"`
-	LastSelectionAvailable bool       `json:"lastSelectionAvailable"`
-}
-
-type SavedSelectionChannel struct {
-	Name      string     `json:"name"`
-	Selection *Selection `json:"selection"`
-}
-
-type SavedSelectionChannelMeta struct {
-	Name       string `json:"name"`
-	PixelCount int    `json:"pixelCount"`
 }
 
 type CreateSelectionPayload struct {
@@ -167,134 +143,6 @@ type OutputSelectionPayload struct {
 	SampleMerged bool                `json:"sampleMerged,omitempty"`
 }
 
-func cloneSelection(selection *Selection) *Selection {
-	if selection == nil {
-		return nil
-	}
-	cloned := *selection
-	cloned.Mask = append([]byte(nil), selection.Mask...)
-	return &cloned
-}
-
-func selectionEqual(a, b *Selection) bool {
-	if (a == nil) != (b == nil) {
-		return false
-	}
-	if a == nil {
-		return true
-	}
-	return a.Width == b.Width && a.Height == b.Height && bytes.Equal(a.Mask, b.Mask)
-}
-
-func cloneSavedSelectionChannels(channels []SavedSelectionChannel) []SavedSelectionChannel {
-	if channels == nil {
-		return nil
-	}
-	cloned := make([]SavedSelectionChannel, len(channels))
-	for i := range channels {
-		cloned[i] = SavedSelectionChannel{
-			Name:      channels[i].Name,
-			Selection: cloneSelection(channels[i].Selection),
-		}
-	}
-	return cloned
-}
-
-func savedSelectionChannelsEqual(a, b []SavedSelectionChannel) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Name != b[i].Name || !selectionEqual(a[i].Selection, b[i].Selection) {
-			return false
-		}
-	}
-	return true
-}
-
-func (selection *Selection) bounds() (DirtyRect, bool) {
-	if selection == nil || selection.Width <= 0 || selection.Height <= 0 || len(selection.Mask) < selection.Width*selection.Height {
-		return DirtyRect{}, false
-	}
-	minX := selection.Width
-	minY := selection.Height
-	maxX := -1
-	maxY := -1
-	for y := range selection.Height {
-		rowOffset := y * selection.Width
-		for x := range selection.Width {
-			if selection.Mask[rowOffset+x] == 0 {
-				continue
-			}
-			if x < minX {
-				minX = x
-			}
-			if y < minY {
-				minY = y
-			}
-			if x > maxX {
-				maxX = x
-			}
-			if y > maxY {
-				maxY = y
-			}
-		}
-	}
-	if maxX < minX || maxY < minY {
-		return DirtyRect{}, false
-	}
-	return DirtyRect{X: minX, Y: minY, W: maxX - minX + 1, H: maxY - minY + 1}, true
-}
-
-func (selection *Selection) pixelCount() int {
-	if selection == nil {
-		return 0
-	}
-	count := 0
-	for _, alpha := range selection.Mask {
-		if alpha != 0 {
-			count++
-		}
-	}
-	return count
-}
-
-func normalizeSelection(selection *Selection) *Selection {
-	if selection == nil || selection.Width <= 0 || selection.Height <= 0 {
-		return nil
-	}
-	expectedLen := selection.Width * selection.Height
-	if len(selection.Mask) < expectedLen {
-		return nil
-	}
-	selection.Mask = selection.Mask[:expectedLen]
-	for _, alpha := range selection.Mask {
-		if alpha != 0 {
-			return selection
-		}
-	}
-	return nil
-}
-
-func newSelection(width, height int) *Selection {
-	if width <= 0 || height <= 0 {
-		return &Selection{Width: width, Height: height}
-	}
-	return &Selection{Width: width, Height: height, Mask: make([]byte, width*height)}
-}
-
-func newLayerMaskFromSelection(selection *Selection) *LayerMask {
-	if selection == nil {
-		return nil
-	}
-	return &LayerMask{
-		Enabled: true,
-		Width:   selection.Width,
-		Height:  selection.Height,
-		Data:    append([]byte(nil), selection.Mask...),
-	}
-}
-
 func (doc *Document) selectionMeta() SelectionMeta {
 	meta := SelectionMeta{}
 	if doc == nil {
@@ -306,8 +154,8 @@ func (doc *Document) selectionMeta() SelectionMeta {
 		return meta
 	}
 	meta.Active = true
-	meta.PixelCount = selection.pixelCount()
-	if bounds, ok := selection.bounds(); ok {
+	meta.PixelCount = selection.PixelCount()
+	if bounds, ok := selection.Bounds(); ok {
 		meta.Bounds = &bounds
 	}
 	return meta
@@ -325,7 +173,7 @@ func (doc *Document) savedSelectionChannelMeta() []SavedSelectionChannelMeta {
 		}
 		meta = append(meta, SavedSelectionChannelMeta{
 			Name:       channel.Name,
-			PixelCount: selection.pixelCount(),
+			PixelCount: selection.PixelCount(),
 		})
 	}
 	return meta
@@ -824,7 +672,7 @@ func localSurfaceLuminance(px []byte) float64 {
 }
 
 func selectionBounds(selection *Selection) (LayerBounds, bool) {
-	bounds, ok := selection.bounds()
+	bounds, ok := selection.Bounds()
 	if !ok {
 		return LayerBounds{}, false
 	}
@@ -1067,7 +915,7 @@ func transformSelection(selection *Selection, a, b, c, d, tx, ty float64) (*Sele
 	if math.Abs(determinant) < 1e-8 {
 		return nil, fmt.Errorf("selection transform is singular")
 	}
-	bounds, ok := selection.bounds()
+	bounds, ok := selection.Bounds()
 	if !ok {
 		return cloneSelection(selection), nil
 	}

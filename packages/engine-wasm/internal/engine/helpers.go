@@ -75,45 +75,6 @@ func documentsEqual(a, b *Document) bool {
 	return layerTreeEqual(a.LayerRoot, b.LayerRoot)
 }
 
-func cloneDocumentStylePresets(presets []DocumentStylePreset) []DocumentStylePreset {
-	if presets == nil {
-		return nil
-	}
-	cloned := make([]DocumentStylePreset, len(presets))
-	for i := range presets {
-		cloned[i] = DocumentStylePreset{
-			ID:              presets[i].ID,
-			Name:            presets[i].Name,
-			Styles:          clonePresetStyles(presets[i].Styles),
-			ThumbnailBase64: presets[i].ThumbnailBase64,
-		}
-	}
-	return cloned
-}
-
-func clonePresetStyles(styles []LayerStyle) []LayerStyle {
-	if styles == nil {
-		return []LayerStyle{}
-	}
-	cloned := cloneLayerStyles(styles)
-	if cloned == nil {
-		return []LayerStyle{}
-	}
-	return cloned
-}
-
-func documentStylePresetsEqual(a, b []DocumentStylePreset) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || !layerStylesEqual(a[i].Styles, b[i].Styles) {
-			return false
-		}
-	}
-	return true
-}
-
 func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {
 	const degToRad = math.Pi / 180
 	radians := rotation * degToRad
@@ -121,17 +82,6 @@ func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, flo
 	sinTheta := math.Sin(radians)
 	return (deltaX*cosTheta + deltaY*sinTheta) / zoom,
 		(-deltaX*sinTheta + deltaY*cosTheta) / zoom
-}
-
-func parseBackground(kind string) Background {
-	switch kind {
-	case "white":
-		return Background{Kind: "white", Color: [4]uint8{244, 246, 250, 255}}
-	case "color":
-		return Background{Kind: "color", Color: [4]uint8{236, 147, 92, 255}}
-	default:
-		return Background{Kind: "transparent"}
-	}
 }
 
 func defaultDocumentName(name string) string {
