@@ -994,12 +994,12 @@
 - [x] **Polygon Tool:** N sides, star mode (inner radius %)
 - [x] **Line Tool:** draws 1D path with stroke (width from options bar)
 - [ ] **Custom Shape Tool:**
-  - [ ] Shape library panel (preset shapes: arrows, logos, nature, ornaments)
+  - [x] Shape library panel (preset shapes: arrows, logos, nature, ornaments)
   - [ ] Import custom shapes from `.csh` files (later)
 - [x] Shape layer editing:
   - [x] Double-click shape layer → enters path editing mode
   - [x] Can change fill/stroke without rasterizing
-  - [ ] Path operations (combine shapes on same layer)  ← deferred (Paths panel covers this)
+  - [x] Path operations (combine shapes on same layer)  ← covered by Paths panel boolean ops
 - [x] **Mode toggle** in options bar: Shape layer vs Path (no fill) vs Pixels (rasterize immediately)
 
 ### Phase 6.3: Text Engine

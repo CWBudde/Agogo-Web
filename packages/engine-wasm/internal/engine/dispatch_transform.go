@@ -40,7 +40,7 @@ func (inst *instance) dispatchTransformCommand(commandID int32, payloadJSON stri
 					insertChild(srcParent, floatingLayer, srcIndex+1)
 				}
 				doc.ActiveLayerID = floatingLayer.ID()
-				doc.touchModifiedAtRect(DirtyRect{X: floatBounds.X, Y: floatBounds.Y, W: floatBounds.W, H: floatBounds.H})
+				doc.touchModifiedAtRect(DirtyRect(floatBounds))
 				if err := inst.manager.ReplaceActive(doc); err != nil {
 					return true, err
 				}

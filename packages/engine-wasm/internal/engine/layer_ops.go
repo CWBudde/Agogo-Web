@@ -1188,7 +1188,7 @@ func layerBoundsDirtyRect(bounds LayerBounds, docW, docH int) (DirtyRect, bool) 
 	if docW <= 0 || docH <= 0 || bounds.W <= 0 || bounds.H <= 0 {
 		return DirtyRect{}, false
 	}
-	rect := DirtyRect{X: bounds.X, Y: bounds.Y, W: bounds.W, H: bounds.H}
+	rect := DirtyRect(bounds)
 	normalized, err := normalizeDirtyRect(rect, docW, docH)
 	if err != nil {
 		return DirtyRect{}, false

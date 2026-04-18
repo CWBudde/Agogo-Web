@@ -91,16 +91,36 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
     engine.dispatchCommand(CommandID.RasterizeLayer, {});
   }
 
+  function handleCombine() {
+    if (paths.length < 2 || activeIndex < 0) return;
+    engine.dispatchCommand(CommandID.PathCombine, {});
+  }
+
+  function handleSubtract() {
+    if (paths.length < 2 || activeIndex < 0) return;
+    engine.dispatchCommand(CommandID.PathSubtract, {});
+  }
+
+  function handleExclude() {
+    if (paths.length < 2 || activeIndex < 0) return;
+    engine.dispatchCommand(CommandID.PathExclude, {});
+  }
+
+  function handleFlatten() {
+    if (paths.length < 2) return;
+    engine.dispatchCommand(CommandID.FlattenPath, {});
+  }
+
   const hasActive = activeIndex >= 0;
+  const canBoolean = hasActive && paths.length >= 2;
+  const canFlatten = paths.length >= 2;
 
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="flex-1">
         <div className="space-y-px p-1">
           {paths.length === 0 ? (
-            <div className="px-2 py-4 text-center text-[11px] text-slate-500">
-              No paths
-            </div>
+            <div className="px-2 py-4 text-center text-[11px] text-slate-500">No paths</div>
           ) : (
             paths.map((path, index) => (
               <button
@@ -108,9 +128,7 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
                 key={path.name}
                 className={[
                   "flex h-7 w-full cursor-pointer items-center rounded-sm px-2 text-left text-[11px]",
-                  path.active
-                    ? "bg-blue-600/30 text-slate-100"
-                    : "text-slate-300 hover:bg-white/5",
+                  path.active ? "bg-blue-600/30 text-slate-100" : "text-slate-300 hover:bg-white/5",
                 ].join(" ")}
                 onClick={() => handleClick(index)}
                 onDoubleClick={() => handleDoubleClick(index)}
@@ -138,44 +156,158 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
       {/* Footer action buttons */}
       <div className="flex items-center gap-0.5 border-t border-white/8 px-1 py-0.5">
         <FooterButton title="Make Selection" disabled={!hasActive} onClick={handleMakeSelection}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2 2" role="img" aria-label="Make Selection">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="2 2"
+            role="img"
+            aria-label="Make Selection"
+          >
             <circle cx="8" cy="8" r="6" />
           </svg>
         </FooterButton>
         <FooterButton title="Stroke Path" disabled={!hasActive} onClick={handleStroke}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Stroke Path">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Stroke Path"
+          >
             <path d="M2 14 L12 4 L14 2 L12 4 Z" />
             <path d="M10 6 L12 4" />
           </svg>
         </FooterButton>
         <FooterButton title="Fill Path" disabled={!hasActive} onClick={handleFill}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Fill Path">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Fill Path"
+          >
             <path d="M3 10 L8 5 L11 8 L6 13 Z" />
             <path d="M13 11 Q15 13 13 14 Q11 13 13 11" />
           </svg>
         </FooterButton>
         <FooterButton title="Rasterize Layer" disabled={!hasActive} onClick={handleRasterizeLayer}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Rasterize Layer">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Rasterize Layer"
+          >
             <rect x="3" y="3" width="10" height="10" rx="1" />
             <path d="M5 5 L11 11 M11 5 L5 11" />
+          </svg>
+        </FooterButton>
+        <FooterButton title="Combine Paths" disabled={!canBoolean} onClick={handleCombine}>
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Combine Paths"
+          >
+            <circle cx="6" cy="8" r="3.5" />
+            <circle cx="10" cy="8" r="3.5" />
+          </svg>
+        </FooterButton>
+        <FooterButton title="Subtract Paths" disabled={!canBoolean} onClick={handleSubtract}>
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Subtract Paths"
+          >
+            <rect x="2.5" y="4" width="6.5" height="8" rx="1" />
+            <path d="M8.5 4 H13.5 V12 H8.5" />
+          </svg>
+        </FooterButton>
+        <FooterButton title="Exclude Paths" disabled={!canBoolean} onClick={handleExclude}>
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Exclude Paths"
+          >
+            <circle cx="6" cy="8" r="3.5" />
+            <circle cx="10" cy="8" r="3.5" strokeDasharray="2 1.5" />
+          </svg>
+        </FooterButton>
+        <FooterButton title="Flatten Paths" disabled={!canFlatten} onClick={handleFlatten}>
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Flatten Paths"
+          >
+            <path d="M3 5 H13" />
+            <path d="M5 8 H11" />
+            <path d="M4 11 H12" />
           </svg>
         </FooterButton>
 
         <div className="flex-1" />
 
         <FooterButton title="New Path" onClick={handleCreate}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="New Path">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="New Path"
+          >
             <path d="M8 3 V13 M3 8 H13" />
           </svg>
         </FooterButton>
         <FooterButton title="Duplicate Path" disabled={!hasActive} onClick={handleDuplicate}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Duplicate Path">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Duplicate Path"
+          >
             <rect x="5" y="5" width="8" height="8" rx="1" />
             <path d="M3 11 V3 H11" />
           </svg>
         </FooterButton>
         <FooterButton title="Delete Path" disabled={!hasActive} onClick={handleDelete}>
-          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-label="Delete Path">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Delete Path"
+          >
             <path d="M3 4 H13 M5 4 V3 H11 V4 M6 6 V12 M10 6 V12 M4 4 L5 14 H11 L12 4" />
           </svg>
         </FooterButton>
