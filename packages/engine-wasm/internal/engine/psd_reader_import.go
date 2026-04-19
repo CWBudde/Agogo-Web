@@ -12,20 +12,19 @@ func newImportedPSDDocument(header psdHeader, resources psdImageResources) *Docu
 	if resolution <= 0 {
 		resolution = defaultResolutionDPI
 	}
-	return &Document{
+	return newDocumentWithCore(newDocumentCore(DocumentCreateParams{
 		Width:      header.Width,
 		Height:     header.Height,
 		Resolution: resolution,
 		ColorMode:  psdDocumentColorMode(header.ColorMode),
 		BitDepth:   header.Depth,
-		Background: parseBackground("transparent"),
+		Background: "transparent",
 		ID:         fmt.Sprintf("doc-%04d", atomic.AddInt64(&nextDocID, 1)),
 		Name:       "Imported PSD",
 		CreatedAt:  timestamp,
 		CreatedBy:  "agogo-web",
 		ModifiedAt: timestamp,
-		LayerRoot:  NewGroupLayer("Root"),
-	}
+	}))
 }
 
 func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode, []string, error) {

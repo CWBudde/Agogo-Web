@@ -165,14 +165,6 @@ const (
 	commandRedo         = 0xfff1
 )
 
-const (
-	defaultDocWidth       = 1920
-	defaultDocHeight      = 1080
-	defaultResolutionDPI  = 72
-	defaultHistoryMax     = 50
-	defaultDevicePixelRat = 1.0
-)
-
 type Document struct {
 	Width             int                     `json:"width"`
 	Height            int                     `json:"height"`
@@ -196,23 +188,6 @@ type Document struct {
 	Paths             []NamedPath             `json:"-"`
 	ActivePathIdx     int                     `json:"-"`
 	StylePresets      []DocumentStylePreset   `json:"-"`
-}
-
-type ViewportState struct {
-	CenterX          float64 `json:"centerX"`
-	CenterY          float64 `json:"centerY"`
-	Zoom             float64 `json:"zoom"`
-	Rotation         float64 `json:"rotation"`
-	CanvasW          int     `json:"canvasW"`
-	CanvasH          int     `json:"canvasH"`
-	DevicePixelRatio float64 `json:"devicePixelRatio"`
-	ShowGuides       bool    `json:"showGuides"`
-}
-
-type HistoryEntry struct {
-	ID          int64  `json:"id"`
-	Description string `json:"description"`
-	State       string `json:"state"`
 }
 
 type UIMeta struct {
@@ -275,14 +250,6 @@ type RenderResult struct {
 	Histogram *HistogramData `json:"histogram,omitempty"`
 	// IdentifiedHueRange is set only in response to commandIdentifyHueRange.
 	IdentifiedHueRange string `json:"identifiedHueRange,omitempty"`
-}
-
-type RawRenderResult struct {
-	FrameID   int64         `json:"frameId"`
-	Viewport  ViewportState `json:"viewport"`
-	BufferPtr int32         `json:"bufferPtr"`
-	BufferLen int32         `json:"bufferLen"`
-	Reused    bool          `json:"reused"`
 }
 
 type EngineConfig struct {

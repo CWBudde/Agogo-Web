@@ -1,62 +1,55 @@
 package engine
 
+import (
+	"fmt"
+
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+)
+
 func (inst *instance) dispatchUICommand(commandID int32, payloadJSON string) (bool, *RenderResult, error) {
-	switch commandID {
-	case commandSetMaskEditMode:
-		var payload SetMaskEditModePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, err
-		}
-		// Mask edit mode is UI state only and is not tracked in history.
-		if payload.Editing {
-			inst.maskEditLayerID = payload.LayerID
-		} else {
-			inst.maskEditLayerID = ""
-		}
-		return true, nil, nil
-
-	case commandGetLayerThumbnails:
-		// Read-only command: return a render result with thumbnails embedded.
-		result := inst.render()
-		doc := inst.manager.Active()
-		if doc != nil {
-			thumbs, err := doc.generateAllThumbnails(thumbnailSize, thumbnailSize)
-			if err == nil {
-				result.Thumbnails = thumbs
+	result, err := cmdpkg.DispatchUI(commandID, payloadJSON, cmdpkg.UIDeps{
+		Decode:                   decodePayloadAny,
+		DefaultSelectionViewMode: string(SelectionViewModeMarchingAnts),
+		GenerateThumbnails: func() (map[string]ThumbnailEntry, error) {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil, nil
 			}
-		}
-		return true, &result, nil
+			return doc.generateAllThumbnails(thumbnailSize, thumbnailSize)
+		},
+		ComputeHistogram: func(payloadJSON string) (any, error) {
+			return inst.computeHistogram(payloadJSON)
+		},
+		IdentifyHueRange: inst.identifyHueRange,
+	})
+	if err != nil {
+		return result.Handled, nil, err
+	}
 
-	case commandComputeHistogram:
-		hist, err := inst.computeHistogram(payloadJSON)
-		if err != nil {
-			return true, nil, err
-		}
-		result := inst.render()
-		result.Histogram = hist
-		return true, &result, nil
-
-	case commandIdentifyHueRange:
-		rangeName, err := inst.identifyHueRange(payloadJSON)
-		if err != nil {
-			return true, nil, err
-		}
-		result := inst.render()
-		result.IdentifiedHueRange = rangeName
-		return true, &result, nil
-
-	case commandSetSelectionViewMode:
-		var payload SetSelectionViewModePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, err
-		}
-		if payload.Mode == "" {
-			inst.selectionViewMode = SelectionViewModeMarchingAnts
-		} else {
-			inst.selectionViewMode = payload.Mode
-		}
+	if !result.Handled {
+		return false, nil, nil
+	}
+	if result.MaskEditLayerID != nil {
+		inst.maskEditLayerID = *result.MaskEditLayerID
+	}
+	if result.SelectionViewMode != nil {
+		inst.selectionViewMode = SelectionViewMode(*result.SelectionViewMode)
+	}
+	if !result.HasCustomRender {
 		return true, nil, nil
 	}
 
-	return false, nil, nil
+	renderResult := inst.render()
+	if result.Thumbnails != nil {
+		renderResult.Thumbnails = result.Thumbnails
+	}
+	if result.Histogram != nil {
+		histogram, ok := result.Histogram.(*HistogramData)
+		if !ok {
+			return true, nil, fmt.Errorf("unexpected histogram result type %T", result.Histogram)
+		}
+		renderResult.Histogram = histogram
+	}
+	renderResult.IdentifiedHueRange = result.IdentifiedHueRange
+	return true, &renderResult, nil
 }

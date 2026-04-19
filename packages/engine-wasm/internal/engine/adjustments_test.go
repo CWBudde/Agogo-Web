@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 func TestCoreAdjustmentKindsAffectPixels(t *testing.T) {
@@ -336,7 +338,7 @@ func TestAdjustmentLayerParamsSerializeInLayerMeta(t *testing.T) {
 	adjustment := NewAdjustmentLayer("Levels", "levels", json.RawMessage(`{"inputBlack":10,"inputWhite":200}`))
 	doc.LayerRoot.SetChildren([]LayerNode{adjustment})
 
-	meta := doc.LayerMeta()
+	meta := docpkg.BuildLayerMeta(doc.ensureLayerRoot().Children())
 	if len(meta) != 1 {
 		t.Fatalf("len(meta) = %d, want 1", len(meta))
 	}

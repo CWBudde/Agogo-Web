@@ -3,6 +3,8 @@ package engine
 import (
 	"math"
 	"testing"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 // helper: create a path with one open subpath containing the given points.
@@ -12,7 +14,7 @@ func setupPathWithPoints(t *testing.T, points []PathPoint) (int32, *instance) {
 
 	inst := instances[h]
 	doc := inst.manager.Active()
-	doc.CreatePath("Test Path")
+	doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, "Test Path")
 	np := &doc.Paths[doc.ActivePathIdx]
 	np.Path.Subpaths = []Subpath{{Points: points}}
 	// Persist the changes back into the document manager.

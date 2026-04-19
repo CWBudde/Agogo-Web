@@ -106,10 +106,6 @@ func cloneLayerMask(mask *LayerMask) *LayerMask {
 	return model.CloneLayerMask(mask)
 }
 
-func cloneArtboard(artboard *ArtboardData) *ArtboardData {
-	return model.CloneArtboard(artboard)
-}
-
 func clonePath(path *Path) *Path {
 	return model.ClonePath(path)
 }
@@ -124,10 +120,6 @@ func cloneLayerStyle(style LayerStyle) LayerStyle {
 
 func cloneJSONRawMessage(message json.RawMessage) json.RawMessage {
 	return model.CloneJSONRawMessage(message)
-}
-
-func cloneLayerForDuplicate(layer LayerNode) LayerNode {
-	return model.CloneLayerForDuplicate(layer)
 }
 
 func cloneGroupLayer(group *GroupLayer) *GroupLayer {

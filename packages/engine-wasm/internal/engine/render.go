@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	aggrender "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/agg"
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 func (inst *instance) compositeSurface(doc *Document) []byte {
@@ -136,14 +137,14 @@ func (inst *instance) renderUIMeta() UIMeta {
 		DocumentWidth:          doc.Width,
 		DocumentHeight:         doc.Height,
 		DocumentBackground:     doc.Background.Kind,
-		Layers:                 doc.LayerMeta(),
+		Layers:                 docpkg.BuildLayerMeta(doc.ensureLayerRoot().Children()),
 		ContentVersion:         doc.ContentVersion,
 		MaskEditLayerID:        inst.maskEditLayerID,
-		Selection:              doc.selectionMeta(),
-		SavedSelectionChannels: doc.savedSelectionChannelMeta(),
+		Selection:              docpkg.BuildSelectionMeta(doc.Selection, doc.LastSelection),
+		SavedSelectionChannels: docpkg.BuildSavedSelectionChannelMeta(doc.SavedSelections),
 		FreeTransform:          inst.freeTransform.meta(),
 		Crop:                   inst.crop.meta(),
-		Paths:                  doc.pathsMeta(),
+		Paths:                  docpkg.BuildPathsMeta(doc.Paths, doc.ActivePathIdx),
 		PathOverlay:            inst.buildPathOverlay(),
 		EditingVectorLayerID:   inst.editingVectorLayerID,
 		EditingTextLayerID:     inst.textEdit.layerID,

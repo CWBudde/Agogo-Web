@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 func TestDocumentLayerOperationsAndUndo(t *testing.T) {
@@ -284,7 +286,7 @@ func TestTranslateArtboardMovesChildrenAndFrame(t *testing.T) {
 	if err := doc.TranslateLayer(board.ID(), 7, 9); err != nil {
 		t.Fatalf("translate artboard: %v", err)
 	}
-	meta, ok := findLayerMetaByID(doc.LayerMeta(), board.ID())
+	meta, ok := findLayerMetaByID(docpkg.BuildLayerMeta(doc.ensureLayerRoot().Children()), board.ID())
 	if !ok || meta.ArtboardBounds == nil {
 		t.Fatalf("translated artboard meta missing: %+v", meta)
 	}

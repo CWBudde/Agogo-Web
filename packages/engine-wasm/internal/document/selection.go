@@ -2,6 +2,8 @@ package document
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
 
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
@@ -27,6 +29,114 @@ type SavedSelectionChannel struct {
 type SavedSelectionChannelMeta struct {
 	Name       string `json:"name"`
 	PixelCount int    `json:"pixelCount"`
+}
+
+func SelectAll(width, height int) *Selection {
+	selection := NewSelection(width, height)
+	for index := range selection.Mask {
+		selection.Mask[index] = 255
+	}
+	return selection
+}
+
+func Deselect(selection, lastSelection *Selection) (*Selection, *Selection) {
+	if nextLast := NormalizeSelection(CloneSelection(selection)); nextLast != nil {
+		lastSelection = nextLast
+	}
+	return nil, lastSelection
+}
+
+func Reselect(lastSelection *Selection) (*Selection, error) {
+	selection := NormalizeSelection(CloneSelection(lastSelection))
+	if selection == nil {
+		return nil, fmt.Errorf("no stored selection")
+	}
+	return selection, nil
+}
+
+func InvertSelection(selection *Selection, width, height int) *Selection {
+	selection = NormalizeSelection(CloneSelection(selection))
+	if selection == nil {
+		return SelectAll(width, height)
+	}
+	for index := range selection.Mask {
+		selection.Mask[index] = 255 - selection.Mask[index]
+	}
+	return NormalizeSelection(selection)
+}
+
+func BuildSelectionMeta(selection, lastSelection *Selection) SelectionMeta {
+	meta := SelectionMeta{
+		LastSelectionAvailable: NormalizeSelection(CloneSelection(lastSelection)) != nil,
+	}
+	selection = NormalizeSelection(CloneSelection(selection))
+	if selection == nil {
+		return meta
+	}
+	meta.Active = true
+	meta.PixelCount = selection.PixelCount()
+	if bounds, ok := selection.Bounds(); ok {
+		meta.Bounds = &bounds
+	}
+	return meta
+}
+
+func BuildSavedSelectionChannelMeta(channels []SavedSelectionChannel) []SavedSelectionChannelMeta {
+	if len(channels) == 0 {
+		return nil
+	}
+	meta := make([]SavedSelectionChannelMeta, 0, len(channels))
+	for _, channel := range channels {
+		selection := NormalizeSelection(CloneSelection(channel.Selection))
+		if selection == nil {
+			continue
+		}
+		meta = append(meta, SavedSelectionChannelMeta{
+			Name:       channel.Name,
+			PixelCount: selection.PixelCount(),
+		})
+	}
+	return meta
+}
+
+func DefaultSavedSelectionName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Alpha 1"
+	}
+	return name
+}
+
+func SaveSelectionToChannel(selection *Selection, channels []SavedSelectionChannel, name string) ([]SavedSelectionChannel, error) {
+	selection = NormalizeSelection(CloneSelection(selection))
+	if selection == nil {
+		return nil, fmt.Errorf("no active selection")
+	}
+	name = DefaultSavedSelectionName(name)
+	saved := SavedSelectionChannel{Name: name, Selection: selection}
+	next := append([]SavedSelectionChannel(nil), channels...)
+	for i := range next {
+		if next[i].Name == name {
+			next[i] = saved
+			return next, nil
+		}
+	}
+	return append(next, saved), nil
+}
+
+func LoadSelectionFromChannel(current *Selection, channels []SavedSelectionChannel, name string, combine func(current, next *Selection) *Selection) (*Selection, error) {
+	name = DefaultSavedSelectionName(name)
+	for _, channel := range channels {
+		if channel.Name != name {
+			continue
+		}
+		selection := NormalizeSelection(CloneSelection(channel.Selection))
+		if selection == nil {
+			return nil, fmt.Errorf("saved selection %q is empty", name)
+		}
+		return combine(current, selection), nil
+	}
+	return nil, fmt.Errorf("saved selection %q not found", name)
 }
 
 func CloneSelection(selection *Selection) *Selection {

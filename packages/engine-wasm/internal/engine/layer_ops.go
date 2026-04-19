@@ -6,58 +6,33 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 func (doc *Document) ensureLayerRoot() *GroupLayer {
-	if doc.LayerRoot != nil {
-		return doc.LayerRoot
-	}
-	root := NewGroupLayer("Root")
-	root.SetName("Root")
-	root.SetParent(nil)
-	doc.LayerRoot = root
-	return root
+	doc.LayerRoot = docpkg.EnsureLayerRoot(doc.LayerRoot)
+	return doc.LayerRoot
 }
 
 func (doc *Document) Layers() []LayerNode {
-	return doc.ensureLayerRoot().Children()
+	return docpkg.Layers(doc.ensureLayerRoot())
 }
 
 func (doc *Document) ActiveLayer() LayerNode {
 	if doc == nil || doc.ActiveLayerID == "" {
 		return nil
 	}
-	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
-	if !ok {
-		return nil
-	}
-	return layer
-}
-
-func (doc *Document) LayerMeta() []LayerNodeMeta {
-	if doc == nil {
-		return nil
-	}
-	children := doc.ensureLayerRoot().Children()
-	meta := make([]LayerNodeMeta, 0, len(children))
-	for _, child := range children {
-		meta = append(meta, buildLayerNodeMeta(child))
-	}
-	return meta
+	return docpkg.ActiveLayer(doc.ensureLayerRoot(), doc.ActiveLayerID)
 }
 
 func (doc *Document) AddLayer(layer LayerNode, parentLayerID string, index int) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
 	}
-	if layer == nil {
-		return fmt.Errorf("layer is required")
-	}
-	parent, err := doc.groupForID(parentLayerID)
-	if err != nil {
+	if err := docpkg.AddLayer(doc.ensureLayerRoot(), layer, parentLayerID, index); err != nil {
 		return err
 	}
-	insertChild(parent, layer, index)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = layer.ID()
 	doc.touchModifiedAtLayer(layer)
@@ -68,16 +43,12 @@ func (doc *Document) DeleteLayer(layerID string) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
 	}
-	layer, parent, index, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
-	if !ok || parent == nil {
-		return fmt.Errorf("layer %q not found", layerID)
+	layer, nextActive, activeChanged, err := docpkg.DeleteLayer(doc.ensureLayerRoot(), layerID, doc.ActiveLayerID)
+	if err != nil {
+		return err
 	}
-	children := parent.Children()
-	nextActive := doc.nextActiveLayerID(children, index, layer)
-	children = append(children[:index], children[index+1:]...)
-	parent.SetChildren(children)
 	doc.normalizeClippingState()
-	if containsLayerID(layer, doc.ActiveLayerID) {
+	if activeChanged {
 		doc.ActiveLayerID = nextActive
 	}
 	doc.touchModifiedAtLayer(layer)
@@ -85,23 +56,10 @@ func (doc *Document) DeleteLayer(layerID string) error {
 }
 
 func (doc *Document) DuplicateLayer(layerID, parentLayerID string, index int) (LayerNode, error) {
-	source, parent, sourceIndex, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
-	if !ok {
-		return nil, fmt.Errorf("layer %q not found", layerID)
+	clone, err := docpkg.DuplicateLayer(doc.ensureLayerRoot(), layerID, parentLayerID, index)
+	if err != nil {
+		return nil, err
 	}
-	clone := cloneLayerForDuplicate(source)
-	targetParent := parent
-	if parentLayerID != "" {
-		var err error
-		targetParent, err = doc.groupForID(parentLayerID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if targetParent == parent && index < 0 {
-		index = sourceIndex + 1
-	}
-	insertChild(targetParent, clone, index)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = clone.ID()
 	doc.touchModifiedAtLayer(clone)
@@ -109,24 +67,9 @@ func (doc *Document) DuplicateLayer(layerID, parentLayerID string, index int) (L
 }
 
 func (doc *Document) MoveLayer(layerID, parentLayerID string, index int) error {
-	layer, currentParent, currentIndex, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
-	if !ok || currentParent == nil {
-		return fmt.Errorf("layer %q not found", layerID)
-	}
-	targetParent, err := doc.groupForID(parentLayerID)
-	if err != nil {
+	if err := docpkg.MoveLayer(doc.ensureLayerRoot(), layerID, parentLayerID, index); err != nil {
 		return err
 	}
-	if containsLayerID(layer, targetParent.ID()) {
-		return fmt.Errorf("cannot move layer into its own descendant")
-	}
-	currentChildren := currentParent.Children()
-	currentChildren = append(currentChildren[:currentIndex], currentChildren[currentIndex+1:]...)
-	currentParent.SetChildren(currentChildren)
-	if targetParent == currentParent && index > currentIndex {
-		index--
-	}
-	insertChild(targetParent, layer, index)
 	doc.normalizeClippingState()
 	doc.touchModifiedAt()
 	return nil
@@ -255,7 +198,7 @@ func (doc *Document) TranslateLayer(layerID string, dx, dy int) error {
 	afterRect, hasAfter := doc.layerCompositeDirtyRect(layer)
 	switch {
 	case hasBefore && hasAfter:
-		doc.touchModifiedAtRect(unionDirtyRects(beforeRect, afterRect))
+		doc.touchModifiedAtRect(docpkg.UnionDirtyRects(beforeRect, afterRect))
 	case hasBefore:
 		doc.touchModifiedAtRect(beforeRect)
 	case hasAfter:
@@ -694,38 +637,6 @@ func scaleGrayToRGBA(src []byte, srcW, srcH, dstW, dstH int) []byte {
 	return dst
 }
 
-func (doc *Document) groupForID(groupID string) (*GroupLayer, error) {
-	root := doc.ensureLayerRoot()
-	if groupID == "" || groupID == root.ID() {
-		return root, nil
-	}
-	layer, _, _, ok := findLayerByID(root, groupID)
-	if !ok {
-		return nil, fmt.Errorf("parent layer %q not found", groupID)
-	}
-	group, ok := layer.(*GroupLayer)
-	if !ok {
-		return nil, fmt.Errorf("layer %q is not a group", groupID)
-	}
-	return group, nil
-}
-
-func (doc *Document) nextActiveLayerID(children []LayerNode, deletedIndex int, deleted LayerNode) string {
-	// Prefer the sibling immediately below the deleted layer.
-	if deletedIndex+1 < len(children) {
-		return children[deletedIndex+1].ID()
-	}
-	// Fall back to the sibling above.
-	if deletedIndex > 0 {
-		return children[deletedIndex-1].ID()
-	}
-	// No siblings; select the parent unless it is the root.
-	if parent := deleted.Parent(); parent != nil && parent.Parent() != nil {
-		return parent.ID()
-	}
-	return ""
-}
-
 func (doc *Document) touchModifiedAt() {
 	doc.touchModifiedAtRect(doc.fullDocumentDirtyRect())
 }
@@ -742,33 +653,27 @@ func (doc *Document) bumpContentVersionRect(rect DirtyRect) {
 }
 
 func (doc *Document) fullDocumentDirtyRect() DirtyRect {
-	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
+	if doc == nil {
 		return DirtyRect{}
 	}
-	return DirtyRect{X: 0, Y: 0, W: doc.Width, H: doc.Height}
+	return docpkg.FullDocumentDirtyRect(doc.Width, doc.Height)
 }
 
 func (doc *Document) markDirtyCompositeRect(rect DirtyRect) {
-	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
+	if doc == nil {
 		return
 	}
-	normalized, err := normalizeDirtyRect(rect, doc.Width, doc.Height)
-	if err != nil {
-		return
-	}
-	if !doc.hasDirtyComposite {
-		doc.dirtyComposite = normalized
-		doc.hasDirtyComposite = true
-		return
-	}
-	doc.dirtyComposite = unionDirtyRects(doc.dirtyComposite, normalized)
+	doc.dirtyComposite, doc.hasDirtyComposite = docpkg.MarkDirtyCompositeRect(doc.dirtyComposite, doc.hasDirtyComposite, rect, doc.Width, doc.Height)
 }
 
 func (doc *Document) currentDirtyCompositeRect() *DirtyRect {
-	if doc == nil || !doc.hasDirtyComposite {
+	if doc == nil {
 		return nil
 	}
-	rect := doc.dirtyComposite
+	rect, ok := docpkg.CurrentDirtyCompositeRect(doc.dirtyComposite, doc.hasDirtyComposite)
+	if !ok {
+		return nil
+	}
 	return &rect
 }
 
@@ -780,14 +685,6 @@ func (doc *Document) clearDirtyCompositeRect() {
 	doc.hasDirtyComposite = false
 }
 
-func unionDirtyRects(a, b DirtyRect) DirtyRect {
-	x1 := minInt(a.X, b.X)
-	y1 := minInt(a.Y, b.Y)
-	x2 := maxInt(a.X+a.W, b.X+b.W)
-	y2 := maxInt(a.Y+a.H, b.Y+b.H)
-	return DirtyRect{X: x1, Y: y1, W: x2 - x1, H: y2 - y1}
-}
-
 func (doc *Document) touchModifiedAtLayer(layer LayerNode) {
 	if rect, ok := doc.layerCompositeDirtyRect(layer); ok {
 		doc.touchModifiedAtRect(rect)
@@ -797,20 +694,7 @@ func (doc *Document) touchModifiedAtLayer(layer LayerNode) {
 }
 
 func (doc *Document) touchModifiedAtLayers(layers ...LayerNode) {
-	var combined DirtyRect
-	var hasCombined bool
-	for _, layer := range layers {
-		rect, ok := doc.layerCompositeDirtyRect(layer)
-		if !ok {
-			continue
-		}
-		if !hasCombined {
-			combined = rect
-			hasCombined = true
-			continue
-		}
-		combined = unionDirtyRects(combined, rect)
-	}
+	combined, hasCombined := docpkg.CombineLayerCompositeDirtyRects(layers, doc.Width, doc.Height, hasAnyEnabledLayerStyleEntry)
 	if hasCombined {
 		doc.touchModifiedAtRect(combined)
 		return
@@ -819,107 +703,27 @@ func (doc *Document) touchModifiedAtLayers(layers ...LayerNode) {
 }
 
 func (doc *Document) touchModifiedAtBounds(before, after LayerBounds) {
-	beforeRect, hasBefore := layerBoundsDirtyRect(before, doc.Width, doc.Height)
-	afterRect, hasAfter := layerBoundsDirtyRect(after, doc.Width, doc.Height)
-	switch {
-	case hasBefore && hasAfter:
-		doc.touchModifiedAtRect(unionDirtyRects(beforeRect, afterRect))
-	case hasBefore:
-		doc.touchModifiedAtRect(beforeRect)
-	case hasAfter:
-		doc.touchModifiedAtRect(afterRect)
-	default:
-		doc.touchModifiedAt()
+	if rect, ok := docpkg.DirtyRectForBounds(before, after, doc.Width, doc.Height); ok {
+		doc.touchModifiedAtRect(rect)
+		return
 	}
+	doc.touchModifiedAt()
 }
 
 func (doc *Document) layerCompositeDirtyRect(layer LayerNode) (DirtyRect, bool) {
-	if doc == nil || layer == nil {
+	if doc == nil {
 		return DirtyRect{}, false
 	}
-	if _, ok := layer.(*AdjustmentLayer); ok {
-		rect := doc.fullDocumentDirtyRect()
-		return rect, rect.W > 0 && rect.H > 0
-	}
-	if hasAnyEnabledLayerStyleEntry(layer.StyleStack()) {
-		rect := doc.fullDocumentDirtyRect()
-		return rect, rect.W > 0 && rect.H > 0
-	}
-
-	switch typed := layer.(type) {
-	case *PixelLayer:
-		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
-	case *TextLayer:
-		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
-	case *VectorLayer:
-		return layerBoundsDirtyRect(typed.Bounds, doc.Width, doc.Height)
-	case *GroupLayer:
-		var combined DirtyRect
-		var hasCombined bool
-		if typed.Artboard != nil {
-			if rect, ok := layerBoundsDirtyRect(typed.Artboard.Bounds, doc.Width, doc.Height); ok {
-				combined = rect
-				hasCombined = true
-			}
-		}
-		for _, child := range typed.Children() {
-			rect, ok := doc.layerCompositeDirtyRect(child)
-			if !ok {
-				continue
-			}
-			if !hasCombined {
-				combined = rect
-				hasCombined = true
-				continue
-			}
-			combined = unionDirtyRects(combined, rect)
-		}
-		return combined, hasCombined
-	default:
-		return DirtyRect{}, false
-	}
-}
-
-func layerBoundsDirtyRect(bounds LayerBounds, docW, docH int) (DirtyRect, bool) {
-	if docW <= 0 || docH <= 0 || bounds.W <= 0 || bounds.H <= 0 {
-		return DirtyRect{}, false
-	}
-	rect := DirtyRect(bounds)
-	normalized, err := normalizeDirtyRect(rect, docW, docH)
-	if err != nil {
-		return DirtyRect{}, false
-	}
-	return normalized, true
-}
-
-func defaultArtboardBackground() [4]uint8 {
-	return [4]uint8{255, 255, 255, 255}
+	return docpkg.LayerCompositeDirtyRect(layer, doc.Width, doc.Height, hasAnyEnabledLayerStyleEntry)
 }
 
 func (doc *Document) SetArtboard(layerID string, bounds LayerBounds, background *[4]uint8) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
 	}
-	if bounds.W <= 0 || bounds.H <= 0 {
-		return fmt.Errorf("artboard requires positive bounds, got %dx%d", bounds.W, bounds.H)
+	if err := docpkg.SetArtboard(doc.ensureLayerRoot(), layerID, bounds, background); err != nil {
+		return err
 	}
-	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
-	if !ok {
-		return fmt.Errorf("layer %q not found", layerID)
-	}
-	group, ok := layer.(*GroupLayer)
-	if !ok {
-		return fmt.Errorf("layer %q is not a group", layerID)
-	}
-	artboard := cloneArtboard(group.Artboard)
-	if artboard == nil {
-		artboard = &ArtboardData{Background: defaultArtboardBackground()}
-	}
-	artboard.Bounds = bounds
-	if background != nil {
-		artboard.Background = *background
-	}
-	group.Artboard = artboard
 	doc.touchModifiedAt()
 	return nil
 }
@@ -946,7 +750,7 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 			if bounds.W <= 0 || bounds.H <= 0 {
 				return nil, fmt.Errorf("artboard group requires valid bounds, got %dx%d", bounds.W, bounds.H)
 			}
-			background := defaultArtboardBackground()
+			background := docpkg.DefaultArtboardBackground()
 			if payload.ArtboardBackground != nil {
 				background = *payload.ArtboardBackground
 			}

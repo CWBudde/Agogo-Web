@@ -1,6 +1,10 @@
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+)
 
 func TestSelectionHelpersCloneNormalizeAndMeta(t *testing.T) {
 	selection := &Selection{Width: 4, Height: 3, Mask: make([]byte, 12)}
@@ -55,7 +59,7 @@ func TestSelectionHelpersCloneNormalizeAndMeta(t *testing.T) {
 		Selection:     selection,
 		LastSelection: &Selection{Width: 1, Height: 1, Mask: []byte{255}},
 	}
-	meta := doc.selectionMeta()
+	meta := docpkg.BuildSelectionMeta(doc.Selection, doc.LastSelection)
 	if !meta.Active || !meta.LastSelectionAvailable {
 		t.Fatalf("selection meta = %+v, want active selection with last selection available", meta)
 	}
@@ -70,16 +74,12 @@ func TestSelectionHelpersCloneNormalizeAndMeta(t *testing.T) {
 func TestSelectionCommandsCoverMissingBranches(t *testing.T) {
 	doc := &Document{Width: 5, Height: 5}
 
-	if err := doc.InvertSelection(); err != nil {
-		t.Fatalf("InvertSelection without active selection: %v", err)
-	}
+	doc.Selection = docpkg.InvertSelection(doc.Selection, doc.Width, doc.Height)
 	if doc.Selection == nil || doc.Selection.PixelCount() != 25 {
 		t.Fatalf("SelectAll via invert fallback produced %v pixels, want 25", doc.Selection.PixelCount())
 	}
 
-	if err := doc.InvertSelection(); err != nil {
-		t.Fatalf("InvertSelection with active selection: %v", err)
-	}
+	doc.Selection = docpkg.InvertSelection(doc.Selection, doc.Width, doc.Height)
 	if doc.Selection != nil {
 		t.Fatal("inverting a full selection should clear it")
 	}

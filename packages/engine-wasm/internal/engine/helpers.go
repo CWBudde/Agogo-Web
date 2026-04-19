@@ -84,14 +84,17 @@ func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, flo
 		(-deltaX*sinTheta + deltaY*cosTheta) / zoom
 }
 
-func defaultDocumentName(name string) string {
-	if name == "" {
-		return "Untitled"
+func decodePayload[T any](payloadJSON string, target *T) error {
+	if payloadJSON == "" {
+		return nil
 	}
-	return name
+	if err := json.Unmarshal([]byte(payloadJSON), target); err != nil {
+		return fmt.Errorf("decode payload: %w", err)
+	}
+	return nil
 }
 
-func decodePayload[T any](payloadJSON string, target *T) error {
+func decodePayloadAny(payloadJSON string, target any) error {
 	if payloadJSON == "" {
 		return nil
 	}
@@ -122,6 +125,7 @@ func normalizeRotation(rotation float64) float64 {
 	return normalized
 }
 
+//nolint:unused // kept for package-local tests
 func valueOrDefault(value, fallback int) int {
 	if value <= 0 {
 		return fallback

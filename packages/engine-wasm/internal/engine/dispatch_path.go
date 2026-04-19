@@ -1,11 +1,46 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+)
 
 func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (bool, error) {
 	doc := inst.manager.Active()
 	if doc == nil {
 		return true, fmt.Errorf("no active document")
+	}
+	if handled, err := cmdpkg.DispatchPathCRUD(commandID, payloadJSON, cmdpkg.PathCRUDDeps{
+		Decode: decodePayloadAny,
+		CreatePath: func(name string) error {
+			return inst.executeDocCommand("Create path", func(doc *Document) error {
+				doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, name)
+				return nil
+			})
+		},
+		DeletePath: func(pathIndex int) error {
+			return inst.executeDocCommand("Delete path", func(doc *Document) error {
+				var err error
+				doc.Paths, doc.ActivePathIdx, err = docpkg.DeletePath(doc.Paths, doc.ActivePathIdx, pathIndex)
+				return err
+			})
+		},
+		RenamePath: func(pathIndex int, name string) error {
+			return inst.executeDocCommand("Rename path", func(doc *Document) error {
+				return docpkg.RenamePath(doc.Paths, pathIndex, name)
+			})
+		},
+		DuplicatePath: func(pathIndex int) error {
+			return inst.executeDocCommand("Duplicate path", func(doc *Document) error {
+				var err error
+				doc.Paths, doc.ActivePathIdx, err = docpkg.DuplicatePath(doc.Paths, pathIndex)
+				return err
+			})
+		},
+	}); handled || err != nil {
+		return handled, err
 	}
 
 	switch commandID {
@@ -95,55 +130,6 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 			return true, err
 		}
 		return true, inst.rasterizeLayer(payload)
-
-	case commandCreatePath:
-		var payload CreatePathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		if err := inst.executeDocCommand("Create path", func(doc *Document) error {
-			doc.CreatePath(payload.Name)
-			return nil
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandDeletePath:
-		var payload DeletePathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		if err := inst.executeDocCommand("Delete path", func(doc *Document) error {
-			return doc.DeletePath(payload.PathIndex)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandRenamePath:
-		var payload RenamePathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		if err := inst.executeDocCommand("Rename path", func(doc *Document) error {
-			return doc.RenamePath(payload.PathIndex, payload.Name)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandDuplicatePath:
-		var payload DuplicatePathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		if err := inst.executeDocCommand("Duplicate path", func(doc *Document) error {
-			return doc.DuplicatePath(payload.PathIndex)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
 
 	case commandMakeSelectionFromPath:
 		var payload MakeSelectionFromPathPayload

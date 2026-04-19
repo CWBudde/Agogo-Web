@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 const penToolEndpointSnapDistance = 6.0
@@ -94,7 +96,7 @@ func (inst *instance) penToolClick(payload PenToolClickPayload) error {
 	return inst.executeDocCommand("Pen tool: add anchor", func(doc *Document) error {
 		// Auto-create "Work Path" if no paths exist.
 		if len(doc.Paths) == 0 || doc.ActivePathIdx < 0 || doc.ActivePathIdx >= len(doc.Paths) {
-			doc.CreatePath("Work Path")
+			doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, "Work Path")
 			inst.pathTool.activeSubpathIdx = 0
 		}
 

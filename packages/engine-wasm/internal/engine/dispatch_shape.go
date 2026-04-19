@@ -1,6 +1,10 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+)
 
 // DrawShapePayload is the JSON payload for commandDrawShape.
 type DrawShapePayload struct {
@@ -208,7 +212,7 @@ func (inst *instance) drawShape(p DrawShapePayload) error {
 	switch mode {
 	case "path":
 		return inst.executeDocCommand("Draw shape path", func(doc *Document) error {
-			doc.CreatePath("Shape")
+			doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, "Shape")
 			idx := len(doc.Paths) - 1
 			doc.Paths[idx].Path = *path
 			return nil

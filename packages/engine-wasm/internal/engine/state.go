@@ -103,21 +103,18 @@ func (inst *instance) statusText(doc *Document) string {
 }
 
 func (inst *instance) newDocument(payload CreateDocumentPayload) *Document {
-	width := valueOrDefault(payload.Width, defaultDocWidth)
-	height := valueOrDefault(payload.Height, defaultDocHeight)
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	return &Document{
-		Width:      width,
-		Height:     height,
-		Resolution: floatValueOrDefault(payload.Resolution, defaultResolutionDPI),
-		ColorMode:  stringValueOrDefault(payload.ColorMode, "rgb"),
-		BitDepth:   valueOrDefault(payload.BitDepth, 8),
-		Background: parseBackground(payload.Background),
+	return newDocumentWithCore(newDocumentCore(DocumentCreateParams{
+		Width:      payload.Width,
+		Height:     payload.Height,
+		Resolution: payload.Resolution,
+		ColorMode:  payload.ColorMode,
+		BitDepth:   payload.BitDepth,
+		Background: payload.Background,
 		ID:         fmt.Sprintf("doc-%04d", atomic.AddInt64(&nextDocID, 1)),
-		Name:       defaultDocumentName(payload.Name),
+		Name:       payload.Name,
 		CreatedAt:  timestamp,
 		CreatedBy:  "agogo-web",
 		ModifiedAt: timestamp,
-		LayerRoot:  NewGroupLayer("Root"),
-	}
+	}))
 }

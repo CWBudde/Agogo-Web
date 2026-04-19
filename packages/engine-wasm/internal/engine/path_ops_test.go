@@ -1,6 +1,10 @@
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+)
 
 func TestDocumentPathCRUD(t *testing.T) {
 	h := initWithDefaultDoc(t)
@@ -100,8 +104,8 @@ func TestPathArchiveRoundTrip(t *testing.T) {
 	doc.LayerRoot.SetChildren([]LayerNode{layer})
 	doc.ActiveLayerID = layer.ID()
 
-	doc.CreatePath("Shape A")
-	doc.CreatePath("Shape B")
+	doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, "Shape A")
+	doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, "Shape B")
 
 	data, err := SaveProject(doc, nil)
 	if err != nil {

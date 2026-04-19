@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"math"
-	"strings"
 )
 
 type SelectionCombineMode string
@@ -143,42 +142,6 @@ type OutputSelectionPayload struct {
 	SampleMerged bool                `json:"sampleMerged,omitempty"`
 }
 
-func (doc *Document) selectionMeta() SelectionMeta {
-	meta := SelectionMeta{}
-	if doc == nil {
-		return meta
-	}
-	meta.LastSelectionAvailable = normalizeSelection(cloneSelection(doc.LastSelection)) != nil
-	selection := normalizeSelection(cloneSelection(doc.Selection))
-	if selection == nil {
-		return meta
-	}
-	meta.Active = true
-	meta.PixelCount = selection.PixelCount()
-	if bounds, ok := selection.Bounds(); ok {
-		meta.Bounds = &bounds
-	}
-	return meta
-}
-
-func (doc *Document) savedSelectionChannelMeta() []SavedSelectionChannelMeta {
-	if doc == nil || len(doc.SavedSelections) == 0 {
-		return nil
-	}
-	meta := make([]SavedSelectionChannelMeta, 0, len(doc.SavedSelections))
-	for _, channel := range doc.SavedSelections {
-		selection := normalizeSelection(cloneSelection(channel.Selection))
-		if selection == nil {
-			continue
-		}
-		meta = append(meta, SavedSelectionChannelMeta{
-			Name:       channel.Name,
-			PixelCount: selection.PixelCount(),
-		})
-	}
-	return meta
-}
-
 func (doc *Document) CreateSelection(shape SelectionShape, rect LayerBounds, polygon []SelectionPoint, mode SelectionCombineMode, antiAlias bool) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
@@ -198,56 +161,6 @@ func (doc *Document) CreateSelection(shape SelectionShape, rect LayerBounds, pol
 		return fmt.Errorf("unsupported selection shape %q", shape)
 	}
 	doc.Selection = combineSelection(doc.Selection, next, mode)
-	return nil
-}
-
-func (doc *Document) SelectAll() error {
-	if doc == nil {
-		return fmt.Errorf("document is required")
-	}
-	selection := newSelection(doc.Width, doc.Height)
-	for index := range selection.Mask {
-		selection.Mask[index] = 255
-	}
-	doc.Selection = selection
-	return nil
-}
-
-func (doc *Document) Deselect() error {
-	if doc == nil {
-		return fmt.Errorf("document is required")
-	}
-	if selection := normalizeSelection(cloneSelection(doc.Selection)); selection != nil {
-		doc.LastSelection = selection
-	}
-	doc.Selection = nil
-	return nil
-}
-
-func (doc *Document) Reselect() error {
-	if doc == nil {
-		return fmt.Errorf("document is required")
-	}
-	selection := normalizeSelection(cloneSelection(doc.LastSelection))
-	if selection == nil {
-		return fmt.Errorf("no stored selection")
-	}
-	doc.Selection = selection
-	return nil
-}
-
-func (doc *Document) InvertSelection() error {
-	if doc == nil {
-		return fmt.Errorf("document is required")
-	}
-	selection := normalizeSelection(cloneSelection(doc.Selection))
-	if selection == nil {
-		return doc.SelectAll()
-	}
-	for index := range selection.Mask {
-		selection.Mask[index] = 255 - selection.Mask[index]
-	}
-	doc.Selection = normalizeSelection(selection)
 	return nil
 }
 
@@ -294,39 +207,6 @@ func (doc *Document) BorderSelection(width int) error {
 	}
 	doc.Selection = normalizeSelection(&Selection{Width: selection.Width, Height: selection.Height, Mask: borderMask(selection.Mask, selection.Width, selection.Height, width)})
 	return nil
-}
-
-func (doc *Document) SaveSelectionToChannel(name string) error {
-	selection := normalizeSelection(cloneSelection(doc.Selection))
-	if selection == nil {
-		return fmt.Errorf("no active selection")
-	}
-	name = defaultSavedSelectionName(name)
-	saved := SavedSelectionChannel{Name: name, Selection: selection}
-	for i := range doc.SavedSelections {
-		if doc.SavedSelections[i].Name == name {
-			doc.SavedSelections[i] = saved
-			return nil
-		}
-	}
-	doc.SavedSelections = append(doc.SavedSelections, saved)
-	return nil
-}
-
-func (doc *Document) LoadSelectionFromChannel(name string, mode SelectionCombineMode) error {
-	name = defaultSavedSelectionName(name)
-	for _, channel := range doc.SavedSelections {
-		if channel.Name != name {
-			continue
-		}
-		selection := normalizeSelection(cloneSelection(channel.Selection))
-		if selection == nil {
-			return fmt.Errorf("saved selection %q is empty", name)
-		}
-		doc.Selection = combineSelection(doc.Selection, selection, mode)
-		return nil
-	}
-	return fmt.Errorf("saved selection %q not found", name)
 }
 
 func (doc *Document) RefineSelectionEdges(smartRadius, contrast float64, layerID string, sampleMerged bool) error {
@@ -590,14 +470,6 @@ func combineSelection(current, next *Selection, mode SelectionCombineMode) *Sele
 		}
 	}
 	return normalizeSelection(combined)
-}
-
-func defaultSavedSelectionName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "Alpha 1"
-	}
-	return name
 }
 
 func smartRefineSelection(selection *Selection, radius float64, surface []byte, width, height int) *Selection {

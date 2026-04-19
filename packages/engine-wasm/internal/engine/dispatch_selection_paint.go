@@ -4,179 +4,165 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
 func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON string, suggestedPath []SelectionPoint) (bool, *RenderResult, []SelectionPoint, error) {
+	if handled, err := cmdpkg.DispatchSelection(commandID, payloadJSON, cmdpkg.SelectionDeps{
+		Decode: decodePayloadAny,
+		PickLayerAtPoint: func(x, y int) error {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return fmt.Errorf("no active document")
+			}
+			if _, err := doc.PickLayerAtPoint(x, y); err != nil {
+				return err
+			}
+			return inst.manager.ReplaceActive(doc)
+		},
+		CreateSelection: func(shape, mode string, rect cmdpkg.SelectionRect, polygon []cmdpkg.SelectionPoint, antiAlias bool) error {
+			enginePolygon := make([]SelectionPoint, len(polygon))
+			for i := range polygon {
+				enginePolygon[i] = SelectionPoint{X: polygon[i].X, Y: polygon[i].Y}
+			}
+			return inst.executeDocCommand("Set selection", func(doc *Document) error {
+				return doc.CreateSelection(
+					SelectionShape(shape),
+					LayerBounds{X: rect.X, Y: rect.Y, W: rect.W, H: rect.H},
+					enginePolygon,
+					SelectionCombineMode(mode),
+					antiAlias,
+				)
+			})
+		},
+		SelectAll: func() error {
+			return inst.executeDocCommand("Select all", func(doc *Document) error {
+				doc.Selection = docpkg.SelectAll(doc.Width, doc.Height)
+				return nil
+			})
+		},
+		Deselect: func() error {
+			return inst.executeDocCommand("Deselect", func(doc *Document) error {
+				doc.Selection, doc.LastSelection = docpkg.Deselect(doc.Selection, doc.LastSelection)
+				return nil
+			})
+		},
+		Reselect: func() error {
+			return inst.executeDocCommand("Reselect", func(doc *Document) error {
+				selection, err := docpkg.Reselect(doc.LastSelection)
+				if err != nil {
+					return err
+				}
+				doc.Selection = selection
+				return nil
+			})
+		},
+		InvertSelection: func() error {
+			return inst.executeDocCommand("Invert selection", func(doc *Document) error {
+				doc.Selection = docpkg.InvertSelection(doc.Selection, doc.Width, doc.Height)
+				return nil
+			})
+		},
+		FeatherSelection: func(radius float64) error {
+			return inst.executeDocCommand("Feather selection", func(doc *Document) error {
+				return doc.FeatherSelection(radius)
+			})
+		},
+		ExpandSelection: func(pixels int) error {
+			return inst.executeDocCommand("Expand selection", func(doc *Document) error {
+				return doc.ExpandSelection(pixels)
+			})
+		},
+		ContractSelection: func(pixels int) error {
+			return inst.executeDocCommand("Contract selection", func(doc *Document) error {
+				return doc.ContractSelection(pixels)
+			})
+		},
+		SmoothSelection: func(radius int) error {
+			return inst.executeDocCommand("Smooth selection", func(doc *Document) error {
+				return doc.SmoothSelection(radius)
+			})
+		},
+		BorderSelection: func(width int) error {
+			return inst.executeDocCommand("Border selection", func(doc *Document) error {
+				return doc.BorderSelection(width)
+			})
+		},
+		TransformSelection: func(a, b, c, d, tx, ty float64) error {
+			return inst.executeDocCommand("Transform selection", func(doc *Document) error {
+				return doc.TransformSelection(a, b, c, d, tx, ty)
+			})
+		},
+		SelectColorRange: func(layerID string, targetColor [4]uint8, fuzziness float64, sampleMerged bool, mode string) error {
+			return inst.executeDocCommand("Color range selection", func(doc *Document) error {
+				return doc.SelectColorRange(layerID, targetColor, fuzziness, sampleMerged, SelectionCombineMode(mode))
+			})
+		},
+		QuickSelect: func(x, y int, tolerance, edgeSensitivity float64, layerID string, sampleMerged bool, mode string) error {
+			return inst.executeDocCommand("Quick selection", func(doc *Document) error {
+				return doc.QuickSelect(x, y, tolerance, edgeSensitivity, layerID, sampleMerged, SelectionCombineMode(mode))
+			})
+		},
+		MagicWand: func(x, y int, tolerance float64, layerID string, sampleMerged, contiguous, antiAlias bool, mode string) error {
+			return inst.executeDocCommand("Magic wand selection", func(doc *Document) error {
+				return doc.MagicWand(x, y, tolerance, layerID, sampleMerged, contiguous, antiAlias, SelectionCombineMode(mode))
+			})
+		},
+		SaveSelectionToChannel: func(name string) error {
+			return inst.executeDocCommand("Save selection to channel", func(doc *Document) error {
+				channels, err := docpkg.SaveSelectionToChannel(doc.Selection, doc.SavedSelections, name)
+				if err != nil {
+					return err
+				}
+				doc.SavedSelections = channels
+				return nil
+			})
+		},
+		LoadSelectionFromChannel: func(name, mode string) error {
+			return inst.executeDocCommand("Load selection from channel", func(doc *Document) error {
+				selection, err := docpkg.LoadSelectionFromChannel(doc.Selection, doc.SavedSelections, name, func(current, next *Selection) *Selection {
+					return combineSelection(current, next, SelectionCombineMode(mode))
+				})
+				if err != nil {
+					return err
+				}
+				doc.Selection = selection
+				return nil
+			})
+		},
+		RefineSelection: func(smartRadius, contrast float64, layerID string, sampleMerged bool) error {
+			return inst.executeDocCommand("Refine selection", func(doc *Document) error {
+				return doc.RefineSelectionEdges(smartRadius, contrast, layerID, sampleMerged)
+			})
+		},
+		OutputSelection: func(mode, layerID, name string, sampleMerged bool) error {
+			command := &snapshotCommand{
+				description: "Output selection",
+				applyFn: func(inst *instance) (snapshot, error) {
+					doc := inst.manager.Active()
+					if doc == nil {
+						return snapshot{}, fmt.Errorf("no active document")
+					}
+					if err := inst.outputSelection(doc, OutputSelectionPayload{
+						Mode:         OutputSelectionMode(mode),
+						LayerID:      layerID,
+						Name:         name,
+						SampleMerged: sampleMerged,
+					}); err != nil {
+						return snapshot{}, err
+					}
+					return inst.captureSnapshot(), nil
+				},
+			}
+			return inst.history.Execute(inst, command)
+		},
+	}); handled || err != nil {
+		return handled, nil, suggestedPath, err
+	}
+
 	switch commandID {
-	case commandPickLayerAtPoint:
-		var payload PickLayerAtPointPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc == nil {
-			return true, nil, suggestedPath, fmt.Errorf("no active document")
-		}
-		if _, err := doc.PickLayerAtPoint(payload.X, payload.Y); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.manager.ReplaceActive(doc); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandNewSelection:
-		var payload CreateSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Set selection", func(doc *Document) error {
-			return doc.CreateSelection(payload.Shape, payload.Rect, payload.Polygon, payload.Mode, payload.AntiAlias)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandSelectAll:
-		if err := inst.executeDocCommand("Select all", func(doc *Document) error {
-			return doc.SelectAll()
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandDeselect:
-		if err := inst.executeDocCommand("Deselect", func(doc *Document) error {
-			return doc.Deselect()
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandReselect:
-		if err := inst.executeDocCommand("Reselect", func(doc *Document) error {
-			return doc.Reselect()
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandInvertSelection:
-		if err := inst.executeDocCommand("Invert selection", func(doc *Document) error {
-			return doc.InvertSelection()
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandFeatherSelection:
-		var payload FeatherSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Feather selection", func(doc *Document) error {
-			return doc.FeatherSelection(payload.Radius)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandExpandSelection:
-		var payload ExpandSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Expand selection", func(doc *Document) error {
-			return doc.ExpandSelection(payload.Pixels)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandContractSelection:
-		var payload ContractSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Contract selection", func(doc *Document) error {
-			return doc.ContractSelection(payload.Pixels)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandSmoothSelection:
-		var payload SmoothSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Smooth selection", func(doc *Document) error {
-			return doc.SmoothSelection(payload.Radius)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandBorderSelection:
-		var payload BorderSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Border selection", func(doc *Document) error {
-			return doc.BorderSelection(payload.Width)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandTransformSelection:
-		var payload TransformSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Transform selection", func(doc *Document) error {
-			return doc.TransformSelection(payload.A, payload.B, payload.C, payload.D, payload.TX, payload.TY)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandSelectColorRange:
-		var payload SelectColorRangePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Color range selection", func(doc *Document) error {
-			return doc.SelectColorRange(payload.LayerID, payload.TargetColor, payload.Fuzziness, payload.SampleMerged, payload.Mode)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandQuickSelect:
-		var payload QuickSelectPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Quick selection", func(doc *Document) error {
-			return doc.QuickSelect(payload.X, payload.Y, payload.Tolerance, payload.EdgeSensitivity, payload.LayerID, payload.SampleMerged, payload.Mode)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandMagicWand:
-		var payload MagicWandPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Magic wand selection", func(doc *Document) error {
-			return doc.MagicWand(payload.X, payload.Y, payload.Tolerance, payload.LayerID, payload.SampleMerged, payload.Contiguous, payload.AntiAlias, payload.Mode)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
 	case commandMagneticLassoSuggestPath:
 		var payload MagneticLassoSuggestPathPayload
 		if err := decodePayload(payloadJSON, &payload); err != nil {
@@ -194,65 +180,6 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 		suggestedPath = suggestMagneticPath(surface, doc.Width, doc.Height, payload.X1, payload.Y1, payload.X2, payload.Y2)
 		result.SuggestedPath = suggestedPath
 		return true, &result, suggestedPath, nil
-
-	case commandSaveSelectionToChannel:
-		var payload SaveSelectionToChannelPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Save selection to channel", func(doc *Document) error {
-			return doc.SaveSelectionToChannel(payload.Name)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandLoadSelectionFromChannel:
-		var payload LoadSelectionFromChannelPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Load selection from channel", func(doc *Document) error {
-			return doc.LoadSelectionFromChannel(payload.Name, payload.Mode)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandRefineSelection:
-		var payload RefineSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		if err := inst.executeDocCommand("Refine selection", func(doc *Document) error {
-			return doc.RefineSelectionEdges(payload.SmartRadius, payload.Contrast, payload.LayerID, payload.SampleMerged)
-		}); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandOutputSelection:
-		var payload OutputSelectionPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		command := &snapshotCommand{
-			description: "Output selection",
-			applyFn: func(inst *instance) (snapshot, error) {
-				doc := inst.manager.Active()
-				if doc == nil {
-					return snapshot{}, fmt.Errorf("no active document")
-				}
-				if err := inst.outputSelection(doc, payload); err != nil {
-					return snapshot{}, err
-				}
-				return inst.captureSnapshot(), nil
-			},
-		}
-		if err := inst.history.Execute(inst, command); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		return true, nil, suggestedPath, nil
 
 	case commandBeginPaintStroke:
 		var payload BeginPaintStrokePayload
