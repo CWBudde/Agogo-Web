@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	psdio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psd"
 )
 
-func newImportedPSDDocument(header psdHeader, resources psdImageResources) *Document {
+func newImportedPSDDocument(header psdio.Header, resources psdio.ImageResources) *Document {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	resolution := resources.Resolution
 	if resolution <= 0 {
@@ -16,7 +18,7 @@ func newImportedPSDDocument(header psdHeader, resources psdImageResources) *Docu
 		Width:      header.Width,
 		Height:     header.Height,
 		Resolution: resolution,
-		ColorMode:  psdDocumentColorMode(header.ColorMode),
+		ColorMode:  psdio.DocumentColorMode(header.ColorMode),
 		BitDepth:   header.Depth,
 		Background: "transparent",
 		ID:         fmt.Sprintf("doc-%04d", atomic.AddInt64(&nextDocID, 1)),
@@ -27,7 +29,7 @@ func newImportedPSDDocument(header psdHeader, resources psdImageResources) *Docu
 	}))
 }
 
-func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode, []string, error) {
+func buildPSDLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]LayerNode, []string, error) {
 	if len(layers) == 0 {
 		return nil, nil, nil
 	}
@@ -36,7 +38,7 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 	groups := make([]*GroupLayer, 0)
 	stacks := [][]LayerNode{nodes}
 
-	resolveName := func(record psdLayerRecord, index int) string {
+	resolveName := func(record psdio.LayerRecord, index int) string {
 		if record.Name != "" {
 			return record.Name
 		}
@@ -65,7 +67,7 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 		stacks[top] = append(stacks[top], node)
 	}
 
-	beginGroup := func(record psdLayerRecord, name string) {
+	beginGroup := func(record psdio.LayerRecord, name string) {
 		group := NewGroupLayer(name)
 		group.SetVisible(record.Visible)
 		group.SetOpacity(record.Opacity)
@@ -78,11 +80,11 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 
 	for index, record := range layers {
 		name := resolveName(record, index)
-		if record.SectionType == psdLayerSectionOpenFolder || record.SectionType == psdLayerSectionNested {
+		if record.SectionType == psdio.LayerSectionOpenFolder || record.SectionType == psdio.LayerSectionNested {
 			beginGroup(record, name)
 			continue
 		}
-		if record.SectionType == psdLayerSectionCloseFolder {
+		if record.SectionType == psdio.LayerSectionCloseFolder {
 			if _, err := popStack(); err != nil {
 				warnings = append(warnings, "unbalanced group end marker")
 				continue
@@ -100,8 +102,11 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 		layer.SetVisible(record.Visible)
 		layer.SetBlendMode(record.BlendMode)
 		layer.SetClipToBelow(record.ClipToBelow)
-		if len(record.Effects.GetStyleStack()) > 0 {
-			layer.SetStyleStack(record.Effects.GetStyleStack())
+		if len(record.Effects.StyleStack()) > 0 {
+			layer.SetStyleStack(record.Effects.StyleStack())
+		}
+		if record.Text != nil {
+			warnings = append(warnings, fmt.Sprintf("layer %q: unsupported metadata block TySh imported as flattened pixel layer", name))
 		}
 		for _, key := range record.UnsupportedBlocks {
 			warnings = append(warnings, fmt.Sprintf("layer %q: unsupported metadata block %s imported as flattened pixel layer", name, key))
@@ -129,14 +134,14 @@ func buildPSDLayerNodes(header psdHeader, layers []psdLayerRecord) ([]LayerNode,
 	return nodes, warnings, nil
 }
 
-func flattenPSDLayerPixels(header psdHeader, layer psdLayerRecord) ([]byte, error) {
+func flattenPSDLayerPixels(header psdio.Header, layer psdio.LayerRecord) ([]byte, error) {
 	if layer.Bounds.W <= 0 || layer.Bounds.H <= 0 {
 		return nil, nil
 	}
 	size := layer.Bounds.W * layer.Bounds.H
 	rgba := make([]byte, size*4)
 	switch header.ColorMode {
-	case psdColorModeRGB:
+	case psdio.ColorModeRGB:
 		red := layer.ChannelPixels[0]
 		green := layer.ChannelPixels[1]
 		blue := layer.ChannelPixels[2]
@@ -153,7 +158,7 @@ func flattenPSDLayerPixels(header psdHeader, layer psdLayerRecord) ([]byte, erro
 				rgba[i*4+3] = alpha[i]
 			}
 		}
-	case psdColorModeGrayscale:
+	case psdio.ColorModeGrayscale:
 		gray := layer.ChannelPixels[0]
 		alpha := layer.ChannelPixels[-1]
 		if len(gray) == 0 {

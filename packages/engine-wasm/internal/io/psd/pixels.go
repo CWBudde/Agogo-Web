@@ -1,4 +1,4 @@
-package engine
+package psd
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
+func (p *Parser) ParseCompositeImageData(header Header) ([]byte, error) {
 	compression, err := p.readUint16()
 	if err != nil {
 		return nil, err
@@ -18,14 +18,14 @@ func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
 	}
 	planes := make([][]byte, header.Channels)
 	switch compression {
-	case psdCompressionRaw:
+	case CompressionRaw:
 		for i := 0; i < header.Channels; i++ {
 			planes[i], err = p.readBytes(pixelsPerPlane)
 			if err != nil {
 				return nil, err
 			}
 		}
-	case psdCompressionRLE:
+	case CompressionRLE:
 		counts := make([]int, header.Channels*header.Height)
 		for i := range counts {
 			if header.PSB {
@@ -50,7 +50,7 @@ func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
 				if err != nil {
 					return nil, err
 				}
-				decoded, err := decodePackBits(encoded, header.Width)
+				decoded, err := DecodePackBits(encoded, header.Width)
 				if err != nil {
 					return nil, err
 				}
@@ -58,12 +58,12 @@ func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
 			}
 			planes[planeIndex] = plane
 		}
-	case psdCompressionZip, psdCompressionZipPrediction:
+	case CompressionZip, CompressionZipPrediction:
 		compressed, err := p.readBytes(p.r.Len())
 		if err != nil {
 			return nil, err
 		}
-		flat, err := decodeZipImageData(compressed, header.Channels, pixelsPerPlane, header.Width, header.Height, compression == psdCompressionZipPrediction)
+		flat, err := decodeZipImageData(compressed, header.Channels, pixelsPerPlane, header.Width, header.Height, compression == CompressionZipPrediction)
 		if err != nil {
 			return nil, err
 		}
@@ -74,10 +74,10 @@ func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported PSD composite compression %d", compression)
 	}
-	return compositePSDPlanesToRGBA(header.ColorMode, planes, pixelsPerPlane)
+	return compositePlanesToRGBA(header.ColorMode, planes, pixelsPerPlane)
 }
 
-func parsePSDChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64, width, height int) ([]byte, error) {
+func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64, width, height int) ([]byte, error) {
 	data, err := readBytesFrom(reader, int(declaredLength))
 	if err != nil {
 		return nil, err
@@ -88,9 +88,9 @@ func parsePSDChannelImageData(reader *bytes.Reader, psb bool, declaredLength uin
 		return nil, err
 	}
 	switch compression {
-	case psdCompressionRaw:
+	case CompressionRaw:
 		return readBytesFrom(channelReader, width*height)
-	case psdCompressionRLE:
+	case CompressionRLE:
 		if width <= 0 || height <= 0 {
 			return nil, nil
 		}
@@ -116,7 +116,7 @@ func parsePSDChannelImageData(reader *bytes.Reader, psb bool, declaredLength uin
 			if err != nil {
 				return nil, err
 			}
-			row, err := decodePackBits(rowData, width)
+			row, err := DecodePackBits(rowData, width)
 			if err != nil {
 				return nil, err
 			}
@@ -126,12 +126,12 @@ func parsePSDChannelImageData(reader *bytes.Reader, psb bool, declaredLength uin
 			return nil, fmt.Errorf("decoded RLE channel length %d, want %d", len(decoded), width*height)
 		}
 		return decoded, nil
-	case psdCompressionZip, psdCompressionZipPrediction:
+	case CompressionZip, CompressionZipPrediction:
 		compressed, err := readBytesFrom(channelReader, int(declaredLength))
 		if err != nil {
 			return nil, err
 		}
-		return decodeZipChannel(compressed, width, height, compression == psdCompressionZipPrediction)
+		return decodeZipChannel(compressed, width, height, compression == CompressionZipPrediction)
 	default:
 		return nil, fmt.Errorf("unsupported PSD layer compression %d", compression)
 	}
@@ -176,7 +176,6 @@ func decodeZipPayload(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init zip stream: %w", err)
 	}
-
 	decoded, err := io.ReadAll(zr)
 	if err != nil {
 		if closeErr := zr.Close(); closeErr != nil {
@@ -206,13 +205,13 @@ func applyZipPredictionInPlace(data []byte, width, height int) {
 	}
 }
 
-func compositePSDPlanesToRGBA(colorMode int, planes [][]byte, pixelCount int) ([]byte, error) {
+func compositePlanesToRGBA(colorMode int, planes [][]byte, pixelCount int) ([]byte, error) {
 	if pixelCount == 0 {
 		return nil, nil
 	}
 	rgba := make([]byte, pixelCount*4)
 	switch colorMode {
-	case psdColorModeRGB:
+	case ColorModeRGB:
 		if len(planes) < 3 {
 			return nil, fmt.Errorf("composite image missing RGB planes")
 		}
@@ -225,7 +224,7 @@ func compositePSDPlanesToRGBA(colorMode int, planes [][]byte, pixelCount int) ([
 				rgba[i*4+3] = planes[3][i]
 			}
 		}
-	case psdColorModeGrayscale:
+	case ColorModeGrayscale:
 		if len(planes) == 0 {
 			return nil, fmt.Errorf("composite image missing grayscale plane")
 		}

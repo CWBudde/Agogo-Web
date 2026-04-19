@@ -29,8 +29,10 @@ func (inst *instance) restoreSnapshot(state snapshot) error {
 		return nil
 	}
 	inst.manager.Create(state.Document)
-	if state.DocumentID != "" && inst.manager.activeID != state.DocumentID {
-		inst.manager.activeID = state.DocumentID
+	if state.DocumentID != "" && inst.manager.ActiveID() != state.DocumentID {
+		if err := inst.manager.SetActiveID(state.DocumentID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

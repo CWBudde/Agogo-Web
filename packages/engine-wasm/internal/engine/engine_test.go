@@ -912,17 +912,11 @@ func TestHistoryStackHandlesDiscardedTransactionsAndNoopNavigation(t *testing.T)
 
 	inst.history.BeginTransaction(inst, "outer")
 	inst.history.BeginTransaction(inst, "inner ignored")
-	if inst.history.active == nil || inst.history.active.description != "outer" {
-		t.Fatalf("nested BeginTransaction should preserve the original transaction, got %+v", inst.history.active)
-	}
 
-	command := &snapshotCommand{
-		description: "Zoom without commit",
-		applyFn: func(inst *instance) (snapshot, error) {
-			inst.viewport.Zoom = 2
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand("Zoom without commit", func(inst *instance) (snapshot, error) {
+		inst.viewport.Zoom = 2
+		return inst.captureSnapshot(), nil
+	})
 	if err := inst.history.Execute(inst, command); err != nil {
 		t.Fatalf("Execute in active transaction: %v", err)
 	}

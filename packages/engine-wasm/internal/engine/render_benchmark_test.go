@@ -519,8 +519,8 @@ func (fixture *renderBenchmarkFixture) resetToEmpty() {
 		CanvasH:          benchmarkCanvasSize,
 		DevicePixelRatio: 1,
 	}
-	fixture.inst.manager.activeID = fixture.doc.ID
-	fixture.inst.manager.docs = map[string]*Document{fixture.doc.ID: fixture.doc}
+	fixture.inst.manager = newDocumentManager()
+	fixture.inst.manager.Create(fixture.doc)
 }
 
 func (fixture *renderBenchmarkFixture) preparePaintedDocument() {

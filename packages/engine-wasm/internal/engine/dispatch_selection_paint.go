@@ -138,24 +138,21 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 			})
 		},
 		OutputSelection: func(mode, layerID, name string, sampleMerged bool) error {
-			command := &snapshotCommand{
-				description: "Output selection",
-				applyFn: func(inst *instance) (snapshot, error) {
-					doc := inst.manager.Active()
-					if doc == nil {
-						return snapshot{}, fmt.Errorf("no active document")
-					}
-					if err := inst.outputSelection(doc, OutputSelectionPayload{
-						Mode:         OutputSelectionMode(mode),
-						LayerID:      layerID,
-						Name:         name,
-						SampleMerged: sampleMerged,
-					}); err != nil {
-						return snapshot{}, err
-					}
-					return inst.captureSnapshot(), nil
-				},
-			}
+			command := newSnapshotCommand("Output selection", func(inst *instance) (snapshot, error) {
+				doc := inst.manager.Active()
+				if doc == nil {
+					return snapshot{}, fmt.Errorf("no active document")
+				}
+				if err := inst.outputSelection(doc, OutputSelectionPayload{
+					Mode:         OutputSelectionMode(mode),
+					LayerID:      layerID,
+					Name:         name,
+					SampleMerged: sampleMerged,
+				}); err != nil {
+					return snapshot{}, err
+				}
+				return inst.captureSnapshot(), nil
+			})
 			return inst.history.Execute(inst, command)
 		},
 	}); handled || err != nil {

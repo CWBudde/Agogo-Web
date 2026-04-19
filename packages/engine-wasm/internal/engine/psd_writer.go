@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
-)
 
-const (
-	psdPSDMaxDimension = 30000
+	psdio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psd"
 )
 
 func SavePSD(doc *Document) ([]byte, error) {
@@ -47,7 +45,7 @@ func psdRequiresPSB(doc *Document) bool {
 	if doc == nil {
 		return false
 	}
-	return doc.Width > psdPSDMaxDimension || doc.Height > psdPSDMaxDimension
+	return psdio.RequiresPSB(doc.Width, doc.Height)
 }
 
 type psdWriter struct {
@@ -80,90 +78,89 @@ type psdExportTaggedBlock struct {
 	payload   []byte
 }
 
-func (w *psdWriter) write() ([]byte, error) {
-	var out bytes.Buffer
-
-	writePSDString(&out, "8BPS")
-	if w.psb {
-		writePSDUint16(&out, 2)
-	} else {
-		writePSDUint16(&out, 1)
+func exportPSDLayerRecords(records []psdExportLayerRecord) []psdio.ExportLayerRecord {
+	exported := make([]psdio.ExportLayerRecord, 0, len(records))
+	for _, record := range records {
+		channels := make([]psdio.ExportChannel, 0, len(record.channels))
+		for _, channel := range record.channels {
+			channels = append(channels, psdio.ExportChannel{
+				ID:      channel.id,
+				Length:  channel.length,
+				Payload: channel.payload,
+			})
+		}
+		extraBlocks := make([]psdio.ExportTaggedBlock, 0, len(record.extraBlocks))
+		for _, block := range record.extraBlocks {
+			extraBlocks = append(extraBlocks, psdio.ExportTaggedBlock{
+				Signature: block.signature,
+				Key:       block.key,
+				Payload:   block.payload,
+			})
+		}
+		exported = append(exported, psdio.ExportLayerRecord{
+			Name:        record.name,
+			Bounds:      record.bounds,
+			Opacity:     record.opacity,
+			Visible:     record.visible,
+			ClipToBelow: record.clipToBelow,
+			BlendKey:    record.blendKey,
+			SectionType: record.sectionType,
+			Mask:        record.mask,
+			Channels:    channels,
+			ExtraBlocks: extraBlocks,
+		})
 	}
-	out.Write(make([]byte, 6))
+	return exported
+}
 
+func (w *psdWriter) write() ([]byte, error) {
 	channelCount := 4
-	colorMode := psdColorModeRGB
+	colorMode := psdio.ColorModeRGB
 	if strings.EqualFold(w.doc.ColorMode, "gray") {
 		channelCount = 2
-		colorMode = psdColorModeGrayscale
+		colorMode = psdio.ColorModeGrayscale
 	}
-	writePSDUint16(&out, uint16(channelCount))
-	writePSDUint32(&out, uint32(w.doc.Height))
-	writePSDUint32(&out, uint32(w.doc.Width))
-	writePSDUint16(&out, 8)
-	writePSDUint16(&out, uint16(colorMode))
-
-	// Color mode data section.
-	writePSDUint32(&out, 0)
-
-	imageResources, err := w.buildImageResources()
+	imageResources, err := w.buildImageResourceBlocks()
 	if err != nil {
 		return nil, err
 	}
-	writePSDUint32(&out, uint32(len(imageResources)))
-	out.Write(imageResources)
-
-	layerAndMaskInfo, err := w.buildLayerAndMaskInfo()
+	layerRecords, err := w.buildLayerRecords()
 	if err != nil {
 		return nil, err
 	}
-	writePSDSectionLength(&out, w.psb, uint64(len(layerAndMaskInfo)))
-	out.Write(layerAndMaskInfo)
-
 	composite, err := w.buildCompositeImageData()
 	if err != nil {
 		return nil, err
 	}
-	out.Write(composite)
-
-	return out.Bytes(), nil
+	return psdio.Write(psdio.WriteParams{
+		PSB:            w.psb,
+		Width:          w.doc.Width,
+		Height:         w.doc.Height,
+		ChannelCount:   channelCount,
+		ColorMode:      colorMode,
+		Depth:          8,
+		ImageResources: imageResources,
+		Layers:         exportPSDLayerRecords(layerRecords),
+		CompositeData:  composite,
+	})
 }
 
-func (w *psdWriter) buildImageResources() ([]byte, error) {
-	var out bytes.Buffer
-
-	writePSDImageResource(&out, psdImageResourceDPI, "", buildPSDResolutionInfo(w.doc.Resolution))
-
+func (w *psdWriter) buildImageResourceBlocks() ([]psdio.ImageResourceBlock, error) {
+	blocks := []psdio.ImageResourceBlock{{
+		ID:      psdio.ImageResourceDPI,
+		Name:    "",
+		Payload: psdio.BuildResolutionInfo(w.doc.Resolution),
+	}}
 	projectArchive, err := SaveProject(w.doc, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build embedded project archive: %w", err)
 	}
-	writePSDImageResource(&out, psdImageResourceAgogoProject, "Agogo", projectArchive)
-
-	return out.Bytes(), nil
-}
-
-func (w *psdWriter) buildLayerAndMaskInfo() ([]byte, error) {
-	records, err := w.buildLayerRecords()
-	if err != nil {
-		return nil, err
-	}
-
-	var layerInfo bytes.Buffer
-	writePSDInt16(&layerInfo, int16(len(records)))
-	for _, record := range records {
-		writePSDLayerRecord(&layerInfo, w.psb, record)
-	}
-	for _, record := range records {
-		for _, channel := range record.channels {
-			layerInfo.Write(channel.payload)
-		}
-	}
-
-	var out bytes.Buffer
-	writePSDSectionLength(&out, w.psb, uint64(layerInfo.Len()))
-	out.Write(layerInfo.Bytes())
-	return out.Bytes(), nil
+	blocks = append(blocks, psdio.ImageResourceBlock{
+		ID:      psdio.ImageResourceAgogoProject,
+		Name:    "Agogo",
+		Payload: projectArchive,
+	})
+	return blocks, nil
 }
 
 func (w *psdWriter) buildLayerRecords() ([]psdExportLayerRecord, error) {
@@ -181,7 +178,7 @@ func (w *psdWriter) appendLayerRecords(records *[]psdExportLayerRecord, layers [
 			continue
 		}
 		if group, ok := layer.(*GroupLayer); ok {
-			*records = append(*records, newPSDGroupRecord(group, psdLayerSectionOpenFolder))
+			*records = append(*records, newPSDGroupRecord(group, psdio.LayerSectionOpenFolder))
 			if err := w.appendLayerRecords(records, group.Children()); err != nil {
 				return err
 			}
@@ -211,7 +208,7 @@ func newPSDGroupRecord(group *GroupLayer, sectionType uint32) psdExportLayerReco
 }
 
 func newPSDGroupEndRecord(group *GroupLayer) psdExportLayerRecord {
-	record := newPSDGroupRecord(group, psdLayerSectionCloseFolder)
+	record := newPSDGroupRecord(group, psdio.LayerSectionCloseFolder)
 	record.name = group.Name() + " End"
 	record.mask = nil
 	return record
@@ -408,7 +405,7 @@ func rgbaToPSDPlanes(grayscale bool, rgba []byte) [][]byte {
 
 func encodePSDChannelData(data []byte, width, height int, psb bool) ([]byte, error) {
 	if width <= 0 || height <= 0 {
-		return []byte{0, psdCompressionRLE}, nil
+		return []byte{0, psdio.CompressionRLE}, nil
 	}
 	if len(data) != width*height {
 		return nil, fmt.Errorf("channel length %d does not match %dx%d", len(data), width, height)
@@ -421,7 +418,7 @@ func encodePSDChannelData(data []byte, width, height int, psb bool) ([]byte, err
 	}
 
 	var out bytes.Buffer
-	writePSDUint16(&out, psdCompressionRLE)
+	writePSDUint16(&out, psdio.CompressionRLE)
 	for _, row := range rows {
 		if psb {
 			writePSDUint32(&out, uint32(len(row)))
@@ -489,7 +486,7 @@ func (w *psdWriter) buildCompositeImageData() ([]byte, error) {
 	planes := rgbaToPSDPlanes(strings.EqualFold(w.doc.ColorMode, "gray"), surface)
 
 	var out bytes.Buffer
-	writePSDUint16(&out, psdCompressionRLE)
+	writePSDUint16(&out, psdio.CompressionRLE)
 	for _, plane := range planes {
 		rows := make([][]byte, 0, w.doc.Height)
 		for row := 0; row < w.doc.Height; row++ {
@@ -511,106 +508,6 @@ func (w *psdWriter) buildCompositeImageData() ([]byte, error) {
 		}
 	}
 	return out.Bytes(), nil
-}
-
-func buildPSDResolutionInfo(resolution float64) []byte {
-	dpi := resolution
-	if dpi <= 0 {
-		dpi = defaultResolutionDPI
-	}
-	fixed := uint32(math.Round(dpi * 65536.0))
-	var out bytes.Buffer
-	writePSDUint32(&out, fixed)
-	writePSDUint16(&out, 1)
-	writePSDUint16(&out, 1)
-	writePSDUint32(&out, fixed)
-	writePSDUint16(&out, 1)
-	writePSDUint16(&out, 1)
-	return out.Bytes()
-}
-
-func writePSDLayerRecord(out *bytes.Buffer, psb bool, record psdExportLayerRecord) {
-	writePSDInt32(out, int32(record.bounds.Y))
-	writePSDInt32(out, int32(record.bounds.X))
-	writePSDInt32(out, int32(record.bounds.Y+record.bounds.H))
-	writePSDInt32(out, int32(record.bounds.X+record.bounds.W))
-	writePSDUint16(out, uint16(len(record.channels)))
-	for _, channel := range record.channels {
-		writePSDInt16(out, channel.id)
-		writePSDSectionLength(out, psb, channel.length)
-	}
-	writePSDString(out, "8BIM")
-	writePSDString(out, record.blendKey)
-	out.WriteByte(record.opacity)
-	if record.clipToBelow {
-		out.WriteByte(1)
-	} else {
-		out.WriteByte(0)
-	}
-	flags := byte(0)
-	if !record.visible {
-		flags |= 0x02
-	}
-	out.WriteByte(flags)
-	out.WriteByte(0)
-
-	var extra bytes.Buffer
-	writePSDLayerMaskData(&extra, record.mask)
-	writePSDUint32(&extra, 0) // blending ranges
-	writePSDPascalString4(&extra, record.name)
-	writePSDUnicodeLayerNameBlock(&extra, record.name)
-	if record.sectionType != 0 {
-		writePSDAdditionalLayerInfoBlock(&extra, "8BIM", "lsct", buildPSDSectionDivider(record.sectionType))
-	}
-	for _, block := range record.extraBlocks {
-		writePSDAdditionalLayerInfoBlock(&extra, block.signature, block.key, block.payload)
-	}
-	writePSDUint32(out, uint32(extra.Len()))
-	out.Write(extra.Bytes())
-}
-
-func writePSDLayerMaskData(out *bytes.Buffer, mask *LayerMask) {
-	if mask == nil || mask.Width <= 0 || mask.Height <= 0 || len(mask.Data) != mask.Width*mask.Height {
-		writePSDUint32(out, 0)
-		return
-	}
-	var payload bytes.Buffer
-	writePSDInt32(&payload, 0)
-	writePSDInt32(&payload, 0)
-	writePSDInt32(&payload, int32(mask.Height))
-	writePSDInt32(&payload, int32(mask.Width))
-	writePSDUint16(&payload, 0)
-	flags := uint16(0)
-	if !mask.Enabled {
-		flags = 1
-	}
-	writePSDUint16(&payload, flags)
-	writePSDUint32(out, uint32(payload.Len()))
-	out.Write(payload.Bytes())
-}
-
-func buildPSDSectionDivider(sectionType uint32) []byte {
-	var out bytes.Buffer
-	writePSDUint32(&out, sectionType)
-	return out.Bytes()
-}
-
-func writePSDUnicodeLayerNameBlock(out *bytes.Buffer, name string) {
-	if name == "" {
-		return
-	}
-	encoded := encodePSDUnicodeString(name)
-	writePSDAdditionalLayerInfoBlock(out, "8BIM", "luni", encoded)
-}
-
-func encodePSDUnicodeString(value string) []byte {
-	encoded := utf16Encode(value)
-	var out bytes.Buffer
-	writePSDUint32(&out, uint32(len(encoded)))
-	for _, r := range encoded {
-		writePSDUint16(&out, r)
-	}
-	return out.Bytes()
 }
 
 func utf16Encode(value string) []uint16 {
@@ -883,58 +780,6 @@ func writePSDFloat64(out *bytes.Buffer, value float64) {
 	out.Write(buf[:])
 }
 
-func writePSDImageResource(out *bytes.Buffer, resourceID uint16, name string, payload []byte) {
-	writePSDString(out, "8BIM")
-	writePSDUint16(out, resourceID)
-	writePSDPascalString2(out, name)
-	writePSDUint32(out, uint32(len(payload)))
-	out.Write(payload)
-	if len(payload)%2 != 0 {
-		out.WriteByte(0)
-	}
-}
-
-func writePSDAdditionalLayerInfoBlock(out *bytes.Buffer, signature, key string, payload []byte) {
-	writePSDString(out, signature)
-	writePSDString(out, key)
-	writePSDUint32(out, uint32(len(payload)))
-	out.Write(payload)
-	if len(payload)%2 != 0 {
-		out.WriteByte(0)
-	}
-}
-
-func writePSDPascalString2(out *bytes.Buffer, value string) {
-	if len(value) > math.MaxUint8 {
-		value = value[:math.MaxUint8]
-	}
-	out.WriteByte(byte(len(value)))
-	out.WriteString(value)
-	if (1+len(value))%2 != 0 {
-		out.WriteByte(0)
-	}
-}
-
-func writePSDPascalString4(out *bytes.Buffer, value string) {
-	if len(value) > math.MaxUint8 {
-		value = value[:math.MaxUint8]
-	}
-	out.WriteByte(byte(len(value)))
-	out.WriteString(value)
-	for (1+len(value))%4 != 0 {
-		out.WriteByte(0)
-		value += "\x00"
-	}
-}
-
-func writePSDSectionLength(out *bytes.Buffer, psb bool, length uint64) {
-	if psb {
-		writePSDUint64(out, length)
-		return
-	}
-	writePSDUint32(out, uint32(length))
-}
-
 func writePSDString(out *bytes.Buffer, value string) {
 	out.WriteString(value)
 }
@@ -949,16 +794,6 @@ func writePSDUint32(out *bytes.Buffer, value uint32) {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], value)
 	out.Write(buf[:])
-}
-
-func writePSDUint64(out *bytes.Buffer, value uint64) {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], value)
-	out.Write(buf[:])
-}
-
-func writePSDInt16(out *bytes.Buffer, value int16) {
-	writePSDUint16(out, uint16(value))
 }
 
 func writePSDInt32(out *bytes.Buffer, value int32) {

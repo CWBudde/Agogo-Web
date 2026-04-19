@@ -7,22 +7,19 @@ import (
 )
 
 func (inst *instance) executeDocCommand(description string, mutate func(*Document) error) error {
-	command := &snapshotCommand{
-		description: description,
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			if err := mutate(doc); err != nil {
-				return snapshot{}, err
-			}
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand(description, func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		if err := mutate(doc); err != nil {
+			return snapshot{}, err
+		}
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	return inst.history.Execute(inst, command)
 }
 

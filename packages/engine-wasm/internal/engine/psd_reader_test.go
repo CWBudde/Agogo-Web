@@ -364,7 +364,7 @@ func TestParsePSDLayerExtraDataMapsObjectEffectKeysToStyleStack(t *testing.T) {
 	if err := parsePSDLayerExtraData(extraData, &record); err != nil {
 		t.Fatalf("parsePSDLayerExtraData: %v", err)
 	}
-	styles := record.Effects.GetStyleStack()
+	styles := record.Effects.StyleStack()
 	if len(styles) != 2 {
 		t.Fatalf("effect style stack size = %d, want 2", len(styles))
 	}

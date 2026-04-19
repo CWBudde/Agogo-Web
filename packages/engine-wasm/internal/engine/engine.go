@@ -10,6 +10,7 @@ import (
 
 	agglib "github.com/cwbudde/agg_go"
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+	runtimepkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/runtime"
 )
 
 // thumbnailSize is the width and height of layer preview thumbnails in pixels.
@@ -477,354 +478,30 @@ type pointerDragState struct {
 	Active    bool
 }
 
-type snapshot struct {
-	DocumentID string
-	Document   *Document
-	Viewport   ViewportState
-}
-
-type Command interface {
-	Apply(*instance) error
-	Undo(*instance) error
-	Description() string
-}
-
-type snapshotCommand struct {
-	description string
-	before      snapshot
-	after       snapshot
-	applyFn     func(*instance) (snapshot, error)
-}
-
-func (c *snapshotCommand) Apply(inst *instance) error {
-	if c.applyFn != nil {
-		before := inst.captureSnapshot()
-		after, err := c.applyFn(inst)
-		if err != nil {
-			return err
-		}
-		c.before = before
-		c.after = after
-		c.applyFn = nil
-		return nil
-	}
-	return inst.restoreSnapshot(c.after)
-}
-
-func (c *snapshotCommand) Undo(inst *instance) error {
-	return inst.restoreSnapshot(c.before)
-}
-
-func (c *snapshotCommand) Description() string {
-	return c.description
-}
-
-type HistoryStack struct {
-	undo     []Command
-	redo     []Command
-	maxDepth int
-	active   *groupedCommand
-}
-
-type groupedCommand struct {
-	description string
-	before      snapshot
-	after       snapshot
-}
-
-func (c *groupedCommand) Apply(inst *instance) error {
-	return inst.restoreSnapshot(c.after)
-}
-
-func (c *groupedCommand) Undo(inst *instance) error {
-	return inst.restoreSnapshot(c.before)
-}
-
-func (c *groupedCommand) Description() string {
-	return c.description
-}
-
-func newHistoryStack(maxDepth int) *HistoryStack {
-	return &HistoryStack{maxDepth: maxDepth}
-}
-
-func (h *HistoryStack) Execute(inst *instance, command Command) error {
-	if err := command.Apply(inst); err != nil {
-		return err
-	}
-	if h.active != nil {
-		h.active.after = inst.captureSnapshot()
-		return nil
-	}
-	h.push(command)
-	return nil
-}
-
-func (h *HistoryStack) BeginTransaction(inst *instance, description string) {
-	if h.active != nil {
-		return
-	}
-	state := inst.captureSnapshot()
-	h.active = &groupedCommand{
-		description: description,
-		before:      state,
-		after:       state,
-	}
-}
-
-func (h *HistoryStack) EndTransaction(commit bool) {
-	if h.active == nil {
-		return
-	}
-	active := h.active
-	h.active = nil
-	if !commit || snapshotsEqual(active.before, active.after) {
-		return
-	}
-	h.push(active)
-}
-
-func (h *HistoryStack) push(command Command) {
-	h.undo = append(h.undo, command)
-	if len(h.undo) > h.maxDepth {
-		h.undo = h.undo[len(h.undo)-h.maxDepth:]
-	}
-	h.redo = h.redo[:0]
-}
-
-func (h *HistoryStack) Undo(inst *instance) error {
-	if len(h.undo) == 0 {
-		return nil
-	}
-	command := h.undo[len(h.undo)-1]
-	h.undo = h.undo[:len(h.undo)-1]
-	if err := command.Undo(inst); err != nil {
-		return err
-	}
-	h.redo = append(h.redo, command)
-	return nil
-}
-
-func (h *HistoryStack) Redo(inst *instance) error {
-	if len(h.redo) == 0 {
-		return nil
-	}
-	command := h.redo[len(h.redo)-1]
-	h.redo = h.redo[:len(h.redo)-1]
-	if err := command.Apply(inst); err != nil {
-		return err
-	}
-	h.undo = append(h.undo, command)
-	return nil
-}
-
-func (h *HistoryStack) Entries() []HistoryEntry {
-	entries := make([]HistoryEntry, 0, len(h.undo)+len(h.redo))
-	for i, command := range h.undo {
-		state := "done"
-		if i == len(h.undo)-1 {
-			state = "current"
-		}
-		entries = append(entries, HistoryEntry{
-			ID:          int64(i + 1),
-			Description: command.Description(),
-			State:       state,
-		})
-	}
-	for i := len(h.redo) - 1; i >= 0; i-- {
-		command := h.redo[i]
-		entries = append(entries, HistoryEntry{
-			ID:          int64(len(entries) + 1),
-			Description: command.Description(),
-			State:       "undone",
-		})
-	}
-	return entries
-}
-
-func (h *HistoryStack) CurrentIndex() int {
-	return len(h.undo)
-}
-
-func (h *HistoryStack) SnapshotAt(historyIndex int) (snapshot, bool) {
-	if historyIndex < 0 || historyIndex > len(h.undo) {
-		return snapshot{}, false
-	}
-	if historyIndex == 0 {
-		return snapshot{}, false
-	}
-	command := h.undo[historyIndex-1]
-	switch typed := command.(type) {
-	case *snapshotCommand:
-		return typed.after, true
-	case *groupedCommand:
-		return typed.after, true
-	default:
-		return snapshot{}, false
-	}
-}
-
-func (h *HistoryStack) SnapshotAtIndex(inst *instance, historyIndex int) (snapshot, bool) {
-	total := len(h.undo) + len(h.redo)
-	if historyIndex <= 0 || historyIndex > total || inst == nil {
-		return snapshot{}, false
-	}
-	active := inst.manager.Active()
-	if active == nil {
-		return snapshot{}, false
-	}
-	cloneHistory := &HistoryStack{
-		undo:     append([]Command(nil), h.undo...),
-		redo:     append([]Command(nil), h.redo...),
-		maxDepth: h.maxDepth,
-	}
-	cloneInst := &instance{
-		manager:  newDocumentManager(),
-		viewport: inst.viewport,
-		history:  cloneHistory,
-	}
-	cloneInst.manager.Create(active)
-	if inst.manager.ActiveID() != "" {
-		cloneInst.manager.activeID = inst.manager.ActiveID()
-	}
-	if err := cloneHistory.JumpTo(cloneInst, historyIndex); err != nil {
-		return snapshot{}, false
-	}
-	return cloneInst.captureSnapshot(), true
-}
-
-func (h *HistoryStack) PreviousSnapshot(inst *instance) (snapshot, bool) {
-	if len(h.undo) == 0 || inst == nil {
-		return snapshot{}, false
-	}
-	active := inst.manager.Active()
-	if active == nil {
-		return snapshot{}, false
-	}
-
-	cloneInst := &instance{
-		manager:  newDocumentManager(),
-		viewport: inst.viewport,
-		history:  newHistoryStack(defaultHistoryMax),
-	}
-	cloneInst.manager.Create(active)
-	if inst.manager.ActiveID() != "" {
-		cloneInst.manager.activeID = inst.manager.ActiveID()
-	}
-	if err := h.undo[len(h.undo)-1].Undo(cloneInst); err != nil {
-		return snapshot{}, false
-	}
-	return cloneInst.captureSnapshot(), true
-}
-
-func (h *HistoryStack) CanUndo() bool { return len(h.undo) > 0 }
-func (h *HistoryStack) CanRedo() bool { return len(h.redo) > 0 }
-
-func (h *HistoryStack) Clear() {
-	h.undo = nil
-	h.redo = nil
-	h.active = nil
-}
-
-func (h *HistoryStack) JumpTo(inst *instance, historyIndex int) error {
-	total := len(h.undo) + len(h.redo)
-	if historyIndex < 0 {
-		historyIndex = 0
-	}
-	if historyIndex > total {
-		historyIndex = total
-	}
-
-	for len(h.undo) > historyIndex {
-		if err := h.Undo(inst); err != nil {
-			return err
-		}
-	}
-	for len(h.undo) < historyIndex {
-		if err := h.Redo(inst); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 type DocumentManager struct {
-	docs     map[string]*Document
-	order    []string
-	activeID string
+	*runtimepkg.Manager[*Document]
 }
 
 func newDocumentManager() *DocumentManager {
-	return &DocumentManager{docs: make(map[string]*Document)}
-}
-
-func (m *DocumentManager) Create(doc *Document) {
-	m.docs[doc.ID] = cloneDocument(doc)
-	m.order = append(m.order, doc.ID)
-	m.activeID = doc.ID
-}
-
-func (m *DocumentManager) ReplaceActive(doc *Document) error {
-	if doc == nil {
-		return fmt.Errorf("document is required")
+	return &DocumentManager{
+		Manager: runtimepkg.NewManager(cloneDocument, func(doc *Document) string {
+			if doc == nil {
+				return ""
+			}
+			return doc.ID
+		}),
 	}
-	if m.activeID == "" {
-		m.Create(doc)
-		return nil
-	}
-	m.docs[m.activeID] = cloneDocument(doc)
-	return nil
-}
-
-func (m *DocumentManager) Active() *Document {
-	if m.activeID == "" {
-		return nil
-	}
-	doc := m.docs[m.activeID]
-	return cloneDocument(doc)
 }
 
 // activeMut returns the stored document directly without cloning.
 // Callers may modify the returned document in place; it is the caller's
 // responsibility to ensure the mutation is intentional (e.g. direct pixel
-// painting during a brush stroke).  Most code should use Active() instead.
+// painting during a brush stroke). Most code should use Active() instead.
 func (m *DocumentManager) activeMut() *Document {
-	if m.activeID == "" {
+	if m == nil || m.Manager == nil {
 		return nil
 	}
-	return m.docs[m.activeID]
-}
-
-func (m *DocumentManager) ActiveID() string {
-	return m.activeID
-}
-
-func (m *DocumentManager) Switch(id string) error {
-	if _, ok := m.docs[id]; !ok {
-		return fmt.Errorf("document %q not found", id)
-	}
-	m.activeID = id
-	return nil
-}
-
-func (m *DocumentManager) CloseActive() error {
-	if m.activeID == "" {
-		return nil
-	}
-	delete(m.docs, m.activeID)
-	nextOrder := make([]string, 0, len(m.order))
-	for _, id := range m.order {
-		if id != m.activeID {
-			nextOrder = append(nextOrder, id)
-		}
-	}
-	m.order = nextOrder
-	if len(m.order) == 0 {
-		m.activeID = ""
-		return nil
-	}
-	m.activeID = m.order[len(m.order)-1]
-	return nil
+	return m.ActiveMut()
 }
 
 // viewportBaseKey captures everything that affects the rendered background

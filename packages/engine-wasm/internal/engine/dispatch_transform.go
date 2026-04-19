@@ -207,28 +207,25 @@ func (inst *instance) commitFreeTransform() error {
 		if err := inst.restoreSnapshot(*ft.PreBeginSnapshot); err != nil {
 			return err
 		}
-		command := &snapshotCommand{
-			description: "Transform Selection",
-			applyFn: func(inst *instance) (snapshot, error) {
-				d := inst.manager.Active()
-				if d == nil {
-					return snapshot{}, fmt.Errorf("no active document")
-				}
-				srcLayer := d.findLayer(ft.SourceLayerID)
-				sl, ok := srcLayer.(*PixelLayer)
-				if !ok || sl == nil {
-					return snapshot{}, fmt.Errorf("source layer not found")
-				}
-				mergePixelLayerOnto(sl, finalPixels, finalBounds)
-				d.Selection = nil
-				d.ActiveLayerID = ft.SourceLayerID
-				d.touchModifiedAtLayer(sl)
-				if err := inst.manager.ReplaceActive(d); err != nil {
-					return snapshot{}, err
-				}
-				return inst.captureSnapshot(), nil
-			},
-		}
+		command := newSnapshotCommand("Transform Selection", func(inst *instance) (snapshot, error) {
+			d := inst.manager.Active()
+			if d == nil {
+				return snapshot{}, fmt.Errorf("no active document")
+			}
+			srcLayer := d.findLayer(ft.SourceLayerID)
+			sl, ok := srcLayer.(*PixelLayer)
+			if !ok || sl == nil {
+				return snapshot{}, fmt.Errorf("source layer not found")
+			}
+			mergePixelLayerOnto(sl, finalPixels, finalBounds)
+			d.Selection = nil
+			d.ActiveLayerID = ft.SourceLayerID
+			d.touchModifiedAtLayer(sl)
+			if err := inst.manager.ReplaceActive(d); err != nil {
+				return snapshot{}, err
+			}
+			return inst.captureSnapshot(), nil
+		})
 		if err := inst.history.Execute(inst, command); err != nil {
 			return err
 		}
@@ -237,28 +234,25 @@ func (inst *instance) commitFreeTransform() error {
 		inst.cachedDocContentVersion = -1
 		return nil
 	}
-	command := &snapshotCommand{
-		description: "Free Transform",
-		applyFn: func(inst *instance) (snapshot, error) {
-			d := inst.manager.Active()
-			if d == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			l := d.findLayer(ft.LayerID)
-			p, ok := l.(*PixelLayer)
-			if !ok || p == nil {
-				return snapshot{}, fmt.Errorf("layer not found")
-			}
-			beforeBounds := p.Bounds
-			p.Pixels = finalPixels
-			p.Bounds = finalBounds
-			d.touchModifiedAtBounds(beforeBounds, finalBounds)
-			if err := inst.manager.ReplaceActive(d); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand("Free Transform", func(inst *instance) (snapshot, error) {
+		d := inst.manager.Active()
+		if d == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		l := d.findLayer(ft.LayerID)
+		p, ok := l.(*PixelLayer)
+		if !ok || p == nil {
+			return snapshot{}, fmt.Errorf("layer not found")
+		}
+		beforeBounds := p.Bounds
+		p.Pixels = finalPixels
+		p.Bounds = finalBounds
+		d.touchModifiedAtBounds(beforeBounds, finalBounds)
+		if err := inst.manager.ReplaceActive(d); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	if err := inst.history.Execute(inst, command); err != nil {
 		return err
 	}
@@ -314,30 +308,27 @@ func (inst *instance) cancelFreeTransform() error {
 }
 
 func (inst *instance) applyDiscreteTransform(kind, layerID string) error {
-	command := &snapshotCommand{
-		description: kindDescription(kind),
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			if layerID == "" {
-				layerID = doc.ActiveLayerID
-			}
-			l := doc.findLayer(layerID)
-			pl, ok := l.(*PixelLayer)
-			if !ok || pl == nil {
-				return snapshot{}, fmt.Errorf("layer %q is not a pixel layer", layerID)
-			}
-			beforeBounds := pl.Bounds
-			applyDiscreteTransformToLayer(pl, kind)
-			doc.touchModifiedAtBounds(beforeBounds, pl.Bounds)
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand(kindDescription(kind), func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		if layerID == "" {
+			layerID = doc.ActiveLayerID
+		}
+		l := doc.findLayer(layerID)
+		pl, ok := l.(*PixelLayer)
+		if !ok || pl == nil {
+			return snapshot{}, fmt.Errorf("layer %q is not a pixel layer", layerID)
+		}
+		beforeBounds := pl.Bounds
+		applyDiscreteTransformToLayer(pl, kind)
+		doc.touchModifiedAtBounds(beforeBounds, pl.Bounds)
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	if err := inst.history.Execute(inst, command); err != nil {
 		return err
 	}
@@ -362,54 +353,48 @@ func (inst *instance) transformAgain() error {
 			return fmt.Errorf("active layer is not a pixel layer")
 		}
 		finalPixels, finalBounds := applyLastFreeTransform(lt, pl)
-		command := &snapshotCommand{
-			description: "Transform Again",
-			applyFn: func(inst *instance) (snapshot, error) {
-				d := inst.manager.Active()
-				if d == nil {
-					return snapshot{}, fmt.Errorf("no active document")
-				}
-				layer := d.findLayer(d.ActiveLayerID)
-				p, ok := layer.(*PixelLayer)
-				if !ok || p == nil {
-					return snapshot{}, fmt.Errorf("layer not found")
-				}
-				beforeBounds := p.Bounds
-				p.Pixels = finalPixels
-				p.Bounds = finalBounds
-				d.touchModifiedAtBounds(beforeBounds, finalBounds)
-				if err := inst.manager.ReplaceActive(d); err != nil {
-					return snapshot{}, err
-				}
-				return inst.captureSnapshot(), nil
-			},
-		}
+		command := newSnapshotCommand("Transform Again", func(inst *instance) (snapshot, error) {
+			d := inst.manager.Active()
+			if d == nil {
+				return snapshot{}, fmt.Errorf("no active document")
+			}
+			layer := d.findLayer(d.ActiveLayerID)
+			p, ok := layer.(*PixelLayer)
+			if !ok || p == nil {
+				return snapshot{}, fmt.Errorf("layer not found")
+			}
+			beforeBounds := p.Bounds
+			p.Pixels = finalPixels
+			p.Bounds = finalBounds
+			d.touchModifiedAtBounds(beforeBounds, finalBounds)
+			if err := inst.manager.ReplaceActive(d); err != nil {
+				return snapshot{}, err
+			}
+			return inst.captureSnapshot(), nil
+		})
 		if err := inst.history.Execute(inst, command); err != nil {
 			return err
 		}
 	} else {
 		kind := lt.Kind
-		command := &snapshotCommand{
-			description: kindDescription(kind) + " Again",
-			applyFn: func(inst *instance) (snapshot, error) {
-				d := inst.manager.Active()
-				if d == nil {
-					return snapshot{}, fmt.Errorf("no active document")
-				}
-				layer := d.findLayer(d.ActiveLayerID)
-				p, ok := layer.(*PixelLayer)
-				if !ok || p == nil {
-					return snapshot{}, fmt.Errorf("active layer is not a pixel layer")
-				}
-				beforeBounds := p.Bounds
-				applyDiscreteTransformToLayer(p, kind)
-				d.touchModifiedAtBounds(beforeBounds, p.Bounds)
-				if err := inst.manager.ReplaceActive(d); err != nil {
-					return snapshot{}, err
-				}
-				return inst.captureSnapshot(), nil
-			},
-		}
+		command := newSnapshotCommand(kindDescription(kind)+" Again", func(inst *instance) (snapshot, error) {
+			d := inst.manager.Active()
+			if d == nil {
+				return snapshot{}, fmt.Errorf("no active document")
+			}
+			layer := d.findLayer(d.ActiveLayerID)
+			p, ok := layer.(*PixelLayer)
+			if !ok || p == nil {
+				return snapshot{}, fmt.Errorf("active layer is not a pixel layer")
+			}
+			beforeBounds := p.Bounds
+			applyDiscreteTransformToLayer(p, kind)
+			d.touchModifiedAtBounds(beforeBounds, p.Bounds)
+			if err := inst.manager.ReplaceActive(d); err != nil {
+				return snapshot{}, err
+			}
+			return inst.captureSnapshot(), nil
+		})
 		if err := inst.history.Execute(inst, command); err != nil {
 			return err
 		}
@@ -466,67 +451,64 @@ func (inst *instance) commitCrop() error {
 	deletePixels := inst.crop.DeletePixels
 	contentAwareFill := inst.crop.ContentAwareFill
 	cropResolution := normalizeCropResolution(inst.crop.Resolution, defaultResolutionDPI)
-	command := &snapshotCommand{
-		description: "Crop Document",
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			preCropSurface := doc.renderCompositeSurface()
-			preCropWidth := doc.Width
-			preCropHeight := doc.Height
-			activeLayerID := doc.ActiveLayerID
+	command := newSnapshotCommand("Crop Document", func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		preCropSurface := doc.renderCompositeSurface()
+		preCropWidth := doc.Width
+		preCropHeight := doc.Height
+		activeLayerID := doc.ActiveLayerID
 
-			w := int(math.Round(cropW))
-			h := int(math.Round(cropH))
-			if w <= 0 || h <= 0 {
-				return snapshot{}, fmt.Errorf("invalid crop dimensions: %dx%d", w, h)
-			}
-			rotRad := cropRot * math.Pi / 180
-			cx := cropX + cropW/2
-			cy := cropY + cropH/2
-			if cropRot != 0 {
-				walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-					if pl, ok := n.(*PixelLayer); ok {
-						newPixels, newBounds := applyRotatedCropToPixelLayer(pl, cx, cy, cropW, cropH, rotRad)
-						pl.Pixels = newPixels
-						pl.Bounds = newBounds
-					}
-				})
-			} else {
-				x := int(math.Round(cropX))
-				y := int(math.Round(cropY))
-				walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-					if pl, ok := n.(*PixelLayer); ok {
-						pl.Bounds.X -= x
-						pl.Bounds.Y -= y
-						if deletePixels {
-							trimPixelLayerToBounds(pl, w, h)
-						}
-					}
-				})
-			}
-			doc.Width = w
-			doc.Height = h
-			doc.Resolution = cropResolution
-			if contentAwareFill {
-				fillPixels, ok := buildContentAwareCropFillLayer(preCropSurface, preCropWidth, preCropHeight, cropX, cropY, cropW, cropH, rotRad)
-				if ok {
-					fillLayer := NewPixelLayer("Content-Aware Crop Fill", LayerBounds{X: 0, Y: 0, W: w, H: h}, fillPixels)
-					if err := doc.AddLayer(fillLayer, doc.ensureLayerRoot().ID(), -1); err != nil {
-						return snapshot{}, err
-					}
-					doc.ActiveLayerID = activeLayerID
+		w := int(math.Round(cropW))
+		h := int(math.Round(cropH))
+		if w <= 0 || h <= 0 {
+			return snapshot{}, fmt.Errorf("invalid crop dimensions: %dx%d", w, h)
+		}
+		rotRad := cropRot * math.Pi / 180
+		cx := cropX + cropW/2
+		cy := cropY + cropH/2
+		if cropRot != 0 {
+			walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+				if pl, ok := n.(*PixelLayer); ok {
+					newPixels, newBounds := applyRotatedCropToPixelLayer(pl, cx, cy, cropW, cropH, rotRad)
+					pl.Pixels = newPixels
+					pl.Bounds = newBounds
 				}
+			})
+		} else {
+			x := int(math.Round(cropX))
+			y := int(math.Round(cropY))
+			walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+				if pl, ok := n.(*PixelLayer); ok {
+					pl.Bounds.X -= x
+					pl.Bounds.Y -= y
+					if deletePixels {
+						trimPixelLayerToBounds(pl, w, h)
+					}
+				}
+			})
+		}
+		doc.Width = w
+		doc.Height = h
+		doc.Resolution = cropResolution
+		if contentAwareFill {
+			fillPixels, ok := buildContentAwareCropFillLayer(preCropSurface, preCropWidth, preCropHeight, cropX, cropY, cropW, cropH, rotRad)
+			if ok {
+				fillLayer := NewPixelLayer("Content-Aware Crop Fill", LayerBounds{X: 0, Y: 0, W: w, H: h}, fillPixels)
+				if err := doc.AddLayer(fillLayer, doc.ensureLayerRoot().ID(), -1); err != nil {
+					return snapshot{}, err
+				}
+				doc.ActiveLayerID = activeLayerID
 			}
-			doc.touchModifiedAt()
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+		}
+		doc.touchModifiedAt()
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	if err := inst.history.Execute(inst, command); err != nil {
 		return err
 	}
@@ -541,23 +523,20 @@ func (inst *instance) cancelCrop() error {
 }
 
 func (inst *instance) resizeCanvas(payload ResizeCanvasPayload) error {
-	command := &snapshotCommand{
-		description: "Canvas Size",
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			if err := applyResizeCanvas(doc, payload.Width, payload.Height, payload.Anchor); err != nil {
-				return snapshot{}, err
-			}
-			doc.touchModifiedAt()
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand("Canvas Size", func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		if err := applyResizeCanvas(doc, payload.Width, payload.Height, payload.Anchor); err != nil {
+			return snapshot{}, err
+		}
+		doc.touchModifiedAt()
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	if err := inst.history.Execute(inst, command); err != nil {
 		return err
 	}

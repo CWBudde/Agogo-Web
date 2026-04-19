@@ -1,26 +1,26 @@
-package engine
+package psd
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf16"
+
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
-func parsePSDLayerObjectEffectsPayload(payload []byte, record *psdLayerRecord) error {
+func parseLayerObjectEffectsPayload(payload []byte, record *LayerRecord) error {
 	if record.Effects == nil {
-		record.Effects = &psdLayerEffectsMeta{}
+		record.Effects = &LayerEffectsMeta{}
 	}
-	meta := &psdObjectLayerEffectsMeta{}
+	meta := &ObjectLayerEffectsMeta{}
 	record.Effects.Object = meta
 	if len(payload) < 8 {
 		meta.Malformed = true
 		return fmt.Errorf("lfx2 payload too short")
 	}
-	meta.ObjectVersion = binary.BigEndian.Uint32(payload[0:4])
-	meta.DescriptorVersion = binary.BigEndian.Uint32(payload[4:8])
+	meta.ObjectVersion = uint32(payload[0])<<24 | uint32(payload[1])<<16 | uint32(payload[2])<<8 | uint32(payload[3])
+	meta.DescriptorVersion = uint32(payload[4])<<24 | uint32(payload[5])<<16 | uint32(payload[6])<<8 | uint32(payload[7])
 	meta.HasDescriptor = len(payload) > 8
 	if len(payload) > 8 {
 		meta.EffectKeys = scanObjectEffectStyleKeys(payload[8:])
@@ -28,13 +28,13 @@ func parsePSDLayerObjectEffectsPayload(payload []byte, record *psdLayerRecord) e
 	return nil
 }
 
-func parsePSDLayerLegacyEffectsPayload(payload []byte, record *psdLayerRecord) error {
+func parseLayerLegacyEffectsPayload(payload []byte, record *LayerRecord) error {
 	reader := bytes.NewReader(payload)
 	if record.Effects == nil {
-		record.Effects = &psdLayerEffectsMeta{}
+		record.Effects = &LayerEffectsMeta{}
 	}
 	if record.Effects.Legacy == nil {
-		record.Effects.Legacy = &psdLegacyLayerEffectsMeta{}
+		record.Effects.Legacy = &LegacyLayerEffectsMeta{}
 	}
 	meta := record.Effects.Legacy
 	version, err := readUint16From(reader)
@@ -84,114 +84,107 @@ func parsePSDLayerLegacyEffectsPayload(payload []byte, record *psdLayerRecord) e
 	return nil
 }
 
-func (meta *psdLayerEffectsMeta) GetLegacyStyleStack() []LayerStyle {
+func (meta *LayerEffectsMeta) LegacyStyleStack() []model.LayerStyle {
 	if meta == nil || meta.Legacy == nil {
 		return nil
 	}
 	return mapLegacyEffectKeysToLayerStyles(meta.Legacy.EffectKeys)
 }
 
-func (meta *psdLayerEffectsMeta) GetStyleStack() []LayerStyle {
+func (meta *LayerEffectsMeta) StyleStack() []model.LayerStyle {
 	if meta == nil {
 		return nil
 	}
-	styles := make([]LayerStyle, 0)
-	seen := make(map[LayerStyleKind]struct{})
-	appendUniqueStyles := func(layerStyles []LayerStyle) {
+	styles := make([]model.LayerStyle, 0)
+	seen := make(map[string]struct{})
+	appendUniqueStyles := func(layerStyles []model.LayerStyle) {
 		for _, style := range layerStyles {
-			kind := LayerStyleKind(style.Kind)
-			if _, ok := seen[kind]; ok {
+			if style.Kind == "" {
 				continue
 			}
-			if kind == "" {
+			if _, ok := seen[style.Kind]; ok {
 				continue
 			}
 			styles = append(styles, style)
-			seen[kind] = struct{}{}
+			seen[style.Kind] = struct{}{}
 		}
 	}
-	appendUniqueStyles(meta.GetLegacyStyleStack())
+	appendUniqueStyles(meta.LegacyStyleStack())
 	if meta.Object != nil {
 		appendUniqueStyles(mapObjectEffectKeysToLayerStyles(meta.Object.EffectKeys))
 	}
 	return styles
 }
 
-func mapLegacyEffectKeysToLayerStyles(keys []string) []LayerStyle {
+func mapLegacyEffectKeysToLayerStyles(keys []string) []model.LayerStyle {
 	if len(keys) == 0 {
 		return nil
 	}
-	styles := make([]LayerStyle, 0, len(keys))
+	styles := make([]model.LayerStyle, 0, len(keys))
 	for _, key := range keys {
 		kind, ok := legacyEffectStyleKind(key)
 		if !ok {
 			continue
 		}
-		styles = append(styles, LayerStyle{
-			Kind:    string(kind),
-			Enabled: false,
-		})
+		styles = append(styles, model.LayerStyle{Kind: kind, Enabled: false})
 	}
 	return styles
 }
 
-func mapObjectEffectKeysToLayerStyles(keys []string) []LayerStyle {
+func mapObjectEffectKeysToLayerStyles(keys []string) []model.LayerStyle {
 	if len(keys) == 0 {
 		return nil
 	}
-	styles := make([]LayerStyle, 0, len(keys))
+	styles := make([]model.LayerStyle, 0, len(keys))
 	for _, key := range keys {
 		kind, ok := objectEffectStyleKind(key)
 		if !ok {
 			continue
 		}
-		styles = append(styles, LayerStyle{
-			Kind:    string(kind),
-			Enabled: false,
-		})
+		styles = append(styles, model.LayerStyle{Kind: kind, Enabled: false})
 	}
 	return styles
 }
 
-func legacyEffectStyleKind(key string) (LayerStyleKind, bool) {
+func legacyEffectStyleKind(key string) (string, bool) {
 	switch key {
 	case "drSh":
-		return LayerStyleKindDropShadow, true
+		return "drop-shadow", true
 	case "dsSh":
-		return LayerStyleKindInnerShadow, true
+		return "inner-shadow", true
 	case "eglw":
-		return LayerStyleKindOuterGlow, true
+		return "outer-glow", true
 	case "iglw":
-		return LayerStyleKindInnerGlow, true
+		return "inner-glow", true
 	case "ebbl":
-		return LayerStyleKindBevelEmboss, true
+		return "bevel-emboss", true
 	default:
 		return "", false
 	}
 }
 
-func objectEffectStyleKind(key string) (LayerStyleKind, bool) {
+func objectEffectStyleKind(key string) (string, bool) {
 	switch key {
 	case "drsh", "dropshadow":
-		return LayerStyleKindDropShadow, true
+		return "drop-shadow", true
 	case "dssh", "innershadow":
-		return LayerStyleKindInnerShadow, true
+		return "inner-shadow", true
 	case "eglw", "outerglow":
-		return LayerStyleKindOuterGlow, true
+		return "outer-glow", true
 	case "iglw", "innerglow":
-		return LayerStyleKindInnerGlow, true
+		return "inner-glow", true
 	case "ebbl", "bevelemboss":
-		return LayerStyleKindBevelEmboss, true
+		return "bevel-emboss", true
 	case "stroke", "strokestyle":
-		return LayerStyleKindStroke, true
+		return "stroke", true
 	case "coloroverlay":
-		return LayerStyleKindColorOverlay, true
+		return "color-overlay", true
 	case "gradientoverlay":
-		return LayerStyleKindGradientOverlay, true
+		return "gradient-overlay", true
 	case "patternoverlay":
-		return LayerStyleKindPatternOverlay, true
+		return "pattern-overlay", true
 	case "satin":
-		return LayerStyleKindSatin, true
+		return "satin", true
 	default:
 		return "", false
 	}
@@ -227,8 +220,8 @@ func scanObjectEffectStyleKeys(payload []byte) []string {
 	return keys
 }
 
-func parsePSDLayerAdjustmentMetadata(key string, payload []byte, record *psdLayerRecord) error {
-	adjustment := psdAdjustmentMeta{
+func parseLayerAdjustmentMetadata(key string, payload []byte, record *LayerRecord) error {
+	adjustment := AdjustmentMeta{
 		Key:        key,
 		PayloadLen: len(payload),
 	}
@@ -263,11 +256,8 @@ func parsePSDLayerAdjustmentMetadata(key string, payload []byte, record *psdLaye
 	return nil
 }
 
-func parsePSDLayerSmartObjectMetadata(key string, payload []byte, record *psdLayerRecord) error {
-	meta := &psdSmartObjectMeta{
-		Key:        key,
-		PayloadLen: len(payload),
-	}
+func parseLayerSmartObjectMetadata(key string, payload []byte, record *LayerRecord) error {
+	meta := &SmartObjectMeta{Key: key, PayloadLen: len(payload)}
 	record.SmartObject = meta
 	reader := bytes.NewReader(payload)
 	version, err := readUint32From(reader)
@@ -277,7 +267,6 @@ func parsePSDLayerSmartObjectMetadata(key string, payload []byte, record *psdLay
 	}
 	meta.HasVersion = true
 	meta.Version = version
-
 	if reader.Len() == 0 {
 		return nil
 	}
@@ -325,11 +314,8 @@ func parsePSDLayerSmartObjectMetadata(key string, payload []byte, record *psdLay
 	return nil
 }
 
-func parsePSDLayerVectorMaskMetadata(key string, payload []byte, record *psdLayerRecord) error {
-	meta := &psdVectorMaskMeta{
-		Key:        key,
-		PayloadLen: len(payload),
-	}
+func parseLayerVectorMaskMetadata(key string, payload []byte, record *LayerRecord) error {
+	meta := &VectorMaskMeta{Key: key, PayloadLen: len(payload)}
 	record.HasVectorMask = true
 	record.VectorMask = meta
 	reader := bytes.NewReader(payload)
@@ -365,7 +351,7 @@ func parsePSDLayerVectorMaskMetadata(key string, payload []byte, record *psdLaye
 	if height < 0 {
 		height = 0
 	}
-	meta.Bounds = LayerBounds{
+	meta.Bounds = model.LayerBounds{
 		X: int(left),
 		Y: int(top),
 		W: width,
@@ -377,17 +363,13 @@ func parsePSDLayerVectorMaskMetadata(key string, payload []byte, record *psdLaye
 	return nil
 }
 
-func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecord) error {
-	meta := &psdTextLayerMeta{
-		Key:        key,
-		PayloadLen: len(payload),
-	}
+func parseTextLayerMetadata(key string, payload []byte, record *LayerRecord) error {
+	meta := &TextLayerMeta{Key: key, PayloadLen: len(payload)}
 	record.Text = meta
 	if len(payload) == 0 {
 		meta.Malformed = true
 		return nil
 	}
-
 	if len(payload) >= 2+48+2+4 {
 		reader := bytes.NewReader(payload)
 		version, err := readUint16From(reader)
@@ -397,7 +379,7 @@ func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecor
 					if descriptorVersion, err := readUint32From(reader); err == nil {
 						meta.DescriptorVersion = descriptorVersion
 						meta.HasDescriptor = true
-						if text, _, err := parsePSDDescriptorTextValue(payload[len(payload)-reader.Len():], map[string]struct{}{
+						if text, _, err := ParseDescriptorTextValue(payload[len(payload)-reader.Len():], map[string]struct{}{
 							"Txt ": {},
 							"text": {},
 						}); err == nil && text != "" {
@@ -409,7 +391,6 @@ func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecor
 			}
 		}
 	}
-
 	textPayload := payload
 	if len(payload) >= 4 {
 		version, err := readUint32From(bytes.NewReader(payload))
@@ -419,18 +400,18 @@ func parsePSDTextLayerMetadata(key string, payload []byte, record *psdLayerRecor
 			textPayload = payload[4:]
 		}
 	}
-	if text, err := parsePSDUnicodeString(textPayload); err == nil {
+	if text, err := ParseUnicodeString(textPayload); err == nil {
 		meta.ParsedText = text
 	}
 	return nil
 }
 
-func parsePSDDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (string, int, error) {
+func ParseDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (string, int, error) {
 	reader := bytes.NewReader(data)
-	if _, err := parsePSDUnicodeStringFromReader(reader); err != nil {
+	if _, err := parseUnicodeStringFromReader(reader); err != nil {
 		return "", 0, err
 	}
-	if _, err := parsePSDDescriptorID(reader); err != nil {
+	if _, err := parseDescriptorID(reader); err != nil {
 		return "", 0, err
 	}
 	itemCount, err := readUint32From(reader)
@@ -438,7 +419,7 @@ func parsePSDDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (s
 		return "", 0, err
 	}
 	for i := uint32(0); i < itemCount; i++ {
-		key, err := parsePSDDescriptorID(reader)
+		key, err := parseDescriptorID(reader)
 		if err != nil {
 			return "", 0, err
 		}
@@ -448,7 +429,7 @@ func parsePSDDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (s
 		}
 		switch valueType {
 		case "TEXT":
-			text, err := parsePSDUnicodeStringFromReader(reader)
+			text, err := parseUnicodeStringFromReader(reader)
 			if err != nil {
 				return "", 0, err
 			}
@@ -472,37 +453,4 @@ func parsePSDDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (s
 		}
 	}
 	return "", len(data) - reader.Len(), nil
-}
-
-func parsePSDUnicodeStringFromReader(reader *bytes.Reader) (string, error) {
-	length, err := readUint32From(reader)
-	if err != nil {
-		return "", err
-	}
-	if int(length)*2 > reader.Len() {
-		return "", fmt.Errorf("invalid PSD unicode string length %d", length)
-	}
-	chars := make([]uint16, length)
-	for i := range chars {
-		value, err := readUint16From(reader)
-		if err != nil {
-			return "", err
-		}
-		chars[i] = value
-	}
-	return string(utf16.Decode(chars)), nil
-}
-
-func parsePSDDescriptorID(reader *bytes.Reader) (string, error) {
-	length, err := readUint32From(reader)
-	if err != nil {
-		return "", err
-	}
-	if length == 0 {
-		return readStringFrom(reader, 4)
-	}
-	if int(length) > reader.Len() {
-		return "", fmt.Errorf("invalid descriptor id length %d", length)
-	}
-	return readStringFrom(reader, int(length))
 }

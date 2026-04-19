@@ -16,42 +16,36 @@ const (
 )
 
 func (inst *instance) handleFill(p FillPayload) error {
-	command := &snapshotCommand{
-		description: "Fill",
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			if err := applyFillToDocument(inst, doc, p); err != nil {
-				return snapshot{}, err
-			}
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand("Fill", func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		if err := applyFillToDocument(inst, doc, p); err != nil {
+			return snapshot{}, err
+		}
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	return inst.history.Execute(inst, command)
 }
 
 func (inst *instance) handleApplyGradient(p ApplyGradientPayload) error {
-	command := &snapshotCommand{
-		description: "Gradient fill",
-		applyFn: func(inst *instance) (snapshot, error) {
-			doc := inst.manager.Active()
-			if doc == nil {
-				return snapshot{}, fmt.Errorf("no active document")
-			}
-			if err := applyGradientToDocument(inst, doc, p); err != nil {
-				return snapshot{}, err
-			}
-			if err := inst.manager.ReplaceActive(doc); err != nil {
-				return snapshot{}, err
-			}
-			return inst.captureSnapshot(), nil
-		},
-	}
+	command := newSnapshotCommand("Gradient fill", func(inst *instance) (snapshot, error) {
+		doc := inst.manager.Active()
+		if doc == nil {
+			return snapshot{}, fmt.Errorf("no active document")
+		}
+		if err := applyGradientToDocument(inst, doc, p); err != nil {
+			return snapshot{}, err
+		}
+		if err := inst.manager.ReplaceActive(doc); err != nil {
+			return snapshot{}, err
+		}
+		return inst.captureSnapshot(), nil
+	})
 	return inst.history.Execute(inst, command)
 }
 

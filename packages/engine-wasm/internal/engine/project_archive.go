@@ -1,19 +1,11 @@
 package engine
 
 import (
-	"encoding/json"
 	"fmt"
 
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
+	projectio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/project"
 )
-
-const projectArchiveVersion = 1
-
-type projectArchive struct {
-	Version  int                    `json:"version"`
-	Document projectDocumentArchive `json:"document"`
-	History  []HistoryEntry         `json:"history,omitempty"`
-}
 
 type projectDocumentArchive = ProjectDocumentArchive
 
@@ -24,56 +16,46 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("document is required")
 	}
-	archive := projectArchive{
-		Version: projectArchiveVersion,
-		Document: projectDocumentArchive{
-			Width:           doc.Width,
-			Height:          doc.Height,
-			Resolution:      doc.Resolution,
-			ColorMode:       doc.ColorMode,
-			BitDepth:        doc.BitDepth,
-			Background:      doc.Background,
-			ID:              doc.ID,
-			Name:            doc.Name,
-			CreatedAt:       doc.CreatedAt,
-			CreatedBy:       doc.CreatedBy,
-			ModifiedAt:      doc.ModifiedAt,
-			ActiveLayer:     doc.ActiveLayerID,
-			Layers:          make([]projectLayerArchive, 0),
-			Paths:           cloneNamedPaths(doc.Paths),
-			ActivePathIdx:   doc.ActivePathIdx,
-			SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
-			StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
-		},
-		History: append([]HistoryEntry(nil), history...),
+	archive := projectDocumentArchive{
+		Width:           doc.Width,
+		Height:          doc.Height,
+		Resolution:      doc.Resolution,
+		ColorMode:       doc.ColorMode,
+		BitDepth:        doc.BitDepth,
+		Background:      doc.Background,
+		ID:              doc.ID,
+		Name:            doc.Name,
+		CreatedAt:       doc.CreatedAt,
+		CreatedBy:       doc.CreatedBy,
+		ModifiedAt:      doc.ModifiedAt,
+		ActiveLayer:     doc.ActiveLayerID,
+		Layers:          make([]projectLayerArchive, 0),
+		Paths:           cloneNamedPaths(doc.Paths),
+		ActivePathIdx:   doc.ActivePathIdx,
+		SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
+		StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
 	}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()
-		archive.Document.Layers = make([]projectLayerArchive, 0, len(children))
+		archive.Layers = make([]projectLayerArchive, 0, len(children))
 		for _, child := range children {
-			archive.Document.Layers = append(archive.Document.Layers, buildProjectLayerArchive(child))
+			archive.Layers = append(archive.Layers, buildProjectLayerArchive(child))
 		}
 	}
-	return json.Marshal(archive)
+	return projectio.Save(archive, history)
 }
 
 // LoadProject deserializes a JSON archive and reconstructs a document tree.
 func LoadProject(data []byte) (*Document, []HistoryEntry, error) {
-	if len(data) == 0 {
-		return nil, nil, fmt.Errorf("project archive is empty")
-	}
-	var archive projectArchive
-	if err := json.Unmarshal(data, &archive); err != nil {
-		return nil, nil, fmt.Errorf("decode project archive: %w", err)
-	}
-	if archive.Version != 0 && archive.Version != projectArchiveVersion {
-		return nil, nil, fmt.Errorf("unsupported project archive version %d", archive.Version)
-	}
-	doc, err := projectDocumentArchiveToDocument(archive.Document)
+	archive, history, err := projectio.Load(data)
 	if err != nil {
 		return nil, nil, err
 	}
-	return doc, append([]HistoryEntry(nil), archive.History...), nil
+	doc, err := projectDocumentArchiveToDocument(archive)
+	if err != nil {
+		return nil, nil, err
+	}
+	return doc, history, nil
 }
 
 func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
