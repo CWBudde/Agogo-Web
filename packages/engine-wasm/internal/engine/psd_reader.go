@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	psdio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psd"
+	psdimport "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psdimport"
 )
 
 // LoadPSD parses a PSD/PSB byte stream and maps supported content into a Document.
@@ -57,7 +58,7 @@ func loadPSDFallback(_ []byte, header psdio.Header, resources psdio.ImageResourc
 	}
 
 	doc := newImportedPSDDocument(header, resources)
-	importedLayers, importWarnings, err := buildPSDLayerNodes(header, layers)
+	importedLayers, importWarnings, err := psdimport.BuildLayerNodes(header, layers)
 	if err != nil {
 		return nil, nil, err
 	}
