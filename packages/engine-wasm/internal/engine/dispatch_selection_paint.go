@@ -161,146 +161,203 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 	}); handled || err != nil {
 		return handled, nil, suggestedPath, err
 	}
-
-	switch commandID {
-	case commandMagneticLassoSuggestPath:
-		var payload MagneticLassoSuggestPathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc == nil {
-			return true, nil, suggestedPath, fmt.Errorf("no active document")
-		}
-		surface, err := doc.selectionSourceSurface(payload.LayerID, payload.SampleMerged)
-		if err != nil {
-			return true, nil, suggestedPath, err
-		}
-		result := inst.render()
-		suggestedPath = suggestMagneticPath(surface, doc.Width, doc.Height, payload.X1, payload.Y1, payload.X2, payload.Y2)
-		result.SuggestedPath = suggestedPath
-		return true, &result, suggestedPath, nil
-
-	case commandBeginPaintStroke:
-		var payload BeginPaintStrokePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		inst.handleBeginPaintStroke(payload)
-		return true, nil, suggestedPath, nil
-
-	case commandContinuePaintStroke:
-		var payload ContinuePaintStrokePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		inst.handleContinuePaintStroke(payload)
-		return true, nil, suggestedPath, nil
-
-	case commandEndPaintStroke:
-		inst.handleEndPaintStroke()
-		return true, nil, suggestedPath, nil
-
-	case commandSetForegroundColor:
-		var payload SetColorPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		inst.foregroundColor = payload.Color
-		return true, nil, suggestedPath, nil
-
-	case commandSetBackgroundColor:
-		var payload SetColorPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		inst.backgroundColor = payload.Color
-		return true, nil, suggestedPath, nil
-
-	case commandSampleMergedColor:
-		var payload SampleMergedColorPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc == nil {
-			return true, nil, suggestedPath, nil
-		}
-		var surface []byte
-		var width, height int
-		var offsetX, offsetY int
-		if payload.SampleMerged {
-			surface = inst.compositeSurface(doc)
-			width, height = doc.Width, doc.Height
-		} else if layer := findPixelLayer(doc, doc.ActiveLayerID); layer != nil {
-			surface = layer.Pixels
-			width, height = layer.Bounds.W, layer.Bounds.H
-			offsetX = layer.Bounds.X
-			offsetY = layer.Bounds.Y
-		}
-		px := int(math.Round(payload.X))
-		py := int(math.Round(payload.Y))
-		px -= offsetX
-		py -= offsetY
-		if surface != nil && px >= 0 && py >= 0 && px < width && py < height {
+	if handled, err := cmdpkg.DispatchPaint(commandID, payloadJSON, cmdpkg.PaintDeps{
+		Decode: decodePayloadAny,
+		BeginPaintStroke: func(payload cmdpkg.PaintBeginStrokePayload) error {
+			inst.handleBeginPaintStroke(BeginPaintStrokePayload{
+				X:        payload.X,
+				Y:        payload.Y,
+				Pressure: payload.Pressure,
+				TiltX:    payload.TiltX,
+				TiltY:    payload.TiltY,
+				Brush: BrushParams{
+					Size:             payload.Brush.Size,
+					Hardness:         payload.Brush.Hardness,
+					Flow:             payload.Brush.Flow,
+					Color:            payload.Brush.Color,
+					BlendMode:        payload.Brush.BlendMode,
+					WetEdges:         payload.Brush.WetEdges,
+					Scatter:          payload.Brush.Scatter,
+					Stabilizer:       payload.Brush.Stabilizer,
+					SampleMerged:     payload.Brush.SampleMerged,
+					AutoErase:        payload.Brush.AutoErase,
+					Erase:            payload.Brush.Erase,
+					EraseBackground:  payload.Brush.EraseBackground,
+					EraseTolerance:   payload.Brush.EraseTolerance,
+					MixerBrush:       payload.Brush.MixerBrush,
+					MixerMix:         payload.Brush.MixerMix,
+					MixerWetness:     payload.Brush.MixerWetness,
+					MixerLoad:        payload.Brush.MixerLoad,
+					CloneStamp:       payload.Brush.CloneStamp,
+					CloneSourceX:     payload.Brush.CloneSourceX,
+					CloneSourceY:     payload.Brush.CloneSourceY,
+					CloneAligned:     payload.Brush.CloneAligned,
+					CloneOpacity:     payload.Brush.CloneOpacity,
+					CloneLoad:        payload.Brush.CloneLoad,
+					CloneHistory:     payload.Brush.CloneHistory,
+					CloneHistoryIdx:  payload.Brush.CloneHistoryIdx,
+					HistoryBrush:     payload.Brush.HistoryBrush,
+					HistorySourceIdx: payload.Brush.HistorySourceIdx,
+					HistoryOpacity:   payload.Brush.HistoryOpacity,
+					HistoryLoad:      payload.Brush.HistoryLoad,
+					PressureSize:     payload.Brush.PressureSize,
+					PressureOpacity:  payload.Brush.PressureOpacity,
+					PressureFlow:     payload.Brush.PressureFlow,
+				},
+			})
+			return nil
+		},
+		ContinuePaintStroke: func(payload cmdpkg.PaintContinueStrokePayload) error {
+			inst.handleContinuePaintStroke(ContinuePaintStrokePayload{
+				X:        payload.X,
+				Y:        payload.Y,
+				Pressure: payload.Pressure,
+				TiltX:    payload.TiltX,
+				TiltY:    payload.TiltY,
+			})
+			return nil
+		},
+		EndPaintStroke: func() error {
+			inst.handleEndPaintStroke()
+			return nil
+		},
+		SetForegroundColor: func(color [4]uint8) error {
+			inst.foregroundColor = color
+			return nil
+		},
+		SetBackgroundColor: func(color [4]uint8) error {
+			inst.backgroundColor = color
+			return nil
+		},
+		MagicErase: func(payload cmdpkg.PaintMagicErasePayload) error {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil
+			}
+			layer := findPixelLayer(doc, doc.ActiveLayerID)
+			if layer == nil {
+				return nil
+			}
+			return inst.handleMagicErase(MagicErasePayload{
+				X:            payload.X,
+				Y:            payload.Y,
+				Tolerance:    payload.Tolerance,
+				Contiguous:   payload.Contiguous,
+				SampleMerged: payload.SampleMerged,
+			}, doc, layer)
+		},
+		Fill: func(payload cmdpkg.PaintFillPayload) error {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil
+			}
+			return inst.handleFill(FillPayload{
+				HasPoint:     payload.HasPoint,
+				X:            payload.X,
+				Y:            payload.Y,
+				Tolerance:    payload.Tolerance,
+				Contiguous:   payload.Contiguous,
+				SampleMerged: payload.SampleMerged,
+				Source:       payload.Source,
+				Color:        payload.Color,
+				CreateLayer:  payload.CreateLayer,
+			})
+		},
+		ApplyGradient: func(payload cmdpkg.PaintApplyGradientPayload) error {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil
+			}
+			stops := make([]GradientStopPayload, len(payload.Stops))
+			for i := range payload.Stops {
+				stops[i] = GradientStopPayload{
+					Position: payload.Stops[i].Position,
+					Color:    payload.Stops[i].Color,
+				}
+			}
+			return inst.handleApplyGradient(ApplyGradientPayload{
+				StartX:      payload.StartX,
+				StartY:      payload.StartY,
+				EndX:        payload.EndX,
+				EndY:        payload.EndY,
+				Type:        GradientType(payload.Type),
+				Reverse:     payload.Reverse,
+				Dither:      payload.Dither,
+				CreateLayer: payload.CreateLayer,
+				Stops:       stops,
+			})
+		},
+		ResetMixerBrushState: func() error {
+			inst.resetMixerBrushState()
+			return nil
+		},
+	}); handled || err != nil {
+		return handled, nil, suggestedPath, err
+	}
+	if handled, response, err := cmdpkg.DispatchSelectionPaintRender(commandID, payloadJSON, cmdpkg.SelectionPaintRenderDeps{
+		Decode: decodePayloadAny,
+		MagneticLassoSuggestPath: func(payload cmdpkg.SelectionPaintSuggestedPathPayload) (*cmdpkg.SelectionPaintRenderResponse, error) {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil, fmt.Errorf("no active document")
+			}
+			surface, err := doc.selectionSourceSurface(payload.LayerID, payload.SampleMerged)
+			if err != nil {
+				return nil, err
+			}
+			engineSuggestedPath := suggestMagneticPath(surface, doc.Width, doc.Height, payload.X1, payload.Y1, payload.X2, payload.Y2)
+			commandSuggestedPath := make([]cmdpkg.SelectionPoint, len(engineSuggestedPath))
+			for i := range engineSuggestedPath {
+				commandSuggestedPath[i] = cmdpkg.SelectionPoint{X: engineSuggestedPath[i].X, Y: engineSuggestedPath[i].Y}
+			}
+			return &cmdpkg.SelectionPaintRenderResponse{SuggestedPath: commandSuggestedPath}, nil
+		},
+		SampleMergedColor: func(payload cmdpkg.SelectionPaintSampleColorPayload) (*cmdpkg.SelectionPaintRenderResponse, error) {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return nil, nil
+			}
+			var surface []byte
+			var width, height int
+			var offsetX, offsetY int
+			if payload.SampleMerged {
+				surface = inst.compositeSurface(doc)
+				width, height = doc.Width, doc.Height
+			} else if layer := findPixelLayer(doc, doc.ActiveLayerID); layer != nil {
+				surface = layer.Pixels
+				width, height = layer.Bounds.W, layer.Bounds.H
+				offsetX = layer.Bounds.X
+				offsetY = layer.Bounds.Y
+			}
+			px := int(math.Round(payload.X)) - offsetX
+			py := int(math.Round(payload.Y)) - offsetY
+			if surface == nil || px < 0 || py < 0 || px >= width || py >= height {
+				return nil, nil
+			}
 			sampleSize := payload.SampleSize
 			if sampleSize <= 0 {
 				sampleSize = 1
 			}
-			if color, ok := sampleSurfaceColorAverage(surface, width, height, px, py, sampleSize); ok {
-				result := inst.render()
-				result.SuggestedPath = suggestedPath
-				result.SampledColor = &color
-				return true, &result, suggestedPath, nil
+			color, ok := sampleSurfaceColorAverage(surface, width, height, px, py, sampleSize)
+			if !ok {
+				return nil, nil
+			}
+			return &cmdpkg.SelectionPaintRenderResponse{SampledColor: &color}, nil
+		},
+	}); handled || err != nil {
+		if err != nil || response == nil {
+			return handled, nil, suggestedPath, err
+		}
+		result := inst.render()
+		if response.SuggestedPath != nil {
+			suggestedPath = make([]SelectionPoint, len(response.SuggestedPath))
+			for i := range response.SuggestedPath {
+				suggestedPath[i] = SelectionPoint{X: response.SuggestedPath[i].X, Y: response.SuggestedPath[i].Y}
 			}
 		}
-		return true, nil, suggestedPath, nil
-
-	case commandResetMixerBrushState:
-		inst.resetMixerBrushState()
-		return true, nil, suggestedPath, nil
-
-	case commandMagicErase:
-		var payload MagicErasePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc != nil {
-			layer := findPixelLayer(doc, doc.ActiveLayerID)
-			if layer != nil {
-				if err := inst.handleMagicErase(payload, doc, layer); err != nil {
-					return true, nil, suggestedPath, err
-				}
-			}
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandFill:
-		var payload FillPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc != nil {
-			if err := inst.handleFill(payload); err != nil {
-				return true, nil, suggestedPath, err
-			}
-		}
-		return true, nil, suggestedPath, nil
-
-	case commandApplyGradient:
-		var payload ApplyGradientPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, nil, suggestedPath, err
-		}
-		doc := inst.manager.Active()
-		if doc != nil {
-			if err := inst.handleApplyGradient(payload); err != nil {
-				return true, nil, suggestedPath, err
-			}
-		}
-		return true, nil, suggestedPath, nil
+		result.SuggestedPath = suggestedPath
+		result.SampledColor = response.SampledColor
+		return handled, &result, suggestedPath, nil
 	}
 
 	return false, nil, suggestedPath, nil

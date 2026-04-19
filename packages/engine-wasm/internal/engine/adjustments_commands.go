@@ -194,16 +194,7 @@ type SetPointFromSamplePayload struct {
 	Mode    string  `json:"mode"` // "black", "white", "gray", or "add" (add point)
 }
 
-// handleSetPointFromSample samples a color from the composite and updates a
-// curves adjustment layer accordingly. For "black"/"white"/"gray" modes it
-// adjusts the curve to map the sampled luminance to 0/255/128. For "add" mode
-// it adds a control point at the sampled value.
-func (inst *instance) handleSetPointFromSample(payloadJSON string) error {
-	var payload SetPointFromSamplePayload
-	if err := decodePayload(payloadJSON, &payload); err != nil {
-		return err
-	}
-
+func (inst *instance) setPointFromSample(payload SetPointFromSamplePayload) error {
 	doc := inst.manager.Active()
 	if doc == nil {
 		return fmt.Errorf("set point from sample: no active document")

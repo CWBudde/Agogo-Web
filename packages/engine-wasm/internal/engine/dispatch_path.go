@@ -12,8 +12,72 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 	if doc == nil {
 		return true, fmt.Errorf("no active document")
 	}
-	if handled, err := cmdpkg.DispatchPathCRUD(commandID, payloadJSON, cmdpkg.PathCRUDDeps{
+	if handled, err := cmdpkg.DispatchPath(commandID, payloadJSON, cmdpkg.PathDeps{
 		Decode: decodePayloadAny,
+		SetActiveTool: func(tool string) error {
+			inst.pathTool.activeTool = tool
+			return nil
+		},
+		PenToolClick: func(payload cmdpkg.PathPenToolClickPayload) error {
+			return inst.penToolClick(PenToolClickPayload{
+				X: payload.X, Y: payload.Y, DragX: payload.DragX, DragY: payload.DragY, Shift: payload.Shift,
+			})
+		},
+		PenToolClose: inst.penToolClose,
+		DirectSelectMove: func(payload cmdpkg.PathDirectSelectMovePayload) error {
+			return inst.directSelectMove(DirectSelectMovePayload{
+				SubpathIndex: payload.SubpathIndex,
+				AnchorIndex:  payload.AnchorIndex,
+				HandleKind:   payload.HandleKind,
+				X:            payload.X,
+				Y:            payload.Y,
+			})
+		},
+		DirectSelectMarquee: func(payload cmdpkg.PathDirectSelectMarqueePayload) error {
+			return inst.directSelectMarquee(DirectSelectMarqueePayload{
+				X1: payload.X1, Y1: payload.Y1, X2: payload.X2, Y2: payload.Y2, Shift: payload.Shift,
+			})
+		},
+		BreakHandle: func(payload cmdpkg.PathBreakHandlePayload) error {
+			return inst.breakHandle(BreakHandlePayload{SubpathIndex: payload.SubpathIndex, AnchorIndex: payload.AnchorIndex})
+		},
+		DeleteAnchor: func(payload cmdpkg.PathDeleteAnchorPayload) error {
+			return inst.deleteAnchor(DeleteAnchorPayload{SubpathIndex: payload.SubpathIndex, AnchorIndices: payload.AnchorIndices})
+		},
+		AddAnchorOnSegment: func(payload cmdpkg.PathAddAnchorOnSegmentPayload) error {
+			return inst.addAnchorOnSegment(AddAnchorOnSegmentPayload{SubpathIndex: payload.SubpathIndex, SegmentIndex: payload.SegmentIndex, T: payload.T})
+		},
+		PathBoolean: func(op string, payload cmdpkg.PathBooleanPayload) error {
+			opMap := map[string]PathBoolOp{
+				"combine":   PathBoolCombine,
+				"subtract":  PathBoolSubtract,
+				"intersect": PathBoolIntersect,
+				"exclude":   PathBoolExclude,
+			}
+			descriptionMap := map[string]string{
+				"combine":   "Combine paths",
+				"subtract":  "Subtract paths",
+				"intersect": "Intersect paths",
+				"exclude":   "Exclude paths",
+			}
+			return inst.dispatchPathBooleanPayload(PathBooleanPayload{
+				PathIndexA: payload.PathIndexA,
+				PathIndexB: payload.PathIndexB,
+			}, opMap[op], descriptionMap[op])
+		},
+		FlattenPath: inst.dispatchFlattenPath,
+		RasterizePath: func(pathIndex *int) error {
+			idx := doc.ActivePathIdx
+			if pathIndex != nil {
+				idx = *pathIndex
+			}
+			return inst.executeDocCommand("Rasterize path", func(doc *Document) error {
+				return doc.makeSelectionFromPath(idx)
+			})
+		},
+		RasterizeLayer: func(layerID string) error {
+			return inst.rasterizeLayer(RasterizeLayerPayload{LayerID: layerID})
+		},
 		CreatePath: func(name string) error {
 			return inst.executeDocCommand("Create path", func(doc *Document) error {
 				doc.Paths, doc.ActivePathIdx = docpkg.CreatePath(doc.Paths, name)
@@ -39,170 +103,50 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 				return err
 			})
 		},
+		MakeSelectionFromPath: func(pathIndex *int) error {
+			idx := doc.ActivePathIdx
+			if pathIndex != nil {
+				idx = *pathIndex
+			}
+			return inst.executeDocCommand("Make selection from path", func(doc *Document) error {
+				return doc.makeSelectionFromPath(idx)
+			})
+		},
+		FillPath: func(pathIndex *int, color [4]uint8) error {
+			idx := doc.ActivePathIdx
+			if pathIndex != nil {
+				idx = *pathIndex
+			}
+			if color == [4]uint8{} {
+				color = inst.foregroundColor
+			}
+			return inst.executeDocCommand("Fill path", func(doc *Document) error {
+				return fillPathOnDoc(doc, idx, color)
+			})
+		},
+		StrokePath: func(pathIndex *int, toolWidth float64, color [4]uint8) error {
+			idx := doc.ActivePathIdx
+			if pathIndex != nil {
+				idx = *pathIndex
+			}
+			if color == [4]uint8{} {
+				color = inst.foregroundColor
+			}
+			if toolWidth <= 0 {
+				toolWidth = 1.0
+			}
+			return inst.executeDocCommand("Stroke path", func(doc *Document) error {
+				return strokePathOnDoc(doc, idx, toolWidth, color)
+			})
+		},
 	}); handled || err != nil {
 		return handled, err
 	}
 
-	switch commandID {
-	case commandSetActiveTool:
-		var payload SetActiveToolPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		// Tool switching is UI state only — no history entry.
-		inst.pathTool.activeTool = payload.Tool
-		return true, nil
-
-	case commandPenToolClick:
-		var payload PenToolClickPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.penToolClick(payload)
-
-	case commandPenToolClose:
-		return true, inst.penToolClose()
-
-	case commandDirectSelectMove:
-		var payload DirectSelectMovePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.directSelectMove(payload)
-
-	case commandDirectSelectMarquee:
-		var payload DirectSelectMarqueePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.directSelectMarquee(payload)
-
-	case commandBreakHandle:
-		var payload BreakHandlePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.breakHandle(payload)
-
-	case commandDeleteAnchor:
-		var payload DeleteAnchorPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.deleteAnchor(payload)
-
-	case commandAddAnchorOnSegment:
-		var payload AddAnchorOnSegmentPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.addAnchorOnSegment(payload)
-
-	case commandPathCombine:
-		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolCombine, "Combine paths")
-	case commandPathSubtract:
-		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolSubtract, "Subtract paths")
-	case commandPathIntersect:
-		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolIntersect, "Intersect paths")
-	case commandPathExclude:
-		return true, inst.dispatchPathBoolean(payloadJSON, PathBoolExclude, "Exclude paths")
-	case commandFlattenPath:
-		return true, inst.dispatchFlattenPath()
-	case commandRasterizePath:
-		var payload MakeSelectionFromPathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		pathIdx := doc.ActivePathIdx
-		if payload.PathIndex != nil {
-			pathIdx = *payload.PathIndex
-		}
-		if err := inst.executeDocCommand("Rasterize path", func(doc *Document) error {
-			return doc.makeSelectionFromPath(pathIdx)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandRasterizeLayer:
-		var payload RasterizeLayerPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.rasterizeLayer(payload)
-
-	case commandMakeSelectionFromPath:
-		var payload MakeSelectionFromPathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		pathIdx := doc.ActivePathIdx
-		if payload.PathIndex != nil {
-			pathIdx = *payload.PathIndex
-		}
-		if err := inst.executeDocCommand("Make selection from path", func(doc *Document) error {
-			return doc.makeSelectionFromPath(pathIdx)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandFillPath:
-		var payload FillPathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		pathIdx := doc.ActivePathIdx
-		if payload.PathIndex != nil {
-			pathIdx = *payload.PathIndex
-		}
-		color := payload.Color
-		if color == [4]uint8{} {
-			color = inst.foregroundColor
-		}
-		if err := inst.executeDocCommand("Fill path", func(doc *Document) error {
-			return fillPathOnDoc(doc, pathIdx, color)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case commandStrokePath:
-		var payload StrokePathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		pathIdx := doc.ActivePathIdx
-		if payload.PathIndex != nil {
-			pathIdx = *payload.PathIndex
-		}
-		color := payload.Color
-		if color == [4]uint8{} {
-			color = inst.foregroundColor
-		}
-		width := payload.ToolWidth
-		if width <= 0 {
-			width = 1.0
-		}
-		if err := inst.executeDocCommand("Stroke path", func(doc *Document) error {
-			return strokePathOnDoc(doc, pathIdx, width, color)
-		}); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	default:
-		return false, nil
-	}
+	return false, nil
 }
 
-// dispatchPathBoolean handles combine/subtract/intersect/exclude commands.
-func (inst *instance) dispatchPathBoolean(payloadJSON string, op PathBoolOp, description string) error {
-	var payload PathBooleanPayload
-	if err := decodePayload(payloadJSON, &payload); err != nil {
-		return err
-	}
-
+func (inst *instance) dispatchPathBooleanPayload(payload PathBooleanPayload, op PathBoolOp, description string) error {
 	return inst.executeDocCommand(description, func(doc *Document) error {
 		if len(doc.Paths) < 2 {
 			return fmt.Errorf("%s requires at least 2 paths", description)

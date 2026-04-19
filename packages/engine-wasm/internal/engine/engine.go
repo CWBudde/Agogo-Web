@@ -9,11 +9,13 @@ import (
 	"unsafe"
 
 	agglib "github.com/cwbudde/agg_go"
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 )
 
 // thumbnailSize is the width and height of layer preview thumbnails in pixels.
 const thumbnailSize = 32
 
+//nolint:unused // command IDs are part of the engine ABI and are also referenced from tests.
 const (
 	commandCreateDocument            = 0x0001
 	commandCloseDocument             = 0x0002
@@ -158,11 +160,11 @@ const (
 	commandCommitTextEdit    = 0x0645 // finalize edit (Escape / click-outside)
 	commandConvertTextToPath = 0x0646 // Type > Create Outlines → new VectorLayer
 
-	commandBeginTxn     = 0xffe0
-	commandEndTxn       = 0xffe1
-	commandClearHistory = 0xffe2
-	commandUndo         = 0xfff0
-	commandRedo         = 0xfff1
+	commandBeginTxn     = 0xffe0 //nolint:unused // kept for command ABI coverage in tests
+	commandEndTxn       = 0xffe1 //nolint:unused // kept for command ABI coverage in tests
+	commandClearHistory = 0xffe2 //nolint:unused // kept for command ABI coverage in tests
+	commandUndo         = 0xfff0 //nolint:unused // kept for command ABI coverage in tests
+	commandRedo         = 0xfff1 //nolint:unused // kept for command ABI coverage in tests
 )
 
 type Document struct {
@@ -1003,18 +1005,8 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 
 	var suggestedPath []SelectionPoint
 
-	switch commandID {
-	case commandAddLayer, commandDeleteLayer, commandMoveLayer, commandSetLayerVis,
-		commandSetLayerOp, commandSetLayerBlend, commandDuplicateLayer, commandSetLayerLock,
-		commandFlattenLayer, commandMergeDown, commandMergeVisible, commandAddLayerMask,
-		commandDeleteLayerMask, commandApplyLayerMask, commandInvertLayerMask,
-		commandSetMaskEnabled, commandSetLayerClip, commandSetLayerName, commandSetActiveLayer,
-		commandSetAdjustmentParams, commandAddVectorMask, commandDeleteVectorMask,
-		commandSetPointFromSample, commandSetLayerStyleStack, commandSetLayerStyleEnabled,
-		commandSetLayerStyleParams, commandCopyLayerStyle, commandPasteLayerStyle,
-		commandClearLayerStyle, commandCreateDocumentStylePreset,
-		commandUpdateDocumentStylePreset, commandDeleteDocumentStylePreset,
-		commandApplyDocumentStylePreset, commandSetArtboard:
+	switch cmdpkg.DomainOf(commandID) {
+	case cmdpkg.DomainLayer:
 		handled, err := inst.dispatchLayerCommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err
@@ -1022,26 +1014,19 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if !handled {
 			return RenderResult{}, fmt.Errorf("unsupported layer command id 0x%04x", commandID)
 		}
-	case commandCreateDocument, commandCloseDocument, commandZoomSet, commandPanSet,
-		commandRotateViewSet, commandResize, commandPointerEvent, commandBeginTxn,
-		commandEndTxn, commandJumpHistory, commandSetShowGuides, commandClearHistory,
-		commandFitToView, commandUndo, commandRedo, commandFlattenImage, commandOpenImageFile,
-		commandTranslateLayer:
+	case cmdpkg.DomainCore:
 		if handled, err := inst.dispatchCoreCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
-	case commandBeginFreeTransform, commandUpdateFreeTransform, commandCommitFreeTransform,
-		commandCancelFreeTransform, commandFlipLayerH, commandFlipLayerV, commandRotateLayer90CW,
-		commandRotateLayer90CCW, commandRotateLayer180, commandTransformAgain,
-		commandBeginCrop, commandUpdateCrop, commandCommitCrop, commandCancelCrop, commandResizeCanvas:
+	case cmdpkg.DomainTransform:
 		if handled, err := inst.dispatchTransformCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
-	case commandSetMaskEditMode, commandGetLayerThumbnails, commandComputeHistogram, commandIdentifyHueRange, commandSetSelectionViewMode:
+	case cmdpkg.DomainUI:
 		handled, customResult, err := inst.dispatchUICommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err
@@ -1049,16 +1034,7 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if handled && customResult != nil {
 			return *customResult, nil
 		}
-	case commandPickLayerAtPoint, commandNewSelection, commandSelectAll, commandDeselect,
-		commandReselect, commandInvertSelection, commandFeatherSelection, commandExpandSelection,
-		commandContractSelection, commandSmoothSelection, commandBorderSelection,
-		commandTransformSelection, commandSelectColorRange, commandQuickSelect,
-		commandMagicWand, commandMagneticLassoSuggestPath, commandSaveSelectionToChannel,
-		commandLoadSelectionFromChannel, commandRefineSelection, commandOutputSelection,
-		commandBeginPaintStroke, commandContinuePaintStroke, commandEndPaintStroke,
-		commandSetForegroundColor, commandSetBackgroundColor, commandSampleMergedColor,
-		commandResetMixerBrushState,
-		commandMagicErase, commandFill, commandApplyGradient:
+	case cmdpkg.DomainSelectionPaint:
 		handled, customResult, nextSuggestedPath, err := inst.dispatchSelectionPaintCommand(commandID, payloadJSON, suggestedPath)
 		if err != nil {
 			return RenderResult{}, err
@@ -1071,44 +1047,35 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			// selection/paint handlers generally fall through to the normal render.
 		}
 
-	case commandApplyFilter, commandReapplyFilter, commandPreviewFilter,
-		commandCancelFilterPreview, commandCommitFilterPreview, commandFadeFilter:
+	case cmdpkg.DomainFilter:
 		if handled, err := inst.dispatchFilterCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
 
-	case commandSetActiveTool, commandPenToolClick, commandPenToolClose,
-		commandDirectSelectMove, commandDirectSelectMarquee, commandBreakHandle,
-		commandDeleteAnchor, commandAddAnchorOnSegment,
-		commandPathCombine, commandPathSubtract, commandPathIntersect, commandPathExclude,
-		commandFlattenPath, commandRasterizePath, commandRasterizeLayer,
-		commandCreatePath, commandDeletePath, commandRenamePath, commandDuplicatePath,
-		commandMakeSelectionFromPath, commandStrokePath, commandFillPath:
+	case cmdpkg.DomainPath:
 		if handled, err := inst.dispatchPathCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
 
-	case commandDrawShape, commandEnterVectorEditMode, commandCommitVectorEdit, commandSetVectorLayerStyle:
+	case cmdpkg.DomainShape:
 		if handled, err := inst.dispatchShapeCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
 
-	case commandAddTextLayer, commandSetTextContent, commandSetTextStyle,
-		commandEnterTextEditMode, commandTextEditInput, commandCommitTextEdit,
-		commandConvertTextToPath:
+	case cmdpkg.DomainText:
 		if handled, err := inst.dispatchTextCommand(commandID, payloadJSON); handled || err != nil {
 			if err != nil {
 				return RenderResult{}, err
 			}
 		}
 
-	default:
+	case cmdpkg.DomainUnknown:
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
 

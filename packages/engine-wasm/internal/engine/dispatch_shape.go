@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
@@ -50,33 +51,41 @@ func (inst *instance) dispatchShapeCommand(commandID int32, payloadJSON string) 
 	if inst.manager.Active() == nil {
 		return true, fmt.Errorf("no active document")
 	}
-
-	switch commandID {
-	case commandDrawShape:
-		var payload DrawShapePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.drawShape(payload)
-
-	case commandEnterVectorEditMode:
-		var payload EnterVectorEditModePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.enterVectorEditMode(payload)
-
-	case commandCommitVectorEdit:
-		return true, inst.commitVectorEdit()
-
-	case commandSetVectorLayerStyle:
-		var payload SetVectorLayerStylePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.setVectorLayerStyle(payload)
-	}
-	return false, nil
+	return cmdpkg.DispatchShape(commandID, payloadJSON, cmdpkg.ShapeDeps{
+		Decode: decodePayloadAny,
+		DrawShape: func(payload cmdpkg.ShapeDrawPayload) error {
+			return inst.drawShape(DrawShapePayload{
+				ShapeType:      payload.ShapeType,
+				X:              payload.X,
+				Y:              payload.Y,
+				W:              payload.W,
+				H:              payload.H,
+				CornerRadius:   payload.CornerRadius,
+				Sides:          payload.Sides,
+				StarMode:       payload.StarMode,
+				InnerRadiusPct: payload.InnerRadiusPct,
+				FillColor:      payload.FillColor,
+				StrokeColor:    payload.StrokeColor,
+				StrokeWidth:    payload.StrokeWidth,
+				Mode:           payload.Mode,
+				Closed:         payload.Closed,
+				Points:         payload.Points,
+				Subpaths:       payload.Subpaths,
+			})
+		},
+		EnterVectorEditMode: func(layerID string) error {
+			return inst.enterVectorEditMode(EnterVectorEditModePayload{LayerID: layerID})
+		},
+		CommitVectorEdit: inst.commitVectorEdit,
+		SetVectorLayerStyle: func(payload cmdpkg.ShapeSetVectorLayerStylePayload) error {
+			return inst.setVectorLayerStyle(SetVectorLayerStylePayload{
+				LayerID:     payload.LayerID,
+				FillColor:   payload.FillColor,
+				StrokeColor: payload.StrokeColor,
+				StrokeWidth: payload.StrokeWidth,
+			})
+		},
+	})
 }
 
 func (inst *instance) enterVectorEditMode(p EnterVectorEditModePayload) error {

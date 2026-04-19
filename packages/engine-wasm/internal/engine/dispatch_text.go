@@ -1,6 +1,10 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+)
 
 // AddTextLayerPayload is the JSON payload for commandAddTextLayer.
 type AddTextLayerPayload struct {
@@ -68,54 +72,30 @@ func (inst *instance) dispatchTextCommand(commandID int32, payloadJSON string) (
 	if inst.manager.Active() == nil {
 		return true, fmt.Errorf("no active document")
 	}
-
-	switch commandID {
-	case commandAddTextLayer:
-		var payload AddTextLayerPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.addTextLayer(payload)
-
-	case commandSetTextContent:
-		var payload SetTextContentPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.setTextContent(payload)
-
-	case commandSetTextStyle:
-		var payload SetTextStylePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.setTextStyle(payload)
-
-	case commandEnterTextEditMode:
-		var payload EnterTextEditModePayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.enterTextEditMode(payload)
-
-	case commandTextEditInput:
-		var payload TextEditInputPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.textEditInput(payload)
-
-	case commandCommitTextEdit:
-		return true, inst.commitTextEdit()
-
-	case commandConvertTextToPath:
-		var payload ConvertTextToPathPayload
-		if err := decodePayload(payloadJSON, &payload); err != nil {
-			return true, err
-		}
-		return true, inst.convertTextToPath(payload)
-	}
-	return false, nil
+	return cmdpkg.DispatchText(commandID, payloadJSON, cmdpkg.TextDeps{
+		Decode: decodePayloadAny,
+		AddTextLayer: func(payload cmdpkg.TextAddLayerPayload) error {
+			return inst.addTextLayer(AddTextLayerPayload{
+				X: payload.X, Y: payload.Y, FontSize: payload.FontSize, Color: payload.Color, TextType: payload.TextType,
+			})
+		},
+		SetTextContent: func(payload cmdpkg.TextSetContentPayload) error {
+			return inst.setTextContent(SetTextContentPayload{LayerID: payload.LayerID, Text: payload.Text})
+		},
+		SetTextStyle: func(payload cmdpkg.TextSetStylePayload) error {
+			return inst.setTextStyle(SetTextStylePayload(payload))
+		},
+		EnterTextEditMode: func(layerID string) error {
+			return inst.enterTextEditMode(EnterTextEditModePayload{LayerID: layerID})
+		},
+		TextEditInput: func(text string) error {
+			return inst.textEditInput(TextEditInputPayload{Text: text})
+		},
+		CommitTextEdit: inst.commitTextEdit,
+		ConvertTextToPath: func(layerID string) error {
+			return inst.convertTextToPath(ConvertTextToPathPayload{LayerID: layerID})
+		},
+	})
 }
 
 // addTextLayer creates a new TextLayer at (x,y) and immediately enters edit mode.

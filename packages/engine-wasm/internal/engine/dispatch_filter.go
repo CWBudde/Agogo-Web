@@ -3,6 +3,8 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+
+	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 )
 
 // ApplyFilterPayload is the JSON payload for the ApplyFilter command.
@@ -51,40 +53,56 @@ type FadeFilterPayload struct {
 }
 
 func (inst *instance) dispatchFilterCommand(commandID int32, payloadJSON string) (bool, error) {
-	switch commandID {
-	case commandApplyFilter:
-		return inst.handleApplyFilter(payloadJSON)
+	return cmdpkg.DispatchFilter(commandID, payloadJSON, cmdpkg.FilterDeps{
+		Decode: decodePayloadAny,
+		ApplyFilter: func(payload cmdpkg.FilterApplyPayload) error {
+			return handleFilterDispatch(inst.handleApplyFilter(ApplyFilterPayload{
+				LayerID:  payload.LayerID,
+				FilterID: payload.FilterID,
+				Params:   payload.Params,
+			}))
+		},
+		ReapplyFilter: func() error {
+			return handleFilterDispatch(inst.handleReapplyFilter())
+		},
+		PreviewFilter: func(payload cmdpkg.FilterPreviewPayload) error {
+			return handleFilterDispatch(inst.handlePreviewFilter(PreviewFilterPayload{
+				LayerID:  payload.LayerID,
+				FilterID: payload.FilterID,
+				Params:   payload.Params,
+				Scale:    payload.Scale,
+			}))
+		},
+		CancelFilterPreview: func() error {
+			return handleFilterDispatch(inst.handleCancelFilterPreview())
+		},
+		CommitFilterPreview: func() error {
+			return handleFilterDispatch(inst.handleCommitFilterPreview())
+		},
+		FadeFilter: func(payload cmdpkg.FilterFadePayload) error {
+			return handleFilterDispatch(inst.handleFadeFilter(FadeFilterPayload{
+				Opacity:   payload.Opacity,
+				BlendMode: BlendMode(payload.BlendMode),
+			}))
+		},
+	})
+}
 
-	case commandReapplyFilter:
-		return inst.handleReapplyFilter()
-
-	case commandPreviewFilter:
-		return inst.handlePreviewFilter(payloadJSON)
-
-	case commandCancelFilterPreview:
-		return inst.handleCancelFilterPreview()
-
-	case commandCommitFilterPreview:
-		return inst.handleCommitFilterPreview()
-
-	case commandFadeFilter:
-		return inst.handleFadeFilter(payloadJSON)
-
-	default:
-		return false, nil
+func handleFilterDispatch(handled bool, err error) error {
+	if err != nil {
+		return err
 	}
+	if !handled {
+		return fmt.Errorf("unsupported filter command")
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
 // Apply Filter (destructive, with undo + fade snapshot)
 // ---------------------------------------------------------------------------
 
-func (inst *instance) handleApplyFilter(payloadJSON string) (bool, error) {
-	var payload ApplyFilterPayload
-	if err := decodePayload(payloadJSON, &payload); err != nil {
-		return true, err
-	}
-
+func (inst *instance) handleApplyFilter(payload ApplyFilterPayload) (bool, error) {
 	doc := inst.manager.Active()
 	if doc == nil {
 		return true, fmt.Errorf("apply filter: no active document")
@@ -183,12 +201,7 @@ func (inst *instance) handleReapplyFilter() (bool, error) {
 // Preview Filter (live preview in filter dialog)
 // ---------------------------------------------------------------------------
 
-func (inst *instance) handlePreviewFilter(payloadJSON string) (bool, error) {
-	var payload PreviewFilterPayload
-	if err := decodePayload(payloadJSON, &payload); err != nil {
-		return true, fmt.Errorf("preview filter decode: %w", err)
-	}
-
+func (inst *instance) handlePreviewFilter(payload PreviewFilterPayload) (bool, error) {
 	doc := inst.manager.activeMut()
 	if doc == nil {
 		return true, fmt.Errorf("preview filter: no active document")
@@ -360,12 +373,7 @@ func (inst *instance) handleCommitFilterPreview() (bool, error) {
 // Fade Filter
 // ---------------------------------------------------------------------------
 
-func (inst *instance) handleFadeFilter(payloadJSON string) (bool, error) {
-	var payload FadeFilterPayload
-	if err := decodePayload(payloadJSON, &payload); err != nil {
-		return true, err
-	}
-
+func (inst *instance) handleFadeFilter(payload FadeFilterPayload) (bool, error) {
 	if inst.preFadeSnapshot == nil {
 		return true, fmt.Errorf("fade filter: no recent filter to fade")
 	}
