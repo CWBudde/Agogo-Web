@@ -1,12 +1,8 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 
 	psdio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psd"
@@ -197,10 +193,10 @@ func (w *psdWriter) appendLayerRecords(records *[]psdExportLayerRecord, layers [
 func newPSDGroupRecord(group *GroupLayer, sectionType uint32) psdExportLayerRecord {
 	return psdExportLayerRecord{
 		name:        group.Name(),
-		opacity:     unitToPSDOpacity(group.Opacity()),
+		opacity:     psdio.UnitOpacity(group.Opacity()),
 		visible:     group.Visible(),
 		clipToBelow: group.ClipToBelow(),
-		blendKey:    psdBlendKey(group.BlendMode()),
+		blendKey:    psdio.BlendKey(group.BlendMode()),
 		sectionType: sectionType,
 		mask:        cloneLayerMask(group.Mask()),
 		extraBlocks: buildPSDLayerExtraBlocks(group),
@@ -226,10 +222,10 @@ func (w *psdWriter) newPSDRasterRecord(layer LayerNode) (psdExportLayerRecord, e
 	return psdExportLayerRecord{
 		name:        layer.Name(),
 		bounds:      bounds,
-		opacity:     unitToPSDOpacity(layer.Opacity()),
+		opacity:     psdio.UnitOpacity(layer.Opacity()),
 		visible:     layer.Visible(),
 		clipToBelow: layer.ClipToBelow(),
-		blendKey:    psdBlendKey(layer.BlendMode()),
+		blendKey:    psdio.BlendKey(layer.BlendMode()),
 		mask:        cloneLayerMask(layer.Mask()),
 		channels:    channels,
 		extraBlocks: buildPSDLayerExtraBlocks(layer),
@@ -334,13 +330,13 @@ func cropPSDDocumentSurface(surface []byte, width, height int) (LayerBounds, []b
 func (w *psdWriter) encodeLayerChannels(bounds LayerBounds, rgba []byte, mask *LayerMask) ([]psdExportChannel, error) {
 	channels := make([]psdExportChannel, 0, 5)
 	if bounds.W > 0 && bounds.H > 0 && len(rgba) == bounds.W*bounds.H*4 {
-		planes := rgbaToPSDPlanes(strings.EqualFold(w.doc.ColorMode, "gray"), rgba)
+		planes := psdio.RGBAToPlanes(strings.EqualFold(w.doc.ColorMode, "gray"), rgba)
 		if strings.EqualFold(w.doc.ColorMode, "gray") {
-			grayPayload, err := encodePSDChannelData(planes[0], bounds.W, bounds.H, w.psb)
+			grayPayload, err := psdio.EncodeChannelData(planes[0], bounds.W, bounds.H, w.psb)
 			if err != nil {
 				return nil, err
 			}
-			alphaPayload, err := encodePSDChannelData(planes[1], bounds.W, bounds.H, w.psb)
+			alphaPayload, err := psdio.EncodeChannelData(planes[1], bounds.W, bounds.H, w.psb)
 			if err != nil {
 				return nil, err
 			}
@@ -350,7 +346,7 @@ func (w *psdWriter) encodeLayerChannels(bounds LayerBounds, rgba []byte, mask *L
 			)
 		} else {
 			for index, channelID := range []int16{0, 1, 2, -1} {
-				payload, err := encodePSDChannelData(planes[index], bounds.W, bounds.H, w.psb)
+				payload, err := psdio.EncodeChannelData(planes[index], bounds.W, bounds.H, w.psb)
 				if err != nil {
 					return nil, err
 				}
@@ -363,7 +359,7 @@ func (w *psdWriter) encodeLayerChannels(bounds LayerBounds, rgba []byte, mask *L
 		}
 	}
 	if mask != nil && mask.Width > 0 && mask.Height > 0 && len(mask.Data) == mask.Width*mask.Height {
-		payload, err := encodePSDChannelData(mask.Data, mask.Width, mask.Height, w.psb)
+		payload, err := psdio.EncodeChannelData(mask.Data, mask.Width, mask.Height, w.psb)
 		if err != nil {
 			return nil, err
 		}
@@ -376,155 +372,13 @@ func (w *psdWriter) encodeLayerChannels(bounds LayerBounds, rgba []byte, mask *L
 	return channels, nil
 }
 
-func rgbaToPSDPlanes(grayscale bool, rgba []byte) [][]byte {
-	pixelCount := len(rgba) / 4
-	if grayscale {
-		gray := make([]byte, pixelCount)
-		alpha := make([]byte, pixelCount)
-		for i := 0; i < pixelCount; i++ {
-			r := float64(rgba[i*4])
-			g := float64(rgba[i*4+1])
-			b := float64(rgba[i*4+2])
-			gray[i] = byte(math.Round((0.299 * r) + (0.587 * g) + (0.114 * b)))
-			alpha[i] = rgba[i*4+3]
-		}
-		return [][]byte{gray, alpha}
-	}
-	red := make([]byte, pixelCount)
-	green := make([]byte, pixelCount)
-	blue := make([]byte, pixelCount)
-	alpha := make([]byte, pixelCount)
-	for i := 0; i < pixelCount; i++ {
-		red[i] = rgba[i*4]
-		green[i] = rgba[i*4+1]
-		blue[i] = rgba[i*4+2]
-		alpha[i] = rgba[i*4+3]
-	}
-	return [][]byte{red, green, blue, alpha}
-}
-
-func encodePSDChannelData(data []byte, width, height int, psb bool) ([]byte, error) {
-	if width <= 0 || height <= 0 {
-		return []byte{0, psdio.CompressionRLE}, nil
-	}
-	if len(data) != width*height {
-		return nil, fmt.Errorf("channel length %d does not match %dx%d", len(data), width, height)
-	}
-
-	rows := make([][]byte, 0, height)
-	for row := 0; row < height; row++ {
-		start := row * width
-		rows = append(rows, encodePSDPackBitsRow(data[start:start+width]))
-	}
-
-	var out bytes.Buffer
-	writePSDUint16(&out, psdio.CompressionRLE)
-	for _, row := range rows {
-		if psb {
-			writePSDUint32(&out, uint32(len(row)))
-		} else {
-			if len(row) > math.MaxUint16 {
-				return nil, fmt.Errorf("RLE row length %d exceeds PSD limit", len(row))
-			}
-			writePSDUint16(&out, uint16(len(row)))
-		}
-	}
-	for _, row := range rows {
-		out.Write(row)
-	}
-	return out.Bytes(), nil
-}
-
-func encodePSDPackBitsRow(data []byte) []byte {
-	if len(data) == 0 {
-		return []byte{}
-	}
-	out := make([]byte, 0, len(data)+(len(data)/128)+1)
-	for i := 0; i < len(data); {
-		runLen := 1
-		for i+runLen < len(data) && runLen < 128 && data[i+runLen] == data[i] {
-			runLen++
-		}
-		if runLen >= 3 {
-			out = append(out, byte(257-runLen), data[i])
-			i += runLen
-			continue
-		}
-
-		literalStart := i
-		i += runLen
-		for i < len(data) {
-			runLen = 1
-			for i+runLen < len(data) && runLen < 128 && data[i+runLen] == data[i] {
-				runLen++
-			}
-			if runLen >= 3 || i-literalStart >= 128 {
-				break
-			}
-			i += runLen
-		}
-		literalLen := i - literalStart
-		for literalLen > 0 {
-			chunkLen := literalLen
-			if chunkLen > 128 {
-				chunkLen = 128
-			}
-			out = append(out, byte(chunkLen-1))
-			out = append(out, data[literalStart:literalStart+chunkLen]...)
-			literalStart += chunkLen
-			literalLen -= chunkLen
-		}
-	}
-	return out
-}
-
 func (w *psdWriter) buildCompositeImageData() ([]byte, error) {
 	surface := w.doc.renderCompositeSurface()
 	if surface == nil {
 		surface = make([]byte, w.doc.Width*w.doc.Height*4)
 	}
-	planes := rgbaToPSDPlanes(strings.EqualFold(w.doc.ColorMode, "gray"), surface)
-
-	var out bytes.Buffer
-	writePSDUint16(&out, psdio.CompressionRLE)
-	for _, plane := range planes {
-		rows := make([][]byte, 0, w.doc.Height)
-		for row := 0; row < w.doc.Height; row++ {
-			start := row * w.doc.Width
-			rows = append(rows, encodePSDPackBitsRow(plane[start:start+w.doc.Width]))
-		}
-		for _, row := range rows {
-			if w.psb {
-				writePSDUint32(&out, uint32(len(row)))
-			} else {
-				if len(row) > math.MaxUint16 {
-					return nil, fmt.Errorf("composite RLE row length %d exceeds PSD limit", len(row))
-				}
-				writePSDUint16(&out, uint16(len(row)))
-			}
-		}
-		for _, row := range rows {
-			out.Write(row)
-		}
-	}
-	return out.Bytes(), nil
-}
-
-func utf16Encode(value string) []uint16 {
-	runes := []rune(value)
-	encoded := make([]uint16, 0, len(runes))
-	for _, r := range runes {
-		if r <= math.MaxUint16 {
-			encoded = append(encoded, uint16(r))
-			continue
-		}
-		r -= 0x10000
-		encoded = append(encoded,
-			uint16(0xd800+((r>>10)&0x3ff)),
-			uint16(0xdc00+(r&0x3ff)),
-		)
-	}
-	return encoded
+	planes := psdio.RGBAToPlanes(strings.EqualFold(w.doc.ColorMode, "gray"), surface)
+	return psdio.EncodeCompositeImageData(planes, w.doc.Width, w.doc.Height, w.psb)
 }
 
 func buildPSDLayerExtraBlocks(layer LayerNode) []psdExportTaggedBlock {
@@ -532,7 +386,7 @@ func buildPSDLayerExtraBlocks(layer LayerNode) []psdExportTaggedBlock {
 		return nil
 	}
 	blocks := make([]psdExportTaggedBlock, 0, 4)
-	if payload := buildPSDLayerEffectsPayload(layer.StyleStack()); len(payload) > 0 {
+	if payload := psdio.BuildLayerEffectsPayload(layer.StyleStack()); len(payload) > 0 {
 		blocks = append(blocks, psdExportTaggedBlock{
 			signature: "8BIM",
 			key:       "lfx2",
@@ -541,7 +395,36 @@ func buildPSDLayerExtraBlocks(layer LayerNode) []psdExportTaggedBlock {
 	}
 	switch typed := layer.(type) {
 	case *TextLayer:
-		if payload := buildPSDTextLayerPayload(typed); len(payload) > 0 {
+		if payload := psdio.BuildTextLayerPayload(psdio.TextLayerPayload{
+			Bounds:        typed.Bounds,
+			Text:          typed.Text,
+			FontFamily:    typed.FontFamily,
+			FontStyle:     typed.FontStyle,
+			FontSize:      typed.FontSize,
+			Bold:          typed.Bold,
+			Italic:        typed.Italic,
+			AntiAlias:     typed.AntiAlias,
+			Color:         typed.Color,
+			TextType:      typed.TextType,
+			Alignment:     typed.Alignment,
+			BaselineShift: typed.BaselineShift,
+			Leading:       typed.Leading,
+			Tracking:      typed.Tracking,
+			Kerning:       typed.Kerning,
+			Language:      typed.Language,
+			Orientation:   typed.Orientation,
+			Superscript:   typed.Superscript,
+			Subscript:     typed.Subscript,
+			Underline:     typed.Underline,
+			Strikethrough: typed.Strikethrough,
+			AllCaps:       typed.AllCaps,
+			SmallCaps:     typed.SmallCaps,
+			IndentLeft:    typed.IndentLeft,
+			IndentRight:   typed.IndentRight,
+			IndentFirst:   typed.IndentFirst,
+			SpaceBefore:   typed.SpaceBefore,
+			SpaceAfter:    typed.SpaceAfter,
+		}); len(payload) > 0 {
 			blocks = append(blocks, psdExportTaggedBlock{
 				signature: "8BIM",
 				key:       "TySh",
@@ -549,7 +432,10 @@ func buildPSDLayerExtraBlocks(layer LayerNode) []psdExportTaggedBlock {
 			})
 		}
 	case *AdjustmentLayer:
-		if payload := buildPSDAdjustmentLayerPayload(typed); len(payload) > 0 {
+		if payload := psdio.BuildAdjustmentLayerPayload(psdio.AdjustmentLayerPayload{
+			Kind:   typed.AdjustmentKind,
+			Params: typed.Params,
+		}); len(payload) > 0 {
 			blocks = append(blocks, psdExportTaggedBlock{
 				signature: "8BIM",
 				key:       "AgAJ",
@@ -558,271 +444,6 @@ func buildPSDLayerExtraBlocks(layer LayerNode) []psdExportTaggedBlock {
 		}
 	}
 	return blocks
-}
-
-func buildPSDLayerEffectsPayload(styles []LayerStyle) []byte {
-	filtered := make([]map[string]any, 0, len(styles))
-	for _, style := range styles {
-		token := psdEffectDescriptorToken(style.Kind)
-		if token == "" {
-			continue
-		}
-		filtered = append(filtered, map[string]any{
-			"token":   token,
-			"kind":    style.Kind,
-			"enabled": style.Enabled,
-			"params":  string(style.Params),
-		})
-	}
-	if len(filtered) == 0 {
-		return nil
-	}
-
-	items := make([]psdDescriptorItem, 0, len(filtered)+1)
-	items = append(items, psdDescriptorItem{Key: "masterFXSwitch", Type: "bool", Bool: true})
-	for index, style := range filtered {
-		items = append(items, psdDescriptorItem{
-			Key:  style["token"].(string),
-			Type: "TEXT",
-			Text: marshalPSDJSON(style),
-		})
-		items = append(items, psdDescriptorItem{
-			Key:  fmt.Sprintf("fx%d", index),
-			Type: "TEXT",
-			Text: style["kind"].(string),
-		})
-	}
-
-	var out bytes.Buffer
-	writePSDUint32(&out, 0)
-	writePSDUint32(&out, 16)
-	writePSDDescriptor(&out, "", "lfx2", items)
-	return out.Bytes()
-}
-
-func psdEffectDescriptorToken(kind string) string {
-	switch LayerStyleKind(kind) {
-	case LayerStyleKindDropShadow:
-		return "dropshadow"
-	case LayerStyleKindInnerShadow:
-		return "innershadow"
-	case LayerStyleKindOuterGlow:
-		return "outerglow"
-	case LayerStyleKindInnerGlow:
-		return "innerglow"
-	case LayerStyleKindBevelEmboss:
-		return "bevelemboss"
-	case LayerStyleKindStroke:
-		return "strokestyle"
-	case LayerStyleKindColorOverlay:
-		return "coloroverlay"
-	case LayerStyleKindGradientOverlay:
-		return "gradientoverlay"
-	case LayerStyleKindPatternOverlay:
-		return "patternoverlay"
-	case LayerStyleKindSatin:
-		return "satin"
-	default:
-		return ""
-	}
-}
-
-func buildPSDTextLayerPayload(layer *TextLayer) []byte {
-	if layer == nil {
-		return nil
-	}
-	var out bytes.Buffer
-
-	// Type tool payload layout:
-	// version, affine transform, text descriptor, warp descriptor, and bounds.
-	writePSDUint16(&out, 1)
-	for _, value := range []float64{1, 0, 0, 1, 0, 0} {
-		writePSDFloat64(&out, value)
-	}
-	writePSDUint16(&out, 50)
-	writePSDUint32(&out, 16)
-	textItems := []psdDescriptorItem{
-		{Key: "Txt ", Type: "TEXT", Text: layer.Text},
-		{Key: "font", Type: "TEXT", Text: layer.FontFamily},
-		{Key: "fontStyle", Type: "TEXT", Text: layer.FontStyle},
-		{Key: "antiAlias", Type: "TEXT", Text: layer.AntiAlias},
-		{Key: "alignment", Type: "TEXT", Text: layer.Alignment},
-		{Key: "textType", Type: "TEXT", Text: layer.TextType},
-		{Key: "orientation", Type: "TEXT", Text: layer.Orientation},
-		{Key: "fontSize", Type: "doub", Float64: layer.FontSize},
-		{Key: "tracking", Type: "doub", Float64: layer.Tracking},
-		{Key: "leading", Type: "doub", Float64: layer.Leading},
-		{Key: "baselineShift", Type: "doub", Float64: layer.BaselineShift},
-		{Key: "kerning", Type: "doub", Float64: layer.Kerning},
-		{Key: "color", Type: "TEXT", Text: marshalPSDJSON(layer.Color)},
-		{Key: "styleJSON", Type: "TEXT", Text: marshalPSDJSON(map[string]any{
-			"bold":          layer.Bold,
-			"italic":        layer.Italic,
-			"language":      layer.Language,
-			"superscript":   layer.Superscript,
-			"subscript":     layer.Subscript,
-			"underline":     layer.Underline,
-			"strikethrough": layer.Strikethrough,
-			"allCaps":       layer.AllCaps,
-			"smallCaps":     layer.SmallCaps,
-			"indentLeft":    layer.IndentLeft,
-			"indentRight":   layer.IndentRight,
-			"indentFirst":   layer.IndentFirst,
-			"spaceBefore":   layer.SpaceBefore,
-			"spaceAfter":    layer.SpaceAfter,
-		})},
-	}
-	writePSDDescriptor(&out, "", "TxLr", textItems)
-
-	writePSDUint16(&out, 1)
-	writePSDUint32(&out, 16)
-	writePSDDescriptor(&out, "", "warp", []psdDescriptorItem{
-		{Key: "warpStyle", Type: "TEXT", Text: "warpNone"},
-		{Key: "warpValue", Type: "doub", Float64: 0},
-		{Key: "warpPerspective", Type: "doub", Float64: 0},
-		{Key: "warpPerspectiveOther", Type: "doub", Float64: 0},
-	})
-
-	writePSDInt32(&out, int32(layer.Bounds.X))
-	writePSDInt32(&out, int32(layer.Bounds.Y))
-	writePSDInt32(&out, int32(layer.Bounds.X+layer.Bounds.W))
-	writePSDInt32(&out, int32(layer.Bounds.Y+layer.Bounds.H))
-	return out.Bytes()
-}
-
-func buildPSDAdjustmentLayerPayload(layer *AdjustmentLayer) []byte {
-	if layer == nil {
-		return nil
-	}
-	payload := map[string]any{
-		"kind": stringValueOrDefault(layer.AdjustmentKind, ""),
-		"params": func() any {
-			if len(layer.Params) == 0 {
-				return map[string]any{}
-			}
-			var parsed any
-			if err := json.Unmarshal(layer.Params, &parsed); err == nil {
-				return parsed
-			}
-			return string(layer.Params)
-		}(),
-	}
-	var out bytes.Buffer
-	writePSDUint16(&out, 1)
-	out.WriteString(marshalPSDJSON(payload))
-	return out.Bytes()
-}
-
-func marshalPSDJSON(value any) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
-	}
-	return string(encoded)
-}
-
-type psdDescriptorItem struct {
-	Key     string
-	Type    string
-	Text    string
-	Bool    bool
-	Float64 float64
-	Int32   int32
-}
-
-func writePSDDescriptor(out *bytes.Buffer, name, classID string, items []psdDescriptorItem) {
-	writePSDUnicodeString(out, name)
-	writePSDDescriptorID(out, classID)
-	writePSDUint32(out, uint32(len(items)))
-	for _, item := range items {
-		writePSDDescriptorID(out, item.Key)
-		writePSDString(out, item.Type)
-		switch item.Type {
-		case "TEXT":
-			writePSDUnicodeString(out, item.Text)
-		case "bool":
-			if item.Bool {
-				out.WriteByte(1)
-			} else {
-				out.WriteByte(0)
-			}
-		case "doub":
-			writePSDFloat64(out, item.Float64)
-		case "long":
-			writePSDInt32(out, item.Int32)
-		default:
-			writePSDUnicodeString(out, item.Text)
-		}
-	}
-}
-
-func writePSDUnicodeString(out *bytes.Buffer, value string) {
-	encoded := utf16Encode(value)
-	writePSDUint32(out, uint32(len(encoded)))
-	for _, r := range encoded {
-		writePSDUint16(out, r)
-	}
-}
-
-func writePSDDescriptorID(out *bytes.Buffer, value string) {
-	if len(value) == 4 {
-		writePSDUint32(out, 0)
-		writePSDString(out, value)
-		return
-	}
-	writePSDUint32(out, uint32(len(value)))
-	writePSDString(out, value)
-}
-
-func writePSDFloat64(out *bytes.Buffer, value float64) {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], math.Float64bits(value))
-	out.Write(buf[:])
-}
-
-func writePSDString(out *bytes.Buffer, value string) {
-	out.WriteString(value)
-}
-
-func writePSDUint16(out *bytes.Buffer, value uint16) {
-	var buf [2]byte
-	binary.BigEndian.PutUint16(buf[:], value)
-	out.Write(buf[:])
-}
-
-func writePSDUint32(out *bytes.Buffer, value uint32) {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], value)
-	out.Write(buf[:])
-}
-
-func writePSDInt32(out *bytes.Buffer, value int32) {
-	writePSDUint32(out, uint32(value))
-}
-
-func unitToPSDOpacity(value float64) uint8 {
-	return uint8(math.Round(clampUnit(value) * 255))
-}
-
-func psdBlendKey(mode BlendMode) string {
-	switch mode {
-	case BlendModeMultiply:
-		return "mul "
-	case BlendModeScreen:
-		return "scrn"
-	case BlendModeOverlay:
-		return "over"
-	case BlendModeDifference:
-		return "diff"
-	case BlendModeExclusion:
-		return "smud"
-	case BlendModeDarken:
-		return "dark"
-	case BlendModeLighten:
-		return "lite"
-	default:
-		return "norm"
-	}
 }
 
 func exportDocumentPayload(doc *Document, format string) (string, error) {
