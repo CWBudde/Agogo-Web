@@ -384,6 +384,20 @@ function selectionModeFromModifiers(shiftKey: boolean, altKey: boolean) {
   return "replace" as const;
 }
 
+/**
+ * Pressure value to send with paint-stroke commands.
+ *
+ * Browsers report a constant 0.5 pressure for a pressed mouse button (and 0
+ * when no device reports at all), which is not a real pressure reading — with
+ * PressureSize/PressureFlow dynamics enabled it silently weakened every mouse
+ * stroke to 75% size / 50% flow. Only a pen delivers meaningful values, so
+ * pointerType is the discriminator: pens pass their reading through, all
+ * other devices act as full pressure (Photoshop's mouse behavior).
+ */
+function strokePressure(event: { pointerType: string; pressure: number }): number {
+  return event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 1;
+}
+
 function distanceSquared(a: DocumentPoint, b: DocumentPoint) {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -2340,7 +2354,7 @@ export function EditorCanvas({
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           if (cloneStampAligned) {
@@ -2352,7 +2366,7 @@ export function EditorCanvas({
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
             brush: {
               size: brushSize,
               hardness: brushHardness,
@@ -2384,13 +2398,13 @@ export function EditorCanvas({
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
             brush: {
               size: brushSize,
               hardness: brushHardness,
@@ -2425,13 +2439,13 @@ export function EditorCanvas({
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
             brush: {
               size: brushSize,
               hardness: activeTool === "pencil" ? 1.0 : brushHardness,
@@ -3179,13 +3193,13 @@ export function EditorCanvas({
             pendingStrokePointsRef.current.push({
               x: p.x,
               y: p.y,
-              pressure: raw.pressure || 0.5,
+              pressure: strokePressure(raw),
             });
           }
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
-            pressure: event.pressure || 0.5,
+            pressure: strokePressure(event),
           };
           scheduleInputFlush();
           return;

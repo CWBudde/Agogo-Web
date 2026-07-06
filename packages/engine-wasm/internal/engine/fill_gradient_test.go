@@ -148,7 +148,7 @@ func TestRenderGradientSurfaceRadial(t *testing.T) {
 		}
 	}
 	mid := buffer[1*4 : 1*4+4]
-	if mid[0] >= 255 || mid[0] == 0 || mid[2] >= 255 || mid[2] == 0 {
+	if mid[0] == 255 || mid[0] == 0 || mid[2] == 255 || mid[2] == 0 {
 		t.Fatalf("halfway pixel = %v, want blend of start and end colors", mid)
 	}
 

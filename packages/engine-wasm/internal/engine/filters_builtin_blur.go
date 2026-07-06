@@ -39,10 +39,12 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 			if a == 0 {
 				copy(pixels[i:i+4], orig[i:i+4])
 			} else if a < 255 {
-				pixels[i] = blendByte(orig[i], pixels[i], a)
-				pixels[i+1] = blendByte(orig[i+1], pixels[i+1], a)
-				pixels[i+2] = blendByte(orig[i+2], pixels[i+2], a)
-				pixels[i+3] = blendByte(orig[i+3], pixels[i+3], a)
+				// Blend original ↔ blurred in premultiplied space: the two
+				// operands can carry different alpha, so a straight-space
+				// per-channel lerp would darken feathered boundaries.
+				pixels[i], pixels[i+1], pixels[i+2], pixels[i+3] = lerpRGBAPremul(
+					orig[i], orig[i+1], orig[i+2], orig[i+3],
+					pixels[i], pixels[i+1], pixels[i+2], pixels[i+3], a)
 			}
 		}
 		return nil

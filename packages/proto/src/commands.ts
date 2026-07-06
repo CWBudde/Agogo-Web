@@ -946,7 +946,7 @@ export interface BrushParams {
 export interface BeginPaintStrokeCommand {
   x: number;
   y: number;
-  pressure?: number; // 0.0–1.0, defaults to 0.5
+  pressure?: number; // 0.0–1.0; 0/omitted = no pressure device, dynamics act as full pressure (Photoshop mouse behavior)
   tiltX?: number; // stylus tilt, degrees −90…+90
   tiltY?: number; // stylus tilt, degrees −90…+90
   brush: BrushParams;

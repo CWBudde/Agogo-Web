@@ -108,11 +108,29 @@ func buildDocumentSurfaceFromRaster(docW, docH int, bounds LayerBounds, src []by
 // effects above it. The result depends only on baseSurface/sourceSurface,
 // never on the document backdrop, so incremental compositing stays valid.
 func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle) []byte {
+	if !hasEnabledBehindContentStyles(styles) {
+		// No drop shadow / outer glow enabled: skip the full-document
+		// composite pass and paint the top-side effects straight onto a
+		// copy of the layer content, exactly as before.
+		finalSurface := append([]byte(nil), baseSurface...)
+		applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
+		return finalSurface
+	}
+
 	finalSurface := make([]byte, len(baseSurface))
 	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, true)
 	compositeDocumentSurface(finalSurface, baseSurface, BlendModeNormal, 1, nil)
 	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
 	return finalSurface
+}
+
+func hasEnabledBehindContentStyles(styles []DecodedLayerStyle) bool {
+	for _, style := range styles {
+		if style.Enabled && layerStyleKindRendersBehindContent(LayerStyleKind(style.Kind)) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyLayerStyleEffectsForPlacement(dst, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle, behindContent bool) {

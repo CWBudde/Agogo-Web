@@ -138,6 +138,65 @@ func TestFilterGaussianBlurOpaqueImageKeepsAlphaOpaque(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Feathered-selection regression: the per-pixel mask blend must happen in
+// premultiplied space. Lerping straight R,G,B,A independently darkens colour
+// wherever the original and filtered alpha differ (e.g. transparent original
+// vs semi-transparent filtered pixel under a feathered selection).
+// ---------------------------------------------------------------------------
+
+func TestApplyFilteredRGBAWithMaskFeatheredSelectionBlendsPremultiplied(t *testing.T) {
+	// Original pixel: fully transparent black. Filtered result: (200,200,200,90).
+	// Feathered selection at 128 must yield RGB ~200 at roughly half the
+	// filtered alpha — not (100,100,100,45).
+	pixels := []byte{0, 0, 0, 0}
+	selMask := []byte{128}
+	applyFilteredRGBAWithMask(pixels, selMask, func(int) (byte, byte, byte, byte) {
+		return 200, 200, 200, 90
+	})
+
+	if a := pixels[3]; a < 43 || a > 47 {
+		t.Errorf("alpha = %d, want ~45 (90 * 128/255)", a)
+	}
+	for c := 0; c < 3; c++ {
+		if v := pixels[c]; v < 195 || v > 205 {
+			t.Errorf("channel %d = %d, want ~200 — straight-space mask blend darkens colour", c, v)
+		}
+	}
+}
+
+func TestApplyFilteredRGBAWithMaskFeatheredOpaqueOperandsLerpNormally(t *testing.T) {
+	// When both operands are opaque, the premultiplied blend must reduce to a
+	// plain lerp (backwards compatible with the straight-space behaviour).
+	pixels := []byte{0, 0, 0, 255}
+	selMask := []byte{128}
+	applyFilteredRGBAWithMask(pixels, selMask, func(int) (byte, byte, byte, byte) {
+		return 200, 200, 200, 255
+	})
+	want := blendByte(0, 200, 128)
+	for c := 0; c < 3; c++ {
+		if v := pixels[c]; abs8diff(v, want) > 1 {
+			t.Errorf("channel %d = %d, want ~%d (plain lerp for opaque operands)", c, v, want)
+		}
+	}
+	if pixels[3] != 255 {
+		t.Errorf("alpha = %d, want 255", pixels[3])
+	}
+}
+
+func TestFilterGaussianBlurFeatheredSelectionNoDarkFringe(t *testing.T) {
+	pixels, w, h := makeAlphaTestImage()
+	selMask := make([]byte, w*h)
+	for i := range selMask {
+		selMask[i] = 128
+	}
+	params, _ := json.Marshal(map[string]any{"radius": 2})
+	if err := filterGaussianBlur(pixels, w, h, selMask, params); err != nil {
+		t.Fatal(err)
+	}
+	assertNoDarkHalo(t, pixels, w, h)
+}
+
+// ---------------------------------------------------------------------------
 // S.5 regression tests: Add Noise seed handling. A hard-coded fixed seed makes
 // every application replay the identical noise stream, so reapplying doubles
 // the exact same pattern (2× amount, perfectly correlated) instead of adding

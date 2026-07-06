@@ -314,9 +314,13 @@ func pressureFlagEnabled(flag *bool, defaultValue bool) bool {
 // applyPressure scales brush dynamics by the pointer pressure value (0–1).
 // By default size and flow respond to pressure to preserve the legacy brush
 // feel; callers can opt out or route pressure into opacity independently.
+//
+// pressure <= 0 means no pressure device reported a value (mouse input, or an
+// omitted field). Photoshop treats such input as full pressure, so dynamics
+// are neutral in that case — a mouse must never paint a weakened stroke.
 func applyPressure(p BrushParams, pressure float64) BrushParams {
 	if pressure <= 0 {
-		pressure = 0.5
+		pressure = 1
 	}
 	if pressureFlagEnabled(p.PressureSize, true) {
 		p.Size = p.Size * (0.5 + 0.5*pressure)
@@ -917,6 +921,112 @@ func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerB
 		state.contamination = clampFloat(state.contamination+pickup*(1-state.contamination), 0, 1)
 	}
 	collapseMixerState(state)
+}
+
+// dabFootprintSize returns the conservative write diameter of a single dab
+// centred at the dab position. It is the size that must be fed to
+// saveRowsBeforeDab, expandDirty and paintDabClippedToSelection so that every
+// pixel a dab can write is covered by the saved undo rows, the stroke dirty
+// rect and the selection re-blend region.
+//
+// Regular brushes never write beyond Size/2 plus the AA fringe (already
+// covered by the +2 padding those helpers add). Mixer-brush dabs fan out
+// bristle and rim dabs around the centre (see paintMixerBrushDab):
+//
+//   - bristle centres:  up to 0.58·radius laterally + 0.06·radius streak
+//   - rim dab centres:  a further 0.58·bristleSize laterally
+//   - rim dab radius:   up to 0.45·bristleSize (0.55 squish notwithstanding)
+//
+// so the mixer footprint is expanded to 0.64·Size + 2.06·bristleSize, which
+// bounds the unsquished worst case with margin. Without this, large mixer rim
+// dabs could write outside the rows captured for the pixel-delta undo and
+// undo could not restore them.
+func dabFootprintSize(p BrushParams) float64 {
+	if !p.MixerBrush {
+		return p.Size
+	}
+	bristle := mixerBristleSize(p.Size)
+	return 0.64*p.Size + 2.06*bristle + 2
+}
+
+// paintDabClippedToSelection runs paint() and then re-blends every pixel in
+// the dab's footprint against the document-space selection mask so the dab
+// only lands inside the selection. Coverage is weighted, not a hard cutoff:
+// for a mask value m the result is lerp(before, after, m/255) per channel,
+// matching the 0–255 coverage convention fillRasterWithMask uses for fills
+// and gradients — feathered or anti-aliased selection edges scale the paint
+// proportionally.
+//
+// footprint is the dab's write diameter (see dabFootprintSize). The examined
+// region matches what saveRowsBeforeDab/expandDirty cover for the same
+// footprint, so the re-blend never touches pixels outside the saved undo
+// rows: restored out-of-selection pixels are byte-identical to the undo
+// snapshot. scratch is a caller-owned buffer reused across dabs.
+func paintDabClippedToSelection(layer *PixelLayer, selection *Selection, cx, cy, footprint float64, scratch *[]byte, paint func()) {
+	if selection == nil {
+		paint()
+		return
+	}
+	w := layer.Bounds.W
+	h := layer.Bounds.H
+	r := int(math.Ceil(footprint*0.5)) + 2
+	x0 := int(cx) - layer.Bounds.X - r
+	y0 := int(cy) - layer.Bounds.Y - r
+	x1 := int(cx) - layer.Bounds.X + r
+	y1 := int(cy) - layer.Bounds.Y + r
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > w {
+		x1 = w
+	}
+	if y1 > h {
+		y1 = h
+	}
+	if x0 >= x1 || y0 >= y1 {
+		paint()
+		return
+	}
+
+	// Snapshot the footprint region so out-of-selection writes can be undone.
+	regionW := x1 - x0
+	rowBytes := regionW * 4
+	needed := (y1 - y0) * rowBytes
+	if cap(*scratch) < needed {
+		*scratch = make([]byte, needed)
+	}
+	buf := (*scratch)[:needed]
+	for y := y0; y < y1; y++ {
+		srcStart := (y*w + x0) * 4
+		copy(buf[(y-y0)*rowBytes:(y-y0+1)*rowBytes], layer.Pixels[srcStart:srcStart+rowBytes])
+	}
+
+	paint()
+
+	for y := y0; y < y1; y++ {
+		docY := layer.Bounds.Y + y
+		rowOff := (y - y0) * rowBytes
+		for x := x0; x < x1; x++ {
+			cov := selectionCoverageAt(selection, layer.Bounds.X+x, docY)
+			if cov == 255 {
+				continue
+			}
+			idx := (y*w + x) * 4
+			sIdx := rowOff + (x-x0)*4
+			if cov == 0 {
+				copy(layer.Pixels[idx:idx+4], buf[sIdx:sIdx+4])
+				continue
+			}
+			c := uint32(cov)
+			inv := 255 - c
+			for ch := 0; ch < 4; ch++ {
+				layer.Pixels[idx+ch] = uint8((uint32(buf[sIdx+ch])*inv + uint32(layer.Pixels[idx+ch])*c + 127) / 255)
+			}
+		}
+	}
 }
 
 // saveRowsBeforeDab saves the original (pre-paint) pixel rows that the dab at

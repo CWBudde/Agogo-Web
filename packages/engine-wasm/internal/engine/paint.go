@@ -19,6 +19,14 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	}
 	layer := findPixelLayer(doc, doc.ActiveLayerID)
 	if layer == nil {
+		// The active layer exists but is not a pixel layer (text, vector,
+		// adjustment, group). The begin/continue dispatch path discards return
+		// values, so record a rejected stroke; handleEndPaintStroke surfaces
+		// the "must be rasterized" error over the ABI instead of silently
+		// succeeding. A missing layer stays a silent no-op as before.
+		if node := doc.findLayer(doc.ActiveLayerID); node != nil {
+			inst.paintStroke = &activePaintStroke{layerID: doc.ActiveLayerID}
+		}
 		return
 	}
 	brushParams := p.Brush
@@ -92,33 +100,38 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 
 	pressure := p.Pressure
 	if pressure == 0 {
-		pressure = 0.5
+		// No pressure reported (mouse input) → dynamics neutral, not weakened.
+		pressure = 1
 	}
 	effective := applyPressure(brushParams, pressure)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
+	footprint := dabFootprintSize(effective)
+	var selScratch []byte
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
 		dabParams := effective
-		stroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
-		if brushParams.EraseBackground {
-			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
-		} else if dabParams.CloneStamp {
-			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
-		} else if dabParams.HistoryBrush {
-			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
-		} else {
-			if dabParams.MixerBrush {
-				dirX, dirY := mixerStrokeDirection(stroke, dx, dy, azimuth)
-				directionAzimuth := math.Atan2(dirY, dirX)
-				paintMixerBrushDab(stroke.renderer, layer, &stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
-				updateMixerStrokeDirection(stroke, dx, dy)
+		stroke.saveRowsBeforeDab(layer, dx, dy, footprint, &inst.undoRowBuf)
+		paintDabClippedToSelection(layer, doc.Selection, dx, dy, footprint, &selScratch, func() {
+			if brushParams.EraseBackground {
+				EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+			} else if dabParams.CloneStamp {
+				CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
+			} else if dabParams.HistoryBrush {
+				CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
 			} else {
-				paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+				if dabParams.MixerBrush {
+					dirX, dirY := mixerStrokeDirection(stroke, dx, dy, azimuth)
+					directionAzimuth := math.Atan2(dirY, dirX)
+					paintMixerBrushDab(stroke.renderer, layer, &stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+					updateMixerStrokeDirection(stroke, dx, dy)
+				} else {
+					paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+				}
 			}
-		}
-		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
+		})
+		inst.paintStroke.expandDirty(layer, dx, dy, footprint)
 	}
 	if rect, ok := strokeDirtyRectInDocument(stroke, layer); ok {
 		doc.bumpContentVersionRect(rect)
@@ -161,8 +174,9 @@ func (inst *instance) handleContinuePaintStrokePoints(points []StrokePoint) {
 	if layer == nil {
 		return
 	}
+	var selScratch []byte
 	for i := range points {
-		inst.continuePaintStrokePoint(layer, points[i])
+		inst.continuePaintStrokePoint(doc, layer, points[i], &selScratch)
 	}
 	if rect, ok := strokeDirtyRectInDocument(inst.paintStroke, layer); ok {
 		doc.bumpContentVersionRect(rect)
@@ -173,36 +187,40 @@ func (inst *instance) handleContinuePaintStrokePoints(points []StrokePoint) {
 // pressure default, applyPressure, applyTilt, stabilizer.Push, strokeState
 // AddPoint, then the dab loop. It does not bump the content version; callers
 // do that once per batch.
-func (inst *instance) continuePaintStrokePoint(layer *PixelLayer, p StrokePoint) {
+func (inst *instance) continuePaintStrokePoint(doc *Document, layer *PixelLayer, p StrokePoint, selScratch *[]byte) {
 	pressure := p.Pressure
 	if pressure == 0 {
-		pressure = 0.5
+		// No pressure reported (mouse input) → dynamics neutral, not weakened.
+		pressure = 1
 	}
 	effective := applyPressure(inst.paintStroke.params, pressure)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
 	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
+	footprint := dabFootprintSize(effective)
 	for _, dab := range dabs {
 		dx, dy := applyScatter(dab[0], dab[1], effective)
 		dabParams := effective
-		inst.paintStroke.saveRowsBeforeDab(layer, dx, dy, effective.Size, &inst.undoRowBuf)
-		if inst.paintStroke.params.EraseBackground {
-			EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
-		} else if dabParams.CloneStamp {
-			CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
-		} else if dabParams.HistoryBrush {
-			CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
-		} else {
-			if dabParams.MixerBrush {
-				dirX, dirY := mixerStrokeDirection(inst.paintStroke, dx, dy, azimuth)
-				directionAzimuth := math.Atan2(dirY, dirX)
-				paintMixerBrushDab(inst.paintStroke.renderer, layer, &inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
-				updateMixerStrokeDirection(inst.paintStroke, dx, dy)
+		inst.paintStroke.saveRowsBeforeDab(layer, dx, dy, footprint, &inst.undoRowBuf)
+		paintDabClippedToSelection(layer, doc.Selection, dx, dy, footprint, selScratch, func() {
+			if inst.paintStroke.params.EraseBackground {
+				EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+			} else if dabParams.CloneStamp {
+				CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
+			} else if dabParams.HistoryBrush {
+				CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
 			} else {
-				paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+				if dabParams.MixerBrush {
+					dirX, dirY := mixerStrokeDirection(inst.paintStroke, dx, dy, azimuth)
+					directionAzimuth := math.Atan2(dirY, dirX)
+					paintMixerBrushDab(inst.paintStroke.renderer, layer, &inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+					updateMixerStrokeDirection(inst.paintStroke, dx, dy)
+				} else {
+					paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+				}
 			}
-		}
-		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
+		})
+		inst.paintStroke.expandDirty(layer, dx, dy, footprint)
 	}
 }
 
@@ -222,7 +240,7 @@ func (inst *instance) handleEndPaintStroke() error {
 	stroke := inst.paintStroke
 	inst.paintStroke = nil
 
-	if doc == nil || !stroke.hasDirty {
+	if doc == nil {
 		if stroke.params.MixerBrush {
 			inst.mixerBrush = stroke.mixer
 		}
@@ -230,6 +248,21 @@ func (inst *instance) handleEndPaintStroke() error {
 	}
 	layer := findPixelLayer(doc, stroke.layerID)
 	if layer == nil {
+		if stroke.params.MixerBrush {
+			inst.mixerBrush = stroke.mixer
+		}
+		// The stroke targeted a non-pixel layer (rejected at begin time):
+		// surface a clear error over the ABI so the frontend can offer to
+		// rasterize. A layer that vanished mid-stroke stays a silent no-op.
+		if node := doc.findLayer(stroke.layerID); node != nil {
+			return paintTargetError(node)
+		}
+		return nil
+	}
+	if !stroke.hasDirty {
+		if stroke.params.MixerBrush {
+			inst.mixerBrush = stroke.mixer
+		}
 		return nil
 	}
 
@@ -270,6 +303,16 @@ func (inst *instance) handleEndPaintStroke() error {
 		inst.mixerBrush = stroke.mixer
 	}
 	return nil
+}
+
+// paintTargetError describes why the given layer node cannot be painted on.
+// The wording is part of the ABI surface: the frontend matches on it to offer
+// rasterizing the layer.
+func paintTargetError(node LayerNode) error {
+	if node == nil {
+		return fmt.Errorf("no active layer to paint on")
+	}
+	return fmt.Errorf("cannot paint on %s layer %q: layer must be rasterized before painting", node.LayerType(), node.Name())
 }
 
 // revertActivePaintStroke discards an in-progress brush stroke and restores the
@@ -387,6 +430,13 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 			if coverage <= 0 {
 				continue
 			}
+			// Clip to the active selection with coverage weighting — the same
+			// 0–255 convention brush dabs and fillRasterWithMask use.
+			if sel := selectionCoverageAt(doc.Selection, lx+layer.Bounds.X, ly+layer.Bounds.Y); sel == 0 {
+				continue
+			} else if sel < 255 {
+				coverage *= float64(sel) / 255.0
+			}
 			idx := (ly*lw + lx) * 4
 			newAlpha := float64(layer.Pixels[idx+3]) * (1.0 - coverage)
 			if newAlpha < 0 {
@@ -395,7 +445,10 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 			layer.Pixels[idx+3] = uint8(newAlpha)
 		}
 	}
-	doc.ContentVersion++
+	// Use the shared atomic version counter and dirty-rect marking (S.2/S.4)
+	// like every other pixel edit — a bare ContentVersion++ neither advances
+	// the global counter nor invalidates the composite cache region.
+	doc.bumpContentVersionRect(DirtyRect{X: layer.Bounds.X, Y: layer.Bounds.Y, W: lw, H: lh})
 
 	// Record undo.
 	layerID := layer.ID()

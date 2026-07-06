@@ -6,10 +6,18 @@ import (
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
+// pixelNoiseSeed returns a deterministic, well-mixed noise seed for a document
+// pixel coordinate (dissolve blending). It packs (x, y) into a 64-bit word and
+// applies the splitmix64 finalizer, which distributes seeds near-uniformly
+// over the full uint32 range. The previous multiply-xor hash always set bit 31
+// for small coordinates, so 50%-opacity dissolve left the area near the
+// document origin untouched.
 func pixelNoiseSeed(x, y int) uint32 {
-	seed := uint32(x)*73856093 ^ uint32(y)*19349663 ^ 0x9e3779b9
-	seed ^= seed >> 16
-	return seed
+	z := uint64(uint32(x))<<32 | uint64(uint32(y))
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z ^= z >> 31
+	return uint32(z)
 }
 
 func insertChild(parent *GroupLayer, layer LayerNode, index int) {

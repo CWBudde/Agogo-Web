@@ -51,7 +51,10 @@ func applyFilteredWithMask(pixels []byte, selMask []byte, fn func(i int) (byte, 
 
 // applyFilteredRGBAWithMask blends per-pixel results (all four channels,
 // including alpha) using a selection mask. fn returns the new straight-alpha
-// R, G, B, A for a pixel at flat index i (stride 4).
+// R, G, B, A for a pixel at flat index i (stride 4). Partial mask values are
+// blended in premultiplied space (lerpRGBAPremul) because the two operands may
+// have different alpha — lerping straight channels independently would darken
+// colour at feathered selection boundaries.
 func applyFilteredRGBAWithMask(pixels []byte, selMask []byte, fn func(i int) (byte, byte, byte, byte)) {
 	for i := 0; i < len(pixels); i += 4 {
 		nr, ng, nb, na := fn(i)
@@ -62,10 +65,9 @@ func applyFilteredRGBAWithMask(pixels []byte, selMask []byte, fn func(i int) (by
 				continue
 			}
 			if a < 255 {
-				pixels[i] = blendByte(pixels[i], nr, a)
-				pixels[i+1] = blendByte(pixels[i+1], ng, a)
-				pixels[i+2] = blendByte(pixels[i+2], nb, a)
-				pixels[i+3] = blendByte(pixels[i+3], na, a)
+				pixels[i], pixels[i+1], pixels[i+2], pixels[i+3] = lerpRGBAPremul(
+					pixels[i], pixels[i+1], pixels[i+2], pixels[i+3],
+					nr, ng, nb, na, a)
 				continue
 			}
 		}
@@ -74,6 +76,37 @@ func applyFilteredRGBAWithMask(pixels []byte, selMask []byte, fn func(i int) (by
 		pixels[i+2] = nb
 		pixels[i+3] = na
 	}
+}
+
+// lerpRGBAPremul interpolates between two straight-alpha RGBA pixels by
+// t (0 = old, 255 = new) in premultiplied space and returns the straight
+// result. When both alphas are equal (e.g. fully opaque) this reduces to a
+// plain per-channel lerp; when they differ it keeps the colour of the more
+// visible operand instead of darkening towards the less visible one.
+func lerpRGBAPremul(or, og, ob, oa, nr, ng, nb, na, t byte) (byte, byte, byte, byte) {
+	w0 := uint32(255 - t)
+	w1 := uint32(t)
+	oaU := uint32(oa)
+	naU := uint32(na)
+
+	// Blended alpha, scaled by 255.
+	q := oaU*w0 + naU*w1
+	if q == 0 {
+		return 0, 0, 0, 0
+	}
+	outA := byte((q + 127) / 255)
+
+	// Each channel is premultiplied by its own alpha, lerped at the same
+	// scale as q, and unpremultiplied by dividing through q (scales cancel).
+	lerpCh := func(o, n byte) byte {
+		p := uint32(o)*oaU*w0 + uint32(n)*naU*w1
+		v := (p + q/2) / q
+		if v > 255 {
+			v = 255
+		}
+		return byte(v)
+	}
+	return lerpCh(or, nr), lerpCh(og, ng), lerpCh(ob, nb), outA
 }
 
 // premultiplyRGBA converts a straight-alpha RGBA8 buffer to premultiplied

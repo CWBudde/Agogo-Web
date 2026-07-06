@@ -98,13 +98,29 @@ func TestPathFullWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path combine: %v", err)
 	}
-	// After combine: should have 1 path with 2 subpaths.
+	// After combine: 1 path. Combine is a real boolean union now, and the
+	// inner rectangle lies entirely inside the outer one, so the union
+	// collapses to a single merged contour (not 2 concatenated subpaths).
 	if len(result.UIMeta.Paths) != 1 {
 		t.Fatalf("expected 1 path after combine, got %d", len(result.UIMeta.Paths))
 	}
 	doc = inst.manager.Active()
-	if len(doc.Paths[0].Path.Subpaths) != 2 {
-		t.Fatalf("expected 2 subpaths after combine, got %d", len(doc.Paths[0].Path.Subpaths))
+	if len(doc.Paths[0].Path.Subpaths) != 1 {
+		t.Fatalf("expected 1 merged subpath after union, got %d", len(doc.Paths[0].Path.Subpaths))
+	}
+	if !doc.Paths[0].Path.Subpaths[0].Closed {
+		t.Fatal("expected merged subpath to be closed")
+	}
+	// The union must cover the whole outer rectangle, including the area of
+	// the (swallowed) inner rectangle.
+	unionMask, err := rasterizePathToMask(&doc.Paths[0].Path, 128, 128)
+	if err != nil {
+		t.Fatalf("rasterize union: %v", err)
+	}
+	for _, pt := range [][2]int{{20, 20}, {50, 50}, {85, 85}} {
+		if unionMask[pt[1]*128+pt[0]] < 128 {
+			t.Errorf("union must cover (%d,%d)", pt[0], pt[1])
+		}
 	}
 
 	// 7. Make selection from the combined path.

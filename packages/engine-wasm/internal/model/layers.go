@@ -3,8 +3,11 @@ package model
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
+	"time"
 )
 
 type LayerType string
@@ -846,10 +849,22 @@ func BlendIfEqual(a, b *BlendIfConfig) bool {
 	return *a == *b
 }
 
+// layerIDRandRead is the entropy source for NewLayerID; a package variable so
+// tests can simulate entropy failure.
+var layerIDRandRead = rand.Read
+
+// layerIDFallbackCounter makes fallback IDs unique within the process when the
+// entropy source fails.
+var layerIDFallbackCounter uint64
+
 func NewLayerID() string {
 	raw := [16]byte{}
-	if _, err := rand.Read(raw[:]); err != nil {
-		panic(fmt.Sprintf("generate layer id: %v", err))
+	if _, err := layerIDRandRead(raw[:]); err != nil {
+		// Library code must not panic. Degrade to a process-unique ID derived
+		// from the current time and a monotonic counter; callers keep working
+		// with a valid (if less random) UUID-shaped ID.
+		binary.BigEndian.PutUint64(raw[0:8], uint64(time.Now().UnixNano()))
+		binary.BigEndian.PutUint64(raw[8:16], atomic.AddUint64(&layerIDFallbackCounter, 1))
 	}
 	raw[6] = (raw[6] & 0x0f) | 0x40
 	raw[8] = (raw[8] & 0x3f) | 0x80

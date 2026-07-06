@@ -234,15 +234,6 @@ func freeTransformStateFromRecord(lt *LastTransformRecord, pl *PixelLayer) *Free
 	return ft
 }
 
-// applyLastFreeTransform applies a LastTransformRecord (originally captured
-// from a free transform) to a pixel layer, producing new pixels and bounds.
-// The record's relative offsets are resolved against the layer's current bounds.
-//
-//nolint:unused
-func applyLastFreeTransform(lt *LastTransformRecord, pl *PixelLayer) ([]byte, LayerBounds) {
-	return applyPixelTransform(freeTransformStateFromRecord(lt, pl), lt.Interpolation)
-}
-
 // transformPoint maps a layer-local point through the affine matrix.
 func (s *FreeTransformState) transformPoint(lx, ly float64) (dx, dy float64) {
 	return s.A*lx + s.C*ly + s.TX, s.B*lx + s.D*ly + s.TY
@@ -322,15 +313,7 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 	// Decompose matrix into scale, rotation and skew.
 	scaleX := math.Hypot(s.A, s.B)
 	scaleY := math.Hypot(s.C, s.D)
-	rotation := math.Atan2(s.B, s.A) * 180 / math.Pi
-	// Skew: absolute deviation of each basis column from its un-transformed
-	// direction. SkewX is the angle of the y-basis column (C, D) from vertical
-	// and SkewY the angle of the x-basis column (A, B) from horizontal. Both
-	// include any rotation component (a pure rotation reports skewX = skewY =
-	// rotation); the fields disambiguate pure skews: a horizontal (top/bottom
-	// edge) skew only moves SkewX, a vertical (left/right edge) skew only SkewY.
-	skewX := math.Atan2(s.D, s.C)*180/math.Pi - 90
-	skewY := math.Atan2(s.B, s.A) * 180 / math.Pi
+	rotation, skewX, skewY := decomposeRotationSkew(s.A, s.B, s.C, s.D)
 
 	origW := float64(s.OriginalBounds.W)
 	origH := float64(s.OriginalBounds.H)
@@ -370,6 +353,41 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 		SkewX:         skewX,
 		SkewY:         skewY,
 	}
+}
+
+// normalizeDegrees wraps an angle to the (-180, 180] range.
+func normalizeDegrees(deg float64) float64 {
+	deg = math.Mod(deg, 360)
+	if deg > 180 {
+		deg -= 360
+	} else if deg <= -180 {
+		deg += 360
+	}
+	return deg
+}
+
+// decomposeRotationSkew splits the 2×2 matrix [A C; B D] into rotation, skewX
+// and skewY (all degrees), relative to the rotated frame so a pure rotation
+// reports zero skew.
+//
+// A 2×2 matrix has four degrees of freedom (two scales, rotation, one shear),
+// so rotation, skewX and skewY cannot all be independent: the shear between
+// the two basis columns is attributed to the axis whose basis column deviates
+// more from its home direction, and the rotation is read from the other
+// column. This makes the canonical gestures decompose cleanly — a pure
+// rotation reports skewX = skewY = 0, a pure horizontal (top/bottom edge)
+// skew reports only skewX, and a pure vertical (left/right edge) skew reports
+// only skewY.
+func decomposeRotationSkew(a, b, c, d float64) (rotation, skewX, skewY float64) {
+	// thetaX: angle of the x-basis column (A, B) from the +x axis.
+	// thetaY: angle of the y-basis column (C, D) from the +y axis.
+	thetaX := normalizeDegrees(math.Atan2(b, a) * 180 / math.Pi)
+	thetaY := normalizeDegrees(math.Atan2(d, c)*180/math.Pi - 90)
+	shear := normalizeDegrees(thetaX - thetaY)
+	if math.Abs(thetaX) <= math.Abs(thetaY) {
+		return thetaX, shear, 0
+	}
+	return thetaY, 0, shear
 }
 
 // ---------------------------------------------------------------------------

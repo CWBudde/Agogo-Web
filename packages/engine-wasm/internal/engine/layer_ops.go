@@ -536,16 +536,26 @@ func (doc *Document) MergeVisible() error {
 	}
 	merged := NewPixelLayer("Merged Visible", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, surface)
 
-	// Preserve root-level hidden layers; visible content (including groups and their
-	// nested children) is represented by the merged composite.
-	hidden := make([]LayerNode, 0, len(children))
-	for _, child := range children {
-		if !child.Visible() {
-			hidden = append(hidden, child)
+	// Preserve root-level hidden layers at their original stack positions; the
+	// merged composite (which represents all visible content, including groups
+	// and their nested children) takes the slot of the topmost visible layer —
+	// the same convention Photoshop uses for Merge Visible.
+	topVisible := -1
+	for index, child := range children {
+		if child.Visible() {
+			topVisible = index
 		}
 	}
-	hidden = append(hidden, merged)
-	root.SetChildren(hidden)
+	next := make([]LayerNode, 0, len(children))
+	for index, child := range children {
+		switch {
+		case index == topVisible:
+			next = append(next, merged)
+		case !child.Visible():
+			next = append(next, child)
+		}
+	}
+	root.SetChildren(next)
 	doc.normalizeClippingState()
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAt()
@@ -869,8 +879,12 @@ func (doc *Document) rasterizeAsPixelLayer(layer LayerNode, name string) (*Pixel
 		return nil, err
 	}
 	pixelLayer := NewPixelLayer(name, LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, buffer)
-	pixelLayer.SetOpacity(layer.Opacity())
-	pixelLayer.SetFillOpacity(layer.FillOpacity())
+	// Opacity, fill opacity, and the layer mask are already baked into the
+	// rendered surface by renderLayerToSurface — the same convention used by
+	// MergeDown/MergeVisible. Copying them onto the result would apply them a
+	// second time at composite (a 50% layer would render at 25%), so the
+	// flattened layer keeps the defaults (1.0). The blend mode is NOT baked
+	// (there is no backdrop when rendering the layer alone), so preserve it.
 	pixelLayer.SetBlendMode(layer.BlendMode())
 	pixelLayer.SetVisible(layer.Visible())
 	pixelLayer.SetLockMode(layer.LockMode())
@@ -1382,38 +1396,47 @@ func (doc *Document) clippingBaseSurfaceForLayer(layer LayerNode) ([]byte, error
 	return nil, nil
 }
 
+// compositeDocumentSurface composites src onto dest without knowing the
+// document width. Callers that have the width in scope should prefer
+// compositeDocumentSurfaceClipped (even with a nil clip) so dissolve blending
+// derives its noise seed from document coordinates.
 func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64, blendIf *BlendIfConfig) {
 	if len(dest) != len(src) || opacity <= 0 {
 		return
 	}
 	identity := blendIfIsIdentity(blendIf)
-	compositeDocumentSurfaceSpan(dest, src, 0, len(dest), blendMode, opacity, identity, blendIf)
+	compositeDocumentSurfaceSpan(dest, src, 0, 0, len(dest), blendMode, opacity, identity, blendIf)
 }
 
 // compositeDocumentSurfaceClipped is compositeDocumentSurface restricted to a
-// doc-space rectangle. A nil clip delegates to the full-surface variant. The
-// per-pixel noise seed stays offset/4 (== y*docW+x), so clipped output is
-// byte-identical to the full pass inside the clip rect (dissolve blending).
+// doc-space rectangle. A nil clip composites the full surface. The per-pixel
+// dissolve noise seed is pixelNoiseSeed(docX, docY) — the same convention as
+// compositeRasterIntoDocument — so clipped output is byte-identical to the
+// full pass inside the clip rect (dissolve blending).
 func compositeDocumentSurfaceClipped(dest, src []byte, docW int, blendMode BlendMode, opacity float64, blendIf *BlendIfConfig, clip *DirtyRect) {
-	if clip == nil {
-		compositeDocumentSurface(dest, src, blendMode, opacity, blendIf)
-		return
-	}
 	if len(dest) != len(src) || opacity <= 0 || docW <= 0 {
 		return
 	}
 	identity := blendIfIsIdentity(blendIf)
+	if clip == nil {
+		compositeDocumentSurfaceSpan(dest, src, docW, 0, len(dest), blendMode, opacity, identity, blendIf)
+		return
+	}
 	for y := clip.Y; y < clip.Y+clip.H; y++ {
 		rowStart := (y*docW + clip.X) * 4
 		rowEnd := rowStart + clip.W*4
 		if rowStart < 0 || rowEnd > len(dest) {
 			continue
 		}
-		compositeDocumentSurfaceSpan(dest, src, rowStart, rowEnd, blendMode, opacity, identity, blendIf)
+		compositeDocumentSurfaceSpan(dest, src, docW, rowStart, rowEnd, blendMode, opacity, identity, blendIf)
 	}
 }
 
-func compositeDocumentSurfaceSpan(dest, src []byte, from, to int, blendMode BlendMode, opacity float64, identity bool, blendIf *BlendIfConfig) {
+// compositeDocumentSurfaceSpan composites the byte range [from, to) of two
+// document-sized surfaces. docW > 0 enables the document-coordinate dissolve
+// seed convention pixelNoiseSeed(docX, docY); docW <= 0 (width unknown, e.g.
+// the layer-style effect overlays) falls back to the flat pixel index.
+func compositeDocumentSurfaceSpan(dest, src []byte, docW, from, to int, blendMode BlendMode, opacity float64, identity bool, blendIf *BlendIfConfig) {
 	for offset := from; offset < to; offset += 4 {
 		pixelOpacity := opacity
 		var origDest [4]uint8
@@ -1425,7 +1448,16 @@ func compositeDocumentSurfaceSpan(dest, src []byte, from, to int, blendMode Blen
 				continue
 			}
 		}
-		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, pixelOpacity, uint32(offset/4))
+		var noiseSeed uint32
+		if blendMode == BlendModeDissolve {
+			pixelIndex := offset / 4
+			if docW > 0 {
+				noiseSeed = pixelNoiseSeed(pixelIndex%docW, pixelIndex/docW)
+			} else {
+				noiseSeed = uint32(pixelIndex)
+			}
+		}
+		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, pixelOpacity, noiseSeed)
 		if !identity {
 			var after [4]uint8
 			copy(after[:], dest[offset:offset+4])

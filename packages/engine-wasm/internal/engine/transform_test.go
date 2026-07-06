@@ -730,7 +730,13 @@ func TestRecordLastFreeTransform_WarpGrid(t *testing.T) {
 	}
 }
 
-func TestApplyLastFreeTransform_AffineTranslation(t *testing.T) {
+// applyRecordToLayer resolves a LastTransformRecord against a layer and applies
+// the resulting pixel transform (the Transform Again pipeline).
+func applyRecordToLayer(rec *LastTransformRecord, layer *PixelLayer) ([]byte, LayerBounds) {
+	return applyPixelTransform(freeTransformStateFromRecord(rec, layer), rec.Interpolation)
+}
+
+func TestFreeTransformStateFromRecord_AffineTranslation(t *testing.T) {
 	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 2, H: 2}, makeSolidPixels(2, 2, 200, 100, 50, 255))
 	rec := &LastTransformRecord{
 		Kind:          "free",
@@ -745,7 +751,7 @@ func TestApplyLastFreeTransform_AffineTranslation(t *testing.T) {
 		Interpolation: InterpolNearest,
 	}
 
-	pixels, bounds := applyLastFreeTransform(rec, layer)
+	pixels, bounds := applyRecordToLayer(rec, layer)
 	if bounds != (LayerBounds{X: 13, Y: 24, W: 2, H: 2}) {
 		t.Fatalf("translated bounds = %+v, want {X:13 Y:24 W:2 H:2}", bounds)
 	}
@@ -756,7 +762,7 @@ func TestApplyLastFreeTransform_AffineTranslation(t *testing.T) {
 	}
 }
 
-func TestApplyLastFreeTransform_WarpGridIdentity(t *testing.T) {
+func TestFreeTransformStateFromRecord_WarpGridIdentity(t *testing.T) {
 	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 3, H: 3}, makeSolidPixels(3, 3, 80, 90, 100, 255))
 	rec := &LastTransformRecord{
 		Kind:          "free",
@@ -766,7 +772,7 @@ func TestApplyLastFreeTransform_WarpGridIdentity(t *testing.T) {
 		WarpGrid:      new([4][4][2]float64),
 	}
 
-	pixels, bounds := applyLastFreeTransform(rec, layer)
+	pixels, bounds := applyRecordToLayer(rec, layer)
 	if bounds != layer.Bounds {
 		t.Fatalf("warp-grid bounds = %+v, want %+v", bounds, layer.Bounds)
 	}
@@ -776,7 +782,7 @@ func TestApplyLastFreeTransform_WarpGridIdentity(t *testing.T) {
 	}
 }
 
-func TestApplyLastFreeTransform_DistortIdentity(t *testing.T) {
+func TestFreeTransformStateFromRecord_DistortIdentity(t *testing.T) {
 	layer := NewPixelLayer("Layer", LayerBounds{X: 10, Y: 20, W: 3, H: 3}, makeSolidPixels(3, 3, 40, 50, 60, 255))
 	rec := &LastTransformRecord{
 		Kind:           "free",
@@ -786,7 +792,7 @@ func TestApplyLastFreeTransform_DistortIdentity(t *testing.T) {
 		DistortCorners: new([4][2]float64),
 	}
 
-	pixels, bounds := applyLastFreeTransform(rec, layer)
+	pixels, bounds := applyRecordToLayer(rec, layer)
 	if bounds != layer.Bounds {
 		t.Fatalf("distort bounds = %+v, want %+v", bounds, layer.Bounds)
 	}
@@ -1547,10 +1553,49 @@ func TestFreeTransform_CommitScale_ScalesLayerMask(t *testing.T) {
 // meta() SkewY tests
 // ---------------------------------------------------------------------------
 
+func TestFreeTransformMeta_PureRotation_NoSkew(t *testing.T) {
+	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
+	s := identityState(10, 10, pixels)
+	// Pure 30° rotation.
+	theta := 30 * math.Pi / 180
+	s.A = math.Cos(theta)
+	s.B = math.Sin(theta)
+	s.C = -math.Sin(theta)
+	s.D = math.Cos(theta)
+
+	m := s.meta()
+	if math.Abs(m.Rotation-30) > 0.01 {
+		t.Errorf("Rotation = %f, want 30", m.Rotation)
+	}
+	if math.Abs(m.SkewX) > 0.01 || math.Abs(m.SkewY) > 0.01 {
+		t.Errorf("pure rotation skew = (%f, %f), want (0, 0)", m.SkewX, m.SkewY)
+	}
+}
+
+func TestFreeTransformMeta_SkewX_HorizontalSkew(t *testing.T) {
+	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
+	s := identityState(10, 10, pixels)
+	// Pure horizontal skew: x displaced proportionally to y (matrix C = tan a).
+	angle := 15.0
+	s.C = math.Tan(angle * math.Pi / 180)
+
+	m := s.meta()
+	if math.Abs(m.SkewX-angle) > 0.01 {
+		t.Errorf("SkewX = %f, want %f", m.SkewX, angle)
+	}
+	if math.Abs(m.SkewY) > 0.01 {
+		t.Errorf("SkewY = %f, want 0 for a pure horizontal skew", m.SkewY)
+	}
+	if math.Abs(m.Rotation) > 0.01 {
+		t.Errorf("Rotation = %f, want 0 for a pure horizontal skew", m.Rotation)
+	}
+}
+
 func TestFreeTransformMeta_SkewY_VerticalSkew(t *testing.T) {
 	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
 	s := identityState(10, 10, pixels)
-	// Pure vertical skew: dragging a side edge vertically adds to B.
+	// Pure vertical skew: y displaced proportionally to x (matrix B = tan a),
+	// the result of dragging a left/right edge vertically.
 	angle := 20.0
 	s.B = math.Tan(angle * math.Pi / 180)
 
@@ -1561,20 +1606,17 @@ func TestFreeTransformMeta_SkewY_VerticalSkew(t *testing.T) {
 	if math.Abs(m.SkewX) > 0.01 {
 		t.Errorf("SkewX = %f, want 0 for a pure vertical skew", m.SkewX)
 	}
+	if math.Abs(m.Rotation) > 0.01 {
+		t.Errorf("Rotation = %f, want 0 for a pure vertical skew", m.Rotation)
+	}
 }
 
-func TestFreeTransformMeta_SkewY_ZeroForHorizontalSkewAndIdentity(t *testing.T) {
+func TestFreeTransformMeta_SkewZeroForIdentity(t *testing.T) {
 	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
-
 	s := identityState(10, 10, pixels)
-	if m := s.meta(); math.Abs(m.SkewY) > 0.01 {
-		t.Errorf("identity SkewY = %f, want 0", m.SkewY)
-	}
-
-	s = identityState(10, 10, pixels)
-	s.C = math.Tan(15 * math.Pi / 180) // pure horizontal skew
-	if m := s.meta(); math.Abs(m.SkewY) > 0.01 {
-		t.Errorf("horizontal-skew SkewY = %f, want 0", m.SkewY)
+	m := s.meta()
+	if math.Abs(m.SkewX) > 0.01 || math.Abs(m.SkewY) > 0.01 {
+		t.Errorf("identity skew = (%f, %f), want (0, 0)", m.SkewX, m.SkewY)
 	}
 }
 

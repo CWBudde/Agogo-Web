@@ -1,22 +1,241 @@
 package engine
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // makeTriangle returns a simple closed triangular subpath.
 func makeTriangle(x0, y0, x1, y1, x2, y2 float64) Subpath {
 	return Subpath{
 		Closed: true,
 		Points: []PathPoint{
-			{X: x0, Y: y0},
-			{X: x1, Y: y1},
-			{X: x2, Y: y2},
+			{X: x0, Y: y0, InX: x0, InY: y0, OutX: x0, OutY: y0},
+			{X: x1, Y: y1, InX: x1, InY: y1, OutX: x1, OutY: y1},
+			{X: x2, Y: y2, InX: x2, InY: y2, OutX: x2, OutY: y2},
 		},
 	}
 }
 
-func TestPathBooleanCombine(t *testing.T) {
-	a := &Path{Subpaths: []Subpath{makeTriangle(0, 0, 100, 0, 50, 100)}}
-	b := &Path{Subpaths: []Subpath{makeTriangle(200, 200, 300, 200, 250, 300)}}
+// makeRectSubpath returns a closed axis-aligned rectangle subpath with
+// trivial (anchor-coincident) handles, i.e. straight edges.
+func makeRectSubpath(x0, y0, x1, y1 float64) Subpath {
+	corners := [4][2]float64{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}
+	sp := Subpath{Closed: true}
+	for _, c := range corners {
+		sp.Points = append(sp.Points, PathPoint{
+			X: c[0], Y: c[1],
+			InX: c[0], InY: c[1],
+			OutX: c[0], OutY: c[1],
+		})
+	}
+	return sp
+}
+
+// makeCircleSubpath returns a closed subpath approximating a circle with
+// four cubic Bezier segments (standard kappa construction).
+func makeCircleSubpath(cx, cy, r float64) Subpath {
+	const k = 0.5522847498307936
+	kr := k * r
+	return Subpath{
+		Closed: true,
+		Points: []PathPoint{
+			// East
+			{X: cx + r, Y: cy, InX: cx + r, InY: cy - kr, OutX: cx + r, OutY: cy + kr},
+			// South
+			{X: cx, Y: cy + r, InX: cx + kr, InY: cy + r, OutX: cx - kr, OutY: cy + r},
+			// West
+			{X: cx - r, Y: cy, InX: cx - r, InY: cy + kr, OutX: cx - r, OutY: cy - kr},
+			// North
+			{X: cx, Y: cy - r, InX: cx - kr, InY: cy - r, OutX: cx + kr, OutY: cy - r},
+		},
+	}
+}
+
+// rasterizeForTest renders a path to a mask via the engine's real
+// rasterization pipeline (even-odd fill, anti-aliased).
+func rasterizeForTest(t *testing.T, p *Path, w, h int) []byte {
+	t.Helper()
+	mask, err := rasterizePathToMask(p, w, h)
+	if err != nil {
+		t.Fatalf("rasterize: %v", err)
+	}
+	return mask
+}
+
+// maskArea counts pixels whose coverage is at least 50%.
+func maskArea(mask []byte) float64 {
+	area := 0
+	for _, v := range mask {
+		if v >= 128 {
+			area++
+		}
+	}
+	return float64(area)
+}
+
+func maskAt(mask []byte, w, x, y int) byte {
+	return mask[y*w+x]
+}
+
+func assertAreaNear(t *testing.T, got, want, relTol float64) {
+	t.Helper()
+	if math.Abs(got-want) > want*relTol {
+		t.Errorf("area = %.1f, want %.1f (±%.0f%%)", got, want, relTol*100)
+	}
+}
+
+// Two overlapping 100x80 rectangles used by the boolean op tests:
+// A = (10,10)-(110,90), B = (60,50)-(160,130), overlap = (60,50)-(110,90).
+// Areas: A = 8000, B = 8000, overlap = 50*40 = 2000.
+func overlappingRects() (*Path, *Path) {
+	a := &Path{Subpaths: []Subpath{makeRectSubpath(10, 10, 110, 90)}}
+	b := &Path{Subpaths: []Subpath{makeRectSubpath(60, 50, 160, 130)}}
+	return a, b
+}
+
+func TestPathBooleanCombineOverlappingRects(t *testing.T) {
+	a, b := overlappingRects()
+	result, err := pathBoolean(a, b, PathBoolCombine)
+	if err != nil {
+		t.Fatalf("combine: %v", err)
+	}
+
+	mask := rasterizeForTest(t, result, 200, 160)
+	assertAreaNear(t, maskArea(mask), 14000, 0.02)
+
+	// Points in A-only, B-only, and the overlap must all be covered.
+	if maskAt(mask, 200, 20, 20) < 128 {
+		t.Error("union must cover A-only region")
+	}
+	if maskAt(mask, 200, 150, 120) < 128 {
+		t.Error("union must cover B-only region")
+	}
+	if maskAt(mask, 200, 85, 70) < 128 {
+		t.Error("union must cover the overlap region")
+	}
+}
+
+func TestPathBooleanIntersectOverlappingRects(t *testing.T) {
+	a, b := overlappingRects()
+	result, err := pathBoolean(a, b, PathBoolIntersect)
+	if err != nil {
+		t.Fatalf("intersect: %v", err)
+	}
+
+	mask := rasterizeForTest(t, result, 200, 160)
+	assertAreaNear(t, maskArea(mask), 2000, 0.02)
+
+	if maskAt(mask, 200, 85, 70) < 128 {
+		t.Error("intersection must cover the overlap region")
+	}
+	if maskAt(mask, 200, 20, 20) >= 128 {
+		t.Error("intersection must not cover A-only region")
+	}
+	if maskAt(mask, 200, 150, 120) >= 128 {
+		t.Error("intersection must not cover B-only region")
+	}
+}
+
+func TestPathBooleanSubtractOverlappingRects(t *testing.T) {
+	a, b := overlappingRects()
+	result, err := pathBoolean(a, b, PathBoolSubtract)
+	if err != nil {
+		t.Fatalf("subtract: %v", err)
+	}
+
+	mask := rasterizeForTest(t, result, 200, 160)
+	assertAreaNear(t, maskArea(mask), 6000, 0.02)
+
+	if maskAt(mask, 200, 20, 20) < 128 {
+		t.Error("subtract must keep A-only region")
+	}
+	if maskAt(mask, 200, 85, 70) >= 128 {
+		t.Error("subtract must remove the overlap region")
+	}
+	if maskAt(mask, 200, 150, 120) >= 128 {
+		t.Error("subtract must not cover B-only region")
+	}
+}
+
+func TestPathBooleanExcludeOverlappingRects(t *testing.T) {
+	a, b := overlappingRects()
+	result, err := pathBoolean(a, b, PathBoolExclude)
+	if err != nil {
+		t.Fatalf("exclude: %v", err)
+	}
+
+	mask := rasterizeForTest(t, result, 200, 160)
+	assertAreaNear(t, maskArea(mask), 12000, 0.02)
+
+	if maskAt(mask, 200, 20, 20) < 128 {
+		t.Error("exclude must keep A-only region")
+	}
+	if maskAt(mask, 200, 150, 120) < 128 {
+		t.Error("exclude must keep B-only region")
+	}
+	if maskAt(mask, 200, 85, 70) >= 128 {
+		t.Error("exclude must remove the overlap region")
+	}
+}
+
+// Circle (from Bezier segments) intersected with a rectangle covering its
+// right half: result area should approximate a half disc.
+func TestPathBooleanIntersectCircleRect(t *testing.T) {
+	circle := &Path{Subpaths: []Subpath{makeCircleSubpath(100, 100, 50)}}
+	rect := &Path{Subpaths: []Subpath{makeRectSubpath(100, 40, 170, 160)}}
+
+	result, err := pathBoolean(circle, rect, PathBoolIntersect)
+	if err != nil {
+		t.Fatalf("intersect: %v", err)
+	}
+
+	mask := rasterizeForTest(t, result, 200, 200)
+	halfDisc := math.Pi * 50 * 50 / 2
+	assertAreaNear(t, maskArea(mask), halfDisc, 0.03)
+
+	if maskAt(mask, 200, 125, 100) < 128 {
+		t.Error("right half of the circle must be covered")
+	}
+	if maskAt(mask, 200, 75, 100) >= 128 {
+		t.Error("left half of the circle must not be covered")
+	}
+}
+
+// Subtracting an inner square from an outer square must produce a donut:
+// the hole must actually be empty when rasterized.
+func TestPathBooleanSubtractCreatesHole(t *testing.T) {
+	outer := &Path{Subpaths: []Subpath{makeRectSubpath(10, 10, 110, 110)}}
+	inner := &Path{Subpaths: []Subpath{makeRectSubpath(40, 40, 80, 80)}}
+
+	result, err := pathBoolean(outer, inner, PathBoolSubtract)
+	if err != nil {
+		t.Fatalf("subtract: %v", err)
+	}
+	if len(result.Subpaths) != 2 {
+		t.Fatalf("expected 2 subpaths (contour + hole), got %d", len(result.Subpaths))
+	}
+	for i, sp := range result.Subpaths {
+		if !sp.Closed {
+			t.Errorf("subpath %d must be closed", i)
+		}
+	}
+
+	mask := rasterizeForTest(t, result, 128, 128)
+	assertAreaNear(t, maskArea(mask), 10000-1600, 0.02)
+
+	if maskAt(mask, 128, 60, 60) >= 128 {
+		t.Error("point inside the hole must be empty")
+	}
+	if maskAt(mask, 128, 20, 20) < 128 {
+		t.Error("ring region must be covered")
+	}
+}
+
+// Union of two disjoint shapes keeps both regions (two output contours).
+func TestPathBooleanCombineDisjoint(t *testing.T) {
+	a := &Path{Subpaths: []Subpath{makeRectSubpath(10, 10, 50, 50)}}
+	b := &Path{Subpaths: []Subpath{makeRectSubpath(80, 80, 120, 120)}}
 
 	result, err := pathBoolean(a, b, PathBoolCombine)
 	if err != nil {
@@ -25,63 +244,28 @@ func TestPathBooleanCombine(t *testing.T) {
 	if len(result.Subpaths) != 2 {
 		t.Fatalf("expected 2 subpaths, got %d", len(result.Subpaths))
 	}
-	// First subpath should be A's triangle.
-	if result.Subpaths[0].Points[0].X != 0 {
-		t.Errorf("expected first point X=0, got %f", result.Subpaths[0].Points[0].X)
+
+	mask := rasterizeForTest(t, result, 140, 140)
+	assertAreaNear(t, maskArea(mask), 1600+1600, 0.02)
+	if maskAt(mask, 140, 30, 30) < 128 {
+		t.Error("first rect must be covered")
 	}
-	// Second subpath should be B's triangle.
-	if result.Subpaths[1].Points[0].X != 200 {
-		t.Errorf("expected second subpath first point X=200, got %f", result.Subpaths[1].Points[0].X)
+	if maskAt(mask, 140, 100, 100) < 128 {
+		t.Error("second rect must be covered")
 	}
 }
 
-func TestPathBooleanSubtract(t *testing.T) {
-	a := &Path{Subpaths: []Subpath{makeTriangle(0, 0, 100, 0, 50, 100)}}
-	b := &Path{Subpaths: []Subpath{makeTriangle(10, 10, 90, 10, 50, 80)}}
-
-	result, err := pathBoolean(a, b, PathBoolSubtract)
-	if err != nil {
-		t.Fatalf("subtract: %v", err)
-	}
-	if len(result.Subpaths) != 2 {
-		t.Fatalf("expected 2 subpaths, got %d", len(result.Subpaths))
-	}
-	// First subpath is A's (unchanged).
-	if result.Subpaths[0].Points[0].X != 0 {
-		t.Errorf("expected A's first point X=0, got %f", result.Subpaths[0].Points[0].X)
-	}
-	// Second subpath is B reversed: original order was (10,10), (90,10), (50,80)
-	// Reversed: (50,80), (90,10), (10,10)
-	rpts := result.Subpaths[1].Points
-	if rpts[0].X != 50 || rpts[0].Y != 80 {
-		t.Errorf("expected reversed first point (50,80), got (%f,%f)", rpts[0].X, rpts[0].Y)
-	}
-	if rpts[2].X != 10 || rpts[2].Y != 10 {
-		t.Errorf("expected reversed last point (10,10), got (%f,%f)", rpts[2].X, rpts[2].Y)
-	}
-}
-
-func TestPathBooleanExclude(t *testing.T) {
-	a := &Path{Subpaths: []Subpath{makeTriangle(0, 0, 100, 0, 50, 100)}}
-	b := &Path{Subpaths: []Subpath{makeTriangle(200, 200, 300, 200, 250, 300)}}
-
-	result, err := pathBoolean(a, b, PathBoolExclude)
-	if err != nil {
-		t.Fatalf("exclude: %v", err)
-	}
-	// Same as combine: merge subpaths.
-	if len(result.Subpaths) != 2 {
-		t.Fatalf("expected 2 subpaths, got %d", len(result.Subpaths))
-	}
-}
-
-func TestPathBooleanIntersect(t *testing.T) {
-	a := &Path{Subpaths: []Subpath{makeTriangle(0, 0, 100, 0, 50, 100)}}
-	b := &Path{Subpaths: []Subpath{makeTriangle(10, 10, 90, 10, 50, 80)}}
-
-	_, err := pathBoolean(a, b, PathBoolIntersect)
-	if err == nil {
-		t.Fatal("expected error for intersect, got nil")
+// Boolean ops on empty paths must not error (the UI dispatches them on
+// freshly created, still-empty paths).
+func TestPathBooleanEmptyInputs(t *testing.T) {
+	for _, op := range []PathBoolOp{PathBoolCombine, PathBoolSubtract, PathBoolIntersect, PathBoolExclude} {
+		result, err := pathBoolean(&Path{}, &Path{}, op)
+		if err != nil {
+			t.Fatalf("op %d on empty paths: %v", op, err)
+		}
+		if len(result.Subpaths) != 0 {
+			t.Fatalf("op %d: expected empty result, got %d subpaths", op, len(result.Subpaths))
+		}
 	}
 }
 
@@ -175,15 +359,6 @@ func TestPathBooleanViaDispatch(t *testing.T) {
 		t.Fatalf("create path B: %v", err)
 	}
 
-	// Add a triangle to path A (index 0) via pen tool.
-	// First, select path A as active.
-	// Active path is currently 1 (Shape B), so we set it back to 0.
-	// Use commandSetActiveTool to set pen, then add points to path A.
-
-	// Instead, directly manipulate: create paths with subpaths by using
-	// pen tool clicks. But for simplicity, let's just combine the two empty
-	// paths and verify the command succeeds with the right path count.
-
 	// Active path is 1 (Shape B). Combine should merge paths 1 and 0.
 	// But the default is active + next, wrapping around: active=1, next=0.
 	result, err := DispatchCommand(h, commandPathCombine, mustJSON(t, PathBooleanPayload{}))
@@ -225,10 +400,14 @@ func TestPathBooleanIntersectViaDispatch(t *testing.T) {
 		t.Fatalf("create B: %v", err)
 	}
 
-	// Intersect should return error (not yet implemented).
-	_, err = DispatchCommand(h, commandPathIntersect, mustJSON(t, PathBooleanPayload{}))
-	if err == nil {
-		t.Fatal("expected error for intersect")
+	// Intersect is real geometry now: it must succeed and merge the two
+	// (empty) paths into one empty result path.
+	result, err := DispatchCommand(h, commandPathIntersect, mustJSON(t, PathBooleanPayload{}))
+	if err != nil {
+		t.Fatalf("intersect: %v", err)
+	}
+	if len(result.UIMeta.Paths) != 1 {
+		t.Fatalf("expected 1 path after intersect, got %d", len(result.UIMeta.Paths))
 	}
 }
 

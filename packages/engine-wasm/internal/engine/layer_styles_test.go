@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -159,6 +160,56 @@ func TestDropShadowOffset_DefaultAngleFallsDownRight(t *testing.T) {
 	dx, dy := dropShadowOffset(120, 8)
 	if dx <= 0 || dy <= 0 {
 		t.Fatalf("dropShadowOffset(120, 8) = (%d, %d), want dx>0 and dy>0 (shadow away from an upper-left light)", dx, dy)
+	}
+}
+
+func TestApplyLayerStylesToSurface_TopOnlyStylesMatchGeneralPathByteForByte(t *testing.T) {
+	docW, docH := 4, 3
+
+	// Layer content: an opaque red pixel and a semi-transparent white pixel.
+	sourceSurface := make([]byte, docW*docH*4)
+	copy(sourceSurface[(1*docW+1)*4:], []byte{255, 0, 0, 255})
+	copy(sourceSurface[(1*docW+2)*4:], []byte{255, 255, 255, 128})
+	baseSurface := append([]byte(nil), sourceSurface...)
+
+	topOnly := decodeLayerStyles([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindColorOverlay),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,255,0,255],"opacity":0.5}`),
+		},
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"size":1,"position":"outside","fillType":"color","blendMode":"normal","color":[0,0,255,255],"opacity":1}`),
+		},
+		{
+			Kind:    string(LayerStyleKindDropShadow),
+			Enabled: false,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":2,"angle":120,"size":0}`),
+		},
+	})
+
+	// Same stack plus an enabled but visually inert drop shadow (opacity 0),
+	// which forces the general behind-content compositing path.
+	withInertShadow := append(append([]DecodedLayerStyle(nil), topOnly...), decodeLayerStyles([]LayerStyle{{
+		Kind:    string(LayerStyleKindDropShadow),
+		Enabled: true,
+		Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":0,"distance":2,"angle":120,"size":0}`),
+	}})...)
+
+	if hasEnabledBehindContentStyles(topOnly) {
+		t.Fatal("top-only stack must not report behind-content styles (fast path precondition)")
+	}
+	if !hasEnabledBehindContentStyles(withInertShadow) {
+		t.Fatal("inert-shadow stack must report behind-content styles (general path precondition)")
+	}
+
+	fast := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, topOnly)
+	general := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, withInertShadow)
+
+	if !bytes.Equal(fast, general) {
+		t.Fatalf("fast copy-then-overlay path diverged from general path\nfast    = %v\ngeneral = %v", fast, general)
 	}
 }
 
