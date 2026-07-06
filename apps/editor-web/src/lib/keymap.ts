@@ -1,4 +1,4 @@
-import { CommandID } from "@agogo/proto";
+export type ShortcutAction = "zoomIn" | "zoomOut" | "fitToView" | "undo" | "redo" | "panMode";
 
 function normalizeKey(key: string) {
   return key.length === 1 ? key.toLowerCase() : key;
@@ -14,13 +14,14 @@ export function shortcutKey(event: KeyboardEvent) {
   return parts.join("+");
 }
 
-export const defaultKeymap = new Map<string, number>([
-  ["+", CommandID.ZoomSet],
-  ["=", CommandID.ZoomSet],
-  ["-", CommandID.ZoomSet],
-  ["0", CommandID.FitToView],
-  ["Mod+z", CommandID.Undo],
-  ["Mod+Shift+z", CommandID.Redo],
-  ["Mod+Alt+z", CommandID.Undo],
-  [" ", CommandID.PanSet],
+export const defaultKeymap = new Map<string, ShortcutAction>([
+  ["+", "zoomIn"],
+  ["=", "zoomIn"],
+  ["-", "zoomOut"],
+  ["0", "fitToView"],
+  ["Mod+z", "undo"],
+  ["Mod+Shift+z", "redo"],
+  // Photoshop step-backward
+  ["Mod+Alt+z", "undo"],
+  [" ", "panMode"],
 ]);

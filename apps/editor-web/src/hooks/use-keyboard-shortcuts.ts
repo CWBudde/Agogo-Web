@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
 export type ShortcutTool =
@@ -51,14 +51,25 @@ function isEditableTarget(target: EventTarget | null) {
   return (
     element instanceof HTMLInputElement ||
     element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
     element.isContentEditable
   );
 }
 
+function hasOpenModal() {
+  return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+}
+
 export function useKeyboardShortcuts(actions: KeyboardActions) {
+  const actionsRef = useRef(actions);
+  useEffect(() => {
+    actionsRef.current = actions;
+  });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target) && event.key !== "Escape") {
+      const currentActions = actionsRef.current;
+      if ((isEditableTarget(event.target) || hasOpenModal()) && event.key !== "Escape") {
         return;
       }
 
@@ -66,119 +77,119 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
       switch (key) {
         case "Mod+n":
           event.preventDefault();
-          actions.onNewDocument();
+          currentActions.onNewDocument();
           return;
         case "Mod+o":
           event.preventDefault();
-          actions.onOpenDocument();
+          currentActions.onOpenDocument();
           return;
         case "Mod+s":
           event.preventDefault();
-          actions.onSaveDocument();
+          currentActions.onSaveDocument();
           return;
         case "Mod+Shift+e":
           event.preventDefault();
-          actions.onExportDocument();
+          currentActions.onExportDocument();
           return;
         case "Mod+a":
           event.preventDefault();
-          actions.onSelectAll();
+          currentActions.onSelectAll();
           return;
         case "Mod+d":
           event.preventDefault();
-          actions.onDeselect();
+          currentActions.onDeselect();
           return;
         case "Mod+Shift+i":
           event.preventDefault();
-          actions.onInvertSelection();
+          currentActions.onInvertSelection();
           return;
         case "v":
           event.preventDefault();
-          actions.onToolSelect("move");
+          currentActions.onToolSelect("move");
           return;
         case "m":
           event.preventDefault();
-          actions.onToolSelect("marquee");
+          currentActions.onToolSelect("marquee");
           return;
         case "l":
           event.preventDefault();
-          actions.onToolSelect("lasso");
+          currentActions.onToolSelect("lasso");
           return;
         case "w":
           event.preventDefault();
-          actions.onToolSelect("wand");
+          currentActions.onToolSelect("wand");
           return;
         case "h":
           event.preventDefault();
-          actions.onToolSelect("hand");
+          currentActions.onToolSelect("hand");
           return;
         case "z":
           event.preventDefault();
-          actions.onToolSelect("zoom");
+          currentActions.onToolSelect("zoom");
           return;
         case "c":
           event.preventDefault();
-          actions.onToolSelect("crop");
+          currentActions.onToolSelect("crop");
           return;
         case "b":
           event.preventDefault();
-          actions.onToolSelect("brush");
+          currentActions.onToolSelect("brush");
           return;
         case "s":
           event.preventDefault();
-          actions.onToolSelect("cloneStamp");
+          currentActions.onToolSelect("cloneStamp");
           return;
         case "y":
           event.preventDefault();
-          actions.onToolSelect("historyBrush");
+          currentActions.onToolSelect("historyBrush");
           return;
         case "x":
           event.preventDefault();
-          actions.onSwapColors();
+          currentActions.onSwapColors();
           return;
         case "d":
           event.preventDefault();
-          actions.onResetColors();
+          currentActions.onResetColors();
           return;
         case "e":
           event.preventDefault();
-          actions.onToolSelect("eraser");
+          currentActions.onToolSelect("eraser");
           return;
         case "g":
           event.preventDefault();
-          actions.onToolSelect("fill");
+          currentActions.onToolSelect("fill");
           return;
         case "i":
           event.preventDefault();
-          actions.onToolSelect("eyedropper");
+          currentActions.onToolSelect("eyedropper");
           return;
         case "p":
           event.preventDefault();
-          actions.onToolSelect("pen");
+          currentActions.onToolSelect("pen");
           return;
         case "a":
           event.preventDefault();
-          actions.onToolSelect("directSelect");
+          currentActions.onToolSelect("directSelect");
           return;
         case "Mod+t":
           event.preventDefault();
-          actions.onBeginTransform();
+          currentActions.onBeginTransform();
           return;
         case "ArrowLeft":
           event.preventDefault();
-          actions.onNudgeLayer(event.shiftKey ? -10 : -1, 0);
+          currentActions.onNudgeLayer(event.shiftKey ? -10 : -1, 0);
           return;
         case "ArrowRight":
           event.preventDefault();
-          actions.onNudgeLayer(event.shiftKey ? 10 : 1, 0);
+          currentActions.onNudgeLayer(event.shiftKey ? 10 : 1, 0);
           return;
         case "ArrowUp":
           event.preventDefault();
-          actions.onNudgeLayer(0, event.shiftKey ? -10 : -1);
+          currentActions.onNudgeLayer(0, event.shiftKey ? -10 : -1);
           return;
         case "ArrowDown":
           event.preventDefault();
-          actions.onNudgeLayer(0, event.shiftKey ? 10 : 1);
+          currentActions.onNudgeLayer(0, event.shiftKey ? 10 : 1);
           return;
         default:
           break;
@@ -188,55 +199,47 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
       if (event.code === "BracketLeft" && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         if (event.shiftKey) {
-          actions.onBrushHardnessChange(-0.25);
+          currentActions.onBrushHardnessChange(-0.25);
         } else {
-          actions.onBrushSizeChange(-1);
+          currentActions.onBrushSizeChange(-1);
         }
         return;
       }
       if (event.code === "BracketRight" && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         if (event.shiftKey) {
-          actions.onBrushHardnessChange(0.25);
+          currentActions.onBrushHardnessChange(0.25);
         } else {
-          actions.onBrushSizeChange(1);
+          currentActions.onBrushSizeChange(1);
         }
         return;
       }
 
-      const command = defaultKeymap.get(key);
-      switch (command) {
-        case defaultKeymap.get(" "):
+      const action = defaultKeymap.get(key);
+      switch (action) {
+        case "panMode":
           event.preventDefault();
-          actions.onPanModeChange(true);
+          currentActions.onPanModeChange(true);
           break;
-        case defaultKeymap.get("+"):
+        case "zoomIn":
           event.preventDefault();
-          actions.onZoomIn();
+          currentActions.onZoomIn();
           break;
-        case defaultKeymap.get("="):
+        case "zoomOut":
           event.preventDefault();
-          actions.onZoomIn();
+          currentActions.onZoomOut();
           break;
-        case defaultKeymap.get("-"):
+        case "fitToView":
           event.preventDefault();
-          actions.onZoomOut();
+          currentActions.onFitToView();
           break;
-        case defaultKeymap.get("0"):
+        case "undo":
           event.preventDefault();
-          actions.onFitToView();
+          currentActions.onUndo();
           break;
-        case defaultKeymap.get("Mod+z"):
+        case "redo":
           event.preventDefault();
-          actions.onUndo();
-          break;
-        case defaultKeymap.get("Mod+Shift+z"):
-          event.preventDefault();
-          actions.onRedo();
-          break;
-        case defaultKeymap.get("Mod+Alt+z"):
-          event.preventDefault();
-          actions.onUndo();
+          currentActions.onRedo();
           break;
         default:
           break;
@@ -245,15 +248,30 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === " ") {
-        actions.onPanModeChange(false);
+        actionsRef.current.onPanModeChange(false);
+      }
+    };
+
+    // Space-pan must not stick when focus leaves the window (alt-tab, tab
+    // switch) — the matching keyup never arrives in those cases.
+    const releasePanMode = () => {
+      actionsRef.current.onPanModeChange(false);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        releasePanMode();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", releasePanMode);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", releasePanMode);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [actions]);
+  }, []);
 }

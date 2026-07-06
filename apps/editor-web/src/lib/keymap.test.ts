@@ -1,4 +1,3 @@
-import { CommandID } from "@agogo/proto";
 import { describe, expect, it } from "vitest";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
@@ -20,10 +19,17 @@ describe("shortcutKey", () => {
 });
 
 describe("defaultKeymap", () => {
-  it("contains the core editor shortcuts", () => {
-    expect(defaultKeymap.get("Mod+z")).toBe(CommandID.Undo);
-    expect(defaultKeymap.get("Mod+Shift+z")).toBe(CommandID.Redo);
-    expect(defaultKeymap.get("0")).toBe(CommandID.FitToView);
-    expect(defaultKeymap.get(" ")).toBe(CommandID.PanSet);
+  it("maps zoom keys to distinct actions", () => {
+    expect(defaultKeymap.get("+")).toBe("zoomIn");
+    expect(defaultKeymap.get("=")).toBe("zoomIn");
+    expect(defaultKeymap.get("-")).toBe("zoomOut");
+    expect(defaultKeymap.get("0")).toBe("fitToView");
+  });
+
+  it("maps history and pan shortcuts", () => {
+    expect(defaultKeymap.get("Mod+z")).toBe("undo");
+    expect(defaultKeymap.get("Mod+Shift+z")).toBe("redo");
+    expect(defaultKeymap.get("Mod+Alt+z")).toBe("undo");
+    expect(defaultKeymap.get(" ")).toBe("panMode");
   });
 });
