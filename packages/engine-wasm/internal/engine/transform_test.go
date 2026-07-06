@@ -1577,3 +1577,141 @@ func TestFreeTransformMeta_SkewY_ZeroForHorizontalSkewAndIdentity(t *testing.T) 
 		t.Errorf("horizontal-skew SkewY = %f, want 0", m.SkewY)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Mask transform helper unit tests
+// ---------------------------------------------------------------------------
+
+func TestTransformLayerMaskForFree_IntegerTranslate(t *testing.T) {
+	mask := makeDocMask(10, 10, LayerBounds{X: 0, Y: 0, W: 2, H: 2})
+	s := identityState(4, 4, makeSolidPixels(4, 4, 0, 0, 0, 255))
+	s.TX = 3
+	s.TY = 2
+
+	transformLayerMaskForFree(mask, s, InterpolNearest)
+
+	if got := mask.Data[2*10+3]; got != 255 {
+		t.Errorf("mask at (3,2) = %d, want 255", got)
+	}
+	if got := mask.Data[3*10+4]; got != 255 {
+		t.Errorf("mask at (4,4) = %d, want 255", got)
+	}
+	// Inside the moved layer region but outside the moved reveal rect.
+	if got := mask.Data[4*10+6]; got != 0 {
+		t.Errorf("mask at (6,4) = %d, want 0", got)
+	}
+	if mask.Width != 10 || mask.Height != 10 || len(mask.Data) != 100 {
+		t.Errorf("mask must stay doc-sized 10x10, got %dx%d/%d", mask.Width, mask.Height, len(mask.Data))
+	}
+}
+
+func TestTransformLayerMaskForFree_Scale2xNearest(t *testing.T) {
+	mask := makeDocMask(20, 20, LayerBounds{X: 0, Y: 0, W: 2, H: 2})
+	s := identityState(4, 4, makeSolidPixels(4, 4, 0, 0, 0, 255))
+	s.A = 2
+	s.D = 2
+
+	transformLayerMaskForFree(mask, s, InterpolNearest)
+
+	if got := mask.Data[3*20+3]; got != 255 {
+		t.Errorf("mask at (3,3) = %d, want 255 (reveal rect scaled to 4x4)", got)
+	}
+	if got := mask.Data[5*20+5]; got != 0 {
+		t.Errorf("mask at (5,5) = %d, want 0", got)
+	}
+}
+
+func TestTransformVectorMaskForFree_Affine(t *testing.T) {
+	path := &Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{{X: 12, Y: 24, InX: 11, InY: 24, OutX: 13, OutY: 24}},
+	}}}
+	s := identityState(4, 4, makeSolidPixels(4, 4, 0, 0, 0, 255))
+	s.OriginalBounds = LayerBounds{X: 10, Y: 20, W: 4, H: 4}
+	// Scale x2 about the layer origin, then translate the origin to (30, 40).
+	s.A = 2
+	s.D = 2
+	s.TX = 30
+	s.TY = 40
+
+	transformVectorMaskForFree(path, s)
+
+	pt := path.Subpaths[0].Points[0]
+	// (12,24) → local (2,4) → scaled (4,8) → doc (34,48).
+	if math.Abs(pt.X-34) > 1e-9 || math.Abs(pt.Y-48) > 1e-9 {
+		t.Errorf("anchor = (%f,%f), want (34,48)", pt.X, pt.Y)
+	}
+	if math.Abs(pt.InX-32) > 1e-9 || math.Abs(pt.OutX-36) > 1e-9 {
+		t.Errorf("handles X = (%f,%f), want (32,36)", pt.InX, pt.OutX)
+	}
+}
+
+func TestTransformMaskRegionDiscrete_RoundTrips(t *testing.T) {
+	// 3×2 region with distinct values.
+	data := []byte{1, 2, 3, 4, 5, 6}
+
+	out, w, h := transformMaskRegionDiscrete(data, 3, 2, "rotate90cw")
+	if w != 2 || h != 3 {
+		t.Fatalf("rotate90cw dims = %dx%d, want 2x3", w, h)
+	}
+	// (0,0)=1 → new (h-1-0, 0) = col 1, row 0.
+	if out[0*2+1] != 1 {
+		t.Errorf("rotate90cw: expected 1 at (1,0), got %v", out)
+	}
+	back, w2, h2 := transformMaskRegionDiscrete(out, w, h, "rotate90ccw")
+	if w2 != 3 || h2 != 2 || !bytes.Equal(back, data) {
+		t.Errorf("cw→ccw did not round-trip: %v", back)
+	}
+
+	flipped, _, _ := transformMaskRegionDiscrete(data, 3, 2, "flipH")
+	again, _, _ := transformMaskRegionDiscrete(flipped, 3, 2, "flipH")
+	if !bytes.Equal(again, data) {
+		t.Errorf("double flipH did not round-trip: %v", again)
+	}
+	r180, _, _ := transformMaskRegionDiscrete(data, 3, 2, "rotate180")
+	if r180[0] != 6 || r180[5] != 1 {
+		t.Errorf("rotate180 = %v, want reversed", r180)
+	}
+}
+
+func TestTransformAgain_FreeTranslation_MovesMask(t *testing.T) {
+	h, layerID := setupMaskedTransformDoc(t)
+	defer Free(h)
+
+	// Commit a +5/+5 translation via free transform (records lastTransform).
+	if _, err := DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	})); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandUpdateFreeTransform, mustJSON(t, UpdateFreeTransformPayload{
+		A: 1, B: 0, C: 0, D: 1, TX: 5, TY: 5, PivotX: 7, PivotY: 7,
+		Interpolation: "nearest",
+	})); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandCommitFreeTransform, `{}`); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Transform Again translates by another +5/+5.
+	if _, err := DispatchCommand(h, commandTransformAgain, `{}`); err != nil {
+		t.Fatalf("transform again: %v", err)
+	}
+
+	doc := instances[h].manager.Active()
+	pl := doc.findLayer(layerID).(*PixelLayer)
+	if pl.Bounds.X != 10 || pl.Bounds.Y != 10 {
+		t.Fatalf("layer bounds = %+v, want origin (10,10)", pl.Bounds)
+	}
+	mask := pl.Mask()
+	if mask == nil {
+		t.Fatal("mask lost after transform again")
+	}
+	if got := mask.Data[10*20+10]; got != 255 {
+		t.Errorf("mask at (10,10) = %d, want 255", got)
+	}
+	if got := mask.Data[13*20+13]; got != 0 {
+		t.Errorf("mask at (13,13) = %d, want 0", got)
+	}
+}
