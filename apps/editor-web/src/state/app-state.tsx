@@ -2,7 +2,9 @@ import type { PropsWithChildren } from "react";
 import { BrushStateProvider } from "./brush-state";
 import { ColorStateProvider } from "./color-state";
 import { FillGradientStateProvider } from "./fill-gradient-state";
+import { SelectionToolStateProvider } from "./selection-tool-state";
 import { ShapeStateProvider } from "./shape-state";
+import { ViewStateProvider } from "./view-state";
 
 /**
  * Composes all domain state providers in dependency order.
@@ -19,7 +21,11 @@ export function AppStateProvider({ children }: PropsWithChildren) {
     <ColorStateProvider>
       <BrushStateProvider>
         <FillGradientStateProvider>
-          <ShapeStateProvider>{children}</ShapeStateProvider>
+          <ShapeStateProvider>
+            <SelectionToolStateProvider>
+              <ViewStateProvider>{children}</ViewStateProvider>
+            </SelectionToolStateProvider>
+          </ShapeStateProvider>
         </FillGradientStateProvider>
       </BrushStateProvider>
     </ColorStateProvider>

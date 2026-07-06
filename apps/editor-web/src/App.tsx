@@ -4,7 +4,6 @@ import {
   type AdjustmentLayerParams,
   CommandID,
   type CreateDocumentCommand,
-  type CropOverlayType,
   type FillCommand,
   type GradientType,
   type InterpolMode,
@@ -89,18 +88,15 @@ import { parseNumericInput } from "@/lib/utils";
 import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
+import { useSelectionToolState } from "@/state/selection-tool-state";
 import {
   type ArtboardPreset,
   type ShapeMode,
   type ShapeSubTool,
   useShapeState,
 } from "@/state/shape-state";
+import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
-
-type MarqueeShape = "rect" | "ellipse" | "row" | "col";
-type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
-type LassoMode = "freehand" | "polygon" | "magnetic";
-type WandMode = "magic" | "quick";
 
 const defaultDocumentDraft: CreateDocumentCommand = {
   name: "Untitled",
@@ -339,29 +335,68 @@ export default function App() {
     artboardBackground,
     setArtboardBackground,
   } = useShapeState();
+  const {
+    marqueeShape,
+    setMarqueeShape,
+    marqueeStyle,
+    setMarqueeStyle,
+    marqueeRatioW,
+    setMarqueeRatioW,
+    marqueeRatioH,
+    setMarqueeRatioH,
+    marqueeSizeW,
+    setMarqueeSizeW,
+    marqueeSizeH,
+    setMarqueeSizeH,
+    lassoMode,
+    setLassoMode,
+    selectionAntiAlias,
+    setSelectionAntiAlias,
+    selectionFeatherRadius,
+    setSelectionFeatherRadius,
+    wandMode,
+    setWandMode,
+    wandTolerance,
+    setWandTolerance,
+    wandContiguous,
+    setWandContiguous,
+    wandSampleMerged,
+    setWandSampleMerged,
+    moveAutoSelectGroup,
+    setMoveAutoSelectGroup,
+    transformRefPoint,
+    setTransformRefPoint,
+    cropDeletePixels,
+    setCropDeletePixels,
+    cropContentAwareFill,
+    setCropContentAwareFill,
+    cropResolution,
+    setCropResolution,
+    cropOverlayType,
+    setCropOverlayType,
+    cropStraightenActive,
+    setCropStraightenActive,
+    transformSelectionActive,
+    setTransformSelectionActive,
+  } = useSelectionToolState();
+  const {
+    isPanMode,
+    setIsPanMode,
+    showGuides,
+    setShowGuides,
+    panelCollapsed,
+    setPanelCollapsed,
+    panelWidth,
+    setPanelWidth,
+    documentUnit,
+    setDocumentUnit,
+    activeAuxPanel,
+    setActiveAuxPanel,
+    selectedLayerIds,
+    setSelectedLayerIds,
+  } = useViewState();
+  const { cursor, setCursor } = useCursorState();
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
-  const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
-  const [marqueeStyle, setMarqueeStyle] = useState<MarqueeStyle>("normal");
-  const [marqueeRatioW, setMarqueeRatioW] = useState(1);
-  const [marqueeRatioH, setMarqueeRatioH] = useState(1);
-  const [marqueeSizeW, setMarqueeSizeW] = useState(100);
-  const [marqueeSizeH, setMarqueeSizeH] = useState(100);
-  const [lassoMode, setLassoMode] = useState<LassoMode>("freehand");
-  const [selectionAntiAlias, setSelectionAntiAlias] = useState(true);
-  const [selectionFeatherRadius, setSelectionFeatherRadius] = useState(0);
-  const [wandMode, setWandMode] = useState<WandMode>("magic");
-  const [wandTolerance, setWandTolerance] = useState(24);
-  const [wandContiguous, setWandContiguous] = useState(true);
-  const [wandSampleMerged, setWandSampleMerged] = useState(false);
-  const [moveAutoSelectGroup, setMoveAutoSelectGroup] = useState(false);
-  const [transformRefPoint, setTransformRefPoint] = useState<[number, number]>([1, 1]);
-  const [cropDeletePixels, setCropDeletePixels] = useState(false);
-  const [cropContentAwareFill, setCropContentAwareFill] = useState(false);
-  const [cropResolution, setCropResolution] = useState(72);
-  const [cropOverlayType, setCropOverlayType] = useState<CropOverlayType>("thirds");
-  const [cropStraightenActive, setCropStraightenActive] = useState(false);
-  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
-  const [activeAuxPanel, setActiveAuxPanel] = useState<AuxPanel>("properties");
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
   const [canvasSizeOpen, setCanvasSizeOpen] = useState(false);
   const [openRecentOpen, setOpenRecentOpen] = useState(false);
@@ -384,7 +419,6 @@ export default function App() {
   const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
   const [loadSelectionOpen, setLoadSelectionOpen] = useState(false);
   const [loadSelectionName, setLoadSelectionName] = useState("");
-  const [transformSelectionActive, setTransformSelectionActive] = useState(false);
   const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menubarFocusIndex, setMenubarFocusIndex] = useState(0);
@@ -408,14 +442,8 @@ export default function App() {
     height: 0,
     anchor: "center",
   });
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const zoomClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isPanMode, setIsPanMode] = useState(false);
-  const [showGuides, setShowGuides] = useState(false);
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(328);
-  const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
@@ -487,7 +515,7 @@ export default function App() {
       setActiveAuxPanel("shapes");
     }
     wasCustomShapeActiveRef.current = customShapeActive;
-  }, [activeTool, shapeSubTool]);
+  }, [activeTool, shapeSubTool, setActiveAuxPanel]);
 
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -560,17 +588,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    const activeLayerId = render?.uiMeta.activeLayerId ?? null;
-    if (!activeLayerId) {
-      setSelectedLayerIds([]);
-      return;
-    }
-    setSelectedLayerIds((current) =>
-      current.length > 0 && current.includes(activeLayerId) ? current : [activeLayerId],
-    );
-  }, [render?.uiMeta.activeLayerId]);
-
-  useEffect(() => {
     if (activeArtboard?.isArtboard && activeArtboard.artboardBackground) {
       const background = activeArtboard.artboardBackground;
       setArtboardBackground((current) =>
@@ -578,31 +595,6 @@ export default function App() {
       );
     }
   }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground, setArtboardBackground]);
-
-  useEffect(() => {
-    if (!activeCrop?.active) {
-      setCropStraightenActive(false);
-      return;
-    }
-    setCropDeletePixels((current) =>
-      current === activeCrop.deletePixels ? current : activeCrop.deletePixels,
-    );
-    setCropContentAwareFill((current) =>
-      current === activeCrop.contentAwareFill ? current : activeCrop.contentAwareFill,
-    );
-    setCropResolution((current) =>
-      current === activeCrop.resolution ? current : activeCrop.resolution,
-    );
-    setCropOverlayType((current) =>
-      current === activeCrop.overlayType ? current : activeCrop.overlayType,
-    );
-  }, [
-    activeCrop?.active,
-    activeCrop?.contentAwareFill,
-    activeCrop?.deletePixels,
-    activeCrop?.overlayType,
-    activeCrop?.resolution,
-  ]);
 
   const selectiveColorFields = [
     { key: "cyanRed", label: "Cyan / Red" },
