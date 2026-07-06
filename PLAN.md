@@ -394,6 +394,152 @@
 
 ---
 
+## Phase S: Stabilization, Correctness & Completion (Full-Codebase Review, 2026-07-06)
+
+**Context:** A six-track deep review (engine core, performance, frontend, tests/CI, plan-vs-code audit, agg_go alignment) found that most backend checkboxes in Phases 1–5 are genuinely implemented and tested, but the product feels *slow, buggy and incomplete* for three systemic reasons:
+
+1. **Architecture:** every pointer event runs a synchronous full-document recomposite + full-canvas resample + full `UIMeta` JSON round-trip + app-wide React re-render. No dirty rects reach the frontend. Snapshot-per-command history deep-clones the whole document ~4× per command.
+2. **Correctness:** several flagship flows are broken end-to-end (undo doesn't repaint, undo deletes sibling documents, live text editing does nothing, filter-dialog commit is a no-op, real Photoshop PSDs cannot be opened).
+3. **Wiring:** a recurring pattern of "engine done, frontend never dispatches it" (whole filter system, histogram, eyedroppers, Transform Again, jitter dynamics, half the menu bar).
+
+**Review ratings (0–10):** engine core **4**, performance engineering **6**, frontend **4**, quality infrastructure **6.5**, plan accuracy **7.5** (engine ≈9, UI wiring ≈6), agg_go alignment **5.5**. **Overall product state: ~4.5** — consistent with the hands-on impression of 4.
+
+**Goal:** Ship-quality stabilization. Phases S.1–S.4 are ordered by leverage; do them in order. S.5+ can proceed in parallel afterwards.
+
+**Acceptance criterion:** main is green; painting/undo/text/filters work end-to-end; a changed-content frame costs O(dirty area), not O(document); real Photoshop PSD fixtures open correctly; no dead menu items remain (either wired or removed).
+
+### Phase S.1: Make Main Green & CI Honest
+
+- [ ] Fix failing test `TestConvertTextToPath_ProducesGlyphOutlinePath` (`dispatch_text_test.go:288`): `ConvertTextToPath` is a stub (`text_outline_path.go:125` — "BuildGSVTextOutlinePath not yet published") that **replaces the text layer with an empty vector layer, destroying content**. Until real outlines exist (S.6), the command must fail safely and leave the layer intact
+- [ ] Fix golangci-lint error `layer_styles_types.go:446` (`reflect.Ptr` should be inlined) — `just ci` currently cannot pass
+- [ ] Fix `//nolint:unsafeptr` directives referencing an unknown linter name
+- [ ] Add vitest to CI: `ci.yml` runs biome/typecheck/go-test/build but **never runs the 46 frontend tests** (`bun run test`)
+- [ ] Wire up or delete the dead `just update-golden` recipe (`UPDATE_GOLDEN` appears nowhere in Go code)
+- [ ] Add Go coverage reporting to CI (upload + visible trend; threshold optional)
+
+### Phase S.2: Critical Engine Correctness (data loss & broken flagship flows)
+
+- [ ] **Undo/redo of brush strokes doesn't repaint the canvas**: `pixelDeltaCommand.Undo/Redo` (`paint.go:201–212`) restores pixels but never bumps `doc.ContentVersion` / invalidates `cachedDocContentVersion` / `rawFrameKey` — Ctrl+Z appears dead until the next unrelated edit
+- [ ] **Undo destroys all other open documents**: `restoreSnapshot` (`state.go:23–38`) rebuilds a fresh `DocumentManager` containing only the snapshot's single document — silent data loss with 2+ documents open
+- [ ] **Live text editing mutates a discarded clone**: `textEditInput` (`dispatch_text.go:301–329`) mutates the deep clone returned by `manager.Active()` and never calls `ReplaceActive` — typing renders nothing until commit; the covering test asserts nothing (`_ = result`)
+- [ ] **Filter-dialog commit applies the filter with nil params** (`dispatch_filter.go:360`): `filterPreviewState` has no `Params` field; commit restores original pixels then calls `ApplyFilter(..., nil)` → OK button is a visual no-op; `lastFilter` for Ctrl+F is stored paramless too
+- [ ] **Text/vector raster geometry contract is self-contradictory**: `text_render.go` renders `CachedRaster` doc-sized with position baked in; `compositeRasterIntoDocument` (`layer_ops.go:987`) treats rasters as bounds-local → double offset, or a length-check failure whose error is swallowed and the **whole document renders blank with no diagnostics** (`viewport_composite.go:9–13` returns nil on error and the nil gets cached)
+- [ ] **Crop / Canvas Size only transform PixelLayers** (`dispatch_transform.go:473–491`): text layers, vector layers, layer masks, adjustment masks, and `doc.Selection` stay in old coordinate space; mismatched doc-sized text rasters then trigger the blank-canvas path above
+- [ ] Stop swallowing composite/render errors into cached blank frames; surface engine errors over the ABI (`project_io.go:42–54` also discards real import errors as "unsupported import payload")
+- [ ] Expose real `Free(handle)` over the WASM ABI (`main.go:102` calls the placeholder `FreePointer`; engine instances leak) and bounds-check `args[]` in all exported funcs (malformed JS call currently panics the Go runtime)
+- [ ] Make unknown command IDs an error in **all** domains (`engine.go:694–753` silently ignores unknown Core/Transform/Filter/Path/Shape/Text commands — frontend typos become "button does nothing")
+
+### Phase S.3: History Architecture Replacement
+
+- [ ] Replace snapshot-per-command with command/delta-based history: today every command deep-clones the whole document ~4× (`Active()` clone → mutate → `ReplaceActive` clone → before/after `captureSnapshot`); a layer rename on a 4000×4000×5-layer document copies hundreds of MB and will OOM the WASM heap long before the 50-entry cap. `PixelDelta` infrastructure exists but is used only for brush/eraser — extend it (or structural deltas) to all commands
+- [ ] Remove navigation from document history: zoom/pan/rotate-view/fit are pushed as history commands (`dispatch_core.go:47–73`) — Ctrl+Z undoes navigation and navigation entries (full document clones) evict real edits
+- [ ] Fix history failure semantics: failed undo/redo currently drops the entry and leaves the document half-restored (`runtime/history.go:175–199`); failed delta builds produce silent non-undoable edits (`paint.go:197`)
+- [ ] Stop pushing history entries for no-op commands (`runtime/history.go:126`)
+
+### Phase S.4: Rendering Performance Architecture (the actual "slow")
+
+> Phase X optimized constants inside a full-repaint architecture (all X.9–X.12 claims verified as landed). This phase changes the architecture. Re-measured baseline: `RenderFrameAfterPaint` ~21 ms/op native, ~2–3× that in WASM → any content-changing frame costs ~40–60 ms in the browser.
+
+- [ ] **Batch pointer input**: `ContinuePaintStroke` and hover `PointerEvent` are dispatched per raw pointermove (125–1000 Hz) with no `getCoalescedEvents` and no rAF accumulation (`editor-canvas.tsx:3102,3127`) — accumulate points and flush once per rAF as one multi-point command (engine already iterates point arrays); mirror the existing rAF-batched wheel handler pattern
+- [ ] **Stop returning a full render + complete `UIMeta` from every `DispatchCommand`** (`engine.go:759`): layer tree + full history array are JSON-marshalled per pointer event, parsed in JS, and pushed through React context re-rendering every consumer — return a minimal ack for pointer-path commands, version the UIMeta, and fetch it only when its version changes
+- [ ] **Dirty-rect rendering end-to-end** (subsumes Phase 8.2 — the single change that makes painting feel instant): engine already tracks per-stroke dirty rects (`bumpContentVersionRect`) but `compositeSurface` is all-or-nothing and `RenderResult.DirtyRects` is hard-coded to full canvas (`render.go:33`); recomposite only the dirty region, resample only the affected canvas rect, return real rects, and use the partial `putImageData(img, 0, 0, dx, dy, dw, dh)` form
+- [ ] Reuse the composite scratch buffer: `renderLayersToSurfaceWithOptions` (`layer_ops.go:851`) allocates a fresh W×H×4 buffer on every recomposite — 48 MB of garbage per pointermove batch on a 4000×3000 doc
+- [ ] Add a row-`copy()` fast path for zoom=1.0 / rotation=0 / integer alignment: `useBilinear := zoom < 4.0` (`viewport_composite.go:31`) currently bilinear-resamples the full canvas at 100% zoom — this is also a quality bug (slight blur at 100%)
+- [ ] Fix alpha-unweighted bilinear sampling (`viewport_composite.go:153–157`): straight-alpha surfaces interpolated without alpha weighting → dark fringes at layer edges over the checkerboard at zoom < 4×
+- [ ] Render marching ants onto the cached raw frame instead of disabling frame reuse: any active selection sets `canReuseRawFrame = false` (`render.go:91`) → 60 fps full-document resample forever while a selection exists
+- [ ] Reuse one `ImageData` in the blit loop (`createImageData` per frame) and one `Agg2D` per instance for base/overlay passes (`agg.go:53,74` construct fresh per call — every pan/zoom frame is a background-cache miss and pays ~6.4 ms / 17k allocs)
+- [ ] Set `debug.SetGCPercent(~300)` (or `GOMEMLIMIT`) in wasm main as interim GC-hitch mitigation until scratch-buffer reuse lands
+- [ ] Then re-evaluate Phase 8.1 (worker) / 8.3 (SharedArrayBuffer — vite headers already configured, SAB unused) with the new baseline
+
+### Phase S.5: Engine Feature-Bug Fixes
+
+- [ ] **Radial gradient is not implemented** — UI offers it; `fill_gradient.go:445` switch has no radial case and falls through to linear
+- [ ] **Brush/eraser/clone strokes ignore the active selection** (`paint.go`/`brush.go` never consult `doc.Selection`; fills/gradients do it correctly via `fillRasterWithMask`)
+- [ ] **Pixel/all lock never enforced for pixel edits**: only position lock is checked (`layer_ops_helpers.go:59`, TranslateLayer only) — painting/fills/filters modify fully-locked layers
+- [ ] **Transforms don't transform layer masks**: free transform and discrete flips/rotates move pixels only; the mask stays behind in document space
+- [ ] **FlattenLayer double-applies opacity/fill-opacity** (`layer_ops.go:805–820`): 50% opacity renders at 25% after flatten; MergeDown/MergeVisible use the other convention
+- [ ] **Drop shadow falls toward the light** (`layer_styles_effects.go:274–279` — sign error at PS-default 120°) and DropShadow/OuterGlow composite **on top of** layer content instead of behind it (`layer_styles_render.go:105–116`)
+- [ ] **Non-Gaussian filters mishandle alpha**: box/motion/radial/surface/median average RGB only and copy original alpha (black halo bleed, frozen silhouettes under ripple/twirl) while Gaussian blurs all four channels
+- [ ] **Levels/Exposure gamma convention inverted** (`adjustments_core.go:170–172`: `v^gamma` instead of `v^(1/gamma)` — sliders work backwards) and `{outputBlack:10}` alone yields output range [10→0]
+- [ ] **Mouse input paints at 75% size / 50% flow**: pressure defaults to 0.5 with PressureSize/Flow on (`brush.go:317–337`) — a 100px brush paints 75px for every mouse user; make dynamics neutral when no pressure device reports
+- [ ] **drawShape pixels-mode coordinate bug** (`dispatch_shape.go:240`): doc-space path rasterized into a layer-local buffer without `-Bounds.X/Y` translation — shapes offset on any layer not at origin
+- [ ] **Path booleans are not real geometry** (`path_boolean.go:38–46`): Combine/Exclude = subpath concatenation over even-odd fill, Subtract = winding reversal (no-op under even-odd), Intersect returns an error — implement via Clipper2 (also resolves the GPC licensing blocker)
+- [ ] Blend-mode edge cases: color dodge/burn extremes deviate from spec (`blend.go:167–179`); `clipColor` divides by zero when lum==min → NaN pixels (`blend.go:244–256`)
+- [ ] Minor batch: magic eraser bypasses the atomic version counter and dirty-rect marking (`paint.go:305`); mixer rim dabs can paint outside saved undo rows (`brush.go:879–896`); fixed-seed Add Noise doubles on reapply; Fade-with-dissolve seed bug; `meta()` never computes SkewY; MergeVisible loses hidden-layer z-order; `DeletePath` doesn't adjust `activePathIdx`; painting on non-pixel layers should surface "rasterize?" instead of silently no-op'ing; library panics in `filters_builtin_helpers.go:98` / `model/layers.go:838`; `RenderResult.PixelFormat` claims "rgba8-premultiplied" but the pipeline is straight alpha
+
+### Phase S.6: Text & Vector Completion
+
+- [ ] Real font engine: TrueType/OpenType via `golang.org/x/image/font/sfnt` (GSV stroke font is the only renderer; FontFamily/Bold/Italic/Kerning/BaselineShift are stored, serialized, and ignored; SmallCaps = AllCaps)
+- [ ] Real Create Outlines implementation (currently the destructive stub from S.1)
+- [ ] Render vector masks (creatable/stored but "silently ignored in rendering", `layer_ops.go:961`)
+- [ ] Layer styles: user-defined gradient overlay (currently hardcoded blue→orange ramp), real pattern overlay/stroke patterns (hardcoded checkerboards), implement or remove decoded-but-unused params (Contour, Noise, Knockout, Altitude, bevel Technique)
+- [ ] Real pattern fill for paint bucket (hardcoded 8px checkerboard)
+
+### Phase S.7: Frontend Architecture & UX Repair
+
+- [ ] **Decompose `App.tsx`** (6,229 lines, 149 `useState` hooks, ~70 props to `EditorCanvas` with fresh inline objects per render) — split state by domain, memoize `EditorCanvas` and `LayerTreeRow`, stop app-wide re-renders per engine frame
+- [ ] **Engine loading/error UI**: `engine.status`/`engine.error` are rendered nowhere — a failed wasm load shows a WelcomeScreen with silently dead buttons; add toast/notification system and try/catch in `context.run()` (engine errors currently throw uncaught mid-gesture and leave transactions open)
+- [ ] **`onPointerCancel`/`lostpointercapture` handling**: pen palm rejection / alt-tab currently leaves paint strokes and move/quick-select/zoom transactions dangling → corrupted history
+- [ ] **Layers context menu is dead with a real pointer**: closes on window `pointerdown` without a `contains()` check, unmounting before `click` fires (`layers-panel.tsx:151–169`) — `fireEvent.click` tests mask it
+- [ ] **Paths panel "activate" is a no-op** dispatching `RenamePath` with the unchanged name (`paths-panel.tsx:18–25`) — polluting undo and making footer actions hit the wrong path; add a real `SetActivePath` command
+- [ ] **Gradient editor regenerates stop IDs per edit** → drags die after one move (`gradient-editor.tsx:341–350`); **Curves drag corrupts on re-sort** (`adjustments-panel.tsx:603–609`)
+- [ ] **Zoom-out shortcut zooms in**: `+`/`=`/`-` all map to `CommandID.ZoomSet` and the switch compares by value, so `case get("-")` is unreachable (`keymap.ts:18–20`, `use-keyboard-shortcuts.ts:196–207`)
+- [ ] Keyboard hygiene: single-key tool shortcuts fire inside modals; `HTMLSelectElement` missing from the editable-target check; Space-pan sticks on window blur; `useKeyboardShortcuts` re-registers window listeners every render (fresh `actions` object)
+- [ ] Throttle slider/number-input dispatches inside a history transaction (opacity, adjustment params, curves emit one synchronous engine command + likely one undo entry per tick); fix `Number("") === 0` dispatching 0 on cleared fields
+- [ ] Move autosave off the main thread (synchronous base64-zip export every 10 content versions freezes large docs; quota errors silently swallowed while the restore banner implies autosave works)
+- [ ] StrictMode double-init: `loadEngine()` runs twice with no dispose — two Go runtimes, leaked handle, possible double `wasm_exec.js` injection (`context.tsx:69–96`, `loader.ts:40–66`)
+- [ ] Accessibility floor: Dialog focus trap + Escape + aria; menu roles/keyboard nav; labeled icon buttons; `TextEditOverlay` Escape currently *commits* instead of canceling
+- [ ] Unify styling on design tokens (character/vector panels use raw blue/slate/zinc palettes; hard-coded hexes in welcome-screen, layers-panel)
+- [ ] Fix ABI payload hazards: `PointerEventCommand.button` typed in TS but silently dropped by Go; `AddLayer.pixels`/`cachedRaster` typed `number[]` in TS but `[]byte` (base64) in Go
+
+### Phase S.8: Wire Implemented Backend Features into the UI
+
+> Recurring audit finding: engine command exists, tested, and works — frontend never dispatches it. 24 handled-but-never-dispatched commands total.
+
+- [ ] **Filter menu**: the entire filter domain (0x0500–0x0505, ~22 working filters, reduced-res preview, Ctrl+F reapply, Fade) has **zero frontend wiring** — the Filter menu is a static mock; add TS payload types + dialogs
+- [ ] **Menu bar de-mock**: items without `actionId` are permanently disabled — Edit▸Undo/Redo/Cut/Copy/Paste, entire Layer menu, Image▸Levels/Curves/…, View▸Zoom/Fit, entire Window and Help menus; wire or remove (Edit▸Scale/Rotate/Skew/… also all mislabel plain free transform)
+- [ ] **Clipboard**: no cut/copy/paste exists anywhere (needs new engine commands + UI)
+- [ ] Histogram display in Levels UI (`ComputeHistogram` has no consumer); Curves black/white/gray eyedroppers (`SetPointFromSample` never dispatched); Hue/Sat range eyedropper (`IdentifyHueRange` never dispatched)
+- [ ] Transform Again menu item (backend complete, zero frontend)
+- [ ] Brush jitter dynamics: panel sliders are display-only — values never reach the engine, no proto fields exist
+- [ ] Navigator: real document thumbnail (currently a static CSS-gradient placeholder, `App.tsx:4400`) 
+- [ ] Multi-document: `SwitchDocument` proto command + document tab bar (engine `DocumentManager` supports it; unreachable by users) — blocked on S.2 undo-vs-multi-doc fix
+- [ ] Alt+click visibility eye = solo (claimed in 2.4, no altKey handling)
+- [ ] Character panel real color picker (currently a black↔red demo toggle); vector properties real fill/stroke pickers (transparent↔black toggle); remove or implement mask Density/Feather sliders and other decorative controls
+- [ ] Real `.abr` parser (current "import" is a filename-regex heuristic)
+
+### Phase S.9: agg_go Upgrade & Alignment
+
+- [ ] **Upgrade `agg_go` v0.2.21 → v0.3.2** (163 commits behind; verified drop-in — host and js/wasm builds compile clean, no API breaks): brings AVX2/SSE2 SIMD blend kernels, the **DstOut comp-op fix (the engine's eraser runs against the unfixed version)**, `FillLinearGradientStops`, sRGB/premultiplied-alpha correctness fixes, raster-text overhaul, dashed strokes
+- [ ] In agg_go: export the composite/span/image-filter primitives the engine needs (they live under `internal/` and cannot be imported — the AGENTS.md "use agg_go primitives" rule is currently impossible to follow for compositing)
+- [ ] In agg_go: extend `CompOp` with the 14 missing Photoshop modes (Linear Burn/Dodge, Vivid/Pin/Linear Light, Hard Mix, Divide, Subtract, Darker/Lighter Color, Dissolve, Hue/Sat/Color/Luminosity)
+- [ ] Then migrate the three highest-traffic manual-pixel paths to agg_go: `blend.go` (287-line per-pixel float64 blend engine, called per pixel from 5 files), the layer compositor (`layer_ops.go:987–1045`), and the viewport resampler (`viewport_composite.go` — replaceable by one AGG transformed-image draw)
+- [ ] Migrate `renderCustomGradient` (`fill_gradient.go:429–498`) to agg_go span generators / `FillLinearGradientStops`; route crop resampling (`crop.go:369–406`) through AGG image filters
+- [ ] Keep-manual list stays valid: flips/rotate90/180, discrete remaps, transform overlay (Phase X.7 policy), `EraseBackgroundDab` tolerance erase
+
+### Phase S.10: PSD Interop Repair
+
+> Current state: PSD I/O is effectively an Agogo↔Agogo container. Round-trip tests pass only because reader and writer share the same bugs and fidelity rides on an embedded `AgogoProject` JSON block — there are zero external fixtures.
+
+- [ ] **Compression constants off by +2** (`internal/io/psd/types.go:10–18`: mid-block `iota` reuse yields Raw=2/RLE=3/Zip=4/ZipPred=5 vs spec 0/1/2/3) — **any genuine Photoshop file fails with "unsupported compression 1"** and written files are invalid for other apps
+- [ ] Add real Photoshop-exported fixture files and round-trip tests against them
+- [ ] Fix group section-divider semantics (inverted vs Photoshop → spurious/inverted group structure)
+- [ ] Fix layer masks (wrong decode dims `parser.go:212`; decoded pixels never assigned `import.go:94–98`; writer discards mask offset `writer.go:107`)
+- [ ] Map all 27 blend modes (only 7 mapped; soft light etc. collapse to Normal, `helpers.go:121–140`)
+- [ ] Fix zip channel decode (always `ErrUnexpectedEOF`, `pixels.go:130`)
+- [ ] Bound allocations on untrusted length fields (`helpers.go:166` — hostile/corrupt file OOM-kills the editor) and add `Fuzz*` tests for the parser (highest-risk untested surface: binary parsing of untrusted input in-browser)
+- [ ] Reconstruct (not just capture as metadata) adjustment layers and text layers on import; replace the JSON-in-descriptor TySh/lfx2 pseudo-format with spec-conformant descriptors
+
+### Phase S.11: Test & QA Hardening
+
+- [ ] Golden-image render tests for the compositor/blend/styles pipeline (a *rendering engine* currently has zero pixel-snapshot tests; "golden" tests are expected-pixel tables)
+- [ ] Playwright E2E: create doc → paint → undo → redo → export → hash; PSD fixture open; adjustment layer visual change (the C1–C4 class of bugs is invisible to unit tests and exactly what E2E catches)
+- [ ] Direct tests for `internal/model`, `internal/document`, `internal/command`, `internal/runtime` (zero today — the clone logic and history stack that undo depends on), and the new `internal/io/psd*` packages (only covered via the engine compat shim)
+- [ ] Frontend tests for `src/wasm/loader.ts`, `context.tsx`, `editor-canvas.tsx` (entire engine-integration path untested)
+- [ ] Benchmark regression job in CI (2 benchmarks exist, nothing runs or compares them)
+
+---
+
 ## ✅ Phase 0: Scaffolding, Repo Structure, Build Pipeline — COMPLETE
 
 - **Monorepo:** Bun workspaces — `apps/editor-web` (Vite + React + TS + Tailwind v4 + shadcn + Base UI), `packages/engine-wasm` (Go 1.25 → `js/wasm`), `packages/proto` (shared TS types/command IDs)
@@ -444,6 +590,15 @@
 - [x] Dirty-rect pixel-delta history infrastructure implemented for future pixel-layer commands.
 - [x] History panel UI implemented with command list, jump-to-state, and clear-history behavior.
 - [x] Keyboard shortcuts: `Ctrl+Z` (undo), `Ctrl+Shift+Z` (redo), `Ctrl+Alt+Z` (step back in history)
+
+### Phase 1 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] Undo of paint strokes doesn't repaint the canvas; undo with multiple documents open destroys the sibling documents (→ S.2)
+- [ ] History is snapshot-per-command with ~4× full-document deep clones; navigation (zoom/pan/rotate) pollutes document history (→ S.3)
+- [ ] Navigator "mini-viewport" is a static CSS-gradient placeholder, not a document thumbnail (→ S.8)
+- [ ] Multi-document switching is engine-only — no `SwitchDocument` proto command, no tab UI (→ S.8)
+- [ ] Zoom-out keyboard shortcut (`-`) zooms in due to a keymap value collision (→ S.7)
+- [ ] Every `DispatchCommand` returns a full render + complete `UIMeta` — the core ABI needs the S.4 split
 
 ---
 
@@ -542,8 +697,17 @@
 - [x] `LoadProject([]byte) -> Document`: deserialize from `.agp`
 - [x] File > Save / Save As (browser file system API / download)
 - [x] File > Open (file picker, drag & drop onto canvas)
-- [x] Auto-save to `localStorage` (every N commands, configurable)
+- [x] Auto-save to `localStorage` (every N commands, configurable) — *interval is hardcoded to 10, not configurable; runs synchronously on the main thread (→ S.7)*
 - [x] Recovery on next open if auto-save present
+
+### Phase 2 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] Blend engine is a manual per-pixel float64 implementation bypassing agg_go; dodge/burn extremes deviate from spec; `clipColor` NaN on lum==min (→ S.5, S.9)
+- [ ] `FlattenLayer` double-applies opacity/fill-opacity (50% renders as 25%); MergeVisible loses hidden-layer z-order (→ S.5)
+- [ ] Pixel/all layer locks are not enforced for painting, fills, or filters (→ S.5)
+- [ ] "Cache layer composites" is actually a single document-level cache keyed on ContentVersion — no per-layer/subtree invalidation (→ S.4)
+- [ ] Alt+click eye-icon solo is missing; layers context menu doesn't work with a real pointer (closes before click fires) (→ S.7, S.8)
+- [ ] "Golden-image unit tests" are expected-pixel tables — no actual image-snapshot tests exist (→ S.11)
 
 ---
 
@@ -663,6 +827,15 @@
   - [x] Output to: New Layer, New Layer with Mask, Document
 - [x] Transform Options bar: all numeric fields editable (X/Y/W/H/R), interpolation dropdown, warp toggle
 
+### Phase 3 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] Transforms (free transform and discrete flip/rotate) do not transform layer masks — the mask stays behind in doc space (→ S.5)
+- [ ] Crop / Canvas Size only handle PixelLayers; text/vector layers, masks, and the active selection stay in the old coordinate space and can blank the canvas (→ S.2)
+- [ ] "Again (repeat last transform)" is backend-complete but has zero frontend wiring (→ S.8)
+- [ ] Content-Aware Fill is BFS neighbor-average diffusion, not PatchMatch-class inpainting — the checked item overstates
+- [ ] `meta()` never computes SkewY; Shift-constrain and 15° rotation snap remain open (as noted inline)
+- [ ] No `onPointerCancel` handling: a cancelled pointer mid-gesture leaves move/quick-select transactions dangling in history (→ S.7)
+
 ---
 
 ## Phase 4: Painting Basics (Brush/Pencil/Eraser/Fill/Gradient) + Brush UI
@@ -741,7 +914,7 @@
   - [x] Respects selection mask
   - [x] `Edit > Fill` dialog: fill with color / background color / pattern
 - [x] **Gradient Tool (G):**
-  - [x] Types: Linear, Radial, Angle, Reflected, Diamond
+  - [ ] Types: Linear, ~~Radial~~, Angle, Reflected, Diamond — **Radial is not implemented: the UI offers it but `fill_gradient.go:445` falls through to linear (→ S.5)**
   - [x] Gradient editor:
     - [x] Color stops (add/remove/move)
     - [x] Opacity stops
@@ -786,6 +959,16 @@
   - [x] Load/save swatch sets (`.aco` import later)
 - [x] Options bar per paint tool: blend mode, opacity slider, flow slider, airbrush toggle, smoothing slider, pressure buttons
 
+### Phase 4 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] Brush/eraser/clone strokes ignore the active selection — painting with a marquee active paints outside it (→ S.5)
+- [ ] Mouse input paints at 75% size / 50% flow: pressure defaults to 0.5 with size/flow dynamics on, so every mouse user gets a weakened brush (→ S.5)
+- [ ] Brush dynamics jitter sliders + control-source dropdown are display-only — values never reach the engine, no proto fields exist (→ S.8)
+- [ ] `.abr` import is a filename-regex heuristic, not a format parser (→ S.8)
+- [ ] Gradient "fill layer" is rasterized, not a non-destructive parametric layer; opacity stops are folded into stop colors, not independent
+- [ ] Paint-bucket pattern fill is a hardcoded 8px checkerboard (→ S.6); LAB sliders missing; "gamut warning" is a web-safe-color label
+- [ ] Paint input is dispatched per raw pointermove with no coalescing — the dominant cause of laggy strokes (→ S.4)
+
 ---
 
 ## Phase 5: Adjustments & Filter System (Non-Destructive) + Properties/Adjustments Panel
@@ -817,7 +1000,7 @@
   - [x] Input black point, white point, midtone gamma (per channel: R/G/B/RGB)
   - [x] Output black point, white point
   - [x] Auto-calculate (stretch to full range), Auto Options (clipping %)
-  - [x] Histogram display inside properties panel (backend: ComputeHistogram command returns per-channel 256-bin data)
+  - [ ] Histogram display inside properties panel — **backend `ComputeHistogram` exists but has zero frontend consumers; no histogram is visible anywhere in the UI (→ S.8)**
 - [x] **Curves:**
   - [x] Curve editor: click+drag to add/move control points on the curve
   - [x] Per channel: RGB composite + R/G/B individual
@@ -943,6 +1126,15 @@
   - [x] Mask section: show mask enabled/disabled toggle, invert, delete (Density/Feather pending engine support)
 - [x] Live preview toggle: temporarily disable adjustment to compare before/after (via visibility toggle)
 
+### Phase 5 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] **The entire filter system is unreachable from the UI**: all ~22 engine filters, the preview pipeline, Ctrl+F, and Fade work and are tested in Go, but the Filter menu is a static mock with no dispatch and no TS payload types (→ S.8)
+- [ ] Filter-dialog commit applies the filter with nil params — OK is a visual no-op even once wired (→ S.2)
+- [ ] Levels/Exposure gamma convention is inverted vs Photoshop (`v^gamma` instead of `v^(1/gamma)`); output-white default trap yields near-black output (→ S.5)
+- [ ] Curves black/white/gray eyedropper (`SetPointFromSample`) and Hue/Sat range eyedropper (`IdentifyHueRange`) exist in the engine but are never dispatched (→ S.8)
+- [ ] Non-Gaussian filters average RGB only and copy original alpha (halo bleed, frozen silhouettes in distort filters) (→ S.5)
+- [ ] Adjustment sliders dispatch one synchronous engine command per tick with no debounce/transaction batching (→ S.7)
+
 ---
 
 ## Phase 6: Text & Vector (Pen/Shapes/Type) + Layer Styles
@@ -972,7 +1164,7 @@
   - [x] Shift+click: add/remove from selection
   - [x] Drag selection rect: marquee-select multiple anchors
 - [x] **Path Operations:**
-  - [x] Combine (union), Subtract, ~~Intersect~~, Exclude, ~~Divide~~
+  - [ ] Combine (union), Subtract, ~~Intersect~~, Exclude, ~~Divide~~ — **not real boolean geometry: Combine/Exclude are subpath concatenation over even-odd fill, Subtract is a winding reversal (no-op under even-odd), Intersect returns an error; needs Clipper2 (→ S.5)**
   - [x] Flatten path to single subpath
 - [x] **Rasterize path to mask / layer:**
   - [x] Render path via AGG rasterizer with AA → alpha mask or pixel layer
@@ -1043,7 +1235,7 @@
   - [ ] Click+drag to select text range, Shift+click to extend
   - [ ] Keyboard: standard text navigation (Home/End, Ctrl+A, Ctrl+C/X/V)
 - [x] **Commit text:** Escape or Done button; undo reverts to pre-edit state (single history entry)
-- [x] **Type > Create Outlines:** converts text to GSV-based outline VectorLayer
+- [ ] **Type > Create Outlines:** converts text to GSV-based outline VectorLayer — **stubbed: replaces the text layer with an empty vector layer, destroying content; its test fails on main (→ S.1, S.6)**
 
 ### Phase 6.4: Text UI Panels
 
@@ -1100,6 +1292,12 @@
 - [x] **Copy/Paste Layer Style** (right-click context menu)
 - [x] **Flatten/Merge with effects:** merge effects into pixel data
 
+### Phase 6.5 — Review gaps (2026-07-06, see Phase S)
+
+- [ ] Drop shadow falls *toward* the light at the PS-default 120° angle (sign error), and DropShadow/OuterGlow composite on top of layer content instead of behind it (→ S.5)
+- [ ] Gradient Overlay renders a hardcoded blue→orange ramp — user gradient stops are ignored; Pattern Overlay / pattern stroke are hardcoded checkerboards (→ S.6)
+- [ ] Contour, Noise, Knockout, Altitude, and bevel Technique params are decoded but never used in rendering (→ S.6)
+
 ---
 
 ## Phase 7: PSD/PSB Compatibility, Artboards, Slices, Automation
@@ -1151,9 +1349,16 @@
   - [x] Serialize adjustment layer params
   - [x] Serialize merged image data (composite of all visible layers)
   - [x] RLE compression for pixel data (PackBits)
-- [x] Round-trip test: open PSD → modify → save → re-open, verify no loss for supported features
+- [ ] Round-trip test: open PSD → modify → save → re-open, verify no loss for supported features — **current round-trip passes only because reader and writer share the same bugs and fidelity rides on an embedded `AgogoProject` JSON block; compression constants are off by +2, so real Photoshop files cannot be opened and written files are invalid for other apps; zero external fixtures (→ S.10)**
 - [x] PSB write for documents exceeding PSD limits (30,000px)
 - [x] Save as PSD / Save as PSB in File menu
+
+### Phase 7.1/7.2 — Review gaps (2026-07-06, see Phase S.10)
+
+- [ ] Compression codes off by +2 vs spec — genuine Photoshop files fail to open ("unsupported compression 1"); written files invalid for other apps
+- [ ] Group section-divider semantics inverted vs Photoshop; layer masks triple-broken (decode dims, never assigned, offset discarded); only 7 of 27 blend modes mapped; zip channel decode always errors
+- [ ] Adjustment layers / text layers / smart objects are parsed as metadata only and flattened on import — checked sub-items above describe capture, not reconstruction; TySh/lfx2 are written as JSON-in-descriptor pseudo-formats no other app can read
+- [ ] No allocation bounds on untrusted length fields (hostile file OOM-kills the editor); no fuzz tests, no real-world fixtures
 
 ### Phase 7.3: Artboards
 

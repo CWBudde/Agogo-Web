@@ -1,4 +1,4 @@
-github.com/cwbudde/agg_go v0.2.21 h1:Ky48AHo85KuoI9bolpQiHK3UIMrbwD1EHic/7sWwugo=
-github.com/cwbudde/agg_go v0.2.21/go.mod h1:v3HUTqN3emwGwTyx6v9ex0ZELB/PfxxtuLL4L3dcD6g=
+github.com/cwbudde/agg_go v0.3.2 h1:CR1crhhnALHSxZ57clwOGgLx07HEHGlpoXZ5umYun9c=
+github.com/cwbudde/agg_go v0.3.2/go.mod h1:v3HUTqN3emwGwTyx6v9ex0ZELB/PfxxtuLL4L3dcD6g=
 golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=
 golang.org/x/sys v0.40.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
