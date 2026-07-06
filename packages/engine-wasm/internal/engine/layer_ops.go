@@ -405,7 +405,12 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	return nil
 }
 
-func (doc *Document) AddVectorMask(layerID string) error {
+// AddVectorMask attaches a vector mask to the layer. Without a seed the mask
+// is an EMPTY placeholder path (no anchor points), which renders as
+// "reveal all" — byte-identical to having no vector mask. When fromActivePath
+// is true and the document has a valid active stored path, the mask is seeded
+// with a deep clone of that path instead.
+func (doc *Document) AddVectorMask(layerID string, fromActivePath bool) error {
 	if doc == nil {
 		return fmt.Errorf("document is required")
 	}
@@ -416,9 +421,36 @@ func (doc *Document) AddVectorMask(layerID string) error {
 	if layer.VectorMask() != nil {
 		return fmt.Errorf("layer %q already has a vector mask", layer.Name())
 	}
-	// Placeholder: creates an empty path. Full path editing deferred to Phase 6.1.
-	layer.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true}}})
-	doc.touchModifiedAt()
+	if fromActivePath && doc.ActivePathIdx >= 0 && doc.ActivePathIdx < len(doc.Paths) {
+		// SetVectorMask deep-clones, so the mask does not alias the stored path.
+		layer.SetVectorMask(&doc.Paths[doc.ActivePathIdx].Path)
+	} else {
+		// Reveal-all placeholder (regression-pinned to render byte-identical
+		// to no mask); the path is edited later via SetVectorMaskPath.
+		layer.SetVectorMask(&Path{Subpaths: []Subpath{{Closed: true}}})
+	}
+	doc.touchModifiedAtLayer(layer)
+	return nil
+}
+
+// SetVectorMaskPath replaces the path of an EXISTING vector mask. The layer
+// must already carry a vector mask (use AddVectorMask first).
+func (doc *Document) SetVectorMaskPath(layerID string, path *Path) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if layer.VectorMask() == nil {
+		return fmt.Errorf("layer %q has no vector mask", layer.Name())
+	}
+	if path == nil {
+		return fmt.Errorf("vector mask path is required")
+	}
+	layer.SetVectorMask(path) // SetVectorMask deep-clones the payload path
+	doc.touchModifiedAtLayer(layer)
 	return nil
 }
 
@@ -961,7 +993,7 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 	switch typed := layer.(type) {
 	case *PixelLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), doc.effectiveLayerMask(typed), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
@@ -971,7 +1003,7 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 		return nil
 	case *TextLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), doc.effectiveLayerMask(typed), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
@@ -981,7 +1013,7 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 		return nil
 	case *VectorLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), doc.effectiveLayerMask(typed), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
@@ -1003,7 +1035,12 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 		}
 		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha, rect, allowAdjustmentCache)
 	case *GroupLayer:
-		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
+		// effectiveLayerMask folds the vector mask into the raster mask; the
+		// pass-through gate uses it so an EMPTY vector mask (reveal all)
+		// keeps the fast path byte-identical while a real vector mask forces
+		// the isolated-surface path where it can be applied.
+		effectiveMask := doc.effectiveLayerMask(typed)
+		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && effectiveMask == nil {
 			return doc.compositeLayerStackOntoWithOptions(dest, typed.Children(), clipAlpha, allowAdjustmentCache, clip)
 		}
 		// temp is transient compositing scratch: children are composited into
@@ -1014,7 +1051,7 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 		if err := doc.compositeLayerStackOntoWithOptions(temp, typed.Children(), nil, allowAdjustmentCache, clip); err != nil {
 			return err
 		}
-		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask(), clip)
+		applyLayerMaskToSurface(temp, doc.Width, doc.Height, effectiveMask, clip)
 		applyClipSurfaceToSurfaceClipped(temp, clipAlpha, doc.Width, clip)
 		compositeDocumentSurfaceClipped(dest, temp, doc.Width, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf(), clip)
 		return nil
@@ -1061,8 +1098,6 @@ func (doc *Document) compositeLayerStackOntoWithOptions(dest []byte, layers []La
 }
 
 func ensureRasterizableLayer(layer LayerNode) error {
-	// Vector masks are not yet rasterized during compositing (Phase 6.1).
-	// They are stored as data but silently ignored in rendering for now.
 	if !hasAnyEnabledLayerStyleEntry(layer.StyleStack()) {
 		return nil
 	}

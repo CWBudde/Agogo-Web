@@ -61,6 +61,9 @@ export enum CommandID {
   ApplyDocumentStylePreset = 0x0128,
   SetArtboard = 0x0129,
 
+  // Phase S.6: Vector mask rendering
+  SetVectorMaskPath = 0x012a,
+
   // Phase 3: Selection
   NewSelection = 0x0200,
   SelectAll = 0x0201,
@@ -790,10 +793,25 @@ export interface ApplyDocumentStylePresetCommand {
 
 export interface AddVectorMaskCommand {
   layerId: string;
+  /**
+   * Seed the new mask from a clone of the active stored path. Omitted/false
+   * creates an empty reveal-all placeholder path.
+   */
+  fromActivePath?: boolean;
 }
 
 export interface DeleteVectorMaskCommand {
   layerId: string;
+}
+
+/**
+ * Replaces the path of an existing vector mask (the layer must already have
+ * one, see AddVectorMask). Raster and vector masks intersect (coverage is
+ * multiplied); an empty path (no anchor points) reveals everything.
+ */
+export interface SetVectorMaskPathCommand {
+  layerId: string;
+  path: PathCommand;
 }
 
 export interface SetMaskEditModeCommand {

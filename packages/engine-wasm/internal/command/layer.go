@@ -41,6 +41,7 @@ const (
 	commandDeleteDocumentStylePreset int32 = 0x0127
 	commandApplyDocumentStylePreset  int32 = 0x0128
 	commandSetArtboard               int32 = 0x0129
+	commandSetVectorMaskPath         int32 = 0x012a
 )
 
 type LayerAddPayload struct {
@@ -114,6 +115,18 @@ type LayerAddMaskPayload struct {
 type LayerMaskEnabledPayload struct {
 	LayerID string `json:"layerId"`
 	Enabled bool   `json:"enabled"`
+}
+
+// LayerAddVectorMaskPayload extends the legacy bare {layerId} payload with an
+// optional fromActivePath flag; old payloads decode unchanged (flag false).
+type LayerAddVectorMaskPayload struct {
+	LayerID        string `json:"layerId"`
+	FromActivePath bool   `json:"fromActivePath,omitempty"`
+}
+
+type LayerVectorMaskPathPayload struct {
+	LayerID string      `json:"layerId"`
+	Path    *model.Path `json:"path"`
 }
 
 type LayerClipPayload struct {
@@ -211,8 +224,9 @@ type LayerDeps struct {
 	SetLayerClipToBelow       func(LayerClipPayload) error
 	SetActiveLayer            func(layerID string) error
 	SetLayerName              func(LayerNamePayload) error
-	AddVectorMask             func(layerID string) error
+	AddVectorMask             func(LayerAddVectorMaskPayload) error
 	DeleteVectorMask          func(layerID string) error
+	SetVectorMaskPath         func(LayerVectorMaskPathPayload) error
 	SetAdjustmentParams       func(LayerAdjustmentParamsPayload) error
 	SetLayerStyleStack        func(LayerStyleStackPayload) error
 	SetLayerStyleEnabled      func(LayerStyleEnabledPayload) error
@@ -341,11 +355,17 @@ func DispatchLayer(commandID int32, payloadJSON string, deps LayerDeps) (bool, e
 		}
 		return true, deps.SetLayerName(payload)
 	case commandAddVectorMask:
-		var payload layerIDPayload
+		var payload LayerAddVectorMaskPayload
 		if err := deps.Decode(payloadJSON, &payload); err != nil {
 			return true, err
 		}
-		return true, deps.AddVectorMask(payload.LayerID)
+		return true, deps.AddVectorMask(payload)
+	case commandSetVectorMaskPath:
+		var payload LayerVectorMaskPathPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SetVectorMaskPath(payload)
 	case commandDeleteVectorMask:
 		var payload layerIDPayload
 		if err := deps.Decode(payloadJSON, &payload); err != nil {

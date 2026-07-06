@@ -24,11 +24,13 @@ func (doc *Document) renderStyledLayerSurface(layer LayerNode, clipAlpha []byte)
 }
 
 func (doc *Document) renderRasterizableContentSurface(layer LayerNode, clipAlpha []byte, opacity float64) ([]byte, error) {
-	bounds, raster, mask, err := rasterizableLayerSource(layer)
+	bounds, raster, err := rasterizableLayerSource(layer)
 	if err != nil {
 		return nil, err
 	}
-	return buildDocumentSurfaceFromRaster(doc.Width, doc.Height, bounds, raster, mask, clipAlpha, opacity)
+	// Resolve the effective mask (raster x vector) here — this is the doc-aware
+	// caller — so styled layers and clip bases honor vector masks too.
+	return buildDocumentSurfaceFromRaster(doc.Width, doc.Height, bounds, raster, doc.effectiveLayerMask(layer), clipAlpha, opacity)
 }
 
 func (doc *Document) renderClipBaseSurface(layer LayerNode) ([]byte, error) {
@@ -40,16 +42,19 @@ func (doc *Document) renderClipBaseSurface(layer LayerNode) ([]byte, error) {
 	}
 }
 
-func rasterizableLayerSource(layer LayerNode) (LayerBounds, []byte, *LayerMask, error) {
+// rasterizableLayerSource returns the bounds-local raster of a rasterizable
+// layer. Masks are intentionally NOT part of the result: callers with a doc
+// receiver resolve them via effectiveLayerMask (raster x vector).
+func rasterizableLayerSource(layer LayerNode) (LayerBounds, []byte, error) {
 	switch typed := layer.(type) {
 	case *PixelLayer:
-		return typed.Bounds, typed.Pixels, typed.Mask(), nil
+		return typed.Bounds, typed.Pixels, nil
 	case *TextLayer:
-		return typed.Bounds, typed.CachedRaster, typed.Mask(), nil
+		return typed.Bounds, typed.CachedRaster, nil
 	case *VectorLayer:
-		return typed.Bounds, typed.CachedRaster, typed.Mask(), nil
+		return typed.Bounds, typed.CachedRaster, nil
 	default:
-		return LayerBounds{}, nil, nil, fmtUnsupportedStyledLayer(layer)
+		return LayerBounds{}, nil, fmtUnsupportedStyledLayer(layer)
 	}
 }
 

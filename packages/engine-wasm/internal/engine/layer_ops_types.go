@@ -237,6 +237,14 @@ type DiscreteTransformPayload struct {
 
 type AddVectorMaskPayload struct {
 	LayerID string `json:"layerId"`
+	// FromActivePath seeds the new mask from a clone of the active stored
+	// path. Optional: legacy bare {layerId} payloads decode unchanged.
+	FromActivePath bool `json:"fromActivePath,omitempty"`
+}
+
+type SetVectorMaskPathPayload struct {
+	LayerID string `json:"layerId"`
+	Path    *Path  `json:"path"`
 }
 
 type DeleteVectorMaskPayload struct {

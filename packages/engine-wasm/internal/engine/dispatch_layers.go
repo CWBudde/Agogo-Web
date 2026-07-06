@@ -183,14 +183,19 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 				return doc.SetLayerName(payload.LayerID, payload.Name)
 			})
 		},
-		AddVectorMask: func(layerID string) error {
+		AddVectorMask: func(payload cmdpkg.LayerAddVectorMaskPayload) error {
 			return inst.executeDocCommand("Add vector mask", func(doc *Document) error {
-				return doc.AddVectorMask(layerID)
+				return doc.AddVectorMask(payload.LayerID, payload.FromActivePath)
 			})
 		},
 		DeleteVectorMask: func(layerID string) error {
 			return inst.executeDocCommand("Delete vector mask", func(doc *Document) error {
 				return doc.DeleteVectorMask(layerID)
+			})
+		},
+		SetVectorMaskPath: func(payload cmdpkg.LayerVectorMaskPathPayload) error {
+			return inst.executeDocCommand("Set vector mask path", func(doc *Document) error {
+				return doc.SetVectorMaskPath(payload.LayerID, payload.Path)
 			})
 		},
 		SetAdjustmentParams: func(payload cmdpkg.LayerAdjustmentParamsPayload) error {

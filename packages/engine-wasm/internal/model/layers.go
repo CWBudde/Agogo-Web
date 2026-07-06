@@ -84,6 +84,8 @@ type LayerNode interface {
 	SetMask(*LayerMask)
 	VectorMask() *Path
 	SetVectorMask(*Path)
+	VectorMaskRaster() *VectorMaskRasterCache
+	SetVectorMaskRaster(*VectorMaskRasterCache)
 	ClipToBelow() bool
 	SetClipToBelow(bool)
 	ClippingBase() bool
@@ -100,6 +102,19 @@ type LayerMask struct {
 	Width   int    `json:"width"`
 	Height  int    `json:"height"`
 	Data    []byte `json:"data,omitempty"`
+}
+
+// VectorMaskRasterCache memoizes the document-sized 8-bit coverage raster of a
+// layer's vector mask (mirroring AdjustmentLayer.Cache). Validation is by
+// CONTENT, not by invalidation hooks: transforms and crop mutate the mask path
+// in place through the pointer returned by VectorMask(), so the cache is valid
+// only while its dimensions match the document and PathEqual(Path, VectorMask())
+// holds. The struct is immutable by convention — it is replaced wholesale on
+// refresh and never mutated, so layer clones may safely share the pointer.
+type VectorMaskRasterCache struct {
+	W, H int
+	Path *Path  `json:"-"` // deep clone taken at rasterization time (content key)
+	Data []byte `json:"-"` // W*H coverage bytes, 255 = inside; treat as immutable
 }
 
 type HandleType int
@@ -158,7 +173,10 @@ type layerBase struct {
 	parent       LayerNode
 	mask         *LayerMask
 	vectorMask   *Path
-	clipToBelow  bool
+	// vectorMaskRaster is a render-time memoization of the rasterized vector
+	// mask. Not serialized; validated by content (see VectorMaskRasterCache).
+	vectorMaskRaster *VectorMaskRasterCache
+	clipToBelow      bool
 	clippingBase bool
 	styleStack   []LayerStyle
 	blendIf      *BlendIfConfig
@@ -295,6 +313,14 @@ func (l *layerBase) SetVectorMask(mask *Path) {
 	l.vectorMask = ClonePath(mask)
 }
 
+func (l *layerBase) VectorMaskRaster() *VectorMaskRasterCache {
+	return l.vectorMaskRaster
+}
+
+func (l *layerBase) SetVectorMaskRaster(cache *VectorMaskRasterCache) {
+	l.vectorMaskRaster = cache
+}
+
 func (l *layerBase) ClipToBelow() bool {
 	return l.clipToBelow
 }
@@ -336,9 +362,14 @@ func (l *layerBase) cloneBase() layerBase {
 		opacity:      l.opacity,
 		fillOpacity:  l.fillOpacity,
 		blendMode:    l.blendMode,
-		mask:         CloneLayerMask(l.mask),
-		vectorMask:   ClonePath(l.vectorMask),
-		clipToBelow:  l.clipToBelow,
+		mask:       CloneLayerMask(l.mask),
+		vectorMask: ClonePath(l.vectorMask),
+		// Pointer copy on purpose: the cache struct is immutable by convention
+		// (pointer-replaced on refresh, never mutated in place) and validated
+		// by content, so sharing it across clones is safe and avoids
+		// re-rasterizing after every snapshot.
+		vectorMaskRaster: l.vectorMaskRaster,
+		clipToBelow:      l.clipToBelow,
 		clippingBase: l.clippingBase,
 		styleStack:   CloneLayerStyles(l.styleStack),
 		blendIf:      CloneBlendIfConfig(l.blendIf),
