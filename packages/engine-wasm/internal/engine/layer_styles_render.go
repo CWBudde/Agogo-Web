@@ -119,7 +119,7 @@ func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int
 
 	finalSurface := make([]byte, len(baseSurface))
 	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, true)
-	compositeDocumentSurface(finalSurface, baseSurface, BlendModeNormal, 1, nil)
+	compositeDocumentSurfaceClipped(finalSurface, baseSurface, docW, BlendModeNormal, 1, nil, nil)
 	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
 	return finalSurface
 }

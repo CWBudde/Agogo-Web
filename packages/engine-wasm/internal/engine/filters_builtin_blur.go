@@ -44,7 +44,8 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 				// per-channel lerp would darken feathered boundaries.
 				pixels[i], pixels[i+1], pixels[i+2], pixels[i+3] = lerpRGBAPremul(
 					orig[i], orig[i+1], orig[i+2], orig[i+3],
-					pixels[i], pixels[i+1], pixels[i+2], pixels[i+3], a)
+					pixels[i], pixels[i+1], pixels[i+2], pixels[i+3], a,
+				)
 			}
 		}
 		return nil

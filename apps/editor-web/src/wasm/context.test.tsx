@@ -22,7 +22,7 @@ function makeFullRender(overrides: Partial<EngineRenderState> = {}): EngineRende
       devicePixelRatio: 1,
     },
     dirtyRects: [],
-    pixelFormat: "rgba8-premultiplied",
+    pixelFormat: "rgba8-straight",
     bufferPtr: 0,
     bufferLen: 0,
     uiMetaVersion: 1,

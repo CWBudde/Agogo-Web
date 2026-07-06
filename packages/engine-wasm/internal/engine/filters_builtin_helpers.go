@@ -67,7 +67,8 @@ func applyFilteredRGBAWithMask(pixels []byte, selMask []byte, fn func(i int) (by
 			if a < 255 {
 				pixels[i], pixels[i+1], pixels[i+2], pixels[i+3] = lerpRGBAPremul(
 					pixels[i], pixels[i+1], pixels[i+2], pixels[i+3],
-					nr, ng, nb, na, a)
+					nr, ng, nb, na, a,
+				)
 				continue
 			}
 		}

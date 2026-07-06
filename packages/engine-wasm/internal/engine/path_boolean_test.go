@@ -282,45 +282,6 @@ func TestPathBooleanNilInput(t *testing.T) {
 	}
 }
 
-func TestReverseSubpath(t *testing.T) {
-	sp := Subpath{
-		Closed: true,
-		Points: []PathPoint{
-			{X: 0, Y: 0, OutX: 10, OutY: 5, InX: -10, InY: -5, HandleType: HandleSmooth},
-			{X: 100, Y: 0, OutX: 20, OutY: 15, InX: -20, InY: -15, HandleType: HandleCorner},
-			{X: 50, Y: 100, OutX: 30, OutY: 25, InX: -30, InY: -25, HandleType: HandleSmooth},
-		},
-	}
-
-	rev := reverseSubpath(sp)
-
-	if !rev.Closed {
-		t.Fatal("expected reversed subpath to remain closed")
-	}
-	if len(rev.Points) != 3 {
-		t.Fatalf("expected 3 points, got %d", len(rev.Points))
-	}
-
-	// Point order should be reversed: original [0,1,2] -> reversed [2,1,0].
-	// rev.Points[0] should correspond to sp.Points[2].
-	if rev.Points[0].X != 50 || rev.Points[0].Y != 100 {
-		t.Errorf("expected first reversed point (50,100), got (%f,%f)", rev.Points[0].X, rev.Points[0].Y)
-	}
-	if rev.Points[2].X != 0 || rev.Points[2].Y != 0 {
-		t.Errorf("expected last reversed point (0,0), got (%f,%f)", rev.Points[2].X, rev.Points[2].Y)
-	}
-
-	// Handles should be swapped: In becomes Out and vice versa.
-	// Original point 2: OutX=30, OutY=25, InX=-30, InY=-25
-	// After reverse, it becomes rev.Points[0]: InX should be original OutX=30, OutX should be original InX=-30.
-	if rev.Points[0].InX != 30 || rev.Points[0].InY != 25 {
-		t.Errorf("expected swapped InX=30, InY=25, got InX=%f, InY=%f", rev.Points[0].InX, rev.Points[0].InY)
-	}
-	if rev.Points[0].OutX != -30 || rev.Points[0].OutY != -25 {
-		t.Errorf("expected swapped OutX=-30, OutY=-25, got OutX=%f, OutY=%f", rev.Points[0].OutX, rev.Points[0].OutY)
-	}
-}
-
 func TestFlattenPaths(t *testing.T) {
 	paths := []NamedPath{
 		{Name: "Path 1", Path: Path{Subpaths: []Subpath{makeTriangle(0, 0, 100, 0, 50, 100)}}},

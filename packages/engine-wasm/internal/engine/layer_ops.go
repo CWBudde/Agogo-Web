@@ -1403,19 +1403,7 @@ func (doc *Document) clippingBaseSurfaceForLayer(layer LayerNode) ([]byte, error
 	return nil, nil
 }
 
-// compositeDocumentSurface composites src onto dest without knowing the
-// document width. Callers that have the width in scope should prefer
-// compositeDocumentSurfaceClipped (even with a nil clip) so dissolve blending
-// derives its noise seed from document coordinates.
-func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity float64, blendIf *BlendIfConfig) {
-	if len(dest) != len(src) || opacity <= 0 {
-		return
-	}
-	identity := blendIfIsIdentity(blendIf)
-	compositeDocumentSurfaceSpan(dest, src, 0, 0, len(dest), blendMode, opacity, identity, blendIf)
-}
-
-// compositeDocumentSurfaceClipped is compositeDocumentSurface restricted to a
+// compositeDocumentSurfaceClipped composites src onto dest restricted to a
 // doc-space rectangle. A nil clip composites the full surface. The per-pixel
 // dissolve noise seed is pixelNoiseSeed(docX, docY) — the same convention as
 // compositeRasterIntoDocument — so clipped output is byte-identical to the
@@ -1440,9 +1428,9 @@ func compositeDocumentSurfaceClipped(dest, src []byte, docW int, blendMode Blend
 }
 
 // compositeDocumentSurfaceSpan composites the byte range [from, to) of two
-// document-sized surfaces. docW > 0 enables the document-coordinate dissolve
-// seed convention pixelNoiseSeed(docX, docY); docW <= 0 (width unknown, e.g.
-// the layer-style effect overlays) falls back to the flat pixel index.
+// document-sized surfaces. The dissolve noise seed follows the
+// document-coordinate convention pixelNoiseSeed(docX, docY); every caller
+// threads a positive docW (compositeDocumentSurfaceClipped guards it).
 func compositeDocumentSurfaceSpan(dest, src []byte, docW, from, to int, blendMode BlendMode, opacity float64, identity bool, blendIf *BlendIfConfig) {
 	for offset := from; offset < to; offset += 4 {
 		pixelOpacity := opacity
@@ -1458,11 +1446,7 @@ func compositeDocumentSurfaceSpan(dest, src []byte, docW, from, to int, blendMod
 		var noiseSeed uint32
 		if blendMode == BlendModeDissolve {
 			pixelIndex := offset / 4
-			if docW > 0 {
-				noiseSeed = pixelNoiseSeed(pixelIndex%docW, pixelIndex/docW)
-			} else {
-				noiseSeed = uint32(pixelIndex)
-			}
+			noiseSeed = pixelNoiseSeed(pixelIndex%docW, pixelIndex/docW)
 		}
 		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, pixelOpacity, noiseSeed)
 		if !identity {

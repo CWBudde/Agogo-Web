@@ -151,29 +151,6 @@ func clipperPathsToPath(paths clipper.Paths64) *Path {
 	return result
 }
 
-// reverseSubpath returns a copy of the subpath with points in reverse order
-// and In/Out handles swapped (since direction is reversed).
-func reverseSubpath(sp Subpath) Subpath {
-	n := len(sp.Points)
-	reversed := Subpath{
-		Closed: sp.Closed,
-		Points: make([]PathPoint, n),
-	}
-	for i, pt := range sp.Points {
-		rpt := PathPoint{
-			X: pt.X, Y: pt.Y,
-			// Swap In and Out handles (direction reverses).
-			InX:        pt.OutX,
-			InY:        pt.OutY,
-			OutX:       pt.InX,
-			OutY:       pt.InY,
-			HandleType: pt.HandleType,
-		}
-		reversed.Points[n-1-i] = rpt
-	}
-	return reversed
-}
-
 // flattenPaths merges all document paths into a single path.
 func flattenPaths(paths []NamedPath) *Path {
 	result := &Path{}
