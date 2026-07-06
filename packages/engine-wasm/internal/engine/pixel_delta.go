@@ -18,7 +18,13 @@ type PixelTarget func(*instance) []byte
 type pixelDeltaCommand struct {
 	description string
 	target      PixelTarget
-	delta       PixelDelta
+	// bump, when set, is invoked after a successful Apply/Undo to mark the
+	// active document's ContentVersion dirty for the mutated region. This is
+	// required so the render cache (see rawFrameKey in render.go) notices the
+	// change and recomposites — without it, undo/redo of pixel edits patches
+	// the layer bytes but the frame cache still serves the stale render.
+	bump  func(*instance)
+	delta PixelDelta
 }
 
 func NewPixelDelta(beforePixels, afterPixels []byte, width, height int, rect DirtyRect) (PixelDelta, error) {
@@ -54,15 +60,50 @@ func (d PixelDelta) Undo(target []byte) error {
 }
 
 func (c *pixelDeltaCommand) Apply(inst *instance) error {
-	return c.delta.Apply(c.target(inst))
+	if err := c.delta.Apply(c.target(inst)); err != nil {
+		return err
+	}
+	if c.bump != nil {
+		c.bump(inst)
+	}
+	return nil
 }
 
 func (c *pixelDeltaCommand) Undo(inst *instance) error {
-	return c.delta.Undo(c.target(inst))
+	if err := c.delta.Undo(c.target(inst)); err != nil {
+		return err
+	}
+	if c.bump != nil {
+		c.bump(inst)
+	}
+	return nil
 }
 
 func (c *pixelDeltaCommand) Description() string {
 	return c.description
+}
+
+// bumpLayerContentVersion returns a pixelDeltaCommand.bump callback that marks
+// the active document's ContentVersion dirty for rect (given in layer-local
+// space) translated into document space via the target layer's bounds. Pass
+// the same rect used to build the command's PixelDelta.
+func bumpLayerContentVersion(layerID string, rect DirtyRect) func(*instance) {
+	return func(inst *instance) {
+		doc := inst.manager.activeMut()
+		if doc == nil {
+			return
+		}
+		layer := findPixelLayer(doc, layerID)
+		if layer == nil {
+			return
+		}
+		doc.bumpContentVersionRect(DirtyRect{
+			X: layer.Bounds.X + rect.X,
+			Y: layer.Bounds.Y + rect.Y,
+			W: rect.W,
+			H: rect.H,
+		})
+	}
 }
 
 // newPixelDeltaFromRows builds a PixelDelta using a row-bounded before-snapshot

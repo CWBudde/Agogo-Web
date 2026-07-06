@@ -27,8 +27,9 @@ type lastFilterState struct {
 type filterPreviewState struct {
 	LayerID      string // target pixel layer
 	FilterID     string
-	OrigPixels   []byte // snapshot before any preview mutation
-	PreviewScale int    // denominator: 1 = full, 2 = half, 4 = quarter
+	Params       json.RawMessage // most recently previewed params
+	OrigPixels   []byte          // snapshot before any preview mutation
+	PreviewScale int             // denominator: 1 = full, 2 = half, 4 = quarter
 }
 
 // fadeSnapshot stores the pixel data before the last committed filter so
@@ -233,12 +234,16 @@ func (inst *instance) handlePreviewFilter(payload PreviewFilterPayload) (bool, e
 		inst.filterPreview = &filterPreviewState{
 			LayerID:      layerID,
 			FilterID:     payload.FilterID,
+			Params:       payload.Params,
 			OrigPixels:   append([]byte(nil), pl.Pixels...),
 			PreviewScale: payload.Scale,
 		}
 	} else {
 		// Same filter/layer — restore from snapshot before re-applying.
 		copy(pl.Pixels, inst.filterPreview.OrigPixels)
+		// Keep the last-previewed params up to date so commit re-applies
+		// whatever the user most recently tuned in the dialog.
+		inst.filterPreview.Params = payload.Params
 	}
 
 	scale := payload.Scale
@@ -357,13 +362,14 @@ func (inst *instance) handleCommitFilterPreview() (bool, error) {
 	copy(pl.Pixels, preview.OrigPixels)
 
 	if err := inst.executeDocCommand(entry.Def.Name, func(doc *Document) error {
-		return doc.ApplyFilter(preview.LayerID, preview.FilterID, nil)
+		return doc.ApplyFilter(preview.LayerID, preview.FilterID, preview.Params)
 	}); err != nil {
 		return true, err
 	}
 
 	inst.lastFilter = &lastFilterState{
 		FilterID: preview.FilterID,
+		Params:   preview.Params,
 	}
 	inst.preFadeSnapshot = preFade
 	return true, nil

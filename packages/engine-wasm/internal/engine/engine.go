@@ -692,23 +692,30 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 			return RenderResult{}, fmt.Errorf("unsupported layer command id 0x%04x", commandID)
 		}
 	case cmdpkg.DomainCore:
-		if handled, err := inst.dispatchCoreCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchCoreCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported core command id 0x%04x", commandID)
 		}
 	case cmdpkg.DomainTransform:
-		if handled, err := inst.dispatchTransformCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchTransformCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported transform command id 0x%04x", commandID)
 		}
 	case cmdpkg.DomainUI:
 		handled, customResult, err := inst.dispatchUICommand(commandID, payloadJSON)
 		if err != nil {
 			return RenderResult{}, err
 		}
-		if handled && customResult != nil {
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported ui command id 0x%04x", commandID)
+		}
+		if customResult != nil {
 			return *customResult, nil
 		}
 	case cmdpkg.DomainSelectionPaint:
@@ -716,40 +723,49 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		if err != nil {
 			return RenderResult{}, err
 		}
-		if handled {
-			suggestedPath = nextSuggestedPath
-			if customResult != nil {
-				return *customResult, nil
-			}
-			// selection/paint handlers generally fall through to the normal render.
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported selection/paint command id 0x%04x", commandID)
 		}
+		suggestedPath = nextSuggestedPath
+		if customResult != nil {
+			return *customResult, nil
+		}
+		// selection/paint handlers generally fall through to the normal render.
 
 	case cmdpkg.DomainFilter:
-		if handled, err := inst.dispatchFilterCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchFilterCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported filter command id 0x%04x", commandID)
 		}
 
 	case cmdpkg.DomainPath:
-		if handled, err := inst.dispatchPathCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchPathCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported path command id 0x%04x", commandID)
 		}
 
 	case cmdpkg.DomainShape:
-		if handled, err := inst.dispatchShapeCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchShapeCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported shape command id 0x%04x", commandID)
 		}
 
 	case cmdpkg.DomainText:
-		if handled, err := inst.dispatchTextCommand(commandID, payloadJSON); handled || err != nil {
-			if err != nil {
-				return RenderResult{}, err
-			}
+		handled, err := inst.dispatchTextCommand(commandID, payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		if !handled {
+			return RenderResult{}, fmt.Errorf("unsupported text command id 0x%04x", commandID)
 		}
 
 	case cmdpkg.DomainUnknown:

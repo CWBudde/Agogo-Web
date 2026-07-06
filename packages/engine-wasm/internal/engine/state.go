@@ -20,21 +20,35 @@ func (inst *instance) captureSnapshot() snapshot {
 	}
 }
 
+// restoreSnapshot rewinds the engine to a previously captured snapshot. A
+// snapshot only records the single active document (see captureSnapshot), so
+// restoring must touch nothing but that one document: it replaces (or
+// re-inserts) the snapshot's document inside the existing manager and leaves
+// every other open document — and their order — untouched. Historically this
+// recreated the manager from scratch, which silently destroyed all other open
+// documents on every undo/redo; that data-loss bug is what this guards against.
 func (inst *instance) restoreSnapshot(state snapshot) error {
 	inst.viewport = state.Viewport
-	inst.manager = newDocumentManager()
 	inst.resetMixerBrushState()
 	inst.resetCloneStampState()
+
 	if state.Document == nil {
-		return nil
+		// The snapshot captured a state with no active document. We must not
+		// wipe the other open documents, so we only clear the active selection.
+		return inst.manager.SetActiveID("")
 	}
-	inst.manager.Create(state.Document)
-	if state.DocumentID != "" && inst.manager.ActiveID() != state.DocumentID {
-		if err := inst.manager.SetActiveID(state.DocumentID); err != nil {
-			return err
-		}
+
+	// Replace only the snapshot's document. If it was closed since the snapshot
+	// was taken, Replace re-inserts it (appended to the document order).
+	if err := inst.manager.Replace(state.Document); err != nil {
+		return err
 	}
-	return nil
+
+	id := state.DocumentID
+	if id == "" {
+		id = state.Document.ID
+	}
+	return inst.manager.SetActiveID(id)
 }
 
 func (inst *instance) fitViewportToActiveDocument() {

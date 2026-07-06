@@ -207,6 +207,7 @@ func (inst *instance) handleEndPaintStroke() {
 			}
 			return l.Pixels
 		},
+		bump:  bumpLayerContentVersion(layerID, delta.Rect),
 		delta: delta,
 	}
 	inst.history.push(cmd)
@@ -319,6 +320,7 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 			}
 			return l.Pixels
 		},
+		bump:  bumpLayerContentVersion(layerID, delta.Rect),
 		delta: delta,
 	})
 	return nil

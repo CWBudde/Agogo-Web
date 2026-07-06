@@ -27,6 +27,29 @@ func (m *Manager[T]) Create(value T) {
 	m.activeID = id
 }
 
+// Replace stores value under its own id, cloning it, while preserving the
+// existing iteration order and every other stored value. If the id is not yet
+// present the value is appended to the order (re-inserting a previously removed
+// entry at the end). The active id is left unchanged; callers that want the
+// replaced value to become active must call SetActiveID separately.
+func (m *Manager[T]) Replace(value T) error {
+	id := m.idOf(value)
+	if id == "" {
+		return fmt.Errorf("value id is required")
+	}
+	if _, exists := m.docs[id]; !exists {
+		m.order = append(m.order, id)
+	}
+	m.docs[id] = m.clone(value)
+	return nil
+}
+
+// IDs returns the ids of all stored values in their current iteration order.
+// The returned slice is a copy and is safe for the caller to retain or mutate.
+func (m *Manager[T]) IDs() []string {
+	return append([]string(nil), m.order...)
+}
+
 func (m *Manager[T]) ReplaceActive(value T) error {
 	id := m.idOf(value)
 	if id == "" {

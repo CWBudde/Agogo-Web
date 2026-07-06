@@ -529,6 +529,134 @@ func TestPreviewFilterUpdatesOnParamChange(t *testing.T) {
 	}
 }
 
+func TestCommitFilterPreviewAppliesLastPreviewedParams(t *testing.T) {
+	// Register a filter that reads a "value" param and writes it into the
+	// red channel — same shape as TestPreviewFilterUpdatesOnParamChange, but
+	// used here to verify what happens at *commit* time.
+	filterFn := func(pixels []byte, w, h int, selMask []byte, params json.RawMessage) error {
+		var p struct {
+			Value byte `json:"value"`
+		}
+		if params != nil {
+			_ = json.Unmarshal(params, &p)
+		}
+		for i := 0; i < len(pixels); i += 4 {
+			pixels[i] = p.Value
+		}
+		return nil
+	}
+	RegisterFilter(FilterDef{ID: "commit-param-filter", Name: "Commit Param Filter", Category: FilterCategoryOther}, filterFn)
+	t.Cleanup(func() { RegisterFilter(FilterDef{ID: "commit-param-filter"}, nil) })
+
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+	addRedPixelLayer(t, h)
+
+	// First preview with value=50 (user opens dialog, sees an initial preview).
+	params1, _ := json.Marshal(map[string]any{"value": 50})
+	_, err := DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "commit-param-filter",
+		Scale:    1,
+		Params:   params1,
+	}))
+	if err != nil {
+		t.Fatalf("preview 1: %v", err)
+	}
+
+	// Second preview with value=123 — simulates the user dragging a slider to
+	// its final value before clicking OK.
+	params2, _ := json.Marshal(map[string]any{"value": 123})
+	_, err = DispatchCommand(h, commandPreviewFilter, mustJSON(t, PreviewFilterPayload{
+		FilterID: "commit-param-filter",
+		Scale:    1,
+		Params:   params2,
+	}))
+	if err != nil {
+		t.Fatalf("preview 2: %v", err)
+	}
+
+	// Commit the preview (user clicks OK).
+	_, err = DispatchCommand(h, commandCommitFilterPreview, "")
+	if err != nil {
+		t.Fatalf("commit filter preview: %v", err)
+	}
+
+	committed := getActivePixelLayer(t, h)
+
+	// Build an independent document, apply the filter directly with the same
+	// (last-previewed) params, and compare — the committed result must match
+	// a direct full-resolution ApplyFilter with those params.
+	wantLayer := NewPixelLayer("bg", LayerBounds{X: 0, Y: 0, W: 4, H: 4}, func() []byte {
+		px := make([]byte, 4*4*4)
+		for i := 0; i < len(px); i += 4 {
+			px[i] = 255
+			px[i+3] = 255
+		}
+		return px
+	}())
+	wantRoot := NewGroupLayer("Root")
+	wantRoot.SetChildren([]LayerNode{wantLayer})
+	wantDoc := &Document{
+		Width: 4, Height: 4, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "commit-param-want", Name: "Commit Param Want",
+		LayerRoot:     wantRoot,
+		ActiveLayerID: wantLayer.ID(),
+	}
+	if err := wantDoc.ApplyFilter(wantLayer.ID(), "commit-param-filter", params2); err != nil {
+		t.Fatalf("direct apply filter: %v", err)
+	}
+	for i, b := range committed.Pixels {
+		if b != wantLayer.Pixels[i] {
+			t.Errorf("committed pixel[%d] = %d, want %d (direct apply with same params)", i, b, wantLayer.Pixels[i])
+		}
+	}
+
+	// Sanity: committed pixels must differ from a param-less (nil) apply,
+	// proving the commit did not silently drop the tuned params.
+	nilLayer := NewPixelLayer("bg", LayerBounds{X: 0, Y: 0, W: 4, H: 4}, func() []byte {
+		px := make([]byte, 4*4*4)
+		for i := 0; i < len(px); i += 4 {
+			px[i] = 255
+			px[i+3] = 255
+		}
+		return px
+	}())
+	nilRoot := NewGroupLayer("Root")
+	nilRoot.SetChildren([]LayerNode{nilLayer})
+	nilDoc := &Document{
+		Width: 4, Height: 4, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8,
+		ID: "commit-param-nil", Name: "Commit Param Nil",
+		LayerRoot:     nilRoot,
+		ActiveLayerID: nilLayer.ID(),
+	}
+	if err := nilDoc.ApplyFilter(nilLayer.ID(), "commit-param-filter", nil); err != nil {
+		t.Fatalf("nil apply filter: %v", err)
+	}
+	if committed.Pixels[0] == nilLayer.Pixels[0] {
+		t.Errorf("committed pixel R=%d should differ from param-less apply R=%d", committed.Pixels[0], nilLayer.Pixels[0])
+	}
+	if committed.Pixels[0] != 123 {
+		t.Errorf("committed pixel R=%d, want 123 (last previewed value)", committed.Pixels[0])
+	}
+
+	// lastFilter must be populated with the committed params so Ctrl+F
+	// (ReapplyFilter) replays the same tuned parameters.
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	if inst.lastFilter == nil {
+		t.Fatal("expected inst.lastFilter to be populated after commit")
+	}
+	if inst.lastFilter.FilterID != "commit-param-filter" {
+		t.Errorf("lastFilter.FilterID = %q, want %q", inst.lastFilter.FilterID, "commit-param-filter")
+	}
+	if string(inst.lastFilter.Params) != string(params2) {
+		t.Errorf("lastFilter.Params = %s, want %s", inst.lastFilter.Params, params2)
+	}
+}
+
 func TestPreviewFilterReducedResolution(t *testing.T) {
 	registerTestInvertFilter(t, "scale-invert")
 

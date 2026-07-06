@@ -2,9 +2,22 @@ package engine
 
 import (
 	"fmt"
+	"sync"
 
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 )
+
+// textEditOriginalMu guards textEditOriginalText.
+var textEditOriginalMu sync.Mutex
+
+// textEditOriginalText remembers, for each instance with an in-flight text
+// edit, what the layer's text was at the moment editing began (keyed by the
+// owning instance). textEditInput intentionally mutates the live document
+// directly so keystrokes render immediately, bypassing history — which means
+// by the time commitTextEdit runs, the stored document's text already equals
+// the final working text. commitTextEdit needs the pre-edit snapshot (not the
+// already-mutated live value) to correctly detect a genuine no-op edit.
+var textEditOriginalText = map[*instance]string{}
 
 // AddTextLayerPayload is the JSON payload for commandAddTextLayer.
 type AddTextLayerPayload struct {
@@ -154,6 +167,9 @@ func (inst *instance) addTextLayer(p AddTextLayerPayload) error {
 	// Enter edit mode immediately (UI-only state, no history entry).
 	inst.textEdit.layerID = newLayerID
 	inst.textEdit.workingText = ""
+	textEditOriginalMu.Lock()
+	textEditOriginalText[inst] = ""
+	textEditOriginalMu.Unlock()
 	return nil
 }
 
@@ -278,7 +294,7 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 
 // enterTextEditMode sets up in-flight text edit state without creating a history entry.
 func (inst *instance) enterTextEditMode(p EnterTextEditModePayload) error {
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return fmt.Errorf("no active document")
 	}
@@ -292,6 +308,9 @@ func (inst *instance) enterTextEditMode(p EnterTextEditModePayload) error {
 	}
 	inst.textEdit.layerID = p.LayerID
 	inst.textEdit.workingText = tl.Text
+	textEditOriginalMu.Lock()
+	textEditOriginalText[inst] = tl.Text
+	textEditOriginalMu.Unlock()
 	doc.ActiveLayerID = p.LayerID
 	return nil
 }
@@ -304,7 +323,7 @@ func (inst *instance) textEditInput(p TextEditInputPayload) error {
 	}
 	inst.textEdit.workingText = p.Text
 
-	doc := inst.manager.Active()
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return nil
 	}
@@ -338,7 +357,12 @@ func (inst *instance) commitTextEdit() error {
 	newText := inst.textEdit.workingText
 	inst.textEdit = textEditState{}
 
-	doc := inst.manager.Active()
+	textEditOriginalMu.Lock()
+	originalText := textEditOriginalText[inst]
+	delete(textEditOriginalText, inst)
+	textEditOriginalMu.Unlock()
+
+	doc := inst.manager.activeMut()
 	if doc == nil {
 		return nil
 	}
@@ -350,9 +374,22 @@ func (inst *instance) commitTextEdit() error {
 	if !ok {
 		return nil
 	}
-	// Skip history entry when text is unchanged.
-	if tl.Text == newText {
+	// Skip history entry when text is unchanged from what it was when
+	// editing began. The live document's text already reflects the
+	// in-progress edit — textEditInput mutates the stored document
+	// directly — so the comparison must be against the pre-edit snapshot
+	// captured when editing began, not the live value.
+	if originalText == newText {
 		return nil
+	}
+	// executeDocCommand captures its "before" history snapshot from the live
+	// document at the moment it runs. Because textEditInput already mutated
+	// the live document to newText on the last keystroke, revert it back to
+	// the pre-edit text/raster here so history records the correct
+	// original -> newText transition (and undo restores the original text).
+	tl.Text = originalText
+	if raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height); err == nil {
+		tl.CachedRaster = raster
 	}
 	return inst.executeDocCommand("Edit text", func(doc *Document) error {
 		l, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
