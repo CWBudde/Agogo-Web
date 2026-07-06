@@ -76,6 +76,8 @@ export function defaultLayerStyleParams(kind: LayerStyleKind): Record<string, un
         color: [0, 0, 0, 255],
         fillType: "color",
       };
+    default:
+      return {};
   }
 }
 

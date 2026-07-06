@@ -408,14 +408,18 @@
 
 **Acceptance criterion:** main is green; painting/undo/text/filters work end-to-end; a changed-content frame costs O(dirty area), not O(document); real Photoshop PSD fixtures open correctly; no dead menu items remain (either wired or removed).
 
-### Phase S.1: Make Main Green & CI Honest
+### Phase S.1: Make Main Green & CI Honest — ✅ DONE (2026-07-06)
 
-- [ ] Fix failing test `TestConvertTextToPath_ProducesGlyphOutlinePath` (`dispatch_text_test.go:288`): `ConvertTextToPath` is a stub (`text_outline_path.go:125` — "BuildGSVTextOutlinePath not yet published") that **replaces the text layer with an empty vector layer, destroying content**. Until real outlines exist (S.6), the command must fail safely and leave the layer intact
-- [ ] Fix golangci-lint error `layer_styles_types.go:446` (`reflect.Ptr` should be inlined) — `just ci` currently cannot pass
-- [ ] Fix `//nolint:unsafeptr` directives referencing an unknown linter name
-- [ ] Add vitest to CI: `ci.yml` runs biome/typecheck/go-test/build but **never runs the 46 frontend tests** (`bun run test`)
-- [ ] Wire up or delete the dead `just update-golden` recipe (`UPDATE_GOLDEN` appears nowhere in Go code)
-- [ ] Add Go coverage reporting to CI (upload + visible trend; threshold optional)
+- [x] Fix failing test `TestConvertTextToPath_ProducesGlyphOutlinePath`: implemented **for real** instead of failing safely — `appendOutlinedText` now traces GSV glyph centerlines via the public `agglib.GSVText` vertex source (available since agg_go v0.2.16; the stub's "not yet published" comment was outdated). The resulting VectorLayer is stroke-only (open centerline subpaths at `fontSize * 0.08`, matching Agg2D's GSV raster stroke width); empty text layers now error instead of being destroyed
+- [x] Fix golangci-lint error `layer_styles_types.go` (`reflect.Ptr` → `reflect.Pointer`)
+- [x] Fix `//nolint:unsafeptr` directives → `//nolint:govet` (unsafeptr is a govet analyzer, not a linter name)
+- [x] Fixed while here: `.golangci.yml` used the invalid v1 `issues.exclusions` block (silently ignored by golangci-lint v2) — moved to `linters.exclusions`; excluded revive's file-length-limit for `_test.go` files; fixed 2 real staticcheck SA4003s in `brush_test.go` (`uint8 >= 255`); removed unused test helper — **lint is now clean including test files (CI lints tests; local `just lint` uses `--tests=false`)**
+- [x] Fixed while here: 9 pre-existing `tsc -b` errors that broke the CI **build** job since April (JSX namespace in blend-if-slider, non-exhaustive switch in layer-style-model, null/readonly-tuple state setters in App.tsx, nullable path-point predicate in editor-canvas, missing `exportDocument` + vitest-4 mock typings in two test files)
+- [x] Fixed while here: formatter drift that broke the CI go-format job — `treefmt.toml` invoked a bare `biome` (resolved to a global 1.9.4 instead of the workspace-pinned 2.4.9; now points at `apps/editor-web/node_modules/.bin/biome`), biome config restructured for monorepo use (root `biome.json`, app config extends it), CI formatter installs pinned (`gofumpt@v0.10.0`, `gci@v0.14.0`, `shfmt@v3.12.0` instead of `@latest`), plus the resulting one-time reformat of files never formatted with the pinned versions
+- [x] Add vitest to CI (`test-vitest.yml`, wired into `ci.yml` and the build job's `needs`)
+- [x] Deleted the dead `just update-golden` recipe
+- [x] Add Go coverage reporting to CI (coverage profile in `test-go.yml`, total in the job summary, artifact upload)
+- [x] `just ci` passes end-to-end (format → tests → lint → tidy → wasm+frontend build)
 
 ### Phase S.2: Critical Engine Correctness (data loss & broken flagship flows)
 
@@ -470,7 +474,7 @@
 ### Phase S.6: Text & Vector Completion
 
 - [ ] Real font engine: TrueType/OpenType via `golang.org/x/image/font/sfnt` (GSV stroke font is the only renderer; FontFamily/Bold/Italic/Kerning/BaselineShift are stored, serialized, and ignored; SmallCaps = AllCaps)
-- [ ] Real Create Outlines implementation (currently the destructive stub from S.1)
+- [x] Real Create Outlines implementation — GSV centerline tracing landed with S.1 (stroke-only VectorLayer); revisit for filled TTF outlines once the sfnt font engine exists
 - [ ] Render vector masks (creatable/stored but "silently ignored in rendering", `layer_ops.go:961`)
 - [ ] Layer styles: user-defined gradient overlay (currently hardcoded blue→orange ramp), real pattern overlay/stroke patterns (hardcoded checkerboards), implement or remove decoded-but-unused params (Contour, Noise, Knockout, Altitude, bevel Technique)
 - [ ] Real pattern fill for paint bucket (hardcoded 8px checkerboard)
@@ -510,7 +514,7 @@
 
 ### Phase S.9: agg_go Upgrade & Alignment
 
-- [ ] **Upgrade `agg_go` v0.2.21 → v0.3.2** (163 commits behind; verified drop-in — host and js/wasm builds compile clean, no API breaks): brings AVX2/SSE2 SIMD blend kernels, the **DstOut comp-op fix (the engine's eraser runs against the unfixed version)**, `FillLinearGradientStops`, sRGB/premultiplied-alpha correctness fixes, raster-text overhaul, dashed strokes
+- [x] **Upgrade `agg_go` v0.2.21 → v0.3.2** — done 2026-07-06; full Go test suite passes, host and js/wasm builds clean. Brings AVX2/SSE2 SIMD blend kernels, the **DstOut comp-op fix (eraser)**, `FillLinearGradientStops`, sRGB/premultiplied-alpha correctness fixes, raster-text overhaul, dashed strokes
 - [ ] In agg_go: export the composite/span/image-filter primitives the engine needs (they live under `internal/` and cannot be imported — the AGENTS.md "use agg_go primitives" rule is currently impossible to follow for compositing)
 - [ ] In agg_go: extend `CompOp` with the 14 missing Photoshop modes (Linear Burn/Dodge, Vivid/Pin/Linear Light, Hard Mix, Divide, Subtract, Darker/Lighter Color, Dissolve, Hue/Sat/Color/Luminosity)
 - [ ] Then migrate the three highest-traffic manual-pixel paths to agg_go: `blend.go` (287-line per-pixel float64 blend engine, called per pixel from 5 files), the layer compositor (`layer_ops.go:987–1045`), and the viewport resampler (`viewport_composite.go` — replaceable by one AGG transformed-image draw)
@@ -1235,7 +1239,7 @@
   - [ ] Click+drag to select text range, Shift+click to extend
   - [ ] Keyboard: standard text navigation (Home/End, Ctrl+A, Ctrl+C/X/V)
 - [x] **Commit text:** Escape or Done button; undo reverts to pre-edit state (single history entry)
-- [ ] **Type > Create Outlines:** converts text to GSV-based outline VectorLayer — **stubbed: replaces the text layer with an empty vector layer, destroying content; its test fails on main (→ S.1, S.6)**
+- [x] **Type > Create Outlines:** converts text to GSV-based outline VectorLayer — implemented 2026-07-06 via public `GSVText` vertex tracing (stroke-only vector layer; open centerline subpaths, stroked at the GSV raster width)
 
 ### Phase 6.4: Text UI Panels
 

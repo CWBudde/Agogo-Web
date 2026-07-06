@@ -1,4 +1,4 @@
-import { type PointerEvent, useCallback, useRef, useState } from "react";
+import { type JSX, type PointerEvent, useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type BlendIfSliderValue = [number, number, number, number];

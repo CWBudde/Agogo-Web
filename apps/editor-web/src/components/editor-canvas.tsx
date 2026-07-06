@@ -1536,7 +1536,7 @@ export function EditorCanvas({
             .map((subpath) => ({
               closed: subpath.closed,
               points: subpath.points
-                .map((point) => {
+                .map((point): PathPointCommand | null => {
                   const anchor = documentPointToCanvas({ x: point.x, y: point.y });
                   const inHandle = documentPointToCanvas({
                     x: point.inX ?? point.x,
@@ -1556,7 +1556,7 @@ export function EditorCanvas({
                     inY: inHandle.y,
                     outX: outHandle.x,
                     outY: outHandle.y,
-                    handleType: point.handleType,
+                    handleType: point.handleType ?? 0,
                   } satisfies PathPointCommand;
                 })
                 .filter((point): point is PathPointCommand => point !== null),

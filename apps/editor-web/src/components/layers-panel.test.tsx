@@ -93,8 +93,11 @@ function createEngine(
     undo: vi.fn(() => null),
     redo: vi.fn(() => null),
     reload: vi.fn(),
+    exportDocument: vi.fn(() => null),
     ...restOverrides,
-    dispatchCommand: (overrideDispatchCommand as ReturnType<typeof vi.fn>) ?? dispatchCommand,
+    dispatchCommand: (overrideDispatchCommand ??
+      dispatchCommand) as unknown as EngineContextValue["dispatchCommand"] &
+      ReturnType<typeof vi.fn>,
   };
 }
 

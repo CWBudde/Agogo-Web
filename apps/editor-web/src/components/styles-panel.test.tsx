@@ -56,7 +56,8 @@ function createEngine(): EngineContextValue & {
     render: null,
     error: null,
     ready: null,
-    dispatchCommand,
+    dispatchCommand: dispatchCommand as unknown as EngineContextValue["dispatchCommand"] &
+      ReturnType<typeof vi.fn>,
     createDocument: vi.fn(() => null),
     createSelection: vi.fn(() => null),
     selectAll: vi.fn(() => null),
@@ -82,6 +83,7 @@ function createEngine(): EngineContextValue & {
     setShowGuides: vi.fn(() => null),
     exportProject: vi.fn(() => null),
     importProject: vi.fn(() => null),
+    exportDocument: vi.fn(() => null),
     undo: vi.fn(() => null),
     redo: vi.fn(() => null),
     reload: vi.fn(),

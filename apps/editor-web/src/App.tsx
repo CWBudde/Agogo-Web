@@ -1306,10 +1306,9 @@ export default function App() {
 
   useEffect(() => {
     if (activeArtboard?.isArtboard && activeArtboard.artboardBackground) {
+      const background = activeArtboard.artboardBackground;
       setArtboardBackground((current) =>
-        current.every((value, index) => value === activeArtboard.artboardBackground?.[index])
-          ? current
-          : activeArtboard.artboardBackground,
+        current.every((value, index) => value === background[index]) ? current : background,
       );
     }
   }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground]);
@@ -2397,7 +2396,10 @@ export default function App() {
             value={rgbaToHex(artboardBackground)}
             onChange={(event) => {
               const next = hexToRgba(event.target.value);
-              setArtboardBackground(next);
+              if (!next) {
+                return;
+              }
+              setArtboardBackground([...next]);
               if (activeArtboard?.isArtboard && activeArtboard.artboardBounds) {
                 engine.dispatchCommand(CommandID.SetArtboard, {
                   layerId: activeArtboard.id,
