@@ -6,8 +6,6 @@ import {
   type CreateDocumentCommand,
   type CropOverlayType,
   type FillCommand,
-  type FillSource,
-  type GradientStopCommand,
   type GradientType,
   type InterpolMode,
   type LayerBlendMode,
@@ -19,7 +17,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -78,14 +75,7 @@ import {
   rgbaToHex,
   toMutableRgba,
 } from "@/lib/color";
-import {
-  CUSTOM_SHAPE_PRESETS_KEY,
-  GRADIENT_STOPS_KEY,
-  loadGradientStops,
-  loadShapePresetList,
-} from "@/lib/persisted-ui";
 import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
-import { SHAPE_PRESETS, type ShapePreset } from "@/lib/shape-presets";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import { applyTransformFieldChange, buildWarpGrid, refPointToPivot } from "@/lib/transform-math";
 import {
@@ -98,6 +88,13 @@ import {
 import { parseNumericInput } from "@/lib/utils";
 import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
+import { useFillGradientState } from "@/state/fill-gradient-state";
+import {
+  type ArtboardPreset,
+  type ShapeMode,
+  type ShapeSubTool,
+  useShapeState,
+} from "@/state/shape-state";
 import { useEngine } from "@/wasm/context";
 
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
@@ -135,8 +132,6 @@ const paintBlendModeOptions: { value: LayerBlendMode; label: string }[] = [
   { value: "color", label: "Color" },
   { value: "luminosity", label: "Luminosity" },
 ];
-
-type ArtboardPreset = "custom" | "hd" | "iphone" | "ipad" | "a4";
 
 const artboardPresetMap: Record<
   Exclude<ArtboardPreset, "custom">,
@@ -284,6 +279,66 @@ export default function App() {
     applyBrushPreset,
     applyMixerBrushPreset,
   } = useBrushState();
+  const {
+    fillSource,
+    setFillSource,
+    fillPatternId,
+    setFillPatternId,
+    fillTolerance,
+    setFillTolerance,
+    fillContiguous,
+    setFillContiguous,
+    fillSampleMerged,
+    setFillSampleMerged,
+    fillCreateLayer,
+    setFillCreateLayer,
+    fillDialogOpen,
+    setFillDialogOpen,
+    gradientType,
+    setGradientType,
+    gradientReverse,
+    setGradientReverse,
+    gradientDither,
+    setGradientDither,
+    gradientCreateLayer,
+    setGradientCreateLayer,
+    gradientStops,
+    setGradientStops,
+    gradientEditorOpen,
+    setGradientEditorOpen,
+  } = useFillGradientState();
+  const {
+    shapeSubTool,
+    setShapeSubTool,
+    shapeMode,
+    setShapeMode,
+    shapeCornerRadius,
+    setShapeCornerRadius,
+    shapePolygonSides,
+    setShapePolygonSides,
+    shapePolygonInnerRadiusPct,
+    setShapePolygonInnerRadiusPct,
+    shapeStarMode,
+    setShapeStarMode,
+    setShapePresetId,
+    shapeFillColor,
+    setShapeFillColor,
+    shapeStrokeColor,
+    setShapeStrokeColor,
+    shapeStrokeWidth,
+    setShapeStrokeWidth,
+    customShapePresets,
+    setCustomShapePresets,
+    shapePresetStatus,
+    setShapePresetStatus,
+    shapePresets,
+    customShapePresetIds,
+    selectedShapePreset,
+    artboardPreset,
+    setArtboardPreset,
+    artboardBackground,
+    setArtboardBackground,
+  } = useShapeState();
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
   const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
   const [marqueeStyle, setMarqueeStyle] = useState<MarqueeStyle>("normal");
@@ -363,28 +418,6 @@ export default function App() {
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
-  const [customShapePresets, setCustomShapePresets] = useState<ShapePreset[]>(() =>
-    loadShapePresetList(CUSTOM_SHAPE_PRESETS_KEY),
-  );
-  const [shapePresetStatus, setShapePresetStatus] = useState<string | null>(null);
-  const [fillSource, setFillSource] = useState<FillSource>("foreground");
-  const [fillPatternId, setFillPatternId] = useState("builtin/checker");
-  const [fillTolerance, setFillTolerance] = useState(24);
-  const [fillContiguous, setFillContiguous] = useState(true);
-  const [fillSampleMerged, setFillSampleMerged] = useState(false);
-  const [fillCreateLayer, setFillCreateLayer] = useState(false);
-  const [fillDialogOpen, setFillDialogOpen] = useState(false);
-  const [gradientType, setGradientType] = useState<GradientType>("linear");
-  const [gradientReverse, setGradientReverse] = useState(false);
-  const [gradientDither, setGradientDither] = useState(false);
-  const [gradientCreateLayer, setGradientCreateLayer] = useState(true);
-  const [gradientStops, setGradientStops] = useState<GradientStopCommand[]>(() =>
-    loadGradientStops(GRADIENT_STOPS_KEY, [
-      { position: 0, color: toMutableRgba(foregroundColor) },
-      { position: 1, color: toMutableRgba(backgroundColor) },
-    ]),
-  );
-  const [gradientEditorOpen, setGradientEditorOpen] = useState(false);
   const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
   const [thresholdValue, setThresholdValue] = useState(128);
   const [posterizeDialogOpen, setPosterizeDialogOpen] = useState(false);
@@ -420,40 +453,6 @@ export default function App() {
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
   const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
-  const shapePresets = useMemo(
-    () => [...SHAPE_PRESETS, ...customShapePresets],
-    [customShapePresets],
-  );
-  const customShapePresetIds = useMemo(
-    () => customShapePresets.map((preset) => preset.id),
-    [customShapePresets],
-  );
-
-  // Shape tool state
-  type ShapeSubTool = "rect" | "rounded-rect" | "ellipse" | "polygon" | "line" | "custom-shape";
-  type ShapeMode = "shape" | "path" | "pixels";
-  const [shapeSubTool, setShapeSubTool] = useState<ShapeSubTool>("rect");
-  const [shapeMode, setShapeMode] = useState<ShapeMode>("shape");
-  const [shapeCornerRadius, setShapeCornerRadius] = useState(10);
-  const [shapePolygonSides, setShapePolygonSides] = useState(6);
-  const [shapePolygonInnerRadiusPct, setShapePolygonInnerRadiusPct] = useState(50);
-  const [shapeStarMode, setShapeStarMode] = useState(false);
-  const [shapePresetId, setShapePresetId] = useState(SHAPE_PRESETS[0]?.id ?? "");
-  const [shapeFillColor, setShapeFillColor] = useState<[number, number, number, number]>([
-    0, 0, 0, 255,
-  ]);
-  const [shapeStrokeColor, setShapeStrokeColor] = useState<[number, number, number, number]>([
-    0, 0, 0, 0,
-  ]);
-  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
-  const selectedShapePreset = useMemo(
-    () => shapePresets.find((preset) => preset.id === shapePresetId) ?? shapePresets[0] ?? null,
-    [shapePresetId, shapePresets],
-  );
-  const [artboardPreset, setArtboardPreset] = useState<ArtboardPreset>("custom");
-  const [artboardBackground, setArtboardBackground] = useState<[number, number, number, number]>([
-    255, 255, 255, 255,
-  ]);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
@@ -489,22 +488,6 @@ export default function App() {
     }
     wasCustomShapeActiveRef.current = customShapeActive;
   }, [activeTool, shapeSubTool]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CUSTOM_SHAPE_PRESETS_KEY, JSON.stringify(customShapePresets));
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [customShapePresets]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(GRADIENT_STOPS_KEY, JSON.stringify(gradientStops));
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [gradientStops]);
 
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -577,13 +560,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (shapePresets.some((preset) => preset.id === shapePresetId)) {
-      return;
-    }
-    setShapePresetId(shapePresets[0]?.id ?? SHAPE_PRESETS[0]?.id ?? "");
-  }, [shapePresetId, shapePresets]);
-
-  useEffect(() => {
     const activeLayerId = render?.uiMeta.activeLayerId ?? null;
     if (!activeLayerId) {
       setSelectedLayerIds([]);
@@ -601,7 +577,7 @@ export default function App() {
         current.every((value, index) => value === background[index]) ? current : background,
       );
     }
-  }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground]);
+  }, [activeArtboard?.isArtboard, activeArtboard?.artboardBackground, setArtboardBackground]);
 
   useEffect(() => {
     if (!activeCrop?.active) {
