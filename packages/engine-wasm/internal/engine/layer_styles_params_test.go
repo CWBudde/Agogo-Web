@@ -675,6 +675,10 @@ func TestDecodeLayerStyles_V3ParamNormalization(t *testing.T) {
 	if bevel.Technique != "smooth" || bevel.Contour != "linear" {
 		t.Fatalf("bevel enums = %+v, want unknown technique/contour to fall back to defaults", bevel)
 	}
+
+	if got := decodeBevelEmbossParams(json.RawMessage(`{"size":10000}`)).Size; got != 250 {
+		t.Fatalf("bevel size 10000 decoded to %v, want clamp to 250 (chisel cost is O(size) full-mask erosions)", got)
+	}
 	if got := decodeSatinParams(json.RawMessage(`{"contour":"zigzag"}`)).Contour; got != "gaussian" {
 		t.Fatalf("satin unknown contour decoded to %q, want gaussian default", got)
 	}

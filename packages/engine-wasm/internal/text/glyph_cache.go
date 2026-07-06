@@ -90,6 +90,8 @@ func (f *Face) kernLocked(left, right sfnt.GlyphIndex, ppem fixed.Int26_6) fixed
 
 // segmentLoads reports how many times the face has called sfnt.LoadGlyph
 // (as opposed to serving segments from cache). Test seam.
+//
+//nolint:unused // referenced only from _test.go files; lint runs with --tests=false
 func (f *Face) segmentLoads() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

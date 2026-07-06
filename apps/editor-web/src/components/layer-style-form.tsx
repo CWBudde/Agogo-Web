@@ -365,6 +365,8 @@ function renderEffectEditor(
             label="Size"
             param="size"
             value={numberParam(params.size, 0)}
+            min={0}
+            max={250}
             onParamsChange={onParamsChange}
           />
           <NumberField
@@ -660,12 +662,16 @@ function NumberField({
   label,
   param,
   value,
+  min,
+  max,
   onParamsChange,
 }: {
   kind: LayerStyleKind;
   label: string;
   param: string;
   value: number;
+  min?: number;
+  max?: number;
   onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void;
 }) {
   return (
@@ -678,12 +684,21 @@ function NumberField({
         className="w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
         type="number"
         value={value}
+        min={min}
+        max={max}
         onChange={(event) => {
           const nextValue = parseFiniteNumber(event.target.value);
           if (nextValue === null) {
             return;
           }
-          onParamsChange(kind, { [param]: nextValue });
+          let clamped = nextValue;
+          if (min !== undefined && clamped < min) {
+            clamped = min;
+          }
+          if (max !== undefined && clamped > max) {
+            clamped = max;
+          }
+          onParamsChange(kind, { [param]: clamped });
         }}
       />
     </label>

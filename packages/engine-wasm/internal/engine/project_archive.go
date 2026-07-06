@@ -144,6 +144,7 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 		archive.FillColor = typed.FillColor
 		archive.StrokeColor = typed.StrokeColor
 		archive.StrokeWidth = typed.StrokeWidth
+		archive.FillRule = typed.FillRule
 		archive.CachedRaster = append([]byte(nil), typed.CachedRaster...)
 	}
 	return archive
@@ -277,6 +278,7 @@ func projectLayerArchiveToLayerNode(archive projectLayerArchive) (LayerNode, err
 		if archive.StrokeWidth > 0 {
 			vectorLayer.StrokeWidth = archive.StrokeWidth
 		}
+		vectorLayer.FillRule = archive.FillRule
 		layer = vectorLayer
 	default:
 		return nil, fmt.Errorf("unsupported layer type %q", archive.LayerType)

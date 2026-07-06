@@ -427,7 +427,7 @@
 - [x] **Undo destroys all other open documents**: `restoreSnapshot` now `Replace`s only the snapshot's document in the existing manager (new generic `Manager.Replace`/`IDs` in `internal/runtime/manager.go`); nil-snapshot restore is non-destructive (regression: `TestUndoPreservesOtherOpenDocuments`)
 - [x] **Live text editing mutates a discarded clone**: `enterTextEditMode`/`textEditInput` use `activeMut()`; commit compares against the recorded pre-edit original (side table) and reverts before `executeDocCommand` so history captures the true original→new transition; useless `_ = result` test replaced with real assertions
 - [x] **Filter-dialog commit applies the filter with nil params**: `filterPreviewState.Params` added, updated on every preview dispatch; commit re-applies at full resolution with the last-previewed params and stores them in `lastFilter` for Ctrl+F (regression: `TestCommitFilterPreviewAppliesLastPreviewedParams`)
-- [x] **Text/vector raster geometry contract is self-contradictory**: canonical contract is now **bounds-local** `CachedRaster` (`Bounds.W×Bounds.H`, composited at `Bounds.X/Y`), documented on the model fields; `rasterizeTextLayer` renders bounds-local (was doc-sized with position baked in → text drew at 2×(X,Y)); `convertTextToPath` outline layer gets doc bounds. Known caveat: center/right-aligned point text clips at the layer's left edge until tight-bounds computation lands (S.6)
+- [x] **Text/vector raster geometry contract is self-contradictory**: canonical contract is now **bounds-local** `CachedRaster` (`Bounds.W×Bounds.H`, composited at `Bounds.X/Y`), documented on the model fields; `rasterizeTextLayer` renders bounds-local (was doc-sized with position baked in → text drew at 2×(X,Y)); `convertTextToPath` outline layer gets doc bounds. Known caveat: center/right-aligned point text clipped at the layer's left edge — resolved in S.6 (tight point-text bounds + persistent anchor)
 - [x] **Crop / Canvas Size only transform PixelLayers**: both paths now remap ALL layer kinds — text position + re-rasterize, vector anchors/bezier handles + doc-sized raster re-rasterize, raster/vector/adjustment masks via shared `remapDocMask`, artboard bounds, adjustment caches invalidated; `Selection`/`LastSelection`/`SavedSelections` translated, clipped, deselected when fully outside (tests in `crop_remap_test.go` incl. undo)
 - [x] Stop swallowing composite/render errors: `renderCompositeSurfaceChecked` propagates errors, failed composites are never cached (recovery verified without version bump), errors flow to the frontend via new `RenderResult.Error` JSON field; `importProject` surfaces real zip/PSD parse errors instead of "unsupported import payload"
 - [x] Real instance disposal over the WASM ABI: existing JS `Free(ptr)` kept (per-frame buffer no-op the frontend already calls); new `EngineFree(handle)` export wired to `engine.Free` and called from the frontend `EngineHandle.dispose()` on provider teardown; all `js.FuncOf` exports now bounds/type-check `args[]` (malformed JS calls return error results, never panic)
@@ -477,13 +477,17 @@
 
 > Deferred within S.5 (flagged by review, low): live free-transform preview doesn't move masks until commit; stale mask values at vacated positions (mask-editing phase); transform commits don't check position lock; transparency lock needs a model flag first; `pixelNoiseSeed`-style seeding won't survive a future command-log replay architecture.
 
-### Phase S.6: Text & Vector Completion
+### Phase S.6: Text & Vector Completion — ✅ DONE (2026-07-06)
 
-- [ ] Real font engine: TrueType/OpenType via `golang.org/x/image/font/sfnt` (GSV stroke font is the only renderer; FontFamily/Bold/Italic/Kerning/BaselineShift are stored, serialized, and ignored; SmallCaps = AllCaps)
-- [x] Real Create Outlines implementation — GSV centerline tracing landed with S.1 (stroke-only VectorLayer); revisit for filled TTF outlines once the sfnt font engine exists
-- [ ] Render vector masks (creatable/stored but "silently ignored in rendering", `layer_ops.go:961`)
-- [ ] Layer styles: user-defined gradient overlay (currently hardcoded blue→orange ramp), real pattern overlay/stroke patterns (hardcoded checkerboards), implement or remove decoded-but-unused params (Contour, Noise, Knockout, Altitude, bevel Technique)
-- [ ] Real pattern fill for paint bucket (hardcoded 8px checkerboard)
+> Executed via 7 TDD implementer subagents in 4 waves (disjoint file ownership) + adversarial review; GSV usage deleted from the engine entirely.
+
+- [x] **Real font engine**: new pure-Go `internal/text` package — `golang.org/x/image/font/sfnt` + 4 embedded DejaVu Sans styles (`codeberg.org/go-fonts/dejavu`, ~2.7 MB raw wasm growth); registry with fallback chain (unknown/"system-ui" → DejaVu Sans), real pair kerning (kern table) + manual `Kerning` (1/1000 em), Bold/Italic via real styled files, SmallCaps as 0.7× uppercase glyphs, BaselineShift/Super/Subscript, post-table underline metrics, AntiAlias mode mapping, glyph/advance/kern caches. Text layers carry a persistent doc-space anchor (`AnchorX/Y/AnchorSet`) and point text gets **tight computed bounds** — fixes the S.2 center/right-alignment clipping caveat. `LoadFontData` (0x0647) registers runtime TTF/OTF (works with no document open, not undoable); `UIMeta.availableFonts` feeds the character panel's new font/style selects. Ligatures/GSUB deferred (documented).
+- [x] Real Create Outlines — rewritten on the shared layout pass: closed filled TTF glyph contours (exact quad→cubic, fill-only VectorLayer, ink IoU vs raster > 0.85; the S.1 GSV centerline tracer is gone)
+- [x] **Vector masks render**: raster×vector coverage multiply through plain/styled/group composite paths (`effectiveLayerMask`), content-validated raster cache (`PathEqual` + dims — survives in-place transform/crop mutation), empty mask = reveal-all (byte-pinned); `AddVectorMask{fromActivePath}` + new `SetVectorMaskPath` (0x012a)
+- [x] Layer styles: gradient overlay/stroke honor user `stops` via 256-LUT renderer (+ real Align, Reverse, Scale, masked Dither; empty stops = legacy ramp, byte-pinned); pattern overlay/stroke sample registry patterns; all five dead params implemented — Contour (bevel+satin LUTs; satin's gaussian default deliberately rebaselined), Noise (deterministic splitmix64), drop-shadow Knockout, bevel Altitude, bevel Technique (smooth/chisel distance ramp)
+- [x] Real pattern fill: document-scoped `PatternResource` registry (archived in JSON+ZIP, undoable) + 4 builtin tiles, `DefinePattern` (0x0417, selection bbox or whole layer, 1024² cap) / `DeletePattern` (0x0418), `patternId`/`patternScale` through paint-bucket fill (empty id = legacy fg/bg checker, byte-pinned), `UIMeta.patterns` + minimal picker UI
+
+> Deferred within S.6 (documented in code): GSUB ligatures + GPOS-only kerning; bilinear pattern sampling; underline/strikethrough bars not converted by Create Outlines (glyph ink only); frontend does not yet dispatch LoadFontData for browser/system fonts (→ S.8 candidate).
 
 ### Phase S.7: Frontend Architecture & UX Repair
 
@@ -976,7 +980,7 @@
 - [ ] Brush dynamics jitter sliders + control-source dropdown are display-only — values never reach the engine, no proto fields exist (→ S.8)
 - [ ] `.abr` import is a filename-regex heuristic, not a format parser (→ S.8)
 - [ ] Gradient "fill layer" is rasterized, not a non-destructive parametric layer; opacity stops are folded into stop colors, not independent
-- [ ] Paint-bucket pattern fill is a hardcoded 8px checkerboard (→ S.6); LAB sliders missing; "gamut warning" is a web-safe-color label
+- [x] Paint-bucket pattern fill hardcoded checkerboard — fixed in S.6 (pattern registry + DefinePattern, 2026-07-06); still open: LAB sliders missing; "gamut warning" is a web-safe-color label
 - [x] Paint input is dispatched per raw pointermove with no coalescing — fixed in S.4 (rAF-batched multi-point ContinuePaintStroke, 2026-07-06)
 
 ---
@@ -1209,13 +1213,13 @@
 ### Phase 6.3: Text Engine
 
 - [ ] **Font loading:**
-  - [ ] Load fonts via `FontFace` API (browser system fonts + uploaded fonts)
-  - [ ] Font catalog: list available fonts with preview
+  - [x] Engine-side runtime font registration: `LoadFontData` ABI (S.6, 2026-07-06) — frontend `FontFace`/system-font wiring still open (→ S.8)
+  - [x] Font catalog: `UIMeta.availableFonts` + character-panel selects (S.6) — visual preview still open
   - [ ] Web font loading from URL (later)
 - [x] **Text rendering via AGG:**
-  - [x] Rasterize text via AGG `FontGSV` (WASM-safe built-in stroke-vector font)
-  - [ ] Load TrueType/OpenType outlines (using Go font library, e.g. `golang.org/x/image/font/sfnt`)
-  - [ ] Subpixel-accurate glyph placement, kerning, ligatures (basic)
+  - [x] ~~Rasterize text via AGG `FontGSV`~~ superseded in S.6: sfnt glyph outlines filled via AGG scanline (GSV removed)
+  - [x] Load TrueType/OpenType outlines via `golang.org/x/image/font/sfnt` + embedded DejaVu Sans ×4 (S.6, 2026-07-06)
+  - [x] Kerning (kern table + manual) and float-accurate glyph placement (S.6) — ligatures deferred (no GSUB in sfnt)
 - [x] **Text layer types:**
   - [x] **Point Text:** click to start, type horizontally, no auto-wrap
   - [x] **Area Text:** word-wrapping within bounds
@@ -1305,8 +1309,8 @@
 ### Phase 6.5 — Review gaps (2026-07-06, see Phase S)
 
 - [x] Drop shadow falls *toward* the light at the PS-default 120° angle, and DropShadow/OuterGlow composite on top of layer content instead of behind it — fixed in S.5 (2026-07-06)
-- [ ] Gradient Overlay renders a hardcoded blue→orange ramp — user gradient stops are ignored; Pattern Overlay / pattern stroke are hardcoded checkerboards (→ S.6)
-- [ ] Contour, Noise, Knockout, Altitude, and bevel Technique params are decoded but never used in rendering (→ S.6)
+- [x] Gradient Overlay hardcoded ramp / Pattern Overlay + pattern stroke hardcoded checkerboards — fixed in S.6 (user stops via LUT renderer; registry patterns; 2026-07-06)
+- [x] Contour, Noise, Knockout, Altitude, and bevel Technique params — implemented in S.6 (2026-07-06)
 
 ---
 

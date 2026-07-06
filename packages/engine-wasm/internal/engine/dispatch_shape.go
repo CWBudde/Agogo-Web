@@ -146,7 +146,7 @@ func (inst *instance) commitVectorEdit() error {
 		}
 		editedPath := doc.Paths[doc.ActivePathIdx].Path
 		vl.Shape = clonePath(&editedPath)
-		raster, err := rasterizeVectorShape(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth)
+		raster, err := rasterizeVectorShapeFillRule(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth, vl.FillRule)
 		if err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ func (inst *instance) setVectorLayerStyle(p SetVectorLayerStylePayload) error {
 		vl.FillColor = p.FillColor
 		vl.StrokeColor = p.StrokeColor
 		vl.StrokeWidth = p.StrokeWidth
-		raster, err := rasterizeVectorShape(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth)
+		raster, err := rasterizeVectorShapeFillRule(vl.Shape, doc.Width, doc.Height, vl.FillColor, vl.StrokeColor, vl.StrokeWidth, vl.FillRule)
 		if err != nil {
 			return err
 		}

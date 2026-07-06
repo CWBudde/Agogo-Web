@@ -124,6 +124,7 @@ type ProjectLayerArchive struct {
 	FillColor         [4]uint8              `json:"fillColor,omitempty"`
 	StrokeColor       [4]uint8              `json:"strokeColor,omitempty"`
 	StrokeWidth       float64               `json:"strokeWidth,omitempty"`
+	FillRule          string                `json:"fillRule,omitempty"`
 	CachedRaster      []byte                `json:"cachedRaster,omitempty"`
 	Children          []ProjectLayerArchive `json:"children,omitempty"`
 }

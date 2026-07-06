@@ -260,7 +260,7 @@ func remapLayerIntoDocumentSpace(n LayerNode, newW, newH, dx, dy int) {
 		translatePathInPlace(layer.Shape, float64(dx), float64(dy))
 		layer.Bounds = LayerBounds{X: 0, Y: 0, W: newW, H: newH}
 		if layer.Shape != nil && len(layer.Shape.Subpaths) > 0 {
-			if raster, err := rasterizeVectorShape(layer.Shape, newW, newH, layer.FillColor, layer.StrokeColor, layer.StrokeWidth); err == nil {
+			if raster, err := rasterizeVectorShapeFillRule(layer.Shape, newW, newH, layer.FillColor, layer.StrokeColor, layer.StrokeWidth, layer.FillRule); err == nil {
 				layer.CachedRaster = raster
 			}
 		}

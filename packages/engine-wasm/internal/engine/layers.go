@@ -39,6 +39,10 @@ const (
 	LayerTypeVector     = model.LayerTypeVector
 )
 
+// FillRuleNonZero selects non-zero winding for VectorLayer rasterization; the
+// empty string keeps the historical even-odd rule (see model.VectorLayer).
+const FillRuleNonZero = model.FillRuleNonZero
+
 const (
 	LayerLockNone     = model.LayerLockNone
 	LayerLockPixels   = model.LayerLockPixels

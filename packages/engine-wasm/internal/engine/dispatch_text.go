@@ -242,8 +242,15 @@ func (inst *instance) setTextContent(p SetTextContentPayload) error {
 		if !ok {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
+		beforeBounds := tl.Bounds
 		tl.Text = p.Text
-		return rasterizeTextLayer(tl)
+		if err := rasterizeTextLayer(tl); err != nil {
+			return err
+		}
+		// Invalidate the union of the old and new bounds: tight point-text
+		// bounds can shrink, and the vacated region must repaint too.
+		doc.touchModifiedAtBounds(beforeBounds, tl.Bounds)
+		return nil
 	})
 }
 
@@ -258,6 +265,7 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if !ok {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
+		beforeBounds := tl.Bounds
 		if p.FontFamily != nil {
 			tl.FontFamily = *p.FontFamily
 		}
@@ -336,7 +344,14 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if p.SpaceAfter != nil {
 			tl.SpaceAfter = *p.SpaceAfter
 		}
-		return rasterizeTextLayer(tl)
+		if err := rasterizeTextLayer(tl); err != nil {
+			return err
+		}
+		// Invalidate the union of the old and new bounds: style changes (font
+		// size, tracking, alignment, …) can shrink the tight point-text box,
+		// and the vacated region must repaint too.
+		doc.touchModifiedAtBounds(beforeBounds, tl.Bounds)
+		return nil
 	})
 }
 
@@ -515,12 +530,14 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 			return fmt.Errorf("text layer %q has no content to convert to outlines", tl.Name())
 		}
 
-		// rasterizeVectorShape fills even-odd (hardwired for all vector
-		// layers), while the text raster fills non-zero. For well-formed
-		// glyph contours — nested, non-self-intersecting, counters as
-		// separate contours — the two rules produce the same ink, so the
-		// converted layer renders visually identical to the original text.
-		raster, err := rasterizeVectorShape(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0)
+		// Rasterize with the NON-ZERO winding rule, matching the live text
+		// render (text_render.go): TrueType contours encode counters via
+		// winding direction, and contours of ADJACENT glyphs can overlap
+		// (negative tracking/kerning) — even-odd would XOR the overlap out
+		// to holes that the original raster fills solid. The rule is
+		// persisted on the layer (FillRule below) so later
+		// re-rasterizations (style change, vector edit, crop) keep it.
+		raster, err := rasterizeVectorShapeFillRule(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0, FillRuleNonZero)
 		if err != nil {
 			return err
 		}
@@ -534,6 +551,7 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		vectorLayer.FillColor = tl.Color
 		vectorLayer.StrokeColor = [4]uint8{}
 		vectorLayer.StrokeWidth = 0
+		vectorLayer.FillRule = FillRuleNonZero
 
 		// Replace the text layer with the vector layer at the same position.
 		if parent == nil {
@@ -551,6 +569,9 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		parent.SetChildren(updated)
 		doc.ActiveLayerID = vectorLayer.ID()
 		doc.normalizeClippingState()
+		// The new vector layer has document-sized bounds, so a layer-scoped
+		// touch also covers the replaced text layer's (smaller) bounds.
+		doc.touchModifiedAtLayer(vectorLayer)
 		return nil
 	})
 }

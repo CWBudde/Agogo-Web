@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 )
 
@@ -213,7 +214,9 @@ func decodeBevelEmbossParams(params json.RawMessage) BevelEmbossParams {
 	decoded.Technique = normalizeStringEnum(decoded.Technique, defaultBevelEmbossParams().Technique, "smooth", "chisel-hard", "chisel-soft")
 	decoded.Depth = clampNonNegative(decoded.Depth)
 	decoded.Direction = normalizeStringEnum(decoded.Direction, defaultBevelEmbossParams().Direction, "up", "down")
-	decoded.Size = clampNonNegative(decoded.Size)
+	// Photoshop's UI caps bevel size at 250; without a cap the chisel
+	// techniques cost O(size) full-document erosion passes per render.
+	decoded.Size = math.Min(clampNonNegative(decoded.Size), 250)
 	decoded.Soften = clampNonNegative(decoded.Soften)
 	decoded.Highlight = normalizeBlendMode(decoded.Highlight, BlendModeScreen)
 	decoded.HighlightC = normalizeRGBAField(params, "highlightColor", decoded.HighlightC, defaultBevelEmbossParams().HighlightC)

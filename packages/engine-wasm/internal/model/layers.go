@@ -556,6 +556,14 @@ func (l *TextLayer) Clone() LayerNode {
 	}
 }
 
+// FillRuleNonZero selects the non-zero winding fill rule for a VectorLayer's
+// rasterization. The zero value ("") keeps the historical even-odd rule used
+// by shape layers. Text converted to outlines (Create Outlines) persists
+// non-zero because TrueType glyph contours encode counters via winding
+// direction, and overlapping contours from adjacent glyphs (negative
+// tracking) must fill solid instead of XOR-ing out under even-odd.
+const FillRuleNonZero = "nonzero"
+
 type VectorLayer struct {
 	layerBase
 	Bounds      LayerBounds `json:"bounds"`
@@ -563,6 +571,11 @@ type VectorLayer struct {
 	FillColor   [4]uint8    `json:"fillColor"`
 	StrokeColor [4]uint8    `json:"strokeColor"`
 	StrokeWidth float64     `json:"strokeWidth"`
+	// FillRule selects the rasterization fill rule for Shape: "" (default)
+	// means even-odd, FillRuleNonZero means non-zero winding. It must be
+	// honored by every re-rasterization of the layer (style changes, vector
+	// edits, crop) or converted text outlines would grow even-odd holes.
+	FillRule string `json:"fillRule,omitempty"`
 	// CachedRaster is the rasterized shape content and is BOUNDS-LOCAL:
 	// an RGBA buffer of exactly Bounds.W × Bounds.H × 4 bytes whose pixel
 	// (0,0) corresponds to document pixel (Bounds.X, Bounds.Y). Shape layers
@@ -597,6 +610,7 @@ func (l *VectorLayer) Clone() LayerNode {
 		FillColor:    l.FillColor,
 		StrokeColor:  l.StrokeColor,
 		StrokeWidth:  l.StrokeWidth,
+		FillRule:     l.FillRule,
 		CachedRaster: append([]byte(nil), l.CachedRaster...),
 	}
 }
@@ -814,6 +828,9 @@ func LayerTreeEqual(a, b LayerNode) bool {
 			return false
 		}
 		if left.FillColor != right.FillColor || left.StrokeColor != right.StrokeColor || left.StrokeWidth != right.StrokeWidth {
+			return false
+		}
+		if left.FillRule != right.FillRule {
 			return false
 		}
 		if !bytes.Equal(left.CachedRaster, right.CachedRaster) {

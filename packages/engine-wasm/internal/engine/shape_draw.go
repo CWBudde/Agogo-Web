@@ -135,7 +135,10 @@ func makeLinePath(x1, y1, x2, y2 float64) *Path {
 }
 
 // rasterizeVectorShape renders a Path with fill and/or stroke colors into an RGBA buffer
-// sized docW×docH, with path coordinates mapped 1:1 to buffer pixels.
+// sized docW×docH, with path coordinates mapped 1:1 to buffer pixels, using the
+// historical even-odd fill rule. Call sites that re-rasterize a persisted
+// VectorLayer must use rasterizeVectorShapeFillRule with the layer's FillRule
+// instead, so converted text outlines keep their non-zero rule.
 //
 // The result is suitable for VectorLayer.CachedRaster (a BOUNDS-LOCAL raster,
 // see model.VectorLayer) only when paired with bounds of W=docW, H=docH and
@@ -144,6 +147,14 @@ func makeLinePath(x1, y1, x2, y2 float64) *Path {
 // Bounds.X/Y and remain consistent because the raster is position-independent
 // of the bounds offset.
 func rasterizeVectorShape(p *Path, docW, docH int, fillColor, strokeColor [4]uint8, strokeWidth float64) ([]byte, error) {
+	return rasterizeVectorShapeFillRule(p, docW, docH, fillColor, strokeColor, strokeWidth, "")
+}
+
+// rasterizeVectorShapeFillRule is rasterizeVectorShape with a selectable fill
+// rule: "" fills even-odd (shape-layer default), FillRuleNonZero fills with
+// non-zero winding (TrueType glyph outlines from Create Outlines, whose
+// overlapping contours must fill solid instead of XOR-ing out).
+func rasterizeVectorShapeFillRule(p *Path, docW, docH int, fillColor, strokeColor [4]uint8, strokeWidth float64, fillRule string) ([]byte, error) {
 	if p == nil || len(p.Subpaths) == 0 {
 		return nil, fmt.Errorf("empty path")
 	}
@@ -160,7 +171,7 @@ func rasterizeVectorShape(p *Path, docW, docH int, fillColor, strokeColor [4]uin
 
 	r := agglib.NewAgg2D()
 	r.Attach(buf, docW, docH, stride)
-	r.FillEvenOdd(true)
+	r.FillEvenOdd(fillRule != FillRuleNonZero)
 	r.ResetTransformations()
 	r.ResetPath()
 	applyPathToAgg2D(r, p)
