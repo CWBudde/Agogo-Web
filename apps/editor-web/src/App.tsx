@@ -12,8 +12,6 @@ import {
   type InterpolMode,
   type LayerBlendMode,
   type LayerNodeMeta,
-  type SampleMergedColorCommand,
-  type SetColorCommand,
   type ThumbnailEntry,
   type UpdateCropCommand,
 } from "@agogo/proto";
@@ -27,17 +25,11 @@ import {
 } from "react";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
-  BRUSH_PRESETS,
-  type BrushControlSource,
-  type BrushPreset,
   BrushPresetPicker,
   BrushSettingsPanel,
-  type BrushTipShape,
-  type ColorChannelMode,
   ColorPanel,
   ColorPickerDialog,
   MIXER_BRUSH_PRESETS,
-  type MixerBrushPreset,
   SwatchesPanel,
 } from "@/components/brush-color-panels";
 import { ChannelsPanel } from "@/components/channels-panel";
@@ -55,7 +47,7 @@ import {
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
-import { type ColorSamplerPoint, InfoPanel } from "@/components/info-panel";
+import { InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { MenuPreviewPanel } from "@/components/menu-bar/menu-preview";
 import { type MenuActionId, type MenuPreviewItem, menuItems } from "@/components/menu-bar/model";
@@ -84,22 +76,13 @@ import {
   type Rgba,
   rgbaToCss,
   rgbaToHex,
-  snapToWebSafeColor,
   toMutableRgba,
-  toRgba,
 } from "@/lib/color";
 import {
-  CUSTOM_BRUSH_PRESETS_KEY,
   CUSTOM_SHAPE_PRESETS_KEY,
-  CUSTOM_SWATCHES_KEY,
-  CUSTOM_SWATCHES_NAME_KEY,
   GRADIENT_STOPS_KEY,
-  loadBrushPresetList,
-  loadColorList,
   loadGradientStops,
   loadShapePresetList,
-  loadStoredName,
-  RECENT_COLORS_KEY,
 } from "@/lib/persisted-ui";
 import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
 import { SHAPE_PRESETS, type ShapePreset } from "@/lib/shape-presets";
@@ -113,6 +96,8 @@ import {
   unitToPixels,
 } from "@/lib/units";
 import { parseNumericInput } from "@/lib/utils";
+import { useBrushState } from "@/state/brush-state";
+import { useColorState } from "@/state/color-state";
 import { useEngine } from "@/wasm/context";
 
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
@@ -182,6 +167,123 @@ export default function App() {
   const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
   const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
   const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
+  const {
+    foregroundColor,
+    setForegroundColor,
+    backgroundColor,
+    setBackgroundColor,
+    colorPickerOpen,
+    setColorPickerOpen,
+    colorPickerTarget,
+    setColorPickerTarget,
+    colorChannelMode,
+    setColorChannelMode,
+    onlyWebColors,
+    setOnlyWebColors,
+    recentColors,
+    swatches,
+    setSwatches,
+    swatchSetName,
+    setSwatchSetName,
+    swatchStatus,
+    setSwatchStatus,
+    eyedropperSampleSize,
+    setEyedropperSampleSize,
+    eyedropperSampleMerged,
+    setEyedropperSampleMerged,
+    eyedropperSampleAllLayersNoAdj,
+    setEyedropperSampleAllLayersNoAdj,
+    colorSamplerPoints,
+    setColorSamplerPoints,
+    pushRecentColor,
+    applyColorToTarget,
+    openColorPicker,
+    addColorSamplerPoint,
+  } = useColorState();
+  const {
+    brushSize,
+    setBrushSize,
+    brushHardness,
+    setBrushHardness,
+    brushAngle,
+    setBrushAngle,
+    brushRoundness,
+    setBrushRoundness,
+    brushSpacing,
+    setBrushSpacing,
+    brushTipShape,
+    setBrushTipShape,
+    brushPresetId,
+    brushBlendMode,
+    setBrushBlendMode,
+    brushOpacity,
+    setBrushOpacity,
+    brushAirbrush,
+    setBrushAirbrush,
+    brushSmoothing,
+    setBrushSmoothing,
+    pressureAffectsSize,
+    setPressureAffectsSize,
+    pressureAffectsOpacity,
+    setPressureAffectsOpacity,
+    pressureAffectsFlow,
+    setPressureAffectsFlow,
+    brushSizeJitter,
+    setBrushSizeJitter,
+    brushOpacityJitter,
+    setBrushOpacityJitter,
+    brushFlowJitter,
+    setBrushFlowJitter,
+    brushControlSource,
+    setBrushControlSource,
+    brushFlow,
+    setBrushFlow,
+    mixerBrushWetness,
+    setMixerBrushWetness,
+    mixerBrushLoad,
+    setMixerBrushLoad,
+    mixerBrushSampleMerged,
+    setMixerBrushSampleMerged,
+    cloneStampAligned,
+    setCloneStampAligned,
+    cloneStampAlignedOffset,
+    setCloneStampAlignedOffset,
+    cloneStampSampleMerged,
+    setCloneStampSampleMerged,
+    cloneStampOpacity,
+    setCloneStampOpacity,
+    cloneStampLoad,
+    setCloneStampLoad,
+    cloneStampUseHistorySource,
+    setCloneStampUseHistorySource,
+    cloneStampHistorySourceIndex,
+    setCloneStampHistorySourceIndex,
+    cloneStampSource,
+    setCloneStampSource,
+    historyBrushSourceIndex,
+    setHistoryBrushSourceIndex,
+    historyBrushOpacity,
+    setHistoryBrushOpacity,
+    historyBrushLoad,
+    setHistoryBrushLoad,
+    historyBrushSampleMerged,
+    setHistoryBrushSampleMerged,
+    pencilAutoErase,
+    setPencilAutoErase,
+    eraserMode,
+    setEraserMode,
+    eraserTolerance,
+    setEraserTolerance,
+    customBrushPresets,
+    setCustomBrushPresets,
+    brushPresetStatus,
+    setBrushPresetStatus,
+    brushPresets,
+    customBrushPresetIds,
+    currentMixerPreset,
+    applyBrushPreset,
+    applyMixerBrushPreset,
+  } = useBrushState();
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
   const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
   const [marqueeStyle, setMarqueeStyle] = useState<MarqueeStyle>("normal");
@@ -261,86 +363,10 @@ export default function App() {
   const [documentUnit, setDocumentUnit] = useState<DocumentUnit>("px");
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
-  const [foregroundColor, setForegroundColor] = useState<Rgba>([0, 0, 0, 255]);
-  const [backgroundColor, setBackgroundColor] = useState<Rgba>([255, 255, 255, 255]);
-  const [colorPickerOpen, setColorPickerOpen] = useState(false);
-  const [colorPickerTarget, setColorPickerTarget] = useState<"foreground" | "background">(
-    "foreground",
-  );
-  const [colorChannelMode, setColorChannelMode] = useState<ColorChannelMode>("rgb");
-  const [onlyWebColors, setOnlyWebColors] = useState(false);
-  const [recentColors, setRecentColors] = useState<Rgba[]>(() =>
-    loadColorList(RECENT_COLORS_KEY, [
-      [0, 0, 0, 255],
-      [255, 255, 255, 255],
-      [56, 189, 248, 255],
-      [244, 63, 94, 255],
-    ]),
-  );
-  const [customBrushPresets, setCustomBrushPresets] = useState<BrushPreset[]>(() =>
-    loadBrushPresetList(CUSTOM_BRUSH_PRESETS_KEY),
-  );
   const [customShapePresets, setCustomShapePresets] = useState<ShapePreset[]>(() =>
     loadShapePresetList(CUSTOM_SHAPE_PRESETS_KEY),
   );
-  const [swatches, setSwatches] = useState<Rgba[]>(() =>
-    loadColorList(CUSTOM_SWATCHES_KEY, [
-      [0, 0, 0, 255],
-      [255, 255, 255, 255],
-      [244, 114, 182, 255],
-      [59, 130, 246, 255],
-      [34, 197, 94, 255],
-      [251, 191, 36, 255],
-    ]),
-  );
-  const [swatchSetName, setSwatchSetName] = useState(() =>
-    loadStoredName(CUSTOM_SWATCHES_NAME_KEY, "Custom Swatches"),
-  );
-  const [brushPresetStatus, setBrushPresetStatus] = useState<string | null>(null);
   const [shapePresetStatus, setShapePresetStatus] = useState<string | null>(null);
-  const [swatchStatus, setSwatchStatus] = useState<string | null>(null);
-  const [brushSize, setBrushSize] = useState(20);
-  const [brushHardness, setBrushHardness] = useState(0.8);
-  const [brushAngle, setBrushAngle] = useState(0);
-  const [brushRoundness, setBrushRoundness] = useState(0.75);
-  const [brushSpacing, setBrushSpacing] = useState(0.14);
-  const [brushTipShape, setBrushTipShape] = useState<BrushTipShape>("round");
-  const [brushPresetId, setBrushPresetId] = useState(BRUSH_PRESETS[0].id);
-  const [brushBlendMode, setBrushBlendMode] = useState<LayerBlendMode>("normal");
-  const [brushOpacity, setBrushOpacity] = useState(1);
-  const [brushAirbrush, setBrushAirbrush] = useState(false);
-  const [brushSmoothing, setBrushSmoothing] = useState(0);
-  const [pressureAffectsSize, setPressureAffectsSize] = useState(true);
-  const [pressureAffectsOpacity, setPressureAffectsOpacity] = useState(false);
-  const [pressureAffectsFlow, setPressureAffectsFlow] = useState(true);
-  const [brushSizeJitter, setBrushSizeJitter] = useState(0);
-  const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
-  const [brushFlowJitter, setBrushFlowJitter] = useState(0);
-  const [brushControlSource, setBrushControlSource] = useState<BrushControlSource>("pressure");
-  const [mixerBrushWetness, setMixerBrushWetness] = useState(0.65);
-  const [mixerBrushLoad, setMixerBrushLoad] = useState(0.85);
-  const [mixerBrushSampleMerged, setMixerBrushSampleMerged] = useState(true);
-  const [cloneStampAligned, setCloneStampAligned] = useState(true);
-  const [cloneStampAlignedOffset, setCloneStampAlignedOffset] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [cloneStampSampleMerged, setCloneStampSampleMerged] = useState(true);
-  const [cloneStampOpacity, setCloneStampOpacity] = useState(1);
-  const [cloneStampLoad, setCloneStampLoad] = useState(1);
-  const [cloneStampUseHistorySource, setCloneStampUseHistorySource] = useState(false);
-  const [cloneStampHistorySourceIndex, setCloneStampHistorySourceIndex] = useState<number | null>(
-    null,
-  );
-  const [cloneStampSource, setCloneStampSource] = useState<{ x: number; y: number } | null>(null);
-  const [historyBrushSourceIndex, setHistoryBrushSourceIndex] = useState<number | null>(null);
-  const [historyBrushOpacity, setHistoryBrushOpacity] = useState(1);
-  const [historyBrushLoad, setHistoryBrushLoad] = useState(1);
-  const [historyBrushSampleMerged, setHistoryBrushSampleMerged] = useState(true);
-  const [pencilAutoErase, setPencilAutoErase] = useState(false);
-  const [eraserMode, setEraserMode] = useState<"normal" | "background" | "magic">("normal");
-  const [eraserTolerance, setEraserTolerance] = useState(30);
-  const [brushFlow, setBrushFlow] = useState(1.0);
   const [fillSource, setFillSource] = useState<FillSource>("foreground");
   const [fillPatternId, setFillPatternId] = useState("builtin/checker");
   const [fillTolerance, setFillTolerance] = useState(24);
@@ -394,22 +420,9 @@ export default function App() {
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
   const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
-  const [eyedropperSampleSize, setEyedropperSampleSize] = useState(1);
-  const [eyedropperSampleMerged, setEyedropperSampleMerged] = useState(true);
-  const [eyedropperSampleAllLayersNoAdj, setEyedropperSampleAllLayersNoAdj] = useState(false);
-  const [colorSamplerPoints, setColorSamplerPoints] = useState<ColorSamplerPoint[]>([]);
-  const nextColorSamplerId = useRef(1);
-  const brushPresets = useMemo(
-    () => [...BRUSH_PRESETS, ...customBrushPresets],
-    [customBrushPresets],
-  );
   const shapePresets = useMemo(
     () => [...SHAPE_PRESETS, ...customShapePresets],
     [customShapePresets],
-  );
-  const customBrushPresetIds = useMemo(
-    () => customBrushPresets.map((preset) => preset.id),
-    [customBrushPresets],
   );
   const customShapePresetIds = useMemo(
     () => customShapePresets.map((preset) => preset.id),
@@ -478,58 +491,12 @@ export default function App() {
   }, [activeTool, shapeSubTool]);
 
   useEffect(() => {
-    if (!engine.handle) return;
-    engine.dispatchCommand(CommandID.SetForegroundColor, {
-      color: toMutableRgba(foregroundColor),
-    } satisfies SetColorCommand);
-  }, [engine.handle, engine.dispatchCommand, foregroundColor]);
-
-  useEffect(() => {
-    if (!engine.handle) return;
-    engine.dispatchCommand(CommandID.SetBackgroundColor, {
-      color: toMutableRgba(backgroundColor),
-    } satisfies SetColorCommand);
-  }, [engine.handle, engine.dispatchCommand, backgroundColor]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(recentColors));
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [recentColors]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CUSTOM_BRUSH_PRESETS_KEY, JSON.stringify(customBrushPresets));
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [customBrushPresets]);
-
-  useEffect(() => {
     try {
       window.localStorage.setItem(CUSTOM_SHAPE_PRESETS_KEY, JSON.stringify(customShapePresets));
     } catch {
       // Ignore localStorage failures.
     }
   }, [customShapePresets]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CUSTOM_SWATCHES_KEY, JSON.stringify(swatches));
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [swatches]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CUSTOM_SWATCHES_NAME_KEY, swatchSetName);
-    } catch {
-      // Ignore localStorage failures.
-    }
-  }, [swatchSetName]);
 
   useEffect(() => {
     try {
@@ -564,79 +531,6 @@ export default function App() {
     backgroundImage: gradientStopsToCss(gradientStops),
   };
   const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
-  const sampleColorAtPoint = (
-    x: number,
-    y: number,
-    sampleSize: number,
-    sampleMerged: boolean,
-    sampleAllLayersNoAdj: boolean,
-  ): Rgba | null => {
-    const sampled = engine.handle?.dispatchCommand(CommandID.SampleMergedColor, {
-      x,
-      y,
-      sampleSize,
-      sampleMerged: sampleMerged || sampleAllLayersNoAdj,
-    } satisfies SampleMergedColorCommand)?.sampledColor;
-    return sampled ? toRgba(sampled) : null;
-  };
-
-  const addColorSamplerPoint = ({
-    x,
-    y,
-    sampleSize,
-    sampleMerged,
-    sampleAllLayersNoAdj,
-  }: {
-    x: number;
-    y: number;
-    sampleSize: number;
-    sampleMerged: boolean;
-    sampleAllLayersNoAdj: boolean;
-  }) => {
-    if (colorSamplerPoints.length >= 4) {
-      return;
-    }
-    setColorSamplerPoints((current) => {
-      if (current.length >= 4) {
-        return current;
-      }
-      return [
-        ...current,
-        {
-          id: `sampler-${nextColorSamplerId.current++}`,
-          x,
-          y,
-          sampleSize,
-          sampleMerged,
-          sampleAllLayersNoAdj,
-          color: sampleColorAtPoint(x, y, sampleSize, sampleMerged, sampleAllLayersNoAdj),
-        },
-      ];
-    });
-  };
-  const currentMixerPreset = useMemo(() => {
-    const fuzzyEquals = (a: number, b: number) => Math.abs(a - b) < 0.001;
-    return (
-      MIXER_BRUSH_PRESETS.find(
-        (preset) =>
-          preset.baseBrushPresetId === brushPresetId &&
-          preset.tipShape === brushTipShape &&
-          fuzzyEquals(preset.hardness, brushHardness) &&
-          fuzzyEquals(preset.spacing, brushSpacing) &&
-          fuzzyEquals(preset.angle, brushAngle) &&
-          fuzzyEquals(preset.wetness, mixerBrushWetness) &&
-          fuzzyEquals(preset.load, mixerBrushLoad),
-      ) ?? null
-    );
-  }, [
-    brushAngle,
-    brushHardness,
-    brushPresetId,
-    brushSpacing,
-    brushTipShape,
-    mixerBrushLoad,
-    mixerBrushWetness,
-  ]);
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
     { key: "green", label: "Green Output" },
@@ -658,24 +552,6 @@ export default function App() {
     { key: "neutrals", label: "Neutrals" },
     { key: "blacks", label: "Blacks" },
   ] as const;
-
-  const applyBrushPreset = (preset: BrushPreset) => {
-    setBrushPresetId(preset.id);
-    setBrushTipShape(preset.tipShape);
-    setBrushHardness(preset.hardness);
-    setBrushSpacing(preset.spacing);
-    setBrushAngle(preset.angle);
-  };
-
-  const applyMixerBrushPreset = (preset: MixerBrushPreset) => {
-    setBrushPresetId(preset.baseBrushPresetId);
-    setBrushTipShape(preset.tipShape);
-    setBrushHardness(preset.hardness);
-    setBrushSpacing(preset.spacing);
-    setBrushAngle(preset.angle);
-    setMixerBrushWetness(preset.wetness);
-    setMixerBrushLoad(preset.load);
-  };
 
   const openBrushPresetImport = () => {
     brushPresetInputRef.current?.click();
@@ -699,13 +575,6 @@ export default function App() {
     downloadBlob(new Blob([bytes], { type: "application/octet-stream" }), `${exportName}.aco`);
     setSwatchStatus(`Saved ${swatches.length} swatches to ${exportName}.aco.`);
   };
-
-  useEffect(() => {
-    if (brushPresets.some((preset) => preset.id === brushPresetId)) {
-      return;
-    }
-    setBrushPresetId(brushPresets[0]?.id ?? BRUSH_PRESETS[0].id);
-  }, [brushPresetId, brushPresets]);
 
   useEffect(() => {
     if (shapePresets.some((preset) => preset.id === shapePresetId)) {
@@ -759,33 +628,6 @@ export default function App() {
     activeCrop?.resolution,
   ]);
 
-  useEffect(() => {
-    if ((render?.uiMeta.documentWidth ?? 0) > 0 || colorSamplerPoints.length === 0) {
-      return;
-    }
-    setColorSamplerPoints([]);
-  }, [colorSamplerPoints.length, render?.uiMeta.documentWidth]);
-
-  useEffect(() => {
-    if (!engine.handle || contentVersion === undefined || colorSamplerPoints.length === 0) {
-      return;
-    }
-    setColorSamplerPoints((current) =>
-      current.map((point) => {
-        const sampled = engine.handle?.dispatchCommand(CommandID.SampleMergedColor, {
-          x: point.x,
-          y: point.y,
-          sampleSize: point.sampleSize,
-          sampleMerged: point.sampleMerged || point.sampleAllLayersNoAdj,
-        } satisfies SampleMergedColorCommand)?.sampledColor;
-        return {
-          ...point,
-          color: sampled ? toRgba(sampled) : null,
-        };
-      }),
-    );
-  }, [colorSamplerPoints.length, contentVersion, engine.handle]);
-
   const selectiveColorFields = [
     { key: "cyanRed", label: "Cyan / Red" },
     { key: "magentaGreen", label: "Magenta / Green" },
@@ -813,31 +655,6 @@ export default function App() {
       overlayType: cropOverlayType,
       ...overrides,
     } satisfies UpdateCropCommand);
-  };
-
-  const pushRecentColor = (color: Rgba) => {
-    const normalized = color;
-    setRecentColors((current) => {
-      const withoutDuplicate = current.filter(
-        (entry) => !entry.every((value, index) => value === normalized[index]),
-      );
-      return [normalized, ...withoutDuplicate].slice(0, 10);
-    });
-  };
-
-  const applyColorToTarget = (target: "foreground" | "background", color: Rgba) => {
-    const next = onlyWebColors ? snapToWebSafeColor(color) : color;
-    if (target === "foreground") {
-      setForegroundColor(next);
-    } else {
-      setBackgroundColor(next);
-    }
-    pushRecentColor(next);
-  };
-
-  const openColorPicker = (target: "foreground" | "background") => {
-    setColorPickerTarget(target);
-    setColorPickerOpen(true);
   };
 
   const activateTool = (tool: EditorTool) => {
@@ -1596,6 +1413,8 @@ export default function App() {
     cloneStampUseHistorySource,
     currentHistoryIndex,
     historyEntries,
+    setCloneStampHistorySourceIndex,
+    setCloneStampUseHistorySource,
   ]);
   useEffect(() => {
     if (historyEntries.length === 0) {
@@ -1613,7 +1432,7 @@ export default function App() {
       historyEntries[historyEntries.length - 1]?.id ??
       null;
     setHistoryBrushSourceIndex(fallback);
-  }, [currentHistoryIndex, historyBrushSourceIndex, historyEntries]);
+  }, [currentHistoryIndex, historyBrushSourceIndex, historyEntries, setHistoryBrushSourceIndex]);
   const widthValue = formatDimension(
     pixelsToUnit(draft.width, draft.resolution, documentUnit),
     documentUnit,
