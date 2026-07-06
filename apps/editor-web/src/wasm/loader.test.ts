@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 /**
  * Tests for the module-level runtime cache in loader.ts.
@@ -25,7 +25,14 @@ let rejectGoRun: (error: unknown) => void;
 let engineInit: ReturnType<typeof vi.fn>;
 let engineFree: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
-let instantiateSpy: ReturnType<typeof vi.spyOn>;
+// The loader exercises the BufferSource overload of WebAssembly.instantiate,
+// but TypeScript resolves vi.spyOn against the last (Module) overload, so the
+// spy is retargeted to the overload actually called.
+type InstantiateBufferSource = (
+  bytes: BufferSource,
+  importObject?: WebAssembly.Imports,
+) => Promise<WebAssembly.WebAssemblyInstantiatedSource>;
+let instantiateSpy: MockInstance<InstantiateBufferSource>;
 let fetchShouldFail: boolean;
 let nextHandle: number;
 let memory: WebAssembly.Memory;
@@ -117,13 +124,12 @@ beforeEach(() => {
   vi.spyOn(WebAssembly, "instantiateStreaming").mockRejectedValue(
     new Error("streaming disabled in tests"),
   );
-  instantiateSpy = vi.spyOn(WebAssembly, "instantiate").mockImplementation(
-    async () =>
-      ({
-        instance: { exports: { memory } },
-        module: {},
-      }) as unknown as WebAssembly.WebAssemblyInstantiatedSource,
-  ) as unknown as ReturnType<typeof vi.spyOn>;
+  instantiateSpy = (
+    vi.spyOn(WebAssembly, "instantiate") as unknown as MockInstance<InstantiateBufferSource>
+  ).mockImplementation(async () => ({
+    instance: { exports: { memory } },
+    module: {},
+  }));
 });
 
 afterEach(() => {

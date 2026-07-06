@@ -100,6 +100,7 @@ import { loadBrushPresetFile, parseBrushPresetJSON } from "@/lib/brush-preset-io
 import { loadShapePresetFile, parseShapePresetJSON } from "@/lib/shape-preset-io";
 import { SHAPE_PRESETS, type ShapePreset } from "@/lib/shape-presets";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
+import { parseNumericInput } from "@/lib/utils";
 import { useEngine } from "@/wasm/context";
 
 type MenuPreviewTone = "default" | "accent" | "muted";
@@ -3289,7 +3290,11 @@ export default function App() {
               max={100}
               step={1}
               value={shapeStrokeWidth}
-              onChange={(e) => setShapeStrokeWidth(Math.max(0, Number(e.target.value)))}
+              onChange={(e) =>
+                setShapeStrokeWidth(
+                  Math.max(0, parseNumericInput(e.target.value, shapeStrokeWidth)),
+                )
+              }
               className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
             />
             <span className="text-[10px] text-slate-500">px</span>
@@ -3304,7 +3309,11 @@ export default function App() {
               max={500}
               step={1}
               value={shapeCornerRadius}
-              onChange={(e) => setShapeCornerRadius(Math.max(0, Number(e.target.value)))}
+              onChange={(e) =>
+                setShapeCornerRadius(
+                  Math.max(0, parseNumericInput(e.target.value, shapeCornerRadius)),
+                )
+              }
               className="w-14 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
             />
             <span className="text-[10px] text-slate-500">px</span>
@@ -3320,7 +3329,11 @@ export default function App() {
                 max={100}
                 step={1}
                 value={shapePolygonSides}
-                onChange={(e) => setShapePolygonSides(Math.max(3, Number(e.target.value)))}
+                onChange={(e) =>
+                  setShapePolygonSides(
+                    Math.max(3, parseNumericInput(e.target.value, shapePolygonSides)),
+                  )
+                }
                 className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
               />
             </div>
@@ -4572,7 +4585,14 @@ export default function App() {
                     width: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
+                        unitToPixels(
+                          parseNumericInput(
+                            event.target.value,
+                            pixelsToUnit(current.width, current.resolution, documentUnit),
+                          ),
+                          current.resolution,
+                          documentUnit,
+                        ),
                       ),
                     ),
                   }))
@@ -4592,7 +4612,14 @@ export default function App() {
                     height: Math.max(
                       1,
                       Math.round(
-                        unitToPixels(Number(event.target.value), current.resolution, documentUnit),
+                        unitToPixels(
+                          parseNumericInput(
+                            event.target.value,
+                            pixelsToUnit(current.height, current.resolution, documentUnit),
+                          ),
+                          current.resolution,
+                          documentUnit,
+                        ),
                       ),
                     ),
                   }))
@@ -4608,7 +4635,7 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    resolution: Number(event.target.value),
+                    resolution: parseNumericInput(event.target.value, current.resolution),
                   }))
                 }
               />
@@ -4620,7 +4647,10 @@ export default function App() {
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    bitDepth: Number(event.target.value) as 8 | 16 | 32,
+                    bitDepth: parseNumericInput(event.target.value, current.bitDepth) as
+                      | 8
+                      | 16
+                      | 32,
                   }))
                 }
               >
@@ -4775,7 +4805,12 @@ export default function App() {
               type="number"
               className={fieldClassName}
               value={canvasSizeDraft.width}
-              onChange={(e) => setCanvasSizeDraft((c) => ({ ...c, width: Number(e.target.value) }))}
+              onChange={(e) =>
+                setCanvasSizeDraft((c) => ({
+                  ...c,
+                  width: parseNumericInput(e.target.value, c.width),
+                }))
+              }
             />
           </Field>
           <Field label="Height">
@@ -4784,7 +4819,10 @@ export default function App() {
               className={fieldClassName}
               value={canvasSizeDraft.height}
               onChange={(e) =>
-                setCanvasSizeDraft((c) => ({ ...c, height: Number(e.target.value) }))
+                setCanvasSizeDraft((c) => ({
+                  ...c,
+                  height: parseNumericInput(e.target.value, c.height),
+                }))
               }
             />
           </Field>
@@ -4851,7 +4889,9 @@ export default function App() {
               max={250}
               step={0.5}
               value={featherDialogValue}
-              onChange={(e) => setFeatherDialogValue(Number(e.target.value))}
+              onChange={(e) =>
+                setFeatherDialogValue(parseNumericInput(e.target.value, featherDialogValue))
+              }
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">
@@ -4903,7 +4943,12 @@ export default function App() {
               max={500}
               step={1}
               value={modifyDialog.value}
-              onChange={(e) => setModifyDialog((d) => ({ ...d, value: Number(e.target.value) }))}
+              onChange={(e) =>
+                setModifyDialog((d) => ({
+                  ...d,
+                  value: parseNumericInput(e.target.value, d.value),
+                }))
+              }
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">
@@ -5061,7 +5106,9 @@ export default function App() {
               max={255}
               step={1}
               value={thresholdValue}
-              onChange={(event) => setThresholdValue(Number(event.target.value))}
+              onChange={(event) =>
+                setThresholdValue(parseNumericInput(event.target.value, thresholdValue))
+              }
             />
           </label>
           <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -5124,7 +5171,9 @@ export default function App() {
               max={255}
               step={1}
               value={posterizeLevels}
-              onChange={(event) => setPosterizeLevels(Number(event.target.value))}
+              onChange={(event) =>
+                setPosterizeLevels(parseNumericInput(event.target.value, posterizeLevels))
+              }
             />
           </label>
           <label className="flex flex-col gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -5202,7 +5251,9 @@ export default function App() {
               max={100}
               step={1}
               value={photoFilterDensity}
-              onChange={(event) => setPhotoFilterDensity(Number(event.target.value))}
+              onChange={(event) =>
+                setPhotoFilterDensity(parseNumericInput(event.target.value, photoFilterDensity))
+              }
             />
           </label>
           <label className="flex items-center gap-2 text-[11px] text-slate-300">
@@ -5443,7 +5494,9 @@ export default function App() {
               max={200}
               step={1}
               value={colorRangeFuzziness}
-              onChange={(e) => setColorRangeFuzziness(Number(e.target.value))}
+              onChange={(e) =>
+                setColorRangeFuzziness(parseNumericInput(e.target.value, colorRangeFuzziness))
+              }
             />
           </Field>
           <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-300">
@@ -5750,7 +5803,7 @@ function ToolNumberField({
         max={max}
         step={step}
         value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => onChange(parseNumericInput(event.target.value, value))}
       />
     </label>
   );
@@ -6044,7 +6097,7 @@ function CompactRange({
         max={max}
         step={step}
         value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => onChange(parseNumericInput(event.target.value, value))}
       />
     </label>
   );

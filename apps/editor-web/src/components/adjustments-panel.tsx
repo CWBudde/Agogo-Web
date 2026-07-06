@@ -7,7 +7,22 @@ import {
 } from "@agogo/proto";
 import { CharacterPanel, type FontFamilyOption } from "./character-panel";
 import { VectorPropertiesPanel } from "./vector-properties-panel";
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  type TransactionalSliderCommitProps,
+  useTransactionalSlider,
+} from "@/hooks/use-transactional-slider";
+import { parseNumericInput } from "@/lib/utils";
 import type { EngineContextValue } from "@/wasm/types";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +257,16 @@ function HeaderButton({
 // AdjustmentParamsEditor — dispatches to per-type editors
 // ---------------------------------------------------------------------------
 
+/**
+ * Slider-drag transaction shared by all ParamSlider instances of the active
+ * adjustment editor. Discrete controls (checkboxes, selects) bypass it and
+ * dispatch directly.
+ */
+const SliderTransactionContext = createContext<{
+  change: (run: () => void) => void;
+  commitProps: TransactionalSliderCommitProps;
+} | null>(null);
+
 function AdjustmentParamsEditor({
   engine,
   layer,
@@ -262,6 +287,33 @@ function AdjustmentParamsEditor({
     [engine, layer.id],
   );
 
+  const label = ADJUSTMENTS.find((a) => a.kind === kind)?.label ?? kind;
+  const slider = useTransactionalSlider<() => void>({
+    label: `Adjust ${label.toLowerCase()}`,
+    engine,
+    dispatch: (run) => run(),
+  });
+  const sliderTransaction = useMemo(
+    () => ({ change: slider.change, commitProps: slider.commitProps }),
+    [slider],
+  );
+
+  return (
+    <SliderTransactionContext.Provider value={sliderTransaction}>
+      <AdjustmentEditorBody kind={kind} params={params} updateParams={updateParams} />
+    </SliderTransactionContext.Provider>
+  );
+}
+
+function AdjustmentEditorBody({
+  kind,
+  params,
+  updateParams,
+}: {
+  kind: AdjustmentKind;
+  params: AdjustmentLayerParams;
+  updateParams: (newParams: AdjustmentLayerParams) => void;
+}) {
   switch (kind) {
     case "brightness-contrast":
       return (
@@ -385,6 +437,17 @@ function ParamSlider({
   onChange: (v: number) => void;
   formatValue?: (v: number) => string;
 }) {
+  const transaction = useContext(SliderTransactionContext);
+
+  const handleChange = (raw: string) => {
+    const next = parseNumericInput(raw, value);
+    if (transaction) {
+      transaction.change(() => onChange(next));
+    } else {
+      onChange(next);
+    }
+  };
+
   return (
     <label className="block">
       <div className="mb-0.5 flex items-center justify-between text-[10px] uppercase tracking-[0.15em] text-slate-500">
@@ -400,7 +463,8 @@ function ParamSlider({
         max={max}
         step={step}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => handleChange(e.target.value)}
+        {...transaction?.commitProps}
       />
     </label>
   );

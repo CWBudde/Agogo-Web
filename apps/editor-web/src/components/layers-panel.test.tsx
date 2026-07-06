@@ -282,6 +282,48 @@ describe("LayersPanel", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("wraps an opacity slider drag in a single history transaction and dispatches the last value", () => {
+    const engine = createEngine();
+    const layer = makeLayer("layer-1", "Levels 1");
+
+    const { container } = render(
+      <LayersPanel
+        engine={engine}
+        layers={[layer]}
+        activeLayerId={layer.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[layer.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />,
+    );
+
+    // First range input is the Opacity slider, second is Fill.
+    const opacityRange = container.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(opacityRange).toBeTruthy();
+
+    fireEvent.change(opacityRange, { target: { value: "80" } });
+    fireEvent.change(opacityRange, { target: { value: "60" } });
+    fireEvent.change(opacityRange, { target: { value: "40" } });
+    fireEvent.pointerUp(opacityRange);
+
+    expect(engine.beginTransaction).toHaveBeenCalledTimes(1);
+    expect(engine.beginTransaction).toHaveBeenCalledWith("Change layer opacity");
+    expect(engine.endTransaction).toHaveBeenCalledTimes(1);
+    expect(engine.endTransaction).toHaveBeenCalledWith(true);
+
+    const opacityCalls = engine.dispatchCommand.mock.calls.filter(
+      ([commandId]) => commandId === CommandID.SetLayerOpacity,
+    );
+    expect(opacityCalls.length).toBeGreaterThanOrEqual(1);
+    expect(opacityCalls[opacityCalls.length - 1][1]).toEqual({
+      layerId: layer.id,
+      opacity: 0.4,
+    });
+  });
+
   it("opens the layer style dialog from layer properties and passes the selected layer metadata and presets", () => {
     layerStyleDialogSpy.mockClear();
 

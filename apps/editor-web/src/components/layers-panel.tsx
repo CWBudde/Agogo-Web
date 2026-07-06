@@ -19,6 +19,11 @@ import {
 import { LayerStyleDialog } from "@/components/layer-style-dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  type TransactionalSliderCommitProps,
+  useTransactionalSlider,
+} from "@/hooks/use-transactional-slider";
+import { parseNumericInput } from "@/lib/utils";
 import type { EngineContextValue } from "@/wasm/types";
 
 type BlendModeGroup = { label: string; modes: LayerBlendMode[] };
@@ -141,6 +146,33 @@ export function LayersPanel({
     () => findLayerById(layers, activeLayerId ?? "") ?? firstLayer(layers),
     [activeLayerId, layers],
   );
+  const opacitySlider = useTransactionalSlider<number>({
+    label: "Change layer opacity",
+    engine,
+    dispatch: (value) => {
+      if (!activeLayer) {
+        return;
+      }
+      engine.dispatchCommand(CommandID.SetLayerOpacity, {
+        layerId: activeLayer.id,
+        opacity: value / 100,
+      });
+    },
+  });
+  const fillSlider = useTransactionalSlider<number>({
+    label: "Change fill opacity",
+    engine,
+    dispatch: (value) => {
+      if (!activeLayer) {
+        return;
+      }
+      engine.dispatchCommand(CommandID.SetLayerOpacity, {
+        layerId: activeLayer.id,
+        fillOpacity: value / 100,
+      });
+    },
+  });
+
   const layerCount = useMemo(() => countLayers(layers), [layers]);
   const displayOrder = useMemo(
     () => collectLayerOrder(layers, collapsedGroups),
@@ -637,30 +669,16 @@ export function LayersPanel({
               label="Opacity"
               disabled={!activeLayer}
               value={Math.round((activeLayer?.opacity ?? 1) * 100)}
-              onChange={(value) => {
-                if (!activeLayer) {
-                  return;
-                }
-                engine.dispatchCommand(CommandID.SetLayerOpacity, {
-                  layerId: activeLayer.id,
-                  opacity: value / 100,
-                });
-              }}
+              onChange={opacitySlider.change}
+              commitProps={opacitySlider.commitProps}
             />
 
             <RangeField
               label="Fill"
               disabled={!activeLayer}
               value={Math.round((activeLayer?.fillOpacity ?? 1) * 100)}
-              onChange={(value) => {
-                if (!activeLayer) {
-                  return;
-                }
-                engine.dispatchCommand(CommandID.SetLayerOpacity, {
-                  layerId: activeLayer.id,
-                  fillOpacity: value / 100,
-                });
-              }}
+              onChange={fillSlider.change}
+              commitProps={fillSlider.commitProps}
             />
 
             <div className="grid grid-cols-2 gap-[var(--ui-gap-1)]">
@@ -1527,12 +1545,22 @@ function RangeField({
   value,
   disabled,
   onChange,
+  commitProps,
 }: {
   label: string;
   value: number;
   disabled: boolean;
   onChange: (value: number) => void;
+  commitProps?: TransactionalSliderCommitProps;
 }) {
+  // Cleared/invalid input parses to the current value; skip the change so a
+  // no-op transaction (phantom undo entry) is never opened.
+  const handleChange = (raw: string) => {
+    const parsed = parseNumericInput(raw, value);
+    if (parsed !== value) {
+      onChange(parsed);
+    }
+  };
   return (
     <label className="block">
       <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -1547,7 +1575,8 @@ function RangeField({
           max="100"
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(Number(event.target.value))}
+          onChange={(event) => handleChange(event.target.value)}
+          {...commitProps}
         />
         <input
           className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-1.5 text-right text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
@@ -1556,7 +1585,8 @@ function RangeField({
           max="100"
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(Number(event.target.value))}
+          onChange={(event) => handleChange(event.target.value)}
+          {...commitProps}
         />
       </div>
     </label>
