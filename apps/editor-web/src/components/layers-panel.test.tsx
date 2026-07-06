@@ -197,6 +197,91 @@ describe("LayersPanel", () => {
     });
   });
 
+  it("runs a context menu action when clicked with a real pointer and closes the menu", () => {
+    const engine = createEngine();
+    const layer = makeLayer("layer-1", "Levels 1");
+
+    render(
+      <LayersPanel
+        engine={engine}
+        layers={[layer]}
+        activeLayerId={layer.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[layer.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("treeitem"));
+
+    // A real pointer fires pointerdown on the menu item before the click.
+    const menuItem = screen.getByRole("button", { name: "Duplicate Layer" });
+    fireEvent.pointerDown(menuItem);
+    fireEvent.click(menuItem);
+
+    expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.DuplicateLayer, {
+      layerId: layer.id,
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes the context menu on an outside pointerdown without running an action", () => {
+    const engine = createEngine();
+    const layer = makeLayer("layer-1", "Levels 1");
+
+    render(
+      <LayersPanel
+        engine={engine}
+        layers={[layer]}
+        activeLayerId={layer.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[layer.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("treeitem"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+
+    const callsBefore = engine.dispatchCommand.mock.calls.length;
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(engine.dispatchCommand.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("closes the context menu on Escape", () => {
+    const engine = createEngine();
+    const layer = makeLayer("layer-1", "Levels 1");
+
+    render(
+      <LayersPanel
+        engine={engine}
+        layers={[layer]}
+        activeLayerId={layer.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[layer.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("treeitem"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("opens the layer style dialog from layer properties and passes the selected layer metadata and presets", () => {
     layerStyleDialogSpy.mockClear();
 

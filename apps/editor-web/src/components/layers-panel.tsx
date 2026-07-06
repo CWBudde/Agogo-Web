@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -131,6 +132,7 @@ export function LayersPanel({
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [lastSelectedLayerId, setLastSelectedLayerId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<LayerContextMenuState>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const [colorTags, setColorTags] = useState<Record<string, ColorTagId>>({});
   const [propertiesLayerId, setPropertiesLayerId] = useState<string | null>(null);
   const [layerStyleLayerId, setLayerStyleLayerId] = useState<string | null>(null);
@@ -147,26 +149,6 @@ export function LayersPanel({
   const selectedIds =
     selectedLayerIds.length > 0 ? selectedLayerIds : activeLayer ? [activeLayer.id] : [];
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
-    }
-
-    const closeContextMenu = () => setContextMenu(null);
-    const handleEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setContextMenu(null);
-      }
-    };
-
-    window.addEventListener("pointerdown", closeContextMenu);
-    window.addEventListener("keydown", handleEscape);
-    return () => {
-      window.removeEventListener("pointerdown", closeContextMenu);
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [contextMenu]);
 
   const selectLayer = (
     layerId: string,
@@ -731,7 +713,7 @@ export function LayersPanel({
           y={contextMenu.y}
           canGroupSelection={canGroupSelection}
           canUngroupSelection={canUngroupSelection}
-          onClose={() => setContextMenu(null)}
+          onClose={closeContextMenu}
           onDuplicate={() => duplicateLayers(getCurrentSelection())}
           onDelete={() => deleteLayers(getCurrentSelection())}
           onMergeDown={() => {
@@ -780,7 +762,6 @@ export function LayersPanel({
             engine.dispatchCommand(CommandID.CopyLayerStyle, {
               layerId: contextLayer.id,
             });
-            setContextMenu(null);
           }}
           onPasteLayerStyle={() => {
             if (!contextLayer) {
@@ -789,7 +770,6 @@ export function LayersPanel({
             engine.dispatchCommand(CommandID.PasteLayerStyle, {
               layerId: contextLayer.id,
             });
-            setContextMenu(null);
           }}
           onClearLayerStyle={() => {
             if (!contextLayer) {
@@ -798,7 +778,6 @@ export function LayersPanel({
             engine.dispatchCommand(CommandID.ClearLayerStyle, {
               layerId: contextLayer.id,
             });
-            setContextMenu(null);
           }}
           onLayerProperties={() => {
             if (contextLayer) {
@@ -1434,8 +1413,39 @@ function LayerContextMenu({
   onClearLayerStyle: () => void;
   onLayerProperties: () => void;
 }) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      // A pointerdown inside the menu must not close it, or the ensuing
+      // click on the menu item never fires.
+      if (menuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      onClose();
+    };
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
+  const runAction = (action: () => void) => () => {
+    action();
+    onClose();
+  };
+
   return (
     <div
+      ref={menuRef}
       role="menu"
       className="editor-popup fixed z-50 min-w-56 rounded-[var(--ui-radius-md)] p-1"
       style={{ left: x, top: y }}
@@ -1444,31 +1454,31 @@ function LayerContextMenu({
         onClose();
       }}
     >
-      <MenuAction label="Duplicate Layer" onClick={onDuplicate} />
-      <MenuAction label="Delete Layer" onClick={onDelete} destructive />
+      <MenuAction label="Duplicate Layer" onClick={runAction(onDuplicate)} />
+      <MenuAction label="Delete Layer" onClick={runAction(onDelete)} destructive />
       <MenuSeparator />
-      <MenuAction label="Merge Down" onClick={onMergeDown} />
-      <MenuAction label="Merge Visible" onClick={onMergeVisible} />
-      <MenuAction label="Flatten Image" onClick={onFlattenImage} />
+      <MenuAction label="Merge Down" onClick={runAction(onMergeDown)} />
+      <MenuAction label="Merge Visible" onClick={runAction(onMergeVisible)} />
+      <MenuAction label="Flatten Image" onClick={runAction(onFlattenImage)} />
       <MenuSeparator />
-      <MenuAction label="Group Layers" onClick={onGroup} disabled={!canGroupSelection} />
-      <MenuAction label="Ungroup" onClick={onUngroup} disabled={!canUngroupSelection} />
+      <MenuAction label="Group Layers" onClick={runAction(onGroup)} disabled={!canGroupSelection} />
+      <MenuAction label="Ungroup" onClick={runAction(onUngroup)} disabled={!canUngroupSelection} />
       <MenuSeparator />
-      <MenuAction label="Add Mask: Reveal All" onClick={onAddMaskReveal} />
-      <MenuAction label="Add Mask: Hide All" onClick={onAddMaskHide} />
-      <MenuAction label="Add Mask: From Selection" onClick={onAddMaskFromSelection} />
+      <MenuAction label="Add Mask: Reveal All" onClick={runAction(onAddMaskReveal)} />
+      <MenuAction label="Add Mask: Hide All" onClick={runAction(onAddMaskHide)} />
+      <MenuAction label="Add Mask: From Selection" onClick={runAction(onAddMaskFromSelection)} />
       <MenuSeparator />
-      <MenuAction label="Add Vector Mask" onClick={onAddVectorMask} />
-      <MenuAction label="Delete Vector Mask" onClick={onDeleteVectorMask} />
+      <MenuAction label="Add Vector Mask" onClick={runAction(onAddVectorMask)} />
+      <MenuAction label="Delete Vector Mask" onClick={runAction(onDeleteVectorMask)} />
       <MenuSeparator />
-      <MenuAction label="Toggle Clipping" onClick={onToggleClip} />
+      <MenuAction label="Toggle Clipping" onClick={runAction(onToggleClip)} />
       <MenuSeparator />
-      <MenuAction label="Layer Style..." onClick={onLayerStyle} />
-      <MenuAction label="Copy Layer Style" onClick={onCopyLayerStyle} />
-      <MenuAction label="Paste Layer Style" onClick={onPasteLayerStyle} />
-      <MenuAction label="Clear Layer Style" onClick={onClearLayerStyle} />
+      <MenuAction label="Layer Style..." onClick={runAction(onLayerStyle)} />
+      <MenuAction label="Copy Layer Style" onClick={runAction(onCopyLayerStyle)} />
+      <MenuAction label="Paste Layer Style" onClick={runAction(onPasteLayerStyle)} />
+      <MenuAction label="Clear Layer Style" onClick={runAction(onClearLayerStyle)} />
       <MenuSeparator />
-      <MenuAction label="Layer Properties..." onClick={onLayerProperties} />
+      <MenuAction label="Layer Properties..." onClick={runAction(onLayerProperties)} />
     </div>
   );
 }
