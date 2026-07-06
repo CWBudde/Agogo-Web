@@ -10,6 +10,7 @@ import {
   type RenderResult,
   type TransformSelectionCommand,
   type TranslateLayerCommand,
+  type ViewportMeta,
 } from "@agogo/proto";
 import {
   createContext,
@@ -21,22 +22,38 @@ import {
   useRef,
 } from "react";
 import { loadEngine } from "./loader";
-import type { EngineContextValue, EngineHandle } from "./types";
+import type { EngineContextValue, EngineHandle, EngineRenderState } from "./types";
 
 const EngineContext = createContext<EngineContextValue | null>(null);
 
 type EngineState = {
   status: EngineContextValue["status"];
   handle: EngineHandle | null;
-  render: RenderResult | null;
+  render: EngineRenderState | null;
   error: Error | null;
 };
 
 type EngineAction =
   | { type: "load" }
-  | { type: "ready"; handle: EngineHandle; render: RenderResult }
-  | { type: "render"; render: RenderResult }
+  | { type: "ready"; handle: EngineHandle; render: EngineRenderState }
+  | { type: "render"; render: EngineRenderState }
   | { type: "error"; error: Error };
+
+function isFullRender(result: RenderResult): result is EngineRenderState {
+  return result.uiMeta !== undefined;
+}
+
+function sameViewport(a: ViewportMeta, b: ViewportMeta): boolean {
+  return (
+    a.centerX === b.centerX &&
+    a.centerY === b.centerY &&
+    a.zoom === b.zoom &&
+    a.rotation === b.rotation &&
+    a.canvasW === b.canvasW &&
+    a.canvasH === b.canvasH &&
+    a.devicePixelRatio === b.devicePixelRatio
+  );
+}
 
 function reducer(state: EngineState, action: EngineAction): EngineState {
   switch (action.type) {
@@ -66,6 +83,11 @@ export function EngineProvider({ children }: PropsWithChildren) {
     error: null,
   });
 
+  // Mutable mirror of the most recent merged render state. run() may fire
+  // several times between React commits (rAF-batched pointer input), so the
+  // ack merge/change-detection below reads this ref instead of `state.render`.
+  const latestRenderRef = useRef<EngineRenderState | null>(null);
+
   useEffect(() => {
     let active = true;
     let loadedHandle: EngineHandle | null = null;
@@ -78,7 +100,10 @@ export function EngineProvider({ children }: PropsWithChildren) {
           return;
         }
         loadedHandle = handle;
-        dispatch({ type: "ready", handle, render: handle.renderFrame() });
+        // RenderFrame always returns a full result (uiMeta included).
+        const render = handle.renderFrame() as EngineRenderState;
+        latestRenderRef.current = render;
+        dispatch({ type: "ready", handle, render });
       })
       .catch((error: unknown) => {
         if (!active) {
@@ -103,19 +128,86 @@ export function EngineProvider({ children }: PropsWithChildren) {
   const handleRef = useRef(state.handle);
   handleRef.current = state.handle;
 
+  // rAF guard for UIMeta refreshes triggered by stale ack versions: at most
+  // one RenderFrame per animation frame.
+  const uiMetaRefreshRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (uiMetaRefreshRafRef.current !== null) {
+        cancelAnimationFrame(uiMetaRefreshRafRef.current);
+        uiMetaRefreshRafRef.current = null;
+      }
+    };
+  }, []);
+
   // Stable command handlers — created once, never change identity across renders.
   // All functions call handleRef.current at invocation time so they always reach
   // the live engine handle without capturing stale state in their closure.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handlers = useMemo(() => {
+    const commit = (render: EngineRenderState) => {
+      latestRenderRef.current = render;
+      dispatch({ type: "render", render });
+      return render;
+    };
+
+    const scheduleUiMetaRefresh = () => {
+      if (uiMetaRefreshRafRef.current !== null) {
+        return;
+      }
+      uiMetaRefreshRafRef.current = requestAnimationFrame(() => {
+        uiMetaRefreshRafRef.current = null;
+        const handle = handleRef.current;
+        if (!handle) {
+          return;
+        }
+        commit(handle.renderFrame() as EngineRenderState);
+      });
+    };
+
     const run = (commandId: number, payload?: unknown) => {
       const handle = handleRef.current;
       if (!handle) {
         return null;
       }
       const result = handle.dispatchCommand(commandId, payload);
-      dispatch({ type: "render", render: result });
-      return result;
+      if (isFullRender(result)) {
+        return commit(result);
+      }
+
+      // Hot-path ack (no uiMeta): merge into the last full render state so
+      // consumers never see missing UIMeta fields. Keep the previous uiMeta
+      // object (same reference) unless cursor/status changed, and skip the
+      // React state update entirely when nothing visible changed — a steady
+      // brush stroke then costs zero React re-renders per frame.
+      const prev = latestRenderRef.current;
+      if (!prev) {
+        // No full render yet (cannot happen after "ready", kept as a safety
+        // net): fetch one instead of synthesizing a partial state.
+        return commit(handle.renderFrame() as EngineRenderState);
+      }
+
+      if (result.uiMetaVersion !== prev.uiMeta.version) {
+        // The engine's UI state moved on without us (e.g. a command from
+        // another code path); pull a full refresh, at most once per frame.
+        scheduleUiMetaRefresh();
+      }
+
+      const cursorType = result.cursorType ?? prev.uiMeta.cursorType;
+      const statusText = result.statusText ?? prev.uiMeta.statusText;
+      const uiMetaChanged =
+        cursorType !== prev.uiMeta.cursorType || statusText !== prev.uiMeta.statusText;
+      const viewportChanged = !sameViewport(result.viewport, prev.viewport);
+      if (!uiMetaChanged && !viewportChanged) {
+        return prev;
+      }
+      return commit({
+        ...prev,
+        frameId: result.frameId,
+        viewport: result.viewport,
+        uiMeta: uiMetaChanged ? { ...prev.uiMeta, cursorType, statusText } : prev.uiMeta,
+      });
     };
 
     return {
@@ -207,7 +299,9 @@ export function EngineProvider({ children }: PropsWithChildren) {
         if (!handle) {
           return null;
         }
-        const result = handle.importProject(projectJSON);
+        // ImportProject always returns a full render result.
+        const result = handle.importProject(projectJSON) as EngineRenderState;
+        latestRenderRef.current = result;
         dispatch({ type: "render", render: result });
         return result;
       },

@@ -125,7 +125,31 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	}
 }
 
+// StrokePoint is a single continue-stroke sample fed through the per-point
+// paint pipeline. A coalesced batch is a slice of these.
+type StrokePoint struct {
+	X        float64
+	Y        float64
+	Pressure float64
+	TiltX    float64
+	TiltY    float64
+}
+
 func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
+	inst.handleContinuePaintStrokePoints([]StrokePoint{{
+		X:        p.X,
+		Y:        p.Y,
+		Pressure: p.Pressure,
+		TiltX:    p.TiltX,
+		TiltY:    p.TiltY,
+	}})
+}
+
+// handleContinuePaintStrokePoints processes a coalesced batch of continue-stroke
+// samples in order. Each sample runs through the same per-point pipeline as a
+// single legacy point; the content-version dirty rect is bumped once per batch
+// (not per point) to mirror the pre-batching single-point behavior.
+func (inst *instance) handleContinuePaintStrokePoints(points []StrokePoint) {
 	if inst.paintStroke == nil {
 		return
 	}
@@ -137,6 +161,19 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	if layer == nil {
 		return
 	}
+	for i := range points {
+		inst.continuePaintStrokePoint(layer, points[i])
+	}
+	if rect, ok := strokeDirtyRectInDocument(inst.paintStroke, layer); ok {
+		doc.bumpContentVersionRect(rect)
+	}
+}
+
+// continuePaintStrokePoint feeds one sample through the stroke pipeline:
+// pressure default, applyPressure, applyTilt, stabilizer.Push, strokeState
+// AddPoint, then the dab loop. It does not bump the content version; callers
+// do that once per batch.
+func (inst *instance) continuePaintStrokePoint(layer *PixelLayer, p StrokePoint) {
 	pressure := p.Pressure
 	if pressure == 0 {
 		pressure = 0.5
@@ -166,9 +203,6 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 			}
 		}
 		inst.paintStroke.expandDirty(layer, dx, dy, effective.Size)
-	}
-	if rect, ok := strokeDirtyRectInDocument(inst.paintStroke, layer); ok {
-		doc.bumpContentVersionRect(rect)
 	}
 }
 

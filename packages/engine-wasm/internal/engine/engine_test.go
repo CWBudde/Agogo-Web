@@ -701,8 +701,13 @@ func TestPointerEventPanUpdatesViewportCenter(t *testing.T) {
 		t.Fatalf("centerX = %.2f, want less than %.2f after dragging right", afterMove.Viewport.CenterX, before.Viewport.CenterX)
 	}
 
-	if afterMove.UIMeta.CursorType != "grabbing" {
-		t.Fatalf("cursorType = %q, want grabbing", afterMove.UIMeta.CursorType)
+	// Move-phase pointer events are hot-path acks: no UIMeta, but the
+	// top-level cursor field must still reflect the active pan drag.
+	if afterMove.UIMeta != nil {
+		t.Fatalf("move-phase dispatch returned full UIMeta, want minimal ack")
+	}
+	if afterMove.CursorType != "grabbing" {
+		t.Fatalf("cursorType = %q, want grabbing", afterMove.CursorType)
 	}
 
 	afterUp, err := DispatchCommand(h, commandPointerEvent, mustJSON(t, PointerEventPayload{

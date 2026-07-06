@@ -84,6 +84,53 @@ func TestVisibleWorldBoundsRespectsViewportTransform(t *testing.T) {
 	assertClose(t, "maxY", maxY, 75)
 }
 
+// TestRenderViewportBaseReuseNoStateLeak verifies that reusing a pooled Agg2D
+// instance across frames produces identical output to the first frame, i.e.
+// Attach() fully resets per-frame state and nothing leaks between renders.
+func TestRenderViewportBaseReuseNoStateLeak(t *testing.T) {
+	doc := &Document{Width: 48, Height: 48, Background: "transparent"}
+	vp := &Viewport{CenterX: 24, CenterY: 24, Zoom: 1, CanvasW: 48, CanvasH: 48, ShowGuides: true}
+
+	first := append([]byte(nil), RenderViewport(doc, vp, nil)...)
+
+	// Render several more frames through the same pool; each must match the
+	// first exactly. A leak (stale transform, clip box, blend mode, etc.) would
+	// diverge here.
+	for frame := 0; frame < 5; frame++ {
+		got := RenderViewport(doc, vp, nil)
+		if len(got) != len(first) {
+			t.Fatalf("frame %d len = %d, want %d", frame, len(got), len(first))
+		}
+		for i := range got {
+			if got[i] != first[i] {
+				t.Fatalf("frame %d byte %d = %d, want %d (state leaked across reuse)", frame, i, got[i], first[i])
+			}
+		}
+	}
+}
+
+func BenchmarkRenderViewportBase(b *testing.B) {
+	doc := &Document{Width: 1600, Height: 1200, Background: "transparent"}
+	vp := &Viewport{CenterX: 800, CenterY: 600, Zoom: 1, CanvasW: 1280, CanvasH: 800}
+
+	reuse := make([]byte, vp.CanvasW*vp.CanvasH*4)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reuse = RenderViewportBase(doc, vp, reuse)
+	}
+}
+
+func BenchmarkRenderViewportOverlays(b *testing.B) {
+	doc := &Document{Width: 1600, Height: 1200, Background: "white"}
+	vp := &Viewport{CenterX: 800, CenterY: 600, Zoom: 1, CanvasW: 1280, CanvasH: 800, ShowGuides: true}
+
+	reuse := make([]byte, vp.CanvasW*vp.CanvasH*4)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reuse = RenderViewportOverlays(doc, vp, reuse)
+	}
+}
+
 func rgbaAt(pixels []byte, width, x, y int) [4]uint8 {
 	index := (y*width + x) * 4
 	return [4]uint8{pixels[index], pixels[index+1], pixels[index+2], pixels[index+3]}

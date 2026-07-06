@@ -13,6 +13,7 @@ import {
   type InterpolMode,
   type MagicEraseCommand,
   type PathPointCommand,
+  type PointerEventCommand,
   type SampleMergedColorCommand,
   type SetArtboardCommand,
 } from "@agogo/proto";
@@ -782,6 +783,16 @@ export function EditorCanvas({
     pressure: number;
   } | null>(null);
   const airbrushLastTickRef = useRef(0);
+  // rAF-coalesced input batching (Phase S.4): raw pointermove/hover events fire
+  // far faster than one animation frame (125–1000 Hz pens/mice). We accumulate
+  // paint-stroke samples and the latest pointer-move payload here and flush them
+  // once per frame to avoid one engine dispatch per raw event.
+  const pendingStrokePointsRef = useRef<{ x: number; y: number; pressure?: number }[]>([]);
+  const pendingPointerMoveRef = useRef<PointerEventCommand | null>(null);
+  const inputFlushRafRef = useRef<number | null>(null);
+  // Cached ImageData reused across blit frames; recreated only when the canvas
+  // size changes, avoiding a per-frame createImageData allocation.
+  const blitImageDataRef = useRef<ImageData | null>(null);
   const lastPresentedFrameRef = useRef<{
     bufferPtr: number;
     bufferLen: number;
@@ -870,6 +881,42 @@ export function EditorCanvas({
   const resizeViewportRef = useRef(engine.resizeViewport);
   resizeViewportRef.current = engine.resizeViewport;
 
+  // Synchronously flush any rAF-batched pointer input (accumulated paint-stroke
+  // samples and the latest hover/drag move). MUST be called before dispatching
+  // any other engine command from this component (pointerdown/up, EndPaintStroke,
+  // transactions, zoom, …) so command order to the engine is preserved.
+  const flushPendingInput = useCallback(() => {
+    if (inputFlushRafRef.current !== null) {
+      cancelAnimationFrame(inputFlushRafRef.current);
+      inputFlushRafRef.current = null;
+    }
+    const points = pendingStrokePointsRef.current;
+    if (points.length > 0) {
+      pendingStrokePointsRef.current = [];
+      const last = points[points.length - 1];
+      engine.dispatchCommand(CommandID.ContinuePaintStroke, {
+        x: last.x,
+        y: last.y,
+        pressure: last.pressure,
+        points,
+      } satisfies ContinuePaintStrokeCommand);
+    }
+    const move = pendingPointerMoveRef.current;
+    if (move) {
+      pendingPointerMoveRef.current = null;
+      engine.dispatchPointerEvent(move);
+    }
+  }, [engine]);
+
+  const scheduleInputFlush = useCallback(() => {
+    if (inputFlushRafRef.current === null) {
+      inputFlushRafRef.current = requestAnimationFrame(() => {
+        inputFlushRafRef.current = null;
+        flushPendingInput();
+      });
+    }
+  }, [flushPendingInput]);
+
   const stopAirbrushLoop = useCallback(() => {
     if (airbrushRafRef.current !== null) {
       cancelAnimationFrame(airbrushRafRef.current);
@@ -890,6 +937,9 @@ export function EditorCanvas({
         return;
       }
       if (timestamp - airbrushLastTickRef.current >= 45) {
+        // Flush any batched stroke samples first so the airbrush repeat dab is
+        // ordered after the real pointer movement it augments.
+        flushPendingInput();
         engine.dispatchCommand(CommandID.ContinuePaintStroke, {
           x: sample.x,
           y: sample.y,
@@ -900,7 +950,7 @@ export function EditorCanvas({
       airbrushRafRef.current = requestAnimationFrame(tick);
     };
     airbrushRafRef.current = requestAnimationFrame(tick);
-  }, [brushAirbrush, engine, stopAirbrushLoop]);
+  }, [brushAirbrush, engine, stopAirbrushLoop, flushPendingInput]);
 
   useEffect(() => {
     if (!brushAirbrush) {
@@ -962,6 +1012,12 @@ export function EditorCanvas({
         cancelAnimationFrame(panRafRef.current);
         panRafRef.current = null;
       }
+      if (inputFlushRafRef.current !== null) {
+        cancelAnimationFrame(inputFlushRafRef.current);
+        inputFlushRafRef.current = null;
+      }
+      pendingStrokePointsRef.current = [];
+      pendingPointerMoveRef.current = null;
     };
   }, []);
 
@@ -1174,18 +1230,33 @@ export function EditorCanvas({
               lastPresented.canvasH === result.viewport.canvasH;
             if (!canSkipBlit) {
               const bytes = handle.readPixels(result);
-              ctx.putImageData(
-                (() => {
-                  const imageData = ctx.createImageData(
-                    result.viewport.canvasW,
-                    result.viewport.canvasH,
-                  );
-                  imageData.data.set(bytes);
-                  return imageData;
-                })(),
-                0,
-                0,
-              );
+              const w = result.viewport.canvasW;
+              const h = result.viewport.canvasH;
+              let imageData = blitImageDataRef.current;
+              const isFreshImageData =
+                !imageData || imageData.width !== w || imageData.height !== h;
+              if (!imageData || imageData.width !== w || imageData.height !== h) {
+                imageData = ctx.createImageData(w, h);
+                blitImageDataRef.current = imageData;
+              }
+              imageData.data.set(bytes);
+              // Partial blit: when the engine reports sub-canvas dirty rects
+              // (paint-batch frames), only push those regions to the canvas.
+              // A fresh ImageData or full-canvas rect falls back to a full put.
+              const rects = result.dirtyRects;
+              const usePartialBlit =
+                !isFreshImageData &&
+                rects !== undefined &&
+                rects.length > 0 &&
+                rects.every((r) => r.w > 0 && r.h > 0) &&
+                !rects.some((r) => r.x === 0 && r.y === 0 && r.w >= w && r.h >= h);
+              if (usePartialBlit) {
+                for (const r of rects) {
+                  ctx.putImageData(imageData, 0, 0, r.x, r.y, r.w, r.h);
+                }
+              } else {
+                ctx.putImageData(imageData, 0, 0);
+              }
               lastPresentedFrameRef.current = {
                 bufferPtr: result.bufferPtr,
                 bufferLen: result.bufferLen,
@@ -1677,6 +1748,9 @@ export function EditorCanvas({
         }
       }}
       onPointerDown={(event) => {
+        // Preserve command order: any batched pointer input must reach the engine
+        // before this pointerdown's commands (BeginPaintStroke, transactions, …).
+        flushPendingInput();
         if (!render) {
           return;
         }
@@ -3094,16 +3168,26 @@ export function EditorCanvas({
         ) {
           const docPoint = clientPointToDocument(event.clientX, event.clientY);
           if (!docPoint) return;
+          // Collect every raw sample since the last event (high-frequency pens
+          // batch several moves into one dispatched pointermove) and accumulate
+          // them; the whole batch is flushed as one ContinuePaintStroke per frame.
+          const coalesced = event.nativeEvent.getCoalescedEvents?.() ?? [];
+          const rawEvents = coalesced.length > 0 ? coalesced : [event.nativeEvent];
+          for (const raw of rawEvents) {
+            const p = clientPointToDocument(raw.clientX, raw.clientY);
+            if (!p) continue;
+            pendingStrokePointsRef.current.push({
+              x: p.x,
+              y: p.y,
+              pressure: raw.pressure || 0.5,
+            });
+          }
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
             pressure: event.pressure || 0.5,
           };
-          engine.dispatchCommand(CommandID.ContinuePaintStroke, {
-            x: docPoint.x,
-            y: docPoint.y,
-            pressure: event.pressure || 0.5,
-          } satisfies ContinuePaintStrokeCommand);
+          scheduleInputFlush();
           return;
         }
         const zoomDrag = zoomDragRef.current;
@@ -3124,7 +3208,7 @@ export function EditorCanvas({
         if (!point) {
           return;
         }
-        engine.dispatchPointerEvent({
+        const movePayload: PointerEventCommand = {
           phase: "move",
           pointerId: event.pointerId,
           x: point.x,
@@ -3132,9 +3216,25 @@ export function EditorCanvas({
           button: event.button,
           buttons: event.buttons,
           panMode: isPanMode,
-        });
+        };
+        // Latest-wins coalescing for hover/drag previews: the engine only needs
+        // the newest position, so intermediate moves within one frame are
+        // dropped. But never coalesce across a different pointerId or a panMode
+        // flip — those are distinct gestures, so flush the pending move first.
+        const prevMove = pendingPointerMoveRef.current;
+        if (
+          prevMove &&
+          (prevMove.pointerId !== movePayload.pointerId || prevMove.panMode !== movePayload.panMode)
+        ) {
+          flushPendingInput();
+        }
+        pendingPointerMoveRef.current = movePayload;
+        scheduleInputFlush();
       }}
       onPointerUp={(event) => {
+        // Flush batched input before any pointerup command (EndPaintStroke,
+        // endTransaction, createSelection, …) so engine order is preserved.
+        flushPendingInput();
         if (transformDraft && transformDraft.pointerId === event.pointerId) {
           setTransformDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
@@ -3379,6 +3479,7 @@ export function EditorCanvas({
         }
       }}
       onPointerLeave={() => {
+        flushPendingInput();
         stopAirbrushLoop();
         setHoverDocPoint(null);
         onCursorChange(null);

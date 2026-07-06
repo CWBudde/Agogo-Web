@@ -47,6 +47,13 @@ export interface SavedSelectionChannelMeta {
 }
 
 export interface UIMeta {
+  /**
+   * Engine UI-meta version counter at the time this meta was built. Hot-path
+   * command acks carry the counter as RenderResult.uiMetaVersion; when it
+   * differs from this value the cached UIMeta is stale and a RenderFrame
+   * refresh should be scheduled.
+   */
+  version: number;
   activeLayerId: string | null;
   activeLayerName: string | null;
   cursorType: string;
@@ -183,11 +190,25 @@ export interface HistoryEntry {
 export interface RenderResult {
   frameId: number;
   viewport: ViewportMeta;
-  dirtyRects: DirtyRect[];
-  pixelFormat: "rgba8-premultiplied";
+  /** Absent on hot-path acks (no pixels are rendered for them). */
+  dirtyRects?: DirtyRect[];
+  /** Absent on hot-path acks. */
+  pixelFormat?: "rgba8-premultiplied";
   bufferPtr: number;
   bufferLen: number;
-  uiMeta: UIMeta;
+  /**
+   * Absent on hot-path command acks (ContinuePaintStroke, move-phase
+   * PointerEvent). Present on every other dispatch result and on RenderFrame.
+   */
+  uiMeta?: UIMeta;
+  /** Ack-only: mirrors uiMeta.cursorType so hover/pan moves still update the cursor. */
+  cursorType?: string;
+  /** Ack-only: mirrors uiMeta.statusText. */
+  statusText?: string;
+  /** Engine UI-meta version counter; compare with uiMeta.version to detect staleness. */
+  uiMetaVersion: number;
+  /** Ack-only: the active document's content version. */
+  contentVersion?: number;
   /** Present only in the response to GetLayerThumbnails. Maps layer ID → thumbnail RGBA data. */
   thumbnails?: Record<string, ThumbnailEntry>;
   /** Path points returned only by MagneticLassoSuggestPath command. In document coordinates. */
@@ -199,6 +220,13 @@ export interface RenderResult {
 export interface RawRenderResult {
   frameId: number;
   viewport: ViewportMeta;
+  /**
+   * Canvas-space regions that changed since the previous frame. Full renders
+   * and the marching-ants path report a single full-canvas rect; the partial
+   * viewport resample path reports the redrawn sub-rect; reused frames omit
+   * the field (nothing changed).
+   */
+  dirtyRects?: DirtyRect[];
   bufferPtr: number;
   bufferLen: number;
   reused: boolean;

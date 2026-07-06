@@ -440,20 +440,22 @@
 - [x] History failure semantics: `Undo`/`Redo`/`JumpTo` are peek-then-commit — on error both stacks are left untouched and the operation is retryable; failed brush-delta builds now return an error over the ABI and clear the redo stack (document diverged) instead of silently creating a non-undoable edit
 - [x] No-op commands are not pushed: `Execute` skips commands whose before/after snapshots are equal (`SnapshotCommand.Before()` added); `documentsEqual` excludes `ModifiedAt`/`ContentVersion` (bumped even by no-op mutations) and gates pixel-byte comparison on ContentVersion equality — no per-command memcmp of pixel buffers on the hot path
 
-### Phase S.4: Rendering Performance Architecture (the actual "slow")
+### Phase S.4: Rendering Performance Architecture (the actual "slow") — ✅ DONE (2026-07-06)
 
-> Phase X optimized constants inside a full-repaint architecture (all X.9–X.12 claims verified as landed). This phase changes the architecture. Re-measured baseline: `RenderFrameAfterPaint` ~21 ms/op native, ~2–3× that in WASM → any content-changing frame costs ~40–60 ms in the browser.
+> Phase X optimized constants inside a full-repaint architecture. This phase changed the architecture. Old baseline: content-changing frame ~128–139 ms native on a 2000×1500 doc (composite + full-canvas resample); after S.4 the same paint frame is **~160–310 µs** (~500–800×), 64 B/op, 3 allocs. Executed via 6 subagents (4 parallel + 2 sequential ABI changes); all paths gated on byte-identical equivalence tests; `just ci` green.
 
-- [ ] **Batch pointer input**: `ContinuePaintStroke` and hover `PointerEvent` are dispatched per raw pointermove (125–1000 Hz) with no `getCoalescedEvents` and no rAF accumulation (`editor-canvas.tsx:3102,3127`) — accumulate points and flush once per rAF as one multi-point command (engine already iterates point arrays); mirror the existing rAF-batched wheel handler pattern
-- [ ] **Stop returning a full render + complete `UIMeta` from every `DispatchCommand`** (`engine.go:759`): layer tree + full history array are JSON-marshalled per pointer event, parsed in JS, and pushed through React context re-rendering every consumer — return a minimal ack for pointer-path commands, version the UIMeta, and fetch it only when its version changes
-- [ ] **Dirty-rect rendering end-to-end** (subsumes Phase 8.2 — the single change that makes painting feel instant): engine already tracks per-stroke dirty rects (`bumpContentVersionRect`) but `compositeSurface` is all-or-nothing and `RenderResult.DirtyRects` is hard-coded to full canvas (`render.go:33`); recomposite only the dirty region, resample only the affected canvas rect, return real rects, and use the partial `putImageData(img, 0, 0, dx, dy, dw, dh)` form
-- [ ] Reuse the composite scratch buffer: `renderLayersToSurfaceWithOptions` (`layer_ops.go:851`) allocates a fresh W×H×4 buffer on every recomposite — 48 MB of garbage per pointermove batch on a 4000×3000 doc
-- [ ] Add a row-`copy()` fast path for zoom=1.0 / rotation=0 / integer alignment: `useBilinear := zoom < 4.0` (`viewport_composite.go:31`) currently bilinear-resamples the full canvas at 100% zoom — this is also a quality bug (slight blur at 100%)
-- [ ] Fix alpha-unweighted bilinear sampling (`viewport_composite.go:153–157`): straight-alpha surfaces interpolated without alpha weighting → dark fringes at layer edges over the checkerboard at zoom < 4×
-- [ ] Render marching ants onto the cached raw frame instead of disabling frame reuse: any active selection sets `canReuseRawFrame = false` (`render.go:91`) → 60 fps full-document resample forever while a selection exists
-- [ ] Reuse one `ImageData` in the blit loop (`createImageData` per frame) and one `Agg2D` per instance for base/overlay passes (`agg.go:53,74` construct fresh per call — every pan/zoom frame is a background-cache miss and pays ~6.4 ms / 17k allocs)
-- [ ] Set `debug.SetGCPercent(~300)` (or `GOMEMLIMIT`) in wasm main as interim GC-hitch mitigation until scratch-buffer reuse lands
-- [ ] Then re-evaluate Phase 8.1 (worker) / 8.3 (SharedArrayBuffer — vite headers already configured, SAB unused) with the new baseline
+- [x] **Batch pointer input** — `ContinuePaintStroke` gained an optional `points[]` payload (`PaintStrokePoint`, backward compatible; engine iterates via shared `continuePaintStrokePoint` helper, one `bumpContentVersionRect` per batch). Frontend accumulates `getCoalescedEvents()` samples and flushes once per rAF as one multi-point command; move-phase `PointerEvent` is latest-wins per rAF; `flushPendingInput()` runs before any other dispatch (pointerdown/up/leave, airbrush tick) to preserve command order. Equivalence test: `TestContinuePaintStroke_BatchEqualsSinglePoints` (byte-identical to N single dispatches).
+- [x] **Minimal ack instead of full render + `UIMeta` per `DispatchCommand`** — hot commands (`ContinuePaintStroke`, move-phase `PointerEvent`) skip `inst.render()` entirely and return a ~292 B ack (viewport, cursorType, statusText, uiMetaVersion, contentVersion) vs 32 KB before: **~110× smaller, ~130× faster marshal** (`BenchmarkDispatchResponseMarshal`, 50 layers + 100 history entries). `RenderResult.UIMeta` is now `*UIMeta` + omitempty; `instance.uiMetaVersion` bumps on every non-hot command (and ImportProject); hot commands never bump mid-gesture — the gesture-ending command delivers the refresh. context.tsx merges acks (same uiMeta reference; **zero React re-renders for a no-change brush frame**) and refetches full UIMeta at most once per rAF when the version goes stale. App.tsx needed zero changes.
+- [x] **Dirty-rect rendering end-to-end** (subsumes Phase 8.2) — three tiers, each byte-identical to a full render (randomized equivalence tests in `render_incremental_test.go` / `render_partial_viewport_test.go`): (1) incremental doc recomposite — `recompositeSurfaceRect` zeroes + recomposites only the dirty rect in place in the cached surface, clip-rect threaded through the whole compositing stack; styled layers stay incremental (effect surfaces are backdrop-independent), visible adjustment layers bail to full (cache-corruption hazard, documented); full recomposites also reuse the cached buffer in place; (2) partial viewport resample — doc dirty rect projected to canvas rect, base rows copied from `cachedViewportBase`, doc composited clipped; gated on unchanged viewport key, no overlays intersecting, `dirtyCompositeBase` version guard (protects against stale dirty rects on undo-restored clones — hazard found and fixed); (3) real `DirtyRects` on `RawRenderResult` + partial `putImageData` in the blit loop. Sampling loops made bit-exact for mid-row clipped passes (absolute-coordinate computation instead of float accumulation).
+- [x] Composite scratch-buffer reuse — package-level `sync.Pool` (`acquireSurface`/`releaseSurface`, zeroed on acquire, ownership rule documented) for transient sites (group-layer temps incl. recursion); the escaping headline site (`renderLayersToSurfaceWithOptions` → `cachedDocSurface`) is solved by the in-place reuse from the dirty-rect work; merge/flatten/PSD callers still allocate (results escape by design).
+- [x] Row-copy fast path for zoom=1.0/rotation=0/integer alignment (`compositeViewportIdentity`) — ~7× vs bilinear at 512² (0.50 ms vs 3.52 ms), also fixes the slight blur at 100% zoom; subpixel pans correctly stay bilinear.
+- [x] Alpha-weighted bilinear (`bilinearPremultSample`) — interpolates premultiplied then un-premultiplies; kills dark fringes at layer/doc edges over the checkerboard at zoom < 4×; bit-identical for fully-opaque taps; applied to unrotated + rotated variants.
+- [x] Marching ants on cached frame — `cachedAnimBase` holds the frame minus the animated overlay; selection frames are now memcpy + ants stamp (`Reused=false` so the frontend still blits): ~2× faster on an empty doc and **0 allocs vs ~8.3 MB garbage/frame** (≈0.5 GB/s at 60 fps eliminated); real-layer docs win far more since the avoided composite scales with content. Zero-copy no-selection reuse untouched.
+- [x] `ImageData` reuse in the blit loop (recreated only on canvas resize) + `Agg2D` reuse via `sync.Pool` in internal/agg (agg_go's `Attach()` verified to fully reset all state incl. clip box/blend mode/master alpha; `TestRenderViewportBaseReuseNoStateLeak`): `RenderViewportOverlays` 504 KB/143 allocs → **1.2 KB/69 allocs** per frame.
+- [x] `debug.SetGCPercent(300)` in wasm main as interim GC-hitch mitigation (comment references this phase; revisit once real-workload profiling exists).
+- [x] Re-evaluated Phase 8.1/8.3 with the new baseline: **8.1 (render worker) is no longer justified by paint latency** — the hot path is µs-scale and acks freed the main thread from per-event JSON; it would only serve heavy one-shot ops (filters on huge docs) and can wait. **8.3 (SharedArrayBuffer) deferred**: the remaining per-frame cost is one full-buffer `data.set` copy + `putImageData` upload; SAB would remove the copy but not the upload, and dirty-rect blits already shrink the effective transfer. Re-profile in the browser after S.7's React-render cleanup before investing.
+
+> Deferred within S.4: adjustment-layer incremental compositing (needs adjustment-cache invalidation redesign); sub-rect dirty tracking for the ants path (reports full canvas); partial content update combined with an active selection (falls back to full render — correct, just not partial).
 
 ### Phase S.5: Engine Feature-Bug Fixes
 
@@ -506,7 +508,7 @@
 - [ ] Histogram display in Levels UI (`ComputeHistogram` has no consumer); Curves black/white/gray eyedroppers (`SetPointFromSample` never dispatched); Hue/Sat range eyedropper (`IdentifyHueRange` never dispatched)
 - [ ] Transform Again menu item (backend complete, zero frontend)
 - [ ] Brush jitter dynamics: panel sliders are display-only — values never reach the engine, no proto fields exist
-- [ ] Navigator: real document thumbnail (currently a static CSS-gradient placeholder, `App.tsx:4400`) 
+- [ ] Navigator: real document thumbnail (currently a static CSS-gradient placeholder, `App.tsx:4400`)
 - [ ] Multi-document: `SwitchDocument` proto command + document tab bar (engine `DocumentManager` supports it; unreachable by users) — blocked on S.2 undo-vs-multi-doc fix
 - [ ] Alt+click visibility eye = solo (claimed in 2.4, no altKey handling)
 - [ ] Character panel real color picker (currently a black↔red demo toggle); vector properties real fill/stroke pickers (transparent↔black toggle); remove or implement mask Density/Feather sliders and other decorative controls
@@ -602,7 +604,7 @@
 - [ ] Navigator "mini-viewport" is a static CSS-gradient placeholder, not a document thumbnail (→ S.8)
 - [ ] Multi-document switching is engine-only — no `SwitchDocument` proto command, no tab UI (→ S.8)
 - [ ] Zoom-out keyboard shortcut (`-`) zooms in due to a keymap value collision (→ S.7)
-- [ ] Every `DispatchCommand` returns a full render + complete `UIMeta` — the core ABI needs the S.4 split
+- [x] Every `DispatchCommand` returns a full render + complete `UIMeta` — resolved by the S.4 split (hot-path acks + versioned UIMeta, 2026-07-06)
 
 ---
 
@@ -709,7 +711,7 @@
 - [ ] Blend engine is a manual per-pixel float64 implementation bypassing agg_go; dodge/burn extremes deviate from spec; `clipColor` NaN on lum==min (→ S.5, S.9)
 - [ ] `FlattenLayer` double-applies opacity/fill-opacity (50% renders as 25%); MergeVisible loses hidden-layer z-order (→ S.5)
 - [ ] Pixel/all layer locks are not enforced for painting, fills, or filters (→ S.5)
-- [ ] "Cache layer composites" is actually a single document-level cache keyed on ContentVersion — no per-layer/subtree invalidation (→ S.4)
+- [x] "Cache layer composites" was a single document-level cache with no partial invalidation — S.4 added dirty-rect incremental recomposite into the cached surface (2026-07-06); true per-layer/subtree caching remains future work if profiling demands it
 - [ ] Alt+click eye-icon solo is missing; layers context menu doesn't work with a real pointer (closes before click fires) (→ S.7, S.8)
 - [ ] "Golden-image unit tests" are expected-pixel tables — no actual image-snapshot tests exist (→ S.11)
 
@@ -971,7 +973,7 @@
 - [ ] `.abr` import is a filename-regex heuristic, not a format parser (→ S.8)
 - [ ] Gradient "fill layer" is rasterized, not a non-destructive parametric layer; opacity stops are folded into stop colors, not independent
 - [ ] Paint-bucket pattern fill is a hardcoded 8px checkerboard (→ S.6); LAB sliders missing; "gamut warning" is a web-safe-color label
-- [ ] Paint input is dispatched per raw pointermove with no coalescing — the dominant cause of laggy strokes (→ S.4)
+- [x] Paint input is dispatched per raw pointermove with no coalescing — fixed in S.4 (rAF-batched multi-point ContinuePaintStroke, 2026-07-06)
 
 ---
 

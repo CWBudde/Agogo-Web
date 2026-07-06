@@ -3,9 +3,25 @@ package agg
 
 import (
 	"math"
+	"sync"
 
 	agglib "github.com/cwbudde/agg_go"
 )
+
+// agg2dPool recycles Agg2D rendering contexts so pan/zoom frames stop paying
+// the ~6.4 ms / 17k allocations that NewAgg2D() costs per call (PLAN.md S.4).
+//
+// Reuse is safe because Agg2D.Attach() performs a full state reset on every
+// frame: it re-binds the rendering buffer and rebuilds the pixfmt/renderer
+// pipeline, and resets transform, line width, line/fill color, text alignment,
+// clip box (to the whole buffer), line cap/join, image filter/resample policy,
+// master alpha, anti-alias gamma and blend mode. Nothing from a prior frame
+// leaks into the next, so a pooled instance behaves identically to a fresh one.
+var agg2dPool = sync.Pool{New: func() any { return agglib.NewAgg2D() }}
+
+func acquireAgg2D() *agglib.Agg2D { return agg2dPool.Get().(*agglib.Agg2D) }
+
+func releaseAgg2D(r *agglib.Agg2D) { agg2dPool.Put(r) }
 
 type Document struct {
 	Width      int
@@ -50,7 +66,8 @@ func RenderViewportBase(doc *Document, vp *Viewport, reuse []byte) []byte {
 		reuse = make([]byte, size)
 	}
 
-	renderer := agglib.NewAgg2D()
+	renderer := acquireAgg2D()
+	defer releaseAgg2D(renderer)
 	renderer.Attach(reuse, width, height, width*4)
 	renderer.ClearAll(canvasBackground)
 	renderer.NoLine()
@@ -71,7 +88,8 @@ func RenderViewportOverlays(doc *Document, vp *Viewport, reuse []byte) []byte {
 		reuse = make([]byte, size)
 	}
 
-	renderer := agglib.NewAgg2D()
+	renderer := acquireAgg2D()
+	defer releaseAgg2D(renderer)
 	renderer.Attach(reuse, width, height, width*4)
 	renderer.NoLine()
 	renderDocumentBorder(renderer, doc, vp)

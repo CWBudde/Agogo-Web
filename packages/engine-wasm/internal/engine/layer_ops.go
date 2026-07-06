@@ -4,11 +4,60 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
+
+// surfacePool recycles document-sized RGBA scratch buffers to cut GC churn
+// during recompositing (PLAN.md S.4). A single recomposite of a 4000x3000 doc
+// with grouped/styled layers otherwise allocates tens of MB of transient
+// buffers that immediately become garbage, which is the dominant GC-hitch
+// source on the paint path.
+//
+// OWNERSHIP RULE (read before using):
+//
+//	acquireSurface(n) returns a ZEROED []byte of exactly n bytes (compositing
+//	assumes a cleared destination). releaseSurface returns it to the pool.
+//
+//	A buffer obtained from acquireSurface MUST be released by the SAME function
+//	that acquired it, and ONLY when it provably does NOT escape that function —
+//	i.e. it is used purely as transient compositing scratch and dropped before
+//	return. NEVER release a buffer that is:
+//	  - returned to the caller (e.g. renderLayer(s)ToSurface* results),
+//	  - stored on a struct or cached (inst.cachedDocSurface in render.go),
+//	  - wrapped into a layer (NewPixelLayer keeps the slice).
+//	Those escape and must keep allocating with make(). Releasing an escaped
+//	buffer would let a later acquireSurface hand the same memory to another
+//	frame and corrupt it.
+//
+// The pool stores *[]byte (not []byte) so Put does not box-allocate on every
+// release (staticcheck SA6002).
+var surfacePool = sync.Pool{New: func() any { return new([]byte) }}
+
+// acquireSurface returns a zeroed byte slice of exactly size bytes, reusing a
+// pooled buffer when one of sufficient capacity is available.
+func acquireSurface(size int) []byte {
+	buf := *surfacePool.Get().(*[]byte)
+	if cap(buf) >= size {
+		buf = buf[:size]
+		clear(buf)
+		return buf
+	}
+	return make([]byte, size)
+}
+
+// releaseSurface returns a transient scratch buffer to the pool. See the
+// ownership rule on surfacePool — only non-escaping buffers may be released.
+func releaseSurface(buf []byte) {
+	if buf == nil {
+		return
+	}
+	full := buf[:cap(buf)]
+	surfacePool.Put(&full)
+}
 
 func (doc *Document) ensureLayerRoot() *GroupLayer {
 	doc.LayerRoot = docpkg.EnsureLayerRoot(doc.LayerRoot)
@@ -689,6 +738,9 @@ func (doc *Document) clearDirtyCompositeRect() {
 	}
 	doc.dirtyComposite = DirtyRect{}
 	doc.hasDirtyComposite = false
+	// From here on, newly marked dirty rects describe the delta relative to
+	// the document content at this version (see dirtyCompositeBase).
+	doc.dirtyCompositeBase = doc.ContentVersion
 }
 
 func (doc *Document) touchModifiedAtLayer(layer LayerNode) {
@@ -843,7 +895,7 @@ func (doc *Document) renderLayerToSurfaceWithOptions(layer LayerNode, allowAdjus
 	if err != nil {
 		return nil, err
 	}
-	if err := doc.compositeLayerOntoWithClipOptions(buffer, layer, clipAlpha, allowAdjustmentCache); err != nil {
+	if err := doc.compositeLayerOntoWithClipOptions(buffer, layer, clipAlpha, allowAdjustmentCache, nil); err != nil {
 		return nil, err
 	}
 	return buffer, nil
@@ -855,7 +907,7 @@ func (doc *Document) renderLayersToSurface(layers []LayerNode) ([]byte, error) {
 
 func (doc *Document) renderLayersToSurfaceWithOptions(layers []LayerNode, allowAdjustmentCache bool) ([]byte, error) {
 	buffer := make([]byte, doc.Width*doc.Height*4)
-	if err := doc.compositeLayerStackOntoWithOptions(buffer, layers, nil, allowAdjustmentCache); err != nil {
+	if err := doc.compositeLayerStackOntoWithOptions(buffer, layers, nil, allowAdjustmentCache, nil); err != nil {
 		return nil, err
 	}
 	return buffer, nil
@@ -866,10 +918,19 @@ func (doc *Document) renderLayersToSurfaceWithOptions(layers []LayerNode, allowA
 //
 //nolint:unused
 func (doc *Document) compositeLayerOnto(dest []byte, layer LayerNode) error {
-	return doc.compositeLayerOntoWithClipOptions(dest, layer, nil, false)
+	return doc.compositeLayerOntoWithClipOptions(dest, layer, nil, false, nil)
 }
 
-func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerNode, clipAlpha []byte, allowAdjustmentCache bool) error {
+// compositeLayerOntoWithClipOptions composites a single layer onto dest.
+//
+// clip, when non-nil, restricts every per-pixel write to the given doc-space
+// rectangle (the incremental dirty-rect recomposite path, PLAN.md S.4). A nil
+// clip preserves the historical full-surface behavior. Layer-style effect
+// surfaces are still rendered unclipped — their content is backdrop-independent
+// and spatially extended (drop shadows, glows), so only their final composite
+// onto dest is clipped, which keeps the result byte-identical to a full
+// recomposite inside the clip rect.
+func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerNode, clipAlpha []byte, allowAdjustmentCache bool, clip *DirtyRect) error {
 	if layer == nil || !layer.Visible() {
 		return nil
 	}
@@ -879,66 +940,81 @@ func (doc *Document) compositeLayerOntoWithClipOptions(dest []byte, layer LayerN
 	switch typed := layer.(type) {
 	case *PixelLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.Pixels, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
+		compositeDocumentSurfaceClipped(dest, surface, doc.Width, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf(), clip)
 		return nil
 	case *TextLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
+		compositeDocumentSurfaceClipped(dest, surface, doc.Width, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf(), clip)
 		return nil
 	case *VectorLayer:
 		if !hasSupportedEnabledLayerStyleStack(typed.StyleStack()) {
-			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf())
+			return compositeRasterIntoDocument(dest, doc.Width, doc.Height, typed.Bounds, typed.CachedRaster, typed.BlendMode(), clampUnit(effectiveLayerOpacity(typed)*effectiveContentOpacity(typed)), typed.Mask(), clipAlpha, typed.BlendIf(), clip)
 		}
 		surface, err := doc.renderStyledLayerSurface(typed, clipAlpha)
 		if err != nil {
 			return err
 		}
-		compositeDocumentSurface(dest, surface, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
+		compositeDocumentSurfaceClipped(dest, surface, doc.Width, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf(), clip)
 		return nil
 	case *AdjustmentLayer:
-		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha, doc.currentDirtyCompositeRect(), allowAdjustmentCache)
+		rect := doc.currentDirtyCompositeRect()
+		if clip != nil {
+			// Defensive only: the incremental gate (canRecompositeIncrementally)
+			// bails on visible adjustment layers, so a clipped composite should
+			// never reach here. If it does, scope the adjustment to the clip and
+			// keep the cache untouched — outside the clip dest holds the FINAL
+			// previous composite, not this adjustment's backdrop, so both
+			// copySurfaceOutsideRect and updateAdjustmentCache would corrupt it.
+			rect = clip
+			allowAdjustmentCache = false
+		}
+		return applyAdjustmentLayerToSurface(dest, doc.Width, doc.Height, typed, clipAlpha, rect, allowAdjustmentCache)
 	case *GroupLayer:
 		if !typed.Isolated && typed.BlendMode() == BlendModeNormal && effectiveLayerOpacity(typed) >= 1 && typed.Mask() == nil {
-			return doc.compositeLayerStackOntoWithOptions(dest, typed.Children(), clipAlpha, allowAdjustmentCache)
+			return doc.compositeLayerStackOntoWithOptions(dest, typed.Children(), clipAlpha, allowAdjustmentCache, clip)
 		}
-		temp := make([]byte, len(dest))
-		if err := doc.compositeLayerStackOntoWithOptions(temp, typed.Children(), nil, allowAdjustmentCache); err != nil {
+		// temp is transient compositing scratch: children are composited into
+		// it, then blended onto dest and dropped. It never escapes this
+		// function, so it is safe to draw from (and return to) surfacePool.
+		temp := acquireSurface(len(dest))
+		defer releaseSurface(temp)
+		if err := doc.compositeLayerStackOntoWithOptions(temp, typed.Children(), nil, allowAdjustmentCache, clip); err != nil {
 			return err
 		}
-		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask())
-		applyClipSurfaceToSurface(temp, clipAlpha)
-		compositeDocumentSurface(dest, temp, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf())
+		applyLayerMaskToSurface(temp, doc.Width, doc.Height, typed.Mask(), clip)
+		applyClipSurfaceToSurfaceClipped(temp, clipAlpha, doc.Width, clip)
+		compositeDocumentSurfaceClipped(dest, temp, doc.Width, typed.BlendMode(), effectiveLayerOpacity(typed), typed.BlendIf(), clip)
 		return nil
 	default:
 		return fmt.Errorf("unsupported layer type %T", layer)
 	}
 }
 
-func (doc *Document) compositeLayerStackOntoWithOptions(dest []byte, layers []LayerNode, clipAlpha []byte, allowAdjustmentCache bool) error {
+func (doc *Document) compositeLayerStackOntoWithOptions(dest []byte, layers []LayerNode, clipAlpha []byte, allowAdjustmentCache bool, clip *DirtyRect) error {
 	for index := 0; index < len(layers); index++ {
 		layer := layers[index]
 		if layer == nil {
 			continue
 		}
 		if layer.ClipToBelow() {
-			if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache); err != nil {
+			if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache, clip); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache); err != nil {
+		if err := doc.compositeLayerOntoWithClipOptions(dest, layer, clipAlpha, allowAdjustmentCache, clip); err != nil {
 			return err
 		}
 		if index+1 >= len(layers) || !layers[index+1].ClipToBelow() {
@@ -954,7 +1030,7 @@ func (doc *Document) compositeLayerStackOntoWithOptions(dest []byte, layers []La
 		}
 		combinedClip := combineClipSurface(baseSurface, clipAlpha)
 		for next := index + 1; next < len(layers) && layers[next].ClipToBelow(); next++ {
-			if err := doc.compositeLayerOntoWithClipOptions(dest, layers[next], combinedClip, allowAdjustmentCache); err != nil {
+			if err := doc.compositeLayerOntoWithClipOptions(dest, layers[next], combinedClip, allowAdjustmentCache, clip); err != nil {
 				return err
 			}
 			index = next
@@ -995,7 +1071,10 @@ func effectiveContentOpacity(layer LayerNode) float64 {
 // its pixel (0,0) is placed at document pixel (bounds.X, bounds.Y). This is the
 // canonical geometry contract for PixelLayer.Pixels and the CachedRaster fields
 // of TextLayer/VectorLayer (see internal/model/layers.go).
-func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte, blendIf *BlendIfConfig) error {
+//
+// clip, when non-nil, restricts writes to the given doc-space rectangle by
+// intersecting the iteration range; a nil clip composites the full bounds.
+func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte, blendIf *BlendIfConfig, clip *DirtyRect) error {
 	if bounds.W <= 0 || bounds.H <= 0 || len(src) == 0 || opacity <= 0 {
 		return nil
 	}
@@ -1003,13 +1082,24 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 	if len(src) != expectedLen {
 		return fmt.Errorf("raster length %d does not match bounds %dx%d", len(src), bounds.W, bounds.H)
 	}
+	yStart, yEnd := 0, bounds.H
+	xStart, xEnd := 0, bounds.W
+	if clip != nil {
+		yStart = maxInt(yStart, clip.Y-bounds.Y)
+		yEnd = minInt(yEnd, clip.Y+clip.H-bounds.Y)
+		xStart = maxInt(xStart, clip.X-bounds.X)
+		xEnd = minInt(xEnd, clip.X+clip.W-bounds.X)
+		if yStart >= yEnd || xStart >= xEnd {
+			return nil
+		}
+	}
 	identityBlendIf := blendIfIsIdentity(blendIf)
-	for y := 0; y < bounds.H; y++ {
+	for y := yStart; y < yEnd; y++ {
 		docY := bounds.Y + y
 		if docY < 0 || docY >= docH {
 			continue
 		}
-		for x := 0; x < bounds.W; x++ {
+		for x := xStart; x < xEnd; x++ {
 			docX := bounds.X + x
 			if docX < 0 || docX >= docW {
 				continue
@@ -1054,12 +1144,22 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 	return nil
 }
 
-func applyLayerMaskToSurface(surface []byte, docW, docH int, mask *LayerMask) {
+// applyLayerMaskToSurface multiplies the surface alpha by the layer mask.
+// clip, when non-nil, restricts the pass to the given doc-space rectangle.
+func applyLayerMaskToSurface(surface []byte, docW, docH int, mask *LayerMask, clip *DirtyRect) {
 	if len(surface) == 0 || docW <= 0 || docH <= 0 || mask == nil || !mask.Enabled {
 		return
 	}
-	for docY := range docH {
-		for docX := range docW {
+	yStart, yEnd := 0, docH
+	xStart, xEnd := 0, docW
+	if clip != nil {
+		yStart = maxInt(yStart, clip.Y)
+		yEnd = minInt(yEnd, clip.Y+clip.H)
+		xStart = maxInt(xStart, clip.X)
+		xEnd = minInt(xEnd, clip.X+clip.W)
+	}
+	for docY := yStart; docY < yEnd; docY++ {
+		for docX := xStart; docX < xEnd; docX++ {
 			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
 			if maskAlpha == 255 {
 				continue
@@ -1076,6 +1176,28 @@ func applyClipSurfaceToSurface(surface, clipAlpha []byte) {
 	}
 	for offset := 0; offset < len(surface); offset += 4 {
 		surface[offset+3] = scaleMaskedAlpha(surface[offset+3], clipAlpha[offset+3])
+	}
+}
+
+// applyClipSurfaceToSurfaceClipped is applyClipSurfaceToSurface restricted to a
+// doc-space rectangle. A nil clip delegates to the full-surface variant.
+func applyClipSurfaceToSurfaceClipped(surface, clipAlpha []byte, docW int, clip *DirtyRect) {
+	if clip == nil {
+		applyClipSurfaceToSurface(surface, clipAlpha)
+		return
+	}
+	if len(surface) == 0 || len(clipAlpha) != len(surface) || docW <= 0 {
+		return
+	}
+	for y := clip.Y; y < clip.Y+clip.H; y++ {
+		rowStart := (y*docW + clip.X) * 4
+		rowEnd := rowStart + clip.W*4
+		if rowStart < 0 || rowEnd > len(surface) {
+			continue
+		}
+		for offset := rowStart; offset < rowEnd; offset += 4 {
+			surface[offset+3] = scaleMaskedAlpha(surface[offset+3], clipAlpha[offset+3])
+		}
 	}
 }
 
@@ -1265,7 +1387,34 @@ func compositeDocumentSurface(dest, src []byte, blendMode BlendMode, opacity flo
 		return
 	}
 	identity := blendIfIsIdentity(blendIf)
-	for offset := 0; offset < len(dest); offset += 4 {
+	compositeDocumentSurfaceSpan(dest, src, 0, len(dest), blendMode, opacity, identity, blendIf)
+}
+
+// compositeDocumentSurfaceClipped is compositeDocumentSurface restricted to a
+// doc-space rectangle. A nil clip delegates to the full-surface variant. The
+// per-pixel noise seed stays offset/4 (== y*docW+x), so clipped output is
+// byte-identical to the full pass inside the clip rect (dissolve blending).
+func compositeDocumentSurfaceClipped(dest, src []byte, docW int, blendMode BlendMode, opacity float64, blendIf *BlendIfConfig, clip *DirtyRect) {
+	if clip == nil {
+		compositeDocumentSurface(dest, src, blendMode, opacity, blendIf)
+		return
+	}
+	if len(dest) != len(src) || opacity <= 0 || docW <= 0 {
+		return
+	}
+	identity := blendIfIsIdentity(blendIf)
+	for y := clip.Y; y < clip.Y+clip.H; y++ {
+		rowStart := (y*docW + clip.X) * 4
+		rowEnd := rowStart + clip.W*4
+		if rowStart < 0 || rowEnd > len(dest) {
+			continue
+		}
+		compositeDocumentSurfaceSpan(dest, src, rowStart, rowEnd, blendMode, opacity, identity, blendIf)
+	}
+}
+
+func compositeDocumentSurfaceSpan(dest, src []byte, from, to int, blendMode BlendMode, opacity float64, identity bool, blendIf *BlendIfConfig) {
+	for offset := from; offset < to; offset += 4 {
 		pixelOpacity := opacity
 		var origDest [4]uint8
 		if !identity {

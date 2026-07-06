@@ -56,12 +56,27 @@ type PaintBeginStrokePayload struct {
 	Brush    PaintBrushParams `json:"brush"`
 }
 
+// PaintStrokePoint is a single sample within a coalesced ContinuePaintStroke
+// batch. The frontend accumulates raw pointermove samples (including
+// getCoalescedEvents) and flushes them once per animation frame.
+type PaintStrokePoint struct {
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Pressure float64 `json:"pressure"`
+	TiltX    float64 `json:"tiltX"`
+	TiltY    float64 `json:"tiltY"`
+}
+
 type PaintContinueStrokePayload struct {
 	X        float64 `json:"x"`
 	Y        float64 `json:"y"`
 	Pressure float64 `json:"pressure"`
 	TiltX    float64 `json:"tiltX"`
 	TiltY    float64 `json:"tiltY"`
+	// Points, when non-empty, carries a coalesced batch of stroke samples to be
+	// processed in order. Backward compatible: when empty the single legacy
+	// X/Y/Pressure/TiltX/TiltY point above is processed as before.
+	Points []PaintStrokePoint `json:"points,omitempty"`
 }
 
 type paintSetColorPayload struct {

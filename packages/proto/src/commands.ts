@@ -958,6 +958,11 @@ export interface ContinuePaintStrokeCommand {
   pressure?: number;
   tiltX?: number; // stylus tilt, degrees −90…+90
   tiltY?: number; // stylus tilt, degrees −90…+90
+  /** Coalesced batch of stroke samples flushed once per animation frame.
+   *  When present and non-empty, these are processed in order and the top-level
+   *  x/y/pressure/tilt fields are ignored. Backward compatible: omit for a
+   *  single legacy point. */
+  points?: { x: number; y: number; pressure?: number; tiltX?: number; tiltY?: number }[];
 }
 
 /** Sample the RGBA color of the composite image at a document-space point.

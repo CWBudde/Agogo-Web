@@ -26,6 +26,16 @@ func (doc *Document) renderCompositeSurface() []byte {
 }
 
 func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Document, vp *ViewportState, documentSurface []byte) {
+	compositeDocumentToViewportClipped(canvas, canvasW, canvasH, doc, vp, documentSurface, nil)
+}
+
+// compositeDocumentToViewportClipped composites the document surface onto the
+// canvas, optionally restricted to a canvas-space clip rectangle (the partial
+// viewport resample path, PLAN.md S.4). The sampling loops compute the
+// document coordinate of each canvas pixel directly from its absolute canvas
+// position (no per-row float accumulation), so the output inside the clip is
+// byte-identical to an unclipped pass regardless of where iteration starts.
+func compositeDocumentToViewportClipped(canvas []byte, canvasW, canvasH int, doc *Document, vp *ViewportState, documentSurface []byte, clip *DirtyRect) {
 	if len(canvas) == 0 || canvasW <= 0 || canvasH <= 0 || doc == nil || len(documentSurface) == 0 {
 		return
 	}
@@ -43,28 +53,53 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 	useBilinear := zoom < 4.0 || vp.Rotation != 0
 
 	clipX0, clipY0, clipX1, clipY1 := docBoundsOnCanvas(doc, vp, canvasW, canvasH, zoom, cosTheta, sinTheta, halfCanvasW, halfCanvasH)
+	if clip != nil {
+		clipX0 = maxInt(clipX0, clip.X)
+		clipY0 = maxInt(clipY0, clip.Y)
+		clipX1 = minInt(clipX1, clip.X+clip.W)
+		clipY1 = minInt(clipY1, clip.Y+clip.H)
+	}
+	if clipX0 >= clipX1 || clipY0 >= clipY1 {
+		return
+	}
+
+	// Identity fast path: at exactly 1:1 with no rotation and an integer-aligned
+	// doc→canvas mapping, each canvas pixel maps to exactly one doc pixel. This
+	// avoids the needless (and, at 1:1, slightly blurry) bilinear resample.
+	// The mapping is derived from compositeViewportBilinearUnrotated:
+	//   docX = (canvasX + 0.5 - halfCanvasW)/zoom + CenterX - 0.5
+	// At zoom == 1 this reduces to docX = canvasX + (CenterX - halfCanvasW), so
+	// the mapping is integer-aligned iff CenterX - halfCanvasW is an integer
+	// (and likewise in Y).
+	if zoom == 1.0 && vp.Rotation == 0 {
+		offsetX := vp.CenterX - halfCanvasW
+		offsetY := vp.CenterY - halfCanvasH
+		baseX := int(math.Round(offsetX))
+		baseY := int(math.Round(offsetY))
+		if math.Abs(offsetX-float64(baseX)) < 1e-9 && math.Abs(offsetY-float64(baseY)) < 1e-9 {
+			compositeViewportIdentity(canvas, canvasW, doc, documentSurface, baseX, baseY, clipX0, clipY0, clipX1, clipY1)
+			return
+		}
+	}
 
 	if useBilinear && math.Abs(sinTheta) < 1e-10 {
 		compositeViewportBilinearUnrotated(canvas, canvasW, doc, documentSurface, vp, zoom, clipX0, clipY0, clipX1, clipY1, halfCanvasW, halfCanvasH)
 		return
 	}
 
-	stepDocX := cosTheta / zoom
-	stepDocY := -sinTheta / zoom
-	startDeltaX := (float64(clipX0) + 0.5) - halfCanvasW
-
 	if useBilinear {
-		compositeViewportBilinearRotated(canvas, canvasW, doc, documentSurface, clipX0, clipY0, clipX1, clipY1, startDeltaX, stepDocX, stepDocY, cosTheta, sinTheta, zoom, halfCanvasH, vp)
+		compositeViewportBilinearRotated(canvas, canvasW, doc, documentSurface, clipX0, clipY0, clipX1, clipY1, cosTheta, sinTheta, zoom, halfCanvasW, halfCanvasH, vp)
 		return
 	}
 
 	for canvasY := clipY0; canvasY < clipY1; canvasY++ {
 		deltaY := (float64(canvasY) + 0.5) - halfCanvasH
-		docX := (startDeltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
-		docY := (-startDeltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
 		destIndex := (canvasY*canvasW + clipX0) * 4
 
 		for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+			deltaX := (float64(canvasX) + 0.5) - halfCanvasW
+			docX := (deltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX
+			docY := (-deltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY
 			sourceX := int(math.Floor(docX))
 			sourceY := int(math.Floor(docY))
 			if sourceX >= 0 && sourceX < doc.Width && sourceY >= 0 && sourceY < doc.Height {
@@ -82,10 +117,96 @@ func compositeDocumentToViewport(canvas []byte, canvasW, canvasH int, doc *Docum
 				}
 			}
 
-			docX += stepDocX
-			docY += stepDocY
 			destIndex += 4
 		}
+	}
+}
+
+// compositeViewportIdentity composites the document surface onto the canvas at
+// exactly 1:1 with an integer-aligned mapping: canvas pixel (canvasX, canvasY)
+// maps directly to doc pixel (canvasX+baseX, canvasY+baseY). Per-pixel semantics
+// match the nearest-neighbour loop: opaque → direct RGBA copy, srcAlpha == 0 →
+// skip, otherwise blend via compositePixelWithBlend.
+func compositeViewportIdentity(canvas []byte, canvasW int, doc *Document, surf []byte, baseX, baseY, clipX0, clipY0, clipX1, clipY1 int) {
+	docW := doc.Width
+	docH := doc.Height
+	stride := docW * 4
+
+	for canvasY := clipY0; canvasY < clipY1; canvasY++ {
+		sourceY := canvasY + baseY
+		if sourceY < 0 || sourceY >= docH {
+			continue
+		}
+		srcRow := sourceY * stride
+		destIndex := (canvasY*canvasW + clipX0) * 4
+
+		for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+			sourceX := canvasX + baseX
+			if sourceX >= 0 && sourceX < docW {
+				sourceIndex := srcRow + sourceX*4
+				srcAlpha := surf[sourceIndex+3]
+				if srcAlpha != 0 {
+					if srcAlpha == 255 {
+						copy(canvas[destIndex:destIndex+4], surf[sourceIndex:sourceIndex+4])
+					} else {
+						compositePixelWithBlend(canvas[destIndex:destIndex+4], surf[sourceIndex:sourceIndex+4], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
+					}
+				}
+			}
+			destIndex += 4
+		}
+	}
+}
+
+// bilinearPremultSample interpolates the four taps in premultiplied-alpha space
+// and un-premultiplies the result. The document surface uses straight
+// (non-premultiplied) alpha, so weighting RGB by alpha before interpolation
+// prevents a transparent neighbour's (usually black 0,0,0) colour from bleeding
+// into the interpolated pixel — the cause of dark fringes at layer/document
+// edges. Weights are 16-bit fixed point (Σ = 65536); multiplying by an 8-bit
+// alpha adds 8 bits, so intermediates stay well under 2^40 (int is 64-bit on the
+// wasm/amd64 targets). ok is false when the interpolated alpha rounds to zero.
+func bilinearPremultSample(surf []byte, off00, off10, off01, off11, w00, w10, w01, w11 int) (r, g, b, a int, ok bool) {
+	a00 := int(surf[off00+3])
+	a10 := int(surf[off10+3])
+	a01 := int(surf[off01+3])
+	a11 := int(surf[off11+3])
+
+	sumA := a00*w00 + a10*w10 + a01*w01 + a11*w11
+	a = (sumA + 32768) >> 16
+	if a == 0 {
+		// sumA < 32768 here (may still be > 0); nothing visible to store.
+		return 0, 0, 0, 0, false
+	}
+
+	wa00 := a00 * w00
+	wa10 := a10 * w10
+	wa01 := a01 * w01
+	wa11 := a11 * w11
+
+	sumRA := int(surf[off00])*wa00 + int(surf[off10])*wa10 + int(surf[off01])*wa01 + int(surf[off11])*wa11
+	sumGA := int(surf[off00+1])*wa00 + int(surf[off10+1])*wa10 + int(surf[off01+1])*wa01 + int(surf[off11+1])*wa11
+	sumBA := int(surf[off00+2])*wa00 + int(surf[off10+2])*wa10 + int(surf[off01+2])*wa01 + int(surf[off11+2])*wa11
+
+	// Un-premultiply with the existing +half rounding convention.
+	half := sumA >> 1
+	r = (sumRA + half) / sumA
+	g = (sumGA + half) / sumA
+	b = (sumBA + half) / sumA
+	return r, g, b, a, true
+}
+
+// storeBilinearPixel writes an interpolated pixel to the canvas, taking the
+// direct-store fast path when the pixel is fully opaque and otherwise blending.
+func storeBilinearPixel(canvas []byte, destIndex, canvasX, canvasY, r, g, b, a int) {
+	if a >= 255 {
+		canvas[destIndex] = byte(r)
+		canvas[destIndex+1] = byte(g)
+		canvas[destIndex+2] = byte(b)
+		canvas[destIndex+3] = 255
+	} else {
+		pix := [4]byte{byte(r), byte(g), byte(b), byte(a)}
+		compositePixelWithBlend(canvas[destIndex:destIndex+4], pix[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
 	}
 }
 
@@ -131,13 +252,13 @@ func compositeViewportBilinearUnrotated(canvas []byte, canvasW int, doc *Documen
 		row0 := y0 * stride
 		row1 := y1 * stride
 
-		deltaX0 := (float64(clipX0) + 0.5) - halfCanvasW
-		docX := deltaX0*invZoom + vp.CenterX - 0.5
-		stepX := invZoom
-
 		destIndex := (canvasY*canvasW + clipX0) * 4
 
 		for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+			// Computed directly from the absolute canvas X (not accumulated
+			// across the row) so a clipped pass starting mid-row produces the
+			// exact same coordinates as a full pass.
+			docX := ((float64(canvasX)+0.5)-halfCanvasW)*invZoom + vp.CenterX - 0.5
 			ix := int(docX)
 			if docX < 0 {
 				ix = int(docX) - 1
@@ -162,20 +283,8 @@ func compositeViewportBilinearUnrotated(canvas []byte, canvasW int, doc *Documen
 				w01 := wx0 * wy1
 				w11 := wx1 * wy1
 
-				a := (int(surf[off00+3])*w00 + int(surf[off10+3])*w10 + int(surf[off01+3])*w01 + int(surf[off11+3])*w11 + 32768) >> 16
-				if a != 0 {
-					r := (int(surf[off00])*w00 + int(surf[off10])*w10 + int(surf[off01])*w01 + int(surf[off11])*w11 + 32768) >> 16
-					g := (int(surf[off00+1])*w00 + int(surf[off10+1])*w10 + int(surf[off01+1])*w01 + int(surf[off11+1])*w11 + 32768) >> 16
-					b := (int(surf[off00+2])*w00 + int(surf[off10+2])*w10 + int(surf[off01+2])*w01 + int(surf[off11+2])*w11 + 32768) >> 16
-					if a >= 255 {
-						canvas[destIndex] = byte(r)
-						canvas[destIndex+1] = byte(g)
-						canvas[destIndex+2] = byte(b)
-						canvas[destIndex+3] = 255
-					} else {
-						pix := [4]byte{byte(r), byte(g), byte(b), byte(a)}
-						compositePixelWithBlend(canvas[destIndex:destIndex+4], pix[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
-					}
+				if r, g, b, a, ok := bilinearPremultSample(surf, off00, off10, off01, off11, w00, w10, w01, w11); ok {
+					storeBilinearPixel(canvas, destIndex, canvasX, canvasY, r, g, b, a)
 				}
 			} else {
 				// Edge: clamp coordinates.
@@ -202,24 +311,11 @@ func compositeViewportBilinearUnrotated(canvas []byte, canvasW int, doc *Documen
 				w01 := wx0 * wy1
 				w11 := wx1 * wy1
 
-				a := (int(surf[off00+3])*w00 + int(surf[off10+3])*w10 + int(surf[off01+3])*w01 + int(surf[off11+3])*w11 + 32768) >> 16
-				if a != 0 {
-					r := (int(surf[off00])*w00 + int(surf[off10])*w10 + int(surf[off01])*w01 + int(surf[off11])*w11 + 32768) >> 16
-					g := (int(surf[off00+1])*w00 + int(surf[off10+1])*w10 + int(surf[off01+1])*w01 + int(surf[off11+1])*w11 + 32768) >> 16
-					b := (int(surf[off00+2])*w00 + int(surf[off10+2])*w10 + int(surf[off01+2])*w01 + int(surf[off11+2])*w11 + 32768) >> 16
-					if a >= 255 {
-						canvas[destIndex] = byte(r)
-						canvas[destIndex+1] = byte(g)
-						canvas[destIndex+2] = byte(b)
-						canvas[destIndex+3] = 255
-					} else {
-						pix := [4]byte{byte(r), byte(g), byte(b), byte(a)}
-						compositePixelWithBlend(canvas[destIndex:destIndex+4], pix[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
-					}
+				if r, g, b, a, ok := bilinearPremultSample(surf, off00, off10, off01, off11, w00, w10, w01, w11); ok {
+					storeBilinearPixel(canvas, destIndex, canvasX, canvasY, r, g, b, a)
 				}
 			}
 
-			docX += stepX
 			destIndex += 4
 		}
 	}
@@ -227,8 +323,10 @@ func compositeViewportBilinearUnrotated(canvas []byte, canvasW int, doc *Documen
 
 // compositeViewportBilinearRotated handles bilinear sampling when the viewport
 // is rotated. Both docX and docY vary per pixel. Sampling is inlined with
-// fixed-point weights but Y weights cannot be hoisted.
-func compositeViewportBilinearRotated(canvas []byte, canvasW int, doc *Document, surf []byte, clipX0, clipY0, clipX1, clipY1 int, startDeltaX, stepDocX, stepDocY, cosTheta, sinTheta, zoom, halfCanvasH float64, vp *ViewportState) {
+// fixed-point weights but Y weights cannot be hoisted. Coordinates are computed
+// directly from the absolute canvas position (not accumulated) so a clipped
+// pass is byte-identical to a full pass inside the clip rect.
+func compositeViewportBilinearRotated(canvas []byte, canvasW int, doc *Document, surf []byte, clipX0, clipY0, clipX1, clipY1 int, cosTheta, sinTheta, zoom, halfCanvasW, halfCanvasH float64, vp *ViewportState) {
 	docW := doc.Width
 	docH := doc.Height
 	stride := docW * 4
@@ -237,11 +335,12 @@ func compositeViewportBilinearRotated(canvas []byte, canvasW int, doc *Document,
 
 	for canvasY := clipY0; canvasY < clipY1; canvasY++ {
 		deltaY := (float64(canvasY) + 0.5) - halfCanvasH
-		docX := (startDeltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX - 0.5
-		docY := (-startDeltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY - 0.5
 		destIndex := (canvasY*canvasW + clipX0) * 4
 
 		for canvasX := clipX0; canvasX < clipX1; canvasX++ {
+			deltaX := (float64(canvasX) + 0.5) - halfCanvasW
+			docX := (deltaX*cosTheta+deltaY*sinTheta)/zoom + vp.CenterX - 0.5
+			docY := (-deltaX*sinTheta+deltaY*cosTheta)/zoom + vp.CenterY - 0.5
 			ix := int(docX)
 			if docX < 0 {
 				ix = int(docX) - 1
@@ -295,24 +394,10 @@ func compositeViewportBilinearRotated(canvas []byte, canvasW int, doc *Document,
 			off01 := y1*stride + x0*4
 			off11 := y1*stride + x1*4
 
-			a := (int(surf[off00+3])*w00 + int(surf[off10+3])*w10 + int(surf[off01+3])*w01 + int(surf[off11+3])*w11 + 32768) >> 16
-			if a != 0 {
-				r := (int(surf[off00])*w00 + int(surf[off10])*w10 + int(surf[off01])*w01 + int(surf[off11])*w11 + 32768) >> 16
-				g := (int(surf[off00+1])*w00 + int(surf[off10+1])*w10 + int(surf[off01+1])*w01 + int(surf[off11+1])*w11 + 32768) >> 16
-				b := (int(surf[off00+2])*w00 + int(surf[off10+2])*w10 + int(surf[off01+2])*w01 + int(surf[off11+2])*w11 + 32768) >> 16
-				if a >= 255 {
-					canvas[destIndex] = byte(r)
-					canvas[destIndex+1] = byte(g)
-					canvas[destIndex+2] = byte(b)
-					canvas[destIndex+3] = 255
-				} else {
-					pix := [4]byte{byte(r), byte(g), byte(b), byte(a)}
-					compositePixelWithBlend(canvas[destIndex:destIndex+4], pix[:], BlendModeNormal, 1, pixelNoiseSeed(canvasX, canvasY))
-				}
+			if r, g, b, a, ok := bilinearPremultSample(surf, off00, off10, off01, off11, w00, w10, w01, w11); ok {
+				storeBilinearPixel(canvas, destIndex, canvasX, canvasY, r, g, b, a)
 			}
 
-			docX += stepDocX
-			docY += stepDocY
 			destIndex += 4
 		}
 	}

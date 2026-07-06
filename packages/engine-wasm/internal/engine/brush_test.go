@@ -46,7 +46,7 @@ func TestPaintStroke_LayerModified(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: cx + 50, Y: cy, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	// At least one pixel must have non-zero alpha after the stroke.
 	painted := false
@@ -82,7 +82,7 @@ func TestPaintStroke_NilLayerIsNoop(t *testing.T) {
 	brush := BrushParams{Size: 10, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 0, 255}}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 50, Y: 50, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 60, Y: 50, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	// If we get here without panic: pass
 }
 
@@ -247,7 +247,7 @@ func TestMixerBrushStroke_SamplesMergedCanvasColor(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 16, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 24, Y: 16, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -278,12 +278,12 @@ func TestMixerBrushStroke_PersistsReservoirAcrossStrokes(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	fillLayerSolid(background, [4]uint8{0, 0, 0, 0})
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 19, Y: 12, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -315,13 +315,13 @@ func TestMixerBrushResetState_CleansReservoir(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	fillLayerSolid(background, [4]uint8{0, 0, 0, 0})
 	inst.resetMixerBrushState()
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 19, Y: 12, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -351,7 +351,7 @@ func TestMixerBrushWetness_IncreasesPickup(t *testing.T) {
 		}
 		inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
 		inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-		inst.handleEndPaintStroke()
+		_ = inst.handleEndPaintStroke()
 		layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 		if layer == nil {
 			t.Fatal("active layer not found after wetness test stroke")
@@ -387,7 +387,7 @@ func TestMixerBrushStroke_SampleMergedControlsPickup(t *testing.T) {
 		}
 		inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
 		inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-		inst.handleEndPaintStroke()
+		_ = inst.handleEndPaintStroke()
 		layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 		if layer == nil {
 			t.Fatal("active layer not found after sample-merged test stroke")
@@ -437,7 +437,7 @@ func TestMixerBrushStroke_DirectionalBristleStreakingSeparatesBands(t *testing.T
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 10, Y: 20, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 30, Y: 20, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -473,7 +473,7 @@ func TestMixerBrushStroke_EdgeAccumulationBoostsOuterBristles(t *testing.T) {
 	}
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 20, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -507,7 +507,7 @@ func TestMixerBrushStroke_UndoRestoresPixels(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 12, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -562,7 +562,7 @@ func TestCloneStampStroke_ClonesMergedSourcePixels(t *testing.T) {
 	}
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 16, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -607,10 +607,10 @@ func TestCloneStampStroke_AlignedModePersistsSourceOffsetAcrossStrokes(t *testin
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 12, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -652,10 +652,10 @@ func TestCloneStampStroke_NonAlignedModeRestartsFromSourcePoint(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 14, Y: 12, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 20, Y: 12, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -684,9 +684,9 @@ func TestCloneStampStroke_CanCloneFromSelectedHistoryState(t *testing.T) {
 	red := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
 	blue := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 6, Y: 6, Pressure: 1.0, Brush: red})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 6, Y: 6, Pressure: 1.0, Brush: blue})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	if err := inst.history.Undo(inst); err != nil {
 		t.Fatalf("Undo: %v", err)
@@ -706,7 +706,7 @@ func TestCloneStampStroke_CanCloneFromSelectedHistoryState(t *testing.T) {
 		SampleMerged:    true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 16, Y: 6, Pressure: 1.0, Brush: clone})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
 	if painted == nil {
@@ -748,7 +748,7 @@ func TestCloneStampStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 10, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 16, Y: 10, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -789,7 +789,7 @@ func TestCloneStampStroke_UsesDocumentSpaceOffsetsForTranslatedLayerSource(t *te
 		SampleMerged: false,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 18, Y: 14, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -838,7 +838,7 @@ func TestCloneStampStroke_SubpixelSourceUsesBilinearSampling(t *testing.T) {
 		SampleMerged: true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 10, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	layer := findPixelLayer(inst.manager.activeMut(), active.ID())
 	if layer == nil {
@@ -867,9 +867,9 @@ func TestHistoryBrushStroke_RestoresPreviousHistoryState(t *testing.T) {
 	blue := BrushParams{Size: 10, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: red})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: blue})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	historyBrush := BrushParams{
 		Size:         10,
@@ -881,7 +881,7 @@ func TestHistoryBrushStroke_RestoresPreviousHistoryState(t *testing.T) {
 	}
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: historyBrush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
 	if painted == nil {
@@ -911,11 +911,11 @@ func TestHistoryBrushStroke_CanPaintFromSelectedHistoryState(t *testing.T) {
 	blue := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: red})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: green})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: blue})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	historyBrush := BrushParams{
 		Size:             8,
@@ -927,7 +927,7 @@ func TestHistoryBrushStroke_CanPaintFromSelectedHistoryState(t *testing.T) {
 		SampleMerged:     true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: historyBrush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
 	if painted == nil {
@@ -956,10 +956,10 @@ func TestHistoryBrushStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
 	erase := BrushParams{Size: 6, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 0, 255}, Erase: true}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: red})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: erase})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	historyBrush := BrushParams{
 		Size:           1,
@@ -973,7 +973,7 @@ func TestHistoryBrushStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 14, Y: 10, Pressure: 1.0, Brush: historyBrush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: 18, Y: 10, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
 	if painted == nil {
@@ -1005,9 +1005,9 @@ func TestHistoryBrushStroke_InvalidSelectedStateFallsBackToPreviousSnapshot(t *t
 	red := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{255, 0, 0, 255}}
 	blue := BrushParams{Size: 8, Hardness: 1.0, Flow: 1.0, Color: [4]uint8{0, 0, 255, 255}}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: red})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: blue})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	historyBrush := BrushParams{
 		Size:             8,
@@ -1019,7 +1019,7 @@ func TestHistoryBrushStroke_InvalidSelectedStateFallsBackToPreviousSnapshot(t *t
 		SampleMerged:     true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 12, Y: 12, Pressure: 1.0, Brush: historyBrush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	painted := findPixelLayer(inst.manager.activeMut(), layer.ID())
 	if painted == nil {
@@ -1514,7 +1514,7 @@ func TestAutoErase_SwitchedToBackgroundWhenFGMatches(t *testing.T) {
 		AutoErase: true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	doc := inst.manager.activeMut()
 	layer := findPixelLayer(doc, layerID)
@@ -1544,7 +1544,7 @@ func TestAutoErase_NoPaintSwitchWhenFGDiffers(t *testing.T) {
 		AutoErase: true,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	doc := inst.manager.activeMut()
 	layer := findPixelLayer(doc, layerID)
@@ -1572,7 +1572,7 @@ func TestAutoErase_FalseNeverSwitches(t *testing.T) {
 		AutoErase: false,
 	}
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	doc := inst.manager.activeMut()
 	layer := findPixelLayer(doc, layerID)

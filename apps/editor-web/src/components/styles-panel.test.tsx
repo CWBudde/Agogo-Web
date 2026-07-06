@@ -1,13 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import {
-  CommandID,
-  type DocumentStylePresetEntry,
-  type LayerNodeMeta,
-  type RenderResult,
-} from "@agogo/proto";
+import { CommandID, type DocumentStylePresetEntry, type LayerNodeMeta } from "@agogo/proto";
 import { StylesPanel } from "@/components/styles-panel";
-import type { EngineContextValue } from "@/wasm/types";
+import type { EngineContextValue, EngineRenderState } from "@/wasm/types";
 
 function makeLayer(
   id: string,
@@ -36,14 +31,14 @@ function makeRender(
   presets: DocumentStylePresetEntry[],
   layers: LayerNodeMeta[] = [],
   activeLayerId: string | null = null,
-): RenderResult {
+): EngineRenderState {
   return {
     uiMeta: {
       stylePresets: presets,
       layers,
       activeLayerId,
     },
-  } as unknown as RenderResult;
+  } as unknown as EngineRenderState;
 }
 
 function createEngine(): EngineContextValue & {

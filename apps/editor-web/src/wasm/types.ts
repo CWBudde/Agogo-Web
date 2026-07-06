@@ -10,7 +10,15 @@ import type {
   RenderResult,
   TransformSelectionCommand,
   TranslateLayerCommand,
+  UIMeta,
 } from "@agogo/proto";
+
+/**
+ * A render result that is guaranteed to carry a full UIMeta. The engine
+ * context maintains this invariant by merging hot-path acks (which omit
+ * uiMeta) into the last full result, so consumers never see missing fields.
+ */
+export type EngineRenderState = RenderResult & { uiMeta: UIMeta };
 
 export interface EngineConfig {
   documentWidth?: number;
@@ -36,37 +44,41 @@ export interface EngineHandle {
 export interface EngineContextValue {
   status: "idle" | "loading" | "ready" | "error";
   handle: EngineHandle | null;
-  render: RenderResult | null;
+  render: EngineRenderState | null;
   error: Error | null;
   ready: Promise<EngineHandle> | null;
-  dispatchCommand(commandId: number, payload?: unknown): RenderResult | null;
-  createDocument(command: CreateDocumentCommand): RenderResult | null;
-  createSelection(command: CreateSelectionCommand): RenderResult | null;
-  selectAll(): RenderResult | null;
-  deselect(): RenderResult | null;
-  reselect(): RenderResult | null;
-  invertSelection(): RenderResult | null;
-  magicWand(command: MagicWandCommand): RenderResult | null;
-  quickSelect(command: QuickSelectCommand): RenderResult | null;
-  magneticLassoSuggestPath(command: MagneticLassoSuggestPathCommand): RenderResult | null;
-  pickLayerAtPoint(command: PickLayerAtPointCommand): RenderResult | null;
-  translateLayer(command: TranslateLayerCommand): RenderResult | null;
-  transformSelection(command: TransformSelectionCommand): RenderResult | null;
-  resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number): RenderResult | null;
-  setZoom(zoom: number, anchorX?: number, anchorY?: number): RenderResult | null;
-  setPan(centerX: number, centerY: number): RenderResult | null;
-  dispatchPointerEvent(command: PointerEventCommand): RenderResult | null;
-  beginTransaction(description: string): RenderResult | null;
-  endTransaction(commit?: boolean): RenderResult | null;
-  jumpHistory(historyIndex: number): RenderResult | null;
-  clearHistory(): RenderResult | null;
-  setRotation(rotation: number): RenderResult | null;
-  fitToView(): RenderResult | null;
-  setShowGuides(show: boolean): RenderResult | null;
+  dispatchCommand(commandId: number, payload?: unknown): EngineRenderState | null;
+  createDocument(command: CreateDocumentCommand): EngineRenderState | null;
+  createSelection(command: CreateSelectionCommand): EngineRenderState | null;
+  selectAll(): EngineRenderState | null;
+  deselect(): EngineRenderState | null;
+  reselect(): EngineRenderState | null;
+  invertSelection(): EngineRenderState | null;
+  magicWand(command: MagicWandCommand): EngineRenderState | null;
+  quickSelect(command: QuickSelectCommand): EngineRenderState | null;
+  magneticLassoSuggestPath(command: MagneticLassoSuggestPathCommand): EngineRenderState | null;
+  pickLayerAtPoint(command: PickLayerAtPointCommand): EngineRenderState | null;
+  translateLayer(command: TranslateLayerCommand): EngineRenderState | null;
+  transformSelection(command: TransformSelectionCommand): EngineRenderState | null;
+  resizeViewport(
+    canvasW: number,
+    canvasH: number,
+    devicePixelRatio: number,
+  ): EngineRenderState | null;
+  setZoom(zoom: number, anchorX?: number, anchorY?: number): EngineRenderState | null;
+  setPan(centerX: number, centerY: number): EngineRenderState | null;
+  dispatchPointerEvent(command: PointerEventCommand): EngineRenderState | null;
+  beginTransaction(description: string): EngineRenderState | null;
+  endTransaction(commit?: boolean): EngineRenderState | null;
+  jumpHistory(historyIndex: number): EngineRenderState | null;
+  clearHistory(): EngineRenderState | null;
+  setRotation(rotation: number): EngineRenderState | null;
+  fitToView(): EngineRenderState | null;
+  setShowGuides(show: boolean): EngineRenderState | null;
   exportProject(): string | null;
   exportDocument(format: string): string | null;
-  importProject(projectJSON: string): RenderResult | null;
-  undo(): RenderResult | null;
-  redo(): RenderResult | null;
+  importProject(projectJSON: string): EngineRenderState | null;
+  undo(): EngineRenderState | null;
+  redo(): EngineRenderState | null;
   reload(): void;
 }

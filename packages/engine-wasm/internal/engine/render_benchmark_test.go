@@ -583,7 +583,7 @@ func (fixture *renderBenchmarkFixture) paintAllStrokes() {
 			})
 		}
 
-		fixture.inst.handleEndPaintStroke()
+		_ = fixture.inst.handleEndPaintStroke()
 	}
 }
 
@@ -776,5 +776,97 @@ func assertBenchmarkSurfaceLen(b *testing.B, got int) {
 	want := benchmarkCanvasSize * benchmarkCanvasSize * 4
 	if got != want {
 		b.Fatalf("buffer length = %d, want %d", got, want)
+	}
+}
+
+// BenchmarkRenderFrameAfterPaintDirtyRect is THE number for PLAN.md S.4:
+// a paint-batch-sized dirty rect (64x64) on a large document (2000x1500),
+// rendered to a 1280x800 canvas via the full renderRaw pipeline. Before
+// dirty-rect rendering this recomposited the whole document and resampled the
+// whole canvas on every batch; with incremental recomposite + partial viewport
+// resample it should only touch the dirty region.
+func BenchmarkRenderFrameAfterPaintDirtyRect(b *testing.B) {
+	const (
+		docW, docH       = 2000, 1500
+		canvasW, canvasH = 1280, 800
+		rectX, rectY     = 940, 700
+		rectW, rectH     = 64, 64
+	)
+
+	cases := []struct {
+		name string
+		zoom float64
+	}{
+		{"Zoom100Aligned", 1},
+		{"Zoom137", 1.37},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			doc := testDocumentFixture("bench-dirty-doc", "BenchDirty", docW, docH)
+			layer := NewPixelLayer(
+				"Paint Layer",
+				LayerBounds{X: 0, Y: 0, W: docW, H: docH},
+				make([]byte, docW*docH*4),
+			)
+			for i := range layer.Pixels {
+				layer.Pixels[i] = byte(i * 31)
+			}
+			doc.LayerRoot.SetChildren([]LayerNode{layer})
+			doc.ActiveLayerID = layer.ID()
+
+			inst := &instance{
+				manager: newDocumentManager(),
+				viewport: ViewportState{
+					CenterX:          docW * 0.5,
+					CenterY:          docH * 0.5,
+					Zoom:             tc.zoom,
+					CanvasW:          canvasW,
+					CanvasH:          canvasH,
+					DevicePixelRatio: 1,
+				},
+				history:         newHistoryStack(defaultHistoryMax),
+				foregroundColor: [4]uint8{0, 0, 0, 255},
+				backgroundColor: [4]uint8{255, 255, 255, 255},
+			}
+			inst.manager.Create(doc)
+
+			// Create clones the document; grab the manager's live copy so pixel
+			// mutations and dirty-rect bumps hit the document renderRaw uses.
+			doc = inst.manager.activeMut()
+			activeLayer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+			if !ok {
+				b.Fatal("expected active layer in cloned document")
+			}
+			layer, ok = activeLayer.(*PixelLayer)
+			if !ok {
+				b.Fatal("expected active layer to be a pixel layer")
+			}
+
+			// Warm the caches with one full render.
+			if res := inst.renderRaw(); res.BufferLen == 0 {
+				b.Fatal("expected warm-up render to produce a frame")
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				// Mutate a 64x64 region in place, exactly like a paint batch.
+				v := byte(i)
+				for y := rectY; y < rectY+rectH; y++ {
+					row := (y*docW + rectX) * 4
+					for x := 0; x < rectW; x++ {
+						layer.Pixels[row+x*4] = v
+						layer.Pixels[row+x*4+3] = 255
+					}
+				}
+				doc.bumpContentVersionRect(DirtyRect{X: rectX, Y: rectY, W: rectW, H: rectH})
+				result := inst.renderRaw()
+				if result.BufferLen == 0 {
+					b.Fatal("expected render frame")
+				}
+			}
+		})
 	}
 }

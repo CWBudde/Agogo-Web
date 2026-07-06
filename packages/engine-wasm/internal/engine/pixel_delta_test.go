@@ -129,7 +129,7 @@ func TestPixelDeltaCommand_UndoRedoBumpsContentVersion(t *testing.T) {
 
 	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: cx, Y: cy, Pressure: 1.0, Brush: brush})
 	inst.handleContinuePaintStroke(ContinuePaintStrokePayload{X: cx + 4, Y: cy, Pressure: 1.0})
-	inst.handleEndPaintStroke()
+	_ = inst.handleEndPaintStroke()
 
 	paintedPixels := storedPixels()
 	if !hasPaintedAlpha(paintedPixels) {

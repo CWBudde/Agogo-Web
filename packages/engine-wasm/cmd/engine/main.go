@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"runtime/debug"
 	"syscall/js"
 
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/buildinfo"
@@ -11,6 +12,13 @@ import (
 )
 
 func main() {
+	// Interim GC-hitch mitigation for the render path: let the heap grow to
+	// 300% between collections (default 100%) so bursty per-frame compositing
+	// allocations do not trigger a stop-the-world GC mid stroke-batch. This is
+	// a stopgap until buffer reuse fully lands across the composite path
+	// (PLAN.md S.4); it is a percentage bump only — GOMEMLIMIT is left unset.
+	debug.SetGCPercent(300)
+
 	js.Global().Set("EngineBuildInfo", js.ValueOf(map[string]any{
 		"buildTime": buildinfo.BuildTime,
 		"goVersion": buildinfo.GoVersion,

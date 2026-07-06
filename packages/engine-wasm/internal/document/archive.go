@@ -24,11 +24,16 @@ type HistoryEntry struct {
 }
 
 type RawRenderResult struct {
-	FrameID   int64         `json:"frameId"`
-	Viewport  ViewportState `json:"viewport"`
-	BufferPtr int32         `json:"bufferPtr"`
-	BufferLen int32         `json:"bufferLen"`
-	Reused    bool          `json:"reused"`
+	FrameID  int64         `json:"frameId"`
+	Viewport ViewportState `json:"viewport"`
+	// DirtyRects lists the canvas-space regions that changed since the
+	// previous frame. Full renders and the marching-ants path report a single
+	// full-canvas rect; the partial viewport resample path reports the
+	// redrawn sub-rect; Reused frames report none (nothing changed).
+	DirtyRects []DirtyRect `json:"dirtyRects,omitempty"`
+	BufferPtr  int32       `json:"bufferPtr"`
+	BufferLen  int32       `json:"bufferLen"`
+	Reused     bool        `json:"reused"`
 	// Error reports a non-fatal render pipeline failure (e.g. layer
 	// compositing failed). The frame buffer is still valid but may not
 	// include document content. Empty when rendering succeeded.

@@ -205,6 +205,20 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 			return nil
 		},
 		ContinuePaintStroke: func(payload cmdpkg.PaintContinueStrokePayload) error {
+			if len(payload.Points) > 0 {
+				points := make([]StrokePoint, len(payload.Points))
+				for i := range payload.Points {
+					points[i] = StrokePoint{
+						X:        payload.Points[i].X,
+						Y:        payload.Points[i].Y,
+						Pressure: payload.Points[i].Pressure,
+						TiltX:    payload.Points[i].TiltX,
+						TiltY:    payload.Points[i].TiltY,
+					}
+				}
+				inst.handleContinuePaintStrokePoints(points)
+				return nil
+			}
 			inst.handleContinuePaintStroke(ContinuePaintStrokePayload{
 				X:        payload.X,
 				Y:        payload.Y,

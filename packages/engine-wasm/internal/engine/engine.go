@@ -188,12 +188,24 @@ type Document struct {
 	ContentVersion    int64                   `json:"-"` // monotonic counter; not persisted, used only for composite cache invalidation
 	dirtyComposite    DirtyRect               `json:"-"`
 	hasDirtyComposite bool                    `json:"-"`
-	Paths             []NamedPath             `json:"-"`
-	ActivePathIdx     int                     `json:"-"`
-	StylePresets      []DocumentStylePreset   `json:"-"`
+	// dirtyCompositeBase is the ContentVersion the accumulated dirtyComposite
+	// rect is relative to (set whenever the rect is cleared after a successful
+	// composite). Content versions are globally unique, so an incremental
+	// recomposite of a cached surface is valid only when the cache's version
+	// equals this base — snapshot restores clone documents together with their
+	// dirty state, and without this check a restored stale rect could be
+	// mistaken for the delta against an unrelated cached surface.
+	dirtyCompositeBase int64                 `json:"-"`
+	Paths              []NamedPath           `json:"-"`
+	ActivePathIdx      int                   `json:"-"`
+	StylePresets       []DocumentStylePreset `json:"-"`
 }
 
 type UIMeta struct {
+	// Version is the engine's uiMetaVersion counter at the time this meta was
+	// built. The frontend compares it against RenderResult.UIMetaVersion from
+	// hot-path acks to detect when its cached UIMeta went stale.
+	Version             int64           `json:"version"`
 	ActiveLayerID       string          `json:"activeLayerId"`
 	ActiveLayerName     string          `json:"activeLayerName"`
 	CursorType          string          `json:"cursorType"`
@@ -238,11 +250,25 @@ type UIMeta struct {
 type RenderResult struct {
 	FrameID     int64         `json:"frameId"`
 	Viewport    ViewportState `json:"viewport"`
-	DirtyRects  []DirtyRect   `json:"dirtyRects"`
-	PixelFormat string        `json:"pixelFormat"`
+	DirtyRects  []DirtyRect   `json:"dirtyRects,omitempty"`
+	PixelFormat string        `json:"pixelFormat,omitempty"`
 	BufferPtr   int32         `json:"bufferPtr"`
 	BufferLen   int32         `json:"bufferLen"`
-	UIMeta      UIMeta        `json:"uiMeta"`
+	// UIMeta is nil for hot-path command acks (ContinuePaintStroke and
+	// move-phase PointerEvent) — see DispatchCommand. Everything else,
+	// including RenderFrame, carries the full meta.
+	UIMeta *UIMeta `json:"uiMeta,omitempty"`
+	// CursorType/StatusText mirror the equally-named UIMeta fields on hot-path
+	// acks (hover/pan moves must still update the cursor and status line even
+	// when the full UIMeta is skipped). Empty on full results.
+	CursorType string `json:"cursorType,omitempty"`
+	StatusText string `json:"statusText,omitempty"`
+	// UIMetaVersion is the engine's monotonic UI-meta counter. On acks the
+	// frontend compares it with the version inside its last full UIMeta and
+	// schedules a RenderFrame refresh when they differ.
+	UIMetaVersion int64 `json:"uiMetaVersion"`
+	// ContentVersion mirrors the active document's content counter on acks.
+	ContentVersion int64 `json:"contentVersion,omitempty"`
 	// Thumbnails is non-nil only in the response to commandGetLayerThumbnails.
 	Thumbnails map[string]ThumbnailEntry `json:"thumbnails,omitempty"`
 	// SuggestedPath is set only in response to commandMagneticLassoSuggestPath.
@@ -537,19 +563,38 @@ type rawFrameKey struct {
 }
 
 type instance struct {
-	pixels                  []byte
-	manager                 *DocumentManager
-	viewport                ViewportState
-	cachedViewportBase      []byte
-	cachedViewportBaseKey   viewportBaseKey
-	cachedRawFrameKey       rawFrameKey
-	hasCachedRawFrame       bool
-	history                 *HistoryStack
-	frameID                 int64
-	pointer                 pointerDragState
-	cachedDocSurface        []byte
-	cachedDocID             string
-	cachedDocContentVersion int64
+	pixels                []byte
+	manager               *DocumentManager
+	viewport              ViewportState
+	cachedViewportBase    []byte
+	cachedViewportBaseKey viewportBaseKey
+	cachedRawFrameKey     rawFrameKey
+	hasCachedRawFrame     bool
+	// cachedAnimBase holds the fully composited + viewport-resampled frame
+	// WITHOUT the animated selection overlay (marching ants). While a
+	// selection is active the rAF loop reuses this base and only stamps the
+	// current ants phase on top, avoiding a full recomposite every frame.
+	cachedAnimBase    []byte
+	cachedAnimBaseKey rawFrameKey
+	hasCachedAnimBase bool
+	// fullRecompositeCount counts full recomposite+viewport-resample passes in
+	// renderRaw. Test-only instrumentation: lets tests assert the cheap
+	// ants-only path did not trigger an expensive recomposite.
+	fullRecompositeCount int64
+	// incrementalCompositeCount counts in-place dirty-rect document
+	// recomposites (compositeSurfaceChecked's incremental path). Test-only
+	// instrumentation.
+	incrementalCompositeCount int64
+	// partialViewportUpdateCount counts partial viewport resamples in
+	// renderRaw (content changed in a sub-rect, viewport unchanged).
+	// Test-only instrumentation.
+	partialViewportUpdateCount int64
+	history                    *HistoryStack
+	frameID                    int64
+	pointer                    pointerDragState
+	cachedDocSurface           []byte
+	cachedDocID                string
+	cachedDocContentVersion    int64
 	// maskEditLayerID tracks which layer's mask is currently being edited.
 	// This is UI state only — not included in history snapshots.
 	maskEditLayerID string
@@ -599,6 +644,16 @@ type instance struct {
 	textEdit textEditState
 	// importWarnings stores non-fatal issues from the most recent external import.
 	importWarnings []string
+	// uiMetaVersion is a monotonic counter bumped by every DispatchCommand
+	// EXCEPT the hot-path ones (ContinuePaintStroke, move-phase PointerEvent)
+	// and by ImportProject. Hot commands CAN change state that the full UIMeta
+	// reflects (painting bumps ContentVersion, a quick-select drag updates the
+	// selection meta), but they deliberately do NOT bump this counter
+	// mid-gesture: the gesture-ending non-hot command (pointer up,
+	// EndPaintStroke, EndTransaction) bumps it and delivers the full refresh.
+	// Panel lag during a drag is acceptable — the canvas shows the live
+	// engine-rendered overlay via the rAF RenderFrameRaw loop.
+	uiMetaVersion int64
 }
 
 // textEditState tracks the in-progress text edit for a single TextLayer.
@@ -682,6 +737,16 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 	inst, ok := instances[handle]
 	if !ok {
 		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
+	}
+
+	// Hot-path commands (per-rAF pointer input) skip the full render + UIMeta
+	// marshal and return a minimal ack instead; every other command bumps the
+	// UI-meta version so the frontend knows its cached UIMeta is stale. The
+	// bump happens before dispatch so custom render results (thumbnails,
+	// histogram, …) already carry the new version.
+	hot := isHotCommand(commandID, payloadJSON)
+	if !hot {
+		inst.uiMetaVersion++
 	}
 
 	var suggestedPath []SelectionPoint
@@ -776,9 +841,57 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 		return RenderResult{}, fmt.Errorf("unsupported command id 0x%04x", commandID)
 	}
 
+	if hot {
+		// No pixels are rendered for acks: the frontend's continuous rAF loop
+		// picks up the new frame via RenderFrameRaw on the next tick anyway.
+		return inst.ackResult(), nil
+	}
+
 	result := inst.render()
 	result.SuggestedPath = suggestedPath
 	return result, nil
+}
+
+// isHotCommand reports whether a command is on the per-rAF pointer hot path:
+// ContinuePaintStroke, and PointerEvent with phase == "move". Non-move pointer
+// phases (down/up) end transactions and push history, so they stay full.
+func isHotCommand(commandID int32, payloadJSON string) bool {
+	switch commandID {
+	case commandContinuePaintStroke:
+		return true
+	case commandPointerEvent:
+		var peek struct {
+			Phase string `json:"phase"`
+		}
+		if err := json.Unmarshal([]byte(payloadJSON), &peek); err != nil {
+			return false
+		}
+		return peek.Phase == "move"
+	default:
+		return false
+	}
+}
+
+// ackResult builds the minimal DispatchCommand response for hot-path commands:
+// no pixels, no UIMeta — just the viewport (move-phase pans change it), the
+// cheap cursor/status strings, and the version counters the frontend needs to
+// detect staleness. See the uiMetaVersion field comment for why hot commands
+// never bump the version mid-gesture.
+func (inst *instance) ackResult() RenderResult {
+	statusText := "No active document"
+	var contentVersion int64
+	if doc := inst.manager.activeMut(); doc != nil {
+		statusText = inst.statusText(doc)
+		contentVersion = doc.ContentVersion
+	}
+	return RenderResult{
+		FrameID:        inst.frameID,
+		Viewport:       inst.viewport,
+		CursorType:     inst.cursorType(),
+		StatusText:     statusText,
+		UIMetaVersion:  inst.uiMetaVersion,
+		ContentVersion: contentVersion,
+	}
 }
 
 func RenderFrame(handle int32) (RenderResult, error) {
@@ -841,6 +954,9 @@ func ImportProject(handle int32, payload string) (RenderResult, error) {
 		return RenderResult{}, fmt.Errorf("invalid engine handle %d", handle)
 	}
 
+	// ImportProject mutates engine state outside DispatchCommand, so it must
+	// bump the UI-meta version itself (see instance.uiMetaVersion).
+	inst.uiMetaVersion++
 	return inst.importProject(payload)
 }
 

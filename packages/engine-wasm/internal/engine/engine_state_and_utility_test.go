@@ -58,7 +58,9 @@ func TestCompositeSurfaceCacheInvalidateOnLayerChange(t *testing.T) {
 	inst := instances[h]
 	doc := inst.manager.Active()
 	surface1 := inst.compositeSurface(doc)
-	firstPtr := &surface1[0]
+	if got := [4]byte{surface1[0], surface1[1], surface1[2], surface1[3]}; got != [4]byte{0, 0, 0, 0} {
+		t.Fatalf("expected empty document composite, got %v", got)
+	}
 
 	// Mutate the document (add a layer), which changes ModifiedAt.
 	_, err = DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
@@ -71,11 +73,13 @@ func TestCompositeSurfaceCacheInvalidateOnLayerChange(t *testing.T) {
 		t.Fatalf("add layer: %v", err)
 	}
 
-	// Cache must be invalidated; the new surface has different content.
+	// Cache must be invalidated: the recomposite may intentionally reuse the
+	// same backing buffer in place (PLAN.md S.4), so assert on content — the
+	// recomputed surface has to show the new layer's pixels.
 	doc2 := inst.manager.Active()
 	surface2 := inst.compositeSurface(doc2)
-	if &surface2[0] == firstPtr {
-		t.Error("expected cache to be invalidated after layer change, but old surface was reused")
+	if got, want := [4]byte{surface2[0], surface2[1], surface2[2], surface2[3]}, [4]byte{255, 0, 0, 255}; got != want {
+		t.Errorf("expected cache to be invalidated after layer change: pixel = %v, want %v", got, want)
 	}
 }
 

@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CommandID,
-  type DocumentStylePresetEntry,
-  type LayerNodeMeta,
-  type RenderResult,
-} from "@agogo/proto";
+import { CommandID, type DocumentStylePresetEntry, type LayerNodeMeta } from "@agogo/proto";
 import { supportsLayerStyles } from "@/components/layer-style-model";
 import { Button } from "@/components/ui/button";
-import type { EngineContextValue } from "@/wasm/types";
+import type { EngineContextValue, EngineRenderState } from "@/wasm/types";
 
 interface StylesPanelProps {
   engine: EngineContextValue;
-  render: RenderResult | null;
+  render: EngineRenderState | null;
   activeLayerId: string | null;
 }
 
