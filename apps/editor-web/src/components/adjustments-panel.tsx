@@ -610,8 +610,8 @@ function CurvesEditor({
   );
 }
 
-/** Minimal interactive curves canvas. */
-function CurvesCanvas({
+/** Minimal interactive curves canvas. Exported for tests. */
+export function CurvesCanvas({
   points,
   onChange,
 }: {
@@ -712,11 +712,19 @@ function CurvesCanvas({
   };
 
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
-    if (dragging === null) return;
+    if (dragging === null || dragging >= points.length) return;
     const pos = getCanvasPos(e);
+    // Clamp x between the neighbors so the dragged point can never cross
+    // them (Photoshop behavior). The array therefore stays sorted and the
+    // positional `dragging` index remains valid for the whole drag.
+    const minX = dragging > 0 ? points[dragging - 1].x + 1 : 0;
+    const maxX = dragging < points.length - 1 ? points[dragging + 1].x - 1 : 255;
+    // Neighbors closer than 2px apart (possible via duplicate-x add) leave no
+    // valid slot; keep the current position rather than recreating a tie.
+    if (minX > maxX) return;
     const newPoints = [...points];
-    newPoints[dragging] = pos;
-    onChange(newPoints.sort((a, b) => a.x - b.x));
+    newPoints[dragging] = { x: Math.min(Math.max(pos.x, minX), maxX), y: pos.y };
+    onChange(newPoints);
   };
 
   const handleMouseUp = () => {

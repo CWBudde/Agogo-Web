@@ -354,17 +354,27 @@ export function GradientEditorDialog({
   const [presetName, setPresetName] = useState("");
   const [userPresets, setUserPresets] = useState<GradientPreset[]>(() => loadUserPresets());
   const trackRef = useRef<HTMLDivElement | null>(null);
-
+  const stopsRef = useRef(stops);
   useEffect(() => {
-    if (!open) {
+    stopsRef.current = stops;
+  });
+  const wasOpenRef = useRef(false);
+
+  // Initialize editor state only on the closed -> open transition. While the
+  // dialog is open, `editorStops` (with stable ids) is the single source of
+  // truth; parent echoes of `stops` must not re-mint ids mid-drag.
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!open || wasOpen) {
       return;
     }
-    const normalized = normalizeStops(stops);
+    const normalized = normalizeStops(stopsRef.current);
     setEditorStops(normalized);
     setSelectedStopId(normalized[0]?.id ?? null);
     setDraggingStopId(null);
     setPresetName("");
-  }, [open, stops]);
+  }, [open]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
