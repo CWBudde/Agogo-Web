@@ -10,11 +10,11 @@ import {
   type RenderResult,
   type TransformSelectionCommand,
   type TranslateLayerCommand,
-  type ViewportMeta,
 } from "@agogo/proto";
 import {
   createContext,
   type PropsWithChildren,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -23,9 +23,16 @@ import {
 } from "react";
 import { emitToast } from "@/lib/toast-bus";
 import { loadEngine } from "./loader";
-import type { EngineContextValue, EngineHandle, EngineRenderState } from "./types";
+import type { EngineContextValue, EngineHandle, EngineRenderState, EngineStore } from "./types";
+import { sameViewport } from "./viewport-equal";
 
 const EngineContext = createContext<EngineContextValue | null>(null);
+
+// Identity-stable store surface for useSyncExternalStore subscribers.
+// Kept in a SEPARATE context so subscribing components do not re-render when
+// the main EngineContext value changes (it changes on every committed frame);
+// they re-render only when their selected slice changes.
+const EngineStoreContext = createContext<EngineStore | null>(null);
 
 type EngineState = {
   status: EngineContextValue["status"];
@@ -52,18 +59,6 @@ function surfaceEngineError(title: string, error: unknown): null {
     message: error instanceof Error ? error.message : String(error),
   });
   return null;
-}
-
-function sameViewport(a: ViewportMeta, b: ViewportMeta): boolean {
-  return (
-    a.centerX === b.centerX &&
-    a.centerY === b.centerY &&
-    a.zoom === b.zoom &&
-    a.rotation === b.rotation &&
-    a.canvasW === b.canvasW &&
-    a.canvasH === b.canvasH &&
-    a.devicePixelRatio === b.devicePixelRatio
-  );
 }
 
 function reducer(state: EngineState, action: EngineAction): EngineState {
@@ -99,6 +94,17 @@ export function EngineProvider({ children }: PropsWithChildren) {
   // ack merge/change-detection below reads this ref instead of `state.render`.
   const latestRenderRef = useRef<EngineRenderState | null>(null);
 
+  // Subscribers notified whenever latestRenderRef.current is replaced —
+  // i.e. on every commit() (full renders and visible ack merges) and on the
+  // initial load. No-change acks never touch the ref, so they notify nobody.
+  const listenersRef = useRef(new Set<() => void>());
+
+  const notifyRenderListeners = useCallback(() => {
+    for (const listener of listenersRef.current) {
+      listener();
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     let loadedHandle: EngineHandle | null = null;
@@ -114,6 +120,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
         // RenderFrame always returns a full result (uiMeta included).
         const render = handle.renderFrame() as EngineRenderState;
         latestRenderRef.current = render;
+        notifyRenderListeners();
         dispatch({ type: "ready", handle, render });
       })
       .catch((error: unknown) => {
@@ -131,7 +138,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
       loadedHandle?.dispose();
       loadedHandle = null;
     };
-  }, []);
+  }, [notifyRenderListeners]);
 
   // Stable ref that always points to the latest handle.
   // Command handlers use this ref so their function identity doesn't change on
@@ -159,6 +166,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
   const handlers = useMemo(() => {
     const commit = (render: EngineRenderState) => {
       latestRenderRef.current = render;
+      notifyRenderListeners();
       dispatch({ type: "render", render });
       return render;
     };
@@ -332,9 +340,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
         } catch (error) {
           return surfaceEngineError("Project import failed", error);
         }
-        latestRenderRef.current = result;
-        dispatch({ type: "render", render: result });
-        return result;
+        return commit(result);
       },
       undo() {
         return run(CommandID.Undo);
@@ -346,21 +352,48 @@ export function EngineProvider({ children }: PropsWithChildren) {
         window.location.reload();
       },
     };
-  }, []); // Intentionally empty — functions use handleRef, not closed-over state
+    // notifyRenderListeners is identity-stable (useCallback with []); all other
+    // state is reached through refs, so this memo is created exactly once.
+  }, [notifyRenderListeners]);
+
+  // Identity-stable external-store surface (never changes across renders).
+  const store = useMemo<EngineStore>(
+    () => ({
+      subscribe(listener: () => void) {
+        listenersRef.current.add(listener);
+        return () => {
+          listenersRef.current.delete(listener);
+        };
+      },
+      getSnapshot() {
+        return latestRenderRef.current;
+      },
+    }),
+    [],
+  );
 
   const value = useMemo<EngineContextValue>(
     () => ({
       ...handlers,
+      // TODO(B6): drop this spread and the Partial<EngineStore> extends in
+      // types.ts — EngineStoreContext (useEngineStore/useEngineRender) becomes
+      // the only path to subscribe/getSnapshot. Reaching them via useEngine()
+      // still re-renders per frame, defeating the subscription layer.
+      ...store,
       status: state.status,
       handle: state.handle,
       render: state.render,
       error: state.error,
       ready: state.handle ? Promise.resolve(state.handle) : null,
     }),
-    [handlers, state.error, state.handle, state.render, state.status],
+    [handlers, store, state.error, state.handle, state.render, state.status],
   );
 
-  return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;
+  return (
+    <EngineContext.Provider value={value}>
+      <EngineStoreContext.Provider value={store}>{children}</EngineStoreContext.Provider>
+    </EngineContext.Provider>
+  );
 }
 
 export function useEngine() {
@@ -370,4 +403,19 @@ export function useEngine() {
   }
 
   return context;
+}
+
+/**
+ * Access the identity-stable engine store (subscribe/getSnapshot) without
+ * subscribing to the full EngineContext. Components that only need a slice of
+ * the render state should use the selector hooks in use-engine-render.ts,
+ * which are built on this store and skip re-renders for unrelated changes.
+ */
+export function useEngineStore(): EngineStore {
+  const store = useContext(EngineStoreContext);
+  if (!store) {
+    throw new Error("useEngineStore must be used inside <EngineProvider>.");
+  }
+
+  return store;
 }

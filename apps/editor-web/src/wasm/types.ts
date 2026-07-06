@@ -41,7 +41,24 @@ export interface EngineHandle {
   dispose(): void;
 }
 
-export interface EngineContextValue {
+/**
+ * Minimal external-store surface over the engine's latest render state.
+ * `subscribe` registers a listener invoked whenever a new render state is
+ * committed (full renders AND hot-path ack merges that changed something);
+ * `getSnapshot` returns the latest merged render state synchronously.
+ * Designed for React's `useSyncExternalStore` (see use-engine-render.ts).
+ */
+export interface EngineStore {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): EngineRenderState | null;
+}
+
+/**
+ * The store methods are optional on the context value only so existing test
+ * fakes stay valid during the S.7-B migration; EngineProvider always supplies
+ * them. Prefer the selector hooks in use-engine-render.ts over reading these.
+ */
+export interface EngineContextValue extends Partial<EngineStore> {
   status: "idle" | "loading" | "ready" | "error";
   handle: EngineHandle | null;
   render: EngineRenderState | null;
