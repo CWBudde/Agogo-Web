@@ -19,6 +19,9 @@ func DeletePath(paths []NamedPath, activePathIdx, index int) ([]NamedPath, int, 
 		return paths, activePathIdx, fmt.Errorf("path index %d out of range", index)
 	}
 	paths = append(paths[:index], paths[index+1:]...)
+	if index < activePathIdx {
+		activePathIdx--
+	}
 	if activePathIdx >= len(paths) {
 		activePathIdx = len(paths) - 1
 	}

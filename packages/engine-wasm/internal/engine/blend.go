@@ -165,6 +165,11 @@ func blendSoftLight(backdrop, source float64) float64 {
 }
 
 func blendColorDodge(backdrop, source float64) float64 {
+	// W3C/Photoshop spec: if Cb==0 -> 0; else if Cs==1 -> 1; else min(1, Cb/(1-Cs)).
+	// The backdrop check must come first: black stays black even under a white source.
+	if backdrop <= 0 {
+		return 0
+	}
 	if source >= 1 {
 		return 1
 	}
@@ -172,6 +177,11 @@ func blendColorDodge(backdrop, source float64) float64 {
 }
 
 func blendColorBurn(backdrop, source float64) float64 {
+	// W3C/Photoshop spec: if Cb==1 -> 1; else if Cs==0 -> 0; else 1-min(1, (1-Cb)/Cs).
+	// The backdrop check must come first: white stays white even under a black source.
+	if backdrop >= 1 {
+		return 1
+	}
 	if source <= 0 {
 		return 0
 	}
@@ -246,13 +256,28 @@ func clipColor(color [3]float64) [3]float64 {
 	maxComponent := math.Max(color[0], math.Max(color[1], color[2]))
 	lum := luminosity(color)
 	if minComponent < 0 {
-		for index := range color {
-			color[index] = lum + ((color[index]-lum)*lum)/(lum-minComponent)
+		if denom := lum - minComponent; denom > 0 {
+			for index := range color {
+				color[index] = lum + ((color[index]-lum)*lum)/denom
+			}
+		} else {
+			// Degenerate: lum rounded onto the minimum (near-equal negative
+			// components), so the spec scale factor is 0/0. Flatten to lum;
+			// the clamp below maps it into range.
+			for index := range color {
+				color[index] = lum
+			}
 		}
 	}
 	if maxComponent > 1 {
-		for index := range color {
-			color[index] = lum + ((color[index]-lum)*(1-lum))/(maxComponent-lum)
+		if denom := maxComponent - lum; denom > 0 {
+			for index := range color {
+				color[index] = lum + ((color[index]-lum)*(1-lum))/denom
+			}
+		} else {
+			for index := range color {
+				color[index] = lum
+			}
 		}
 	}
 	for index := range color {

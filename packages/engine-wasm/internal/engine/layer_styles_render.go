@@ -102,17 +102,31 @@ func buildDocumentSurfaceFromRaster(docW, docH int, bounds LayerBounds, src []by
 	return surface, nil
 }
 
+// applyLayerStylesToSurface assembles the self-contained styled-layer
+// surface in Photoshop z-order: drop shadow and outer glow first (beneath
+// the layer's own pixels), then the layer content, then the remaining
+// effects above it. The result depends only on baseSurface/sourceSurface,
+// never on the document backdrop, so incremental compositing stays valid.
 func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle) []byte {
-	finalSurface := append([]byte(nil), baseSurface...)
+	finalSurface := make([]byte, len(baseSurface))
+	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, true)
+	compositeDocumentSurface(finalSurface, baseSurface, BlendModeNormal, 1, nil)
+	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
+	return finalSurface
+}
+
+func applyLayerStyleEffectsForPlacement(dst, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle, behindContent bool) {
 	for _, kind := range orderedLayerStyleKinds() {
+		if layerStyleKindRendersBehindContent(kind) != behindContent {
+			continue
+		}
 		for _, style := range styles {
 			if !style.Enabled || LayerStyleKind(style.Kind) != kind {
 				continue
 			}
-			applyLayerStyleEffect(finalSurface, sourceSurface, docW, docH, style)
+			applyLayerStyleEffect(dst, sourceSurface, docW, docH, style)
 		}
 	}
-	return finalSurface
 }
 
 func hasSupportedEnabledLayerStyles(styles []DecodedLayerStyle) bool {

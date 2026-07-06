@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 )
 
@@ -24,6 +25,8 @@ func abs8diff(a, b byte) byte {
 
 // applyFilteredWithMask blends per-pixel results using a selection mask.
 // fn returns the new R, G, B for a pixel at flat index i (stride 4).
+// The alpha channel is left untouched — use applyFilteredRGBAWithMask for
+// filters that also process alpha.
 func applyFilteredWithMask(pixels []byte, selMask []byte, fn func(i int) (byte, byte, byte)) {
 	for i := 0; i < len(pixels); i += 4 {
 		nr, ng, nb := fn(i)
@@ -46,6 +49,83 @@ func applyFilteredWithMask(pixels []byte, selMask []byte, fn func(i int) (byte, 
 	}
 }
 
+// applyFilteredRGBAWithMask blends per-pixel results (all four channels,
+// including alpha) using a selection mask. fn returns the new straight-alpha
+// R, G, B, A for a pixel at flat index i (stride 4).
+func applyFilteredRGBAWithMask(pixels []byte, selMask []byte, fn func(i int) (byte, byte, byte, byte)) {
+	for i := 0; i < len(pixels); i += 4 {
+		nr, ng, nb, na := fn(i)
+		idx := i / 4
+		if selMask != nil && idx < len(selMask) {
+			a := selMask[idx]
+			if a == 0 {
+				continue
+			}
+			if a < 255 {
+				pixels[i] = blendByte(pixels[i], nr, a)
+				pixels[i+1] = blendByte(pixels[i+1], ng, a)
+				pixels[i+2] = blendByte(pixels[i+2], nb, a)
+				pixels[i+3] = blendByte(pixels[i+3], na, a)
+				continue
+			}
+		}
+		pixels[i] = nr
+		pixels[i+1] = ng
+		pixels[i+2] = nb
+		pixels[i+3] = na
+	}
+}
+
+// premultiplyRGBA converts a straight-alpha RGBA8 buffer to premultiplied
+// alpha in place. Filters that average or resample colour across pixels must
+// operate on premultiplied data so fully/partially transparent pixels cannot
+// bleed their (meaningless) RGB into visible pixels.
+func premultiplyRGBA(buf []byte) {
+	for i := 0; i < len(buf)-3; i += 4 {
+		a := uint32(buf[i+3])
+		switch a {
+		case 255:
+			// opaque: premultiplied == straight
+		case 0:
+			buf[i], buf[i+1], buf[i+2] = 0, 0, 0
+		default:
+			buf[i] = byte((uint32(buf[i])*a + 127) / 255)
+			buf[i+1] = byte((uint32(buf[i+1])*a + 127) / 255)
+			buf[i+2] = byte((uint32(buf[i+2])*a + 127) / 255)
+		}
+	}
+}
+
+// unpremultiplyRGBA converts a premultiplied RGBA8 buffer back to straight
+// alpha in place.
+func unpremultiplyRGBA(buf []byte) {
+	for i := 0; i < len(buf)-3; i += 4 {
+		a := uint32(buf[i+3])
+		if a == 255 || a == 0 {
+			continue
+		}
+		r := (uint32(buf[i])*255 + a/2) / a
+		g := (uint32(buf[i+1])*255 + a/2) / a
+		b := (uint32(buf[i+2])*255 + a/2) / a
+		buf[i] = byte(min(r, 255))
+		buf[i+1] = byte(min(g, 255))
+		buf[i+2] = byte(min(b, 255))
+	}
+}
+
+// straightRGBAFromPremul converts premultiplied float channel values (on a
+// 0..255 scale) to straight-alpha RGBA bytes.
+func straightRGBAFromPremul(r, g, b, a float64) (byte, byte, byte, byte) {
+	if a <= 0 {
+		return 0, 0, 0, 0
+	}
+	if a > 255 {
+		a = 255
+	}
+	inv := 255.0 / a
+	return clamp8(r * inv), clamp8(g * inv), clamp8(b * inv), clamp8(a)
+}
+
 // clampedSample returns the pixel value at (x,y) channel c with edge clamping.
 func clampedSample(buf []byte, x, y, c, w, h int) byte {
 	if x < 0 {
@@ -61,7 +141,12 @@ func clampedSample(buf []byte, x, y, c, w, h int) byte {
 	return buf[(y*w+x)*4+c]
 }
 
-func bilinearSample(orig []byte, sx, sy float64, w, h int) (byte, byte, byte) {
+// bilinearSampleRGBA samples all four channels of buf at (sx, sy) with edge
+// clamping and returns the interpolated values as floats on a 0..255 scale.
+// The buffer's alpha convention (straight or premultiplied) is preserved;
+// resampling filters should pass a premultiplied buffer and convert the
+// result back via straightRGBAFromPremul.
+func bilinearSampleRGBA(buf []byte, sx, sy float64, w, h int) (r, g, b, a float64) {
 	x0 := int(math.Floor(sx))
 	y0 := int(math.Floor(sy))
 	fx := sx - float64(x0)
@@ -72,30 +157,31 @@ func bilinearSample(orig []byte, sx, sy float64, w, h int) (byte, byte, byte) {
 	y0c := max(0, min(y0, h-1))
 	y1c := max(0, min(y0+1, h-1))
 
-	var r, g, b float64
-	for c := range 3 {
-		v00 := float64(orig[(y0c*w+x0c)*4+c])
-		v10 := float64(orig[(y0c*w+x1c)*4+c])
-		v01 := float64(orig[(y1c*w+x0c)*4+c])
-		v11 := float64(orig[(y1c*w+x1c)*4+c])
-		v := v00*(1-fx)*(1-fy) + v10*fx*(1-fy) + v01*(1-fx)*fy + v11*fx*fy
-		switch c {
-		case 0:
-			r = v
-		case 1:
-			g = v
-		case 2:
-			b = v
-		}
+	i00 := (y0c*w + x0c) * 4
+	i10 := (y0c*w + x1c) * 4
+	i01 := (y1c*w + x0c) * 4
+	i11 := (y1c*w + x1c) * 4
+
+	w00 := (1 - fx) * (1 - fy)
+	w10 := fx * (1 - fy)
+	w01 := (1 - fx) * fy
+	w11 := fx * fy
+
+	var out [4]float64
+	for c := range 4 {
+		out[c] = float64(buf[i00+c])*w00 + float64(buf[i10+c])*w10 +
+			float64(buf[i01+c])*w01 + float64(buf[i11+c])*w11
 	}
-	return clamp8(r), clamp8(g), clamp8(b)
+	return out[0], out[1], out[2], out[3]
 }
 
-// marshalFilterParams marshals v to JSON, panicking on failure (only used for internal filter params).
-func marshalFilterParams(v any) json.RawMessage {
+// marshalFilterParams marshals internal filter params to JSON. It returns an
+// error instead of panicking so unmarshalable values (e.g. NaN floats) cannot
+// crash the engine.
+func marshalFilterParams(v any) (json.RawMessage, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("marshal filter params: %w", err)
 	}
-	return b
+	return b, nil
 }

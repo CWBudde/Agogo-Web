@@ -193,7 +193,7 @@ export interface RenderResult {
   /** Absent on hot-path acks (no pixels are rendered for them). */
   dirtyRects?: DirtyRect[];
   /** Absent on hot-path acks. */
-  pixelFormat?: "rgba8-premultiplied";
+  pixelFormat?: "rgba8-straight";
   bufferPtr: number;
   bufferLen: number;
   /**

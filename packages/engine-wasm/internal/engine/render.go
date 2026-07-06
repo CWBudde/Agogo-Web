@@ -100,7 +100,7 @@ func (inst *instance) render() RenderResult {
 		FrameID:       raw.FrameID,
 		Viewport:      raw.Viewport,
 		DirtyRects:    dirtyRects,
-		PixelFormat:   "rgba8-premultiplied",
+		PixelFormat:   "rgba8-straight",
 		BufferPtr:     raw.BufferPtr,
 		BufferLen:     raw.BufferLen,
 		UIMeta:        &uiMeta,

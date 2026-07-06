@@ -271,9 +271,25 @@ func alphaRadius(value float64) int {
 	return int(math.Round(math.Max(0, value)))
 }
 
+// dropShadowOffset converts a Photoshop-style light angle into a shadow
+// offset in screen coordinates (y grows downward).
+//
+// Photoshop convention: `angle` is the direction the light comes FROM,
+// measured counterclockwise from the positive x-axis. The light vector for
+// angle a is (cos a, -sin a) in screen coords, and the shadow falls in the
+// opposite direction, so the offset is (-cos(a), +sin(a)) * distance. At the
+// default global light of 120° the shadow falls down-right (dx>0, dy>0),
+// away from an upper-left light.
 func dropShadowOffset(angle, distance float64) (int, int) {
 	radians := angle * math.Pi / 180
-	dx := int(math.Round(math.Cos(radians) * distance))
-	dy := int(math.Round(-math.Sin(radians) * distance))
+	dx := int(math.Round(-math.Cos(radians) * distance))
+	dy := int(math.Round(math.Sin(radians) * distance))
 	return dx, dy
+}
+
+// layerStyleKindRendersBehindContent reports whether an effect belongs to
+// the group Photoshop composites beneath the layer's own pixels (drop
+// shadow and outer glow); all remaining effects render above the content.
+func layerStyleKindRendersBehindContent(kind LayerStyleKind) bool {
+	return kind == LayerStyleKindDropShadow || kind == LayerStyleKindOuterGlow
 }

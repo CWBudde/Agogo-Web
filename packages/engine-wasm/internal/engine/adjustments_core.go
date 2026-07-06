@@ -161,15 +161,7 @@ func levelsAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error
 	if err != nil {
 		return nil, err
 	}
-	if cfg.InputWhite <= 0 {
-		cfg.InputWhite = 255
-	}
-	if cfg.Gamma <= 0 {
-		cfg.Gamma = 1
-	}
-	if cfg.OutputWhite <= 0 && cfg.OutputBlack == 0 {
-		cfg.OutputWhite = 255
-	}
+	cfg = applyLevelsDefaults(cfg)
 	channel := normalizeChannelSelector(cfg.Channel)
 	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
 		if channel == "" || channel == "rgb" || channel == "composite" {
@@ -299,12 +291,15 @@ func exposureAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, err
 	if cfg.Gamma <= 0 {
 		cfg.Gamma = 1
 	}
+	// Photoshop Exposure gamma-correction convention: slider value G maps
+	// v -> v^(1/G), so G > 1 brightens midtones and G < 1 darkens them.
+	invGamma := 1 / cfg.Gamma
 	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
 		rf, gf, bf := rgbBytesToUnit(r, g, b)
 		factor := math.Pow(2, cfg.Exposure)
-		rf = clamp01(math.Pow(clamp01((rf+cfg.Offset)*factor), cfg.Gamma))
-		gf = clamp01(math.Pow(clamp01((gf+cfg.Offset)*factor), cfg.Gamma))
-		bf = clamp01(math.Pow(clamp01((bf+cfg.Offset)*factor), cfg.Gamma))
+		rf = clamp01(math.Pow(clamp01((rf+cfg.Offset)*factor), invGamma))
+		gf = clamp01(math.Pow(clamp01((gf+cfg.Offset)*factor), invGamma))
+		bf = clamp01(math.Pow(clamp01((bf+cfg.Offset)*factor), invGamma))
 		rr, gg, bb := unitToRGBBytes(rf, gf, bf)
 		return rr, gg, bb, a, nil
 	}, nil
@@ -603,14 +598,9 @@ func resolveLevelsParamsForSurface(surface []byte, docW, docH int, layer *Adjust
 	if !ok {
 		return layer.Params, nil
 	}
+	cfg = applyLevelsDefaults(cfg)
 	cfg.InputBlack = float64(black)
 	cfg.InputWhite = float64(white)
-	if cfg.Gamma <= 0 {
-		cfg.Gamma = 1
-	}
-	if cfg.OutputWhite <= 0 && cfg.OutputBlack == 0 {
-		cfg.OutputWhite = 255
-	}
 	resolved, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
@@ -780,6 +770,24 @@ func autoLevelsRange(surface []byte, docW, docH int, mask *LayerMask, clipAlpha 
 	return uint8(black), uint8(white), true
 }
 
+// applyLevelsDefaults fills omitted (JSON zero-value) Levels parameters with
+// Photoshop defaults: inputBlack=0, inputWhite=255, gamma=1, outputBlack=0,
+// outputWhite=255. The payload fields are plain float64s, so a missing field
+// decodes as 0 and cannot be distinguished from an explicit 0; any
+// non-positive inputWhite/gamma/outputWhite is therefore treated as "not set".
+func applyLevelsDefaults(cfg levelsParams) levelsParams {
+	if cfg.InputWhite <= 0 {
+		cfg.InputWhite = 255
+	}
+	if cfg.Gamma <= 0 {
+		cfg.Gamma = 1
+	}
+	if cfg.OutputWhite <= 0 {
+		cfg.OutputWhite = 255
+	}
+	return cfg
+}
+
 func applyLevelsToRGB(r, g, b uint8, cfg levelsParams) (uint8, uint8, uint8) {
 	return applyLevelsToValue(r, cfg), applyLevelsToValue(g, cfg), applyLevelsToValue(b, cfg)
 }
@@ -799,7 +807,9 @@ func applyLevelsToValue(value uint8, cfg levelsParams) uint8 {
 
 	normalized := (float64(value) - float64(inputBlack)) / float64(inputWhite-inputBlack)
 	normalized = clamp01(normalized)
-	normalized = math.Pow(normalized, gamma)
+	// Photoshop Levels gamma convention: slider value G maps v -> v^(1/G),
+	// so G > 1 brightens midtones and G < 1 darkens them.
+	normalized = math.Pow(normalized, 1/gamma)
 	mapped := float64(outputBlack) + normalized*float64(int(outputWhite)-int(outputBlack))
 	return clampByte(mapped)
 }

@@ -444,6 +444,8 @@ func renderCustomGradient(buffer []byte, width, height int, p ApplyGradientPaylo
 			relY := float64(y) - p.StartY
 			var t float64
 			switch p.Type {
+			case GradientTypeRadial:
+				t = math.Hypot(relX, relY) / length
 			case GradientTypeAngle:
 				theta := math.Atan2(relY, relX)
 				t = (theta + math.Pi) / (2 * math.Pi)

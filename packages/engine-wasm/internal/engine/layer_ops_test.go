@@ -500,7 +500,7 @@ func TestMergeDown_AllowsStyledLayers(t *testing.T) {
 		Styles: []LayerStylePayload{{
 			Kind:    LayerStyleKindDropShadow,
 			Enabled: true,
-			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":180,"size":0}`),
 		}},
 	})); err != nil {
 		t.Fatalf("set style stack: %v", err)
@@ -567,7 +567,7 @@ func TestFlattenImage_AllowsStyledLayers(t *testing.T) {
 		Styles: []LayerStylePayload{{
 			Kind:    LayerStyleKindDropShadow,
 			Enabled: true,
-			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+			Params:  mustRawJSON(t, `{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":180,"size":0}`),
 		}},
 	})); err != nil {
 		t.Fatalf("set style stack: %v", err)
@@ -1211,7 +1211,7 @@ func TestClipToBelowIgnoresBaseLayerEffectsInClipMask(t *testing.T) {
 		{
 			Kind:    string(LayerStyleKindDropShadow),
 			Enabled: true,
-			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"angle":0,"distance":1,"size":0}`),
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"angle":180,"distance":1,"size":0}`),
 		},
 	})
 	clipped := NewPixelLayer("Clipped", LayerBounds{X: 1, Y: 0, W: 1, H: 1}, []byte{

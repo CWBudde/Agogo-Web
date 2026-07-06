@@ -127,6 +127,105 @@ func TestDecodeLayerStyles_BevelEmbossInvalidEnumsFallbackToDefaults(t *testing.
 	}
 }
 
+func TestDropShadowOffset_FollowsPhotoshopGlobalLightConvention(t *testing.T) {
+	// Photoshop convention: the angle is the direction the light comes FROM,
+	// measured counterclockwise from the positive x-axis. The shadow falls
+	// away from the light, so in screen coordinates (y grows downward) the
+	// offset is (-cos(angle)*distance, +sin(angle)*distance).
+	tests := []struct {
+		name     string
+		angle    float64
+		distance float64
+		wantDX   int
+		wantDY   int
+	}{
+		{"default 120deg upper-left light casts shadow down-right", 120, 10, 5, 9},
+		{"0deg light from the right casts shadow left", 0, 10, -10, 0},
+		{"90deg light from above casts shadow straight down", 90, 10, 0, 10},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dx, dy := dropShadowOffset(test.angle, test.distance)
+			if dx != test.wantDX || dy != test.wantDY {
+				t.Fatalf("dropShadowOffset(%v, %v) = (%d, %d), want (%d, %d)",
+					test.angle, test.distance, dx, dy, test.wantDX, test.wantDY)
+			}
+		})
+	}
+}
+
+func TestDropShadowOffset_DefaultAngleFallsDownRight(t *testing.T) {
+	dx, dy := dropShadowOffset(120, 8)
+	if dx <= 0 || dy <= 0 {
+		t.Fatalf("dropShadowOffset(120, 8) = (%d, %d), want dx>0 and dy>0 (shadow away from an upper-left light)", dx, dy)
+	}
+}
+
+func TestRenderStyledLayerSurface_DropShadowRendersBehindLayerContent(t *testing.T) {
+	doc := &Document{
+		Width:      3,
+		Height:     3,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 1, Y: 1, W: 1, H: 1}, []byte{
+		255, 0, 0, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{{
+		Kind:    string(LayerStyleKindDropShadow),
+		Enabled: true,
+		Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":0,"angle":120,"size":0}`),
+	}})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 1, 1); got != ([4]uint8{255, 0, 0, 255}) {
+		t.Fatalf("content pixel = %v, want opaque red layer content above the drop shadow", got)
+	}
+}
+
+func TestRenderStyledLayerSurface_OuterGlowRendersBehindLayerContentAndStroke(t *testing.T) {
+	doc := &Document{
+		Width:      5,
+		Height:     5,
+		Background: parseBackground("transparent"),
+		LayerRoot:  NewGroupLayer("Root"),
+	}
+
+	layer := NewPixelLayer("Styled", LayerBounds{X: 2, Y: 2, W: 1, H: 1}, []byte{
+		255, 255, 255, 255,
+	})
+	layer.SetStyleStack([]LayerStyle{
+		{
+			Kind:    string(LayerStyleKindStroke),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"size":1,"position":"outside","fillType":"color","blendMode":"normal","color":[0,255,0,255],"opacity":1}`),
+		},
+		{
+			Kind:    string(LayerStyleKindOuterGlow),
+			Enabled: true,
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[255,128,0,255],"opacity":1,"spread":1,"size":1}`),
+		},
+	})
+
+	surface, err := doc.renderLayerToSurface(layer)
+	if err != nil {
+		t.Fatalf("render styled layer: %v", err)
+	}
+
+	if got := rgbaAt(surface, doc.Width, 1, 2); got != ([4]uint8{0, 255, 0, 255}) {
+		t.Fatalf("stroke pixel = %v, want pure opaque green stroke above the outer glow", got)
+	}
+	if got := rgbaAt(surface, doc.Width, 0, 2); got[3] == 0 || got[0] == 0 {
+		t.Fatalf("glow pixel = %v, want visible warm glow outside the stroke", got)
+	}
+}
+
 func TestRenderStyledLayerSurface_UsesFillOpacityForBaseButNotEffects(t *testing.T) {
 	doc := &Document{Width: 2, Height: 1, LayerRoot: NewGroupLayer("Root")}
 	layer := NewPixelLayer("Styled", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, []byte{
@@ -142,7 +241,7 @@ func TestRenderStyledLayerSurface_UsesFillOpacityForBaseButNotEffects(t *testing
 		{
 			Kind:    string(LayerStyleKindDropShadow),
 			Enabled: true,
-			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"angle":0,"distance":1,"size":0}`),
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"angle":180,"distance":1,"size":0}`),
 		},
 	})
 
@@ -174,7 +273,7 @@ func TestRenderStyledLayerSurface_AppliesEffectsInStableOrder(t *testing.T) {
 		{
 			Kind:    string(LayerStyleKindDropShadow),
 			Enabled: true,
-			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":2,"angle":180,"size":0}`),
 		},
 		{
 			Kind:    string(LayerStyleKindColorOverlay),
@@ -199,8 +298,11 @@ func TestRenderStyledLayerSurface_AppliesEffectsInStableOrder(t *testing.T) {
 	if got := rgbaAt(surface, doc.Width, 2, 3); got != ([4]uint8{0, 255, 0, 255}) {
 		t.Fatalf("stroke-only pixel = %v, want opaque green stroke result", got)
 	}
-	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 0, 255, 255}) {
-		t.Fatalf("overlap pixel = %v, want outer-effect blue to win over stroke on stable grouped order", got)
+	if got := rgbaAt(surface, doc.Width, 5, 3); got != ([4]uint8{0, 0, 255, 255}) {
+		t.Fatalf("shadow pixel = %v, want opaque blue drop shadow clear of the stroke", got)
+	}
+	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 255, 0, 255}) {
+		t.Fatalf("overlap pixel = %v, want stroke to render above the drop shadow", got)
 	}
 }
 
@@ -287,7 +389,7 @@ func TestRenderStyledLayerSurface_ComposesPartialOverlapInGroupedOrder(t *testin
 		{
 			Kind:    string(LayerStyleKindDropShadow),
 			Enabled: true,
-			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":0.5,"distance":1,"angle":0,"size":0}`),
+			Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":0.5,"distance":1,"angle":180,"size":0}`),
 		},
 	})
 
@@ -296,8 +398,8 @@ func TestRenderStyledLayerSurface_ComposesPartialOverlapInGroupedOrder(t *testin
 		t.Fatalf("render styled layer: %v", err)
 	}
 
-	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 85, 170, 192}) {
-		t.Fatalf("overlap pixel = %v, want exact blue-over-green partial composite in grouped order", got)
+	if got := rgbaAt(surface, doc.Width, 4, 3); got != ([4]uint8{0, 170, 85, 192}) {
+		t.Fatalf("overlap pixel = %v, want exact green-stroke-over-blue-shadow partial composite", got)
 	}
 }
 
@@ -367,8 +469,9 @@ func TestRenderStyledLayerSurface_RendersSupportedEffectCatalog(t *testing.T) {
 				Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,255,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
 			},
 			assert: func(t *testing.T, surface []byte, width int) {
-				if got := rgbaAt(surface, width, 6, 4); got != ([4]uint8{0, 0, 255, 255}) {
-					t.Fatalf("shadow pixel = %v, want opaque blue drop shadow", got)
+				// Angle 0 = light from the right, so the shadow falls left.
+				if got := rgbaAt(surface, width, 2, 4); got != ([4]uint8{0, 0, 255, 255}) {
+					t.Fatalf("shadow pixel = %v, want opaque blue drop shadow left of the layer", got)
 				}
 			},
 		},
@@ -380,8 +483,10 @@ func TestRenderStyledLayerSurface_RendersSupportedEffectCatalog(t *testing.T) {
 				Params:  jsonRawMessage(`{"blendMode":"normal","color":[0,0,0,255],"opacity":1,"distance":1,"angle":0,"size":0}`),
 			},
 			assert: func(t *testing.T, surface []byte, width int) {
-				if got := rgbaAt(surface, width, 3, 4); got != ([4]uint8{0, 0, 0, 255}) {
-					t.Fatalf("inner-shadow pixel = %v, want opaque black interior edge", got)
+				// Angle 0 = light from the right, so the inner shadow hugs
+				// the right interior edge (the edge facing the light).
+				if got := rgbaAt(surface, width, 5, 4); got != ([4]uint8{0, 0, 0, 255}) {
+					t.Fatalf("inner-shadow pixel = %v, want opaque black interior edge facing the light", got)
 				}
 			},
 		},
@@ -419,10 +524,12 @@ func TestRenderStyledLayerSurface_RendersSupportedEffectCatalog(t *testing.T) {
 				Params:  jsonRawMessage(`{"style":"inner-bevel","technique":"smooth","depth":1,"direction":"up","size":1,"soften":0,"angle":0,"altitude":30,"highlightBlendMode":"normal","highlightColor":[255,0,0,255],"highlightOpacity":1,"shadowBlendMode":"normal","shadowColor":[0,0,255,255],"shadowOpacity":1}`),
 			},
 			assert: func(t *testing.T, surface []byte, width int) {
+				// Angle 0 = light from the right: highlight on the right
+				// edge, shadow on the left edge.
 				left := rgbaAt(surface, width, 3, 4)
 				right := rgbaAt(surface, width, 5, 4)
-				if left[0] == 0 || right[2] == 0 {
-					t.Fatalf("bevel pixels = left %v right %v, want colored highlight and shadow lobes", left, right)
+				if right[0] == 0 || left[2] == 0 {
+					t.Fatalf("bevel pixels = left %v right %v, want red highlight facing the light and blue shadow opposite", left, right)
 				}
 			},
 		},
@@ -544,8 +651,10 @@ func TestRenderStyledLayerSurface_DefaultsMalformedStylesInsteadOfFailing(t *tes
 	if err != nil {
 		t.Fatalf("renderLayerToSurface should fail safe, got %v", err)
 	}
-	if got := rgbaAt(surface, doc.Width, 0, 0); got != ([4]uint8{64, 64, 64, 255}) {
-		t.Fatalf("malformed style should fall back to default drop shadow, got %v", got)
+	// The default drop shadow (distance 0) sits directly beneath the opaque
+	// white content, so the content pixel must stay white.
+	if got := rgbaAt(surface, doc.Width, 0, 0); got != ([4]uint8{255, 255, 255, 255}) {
+		t.Fatalf("malformed style should fall back to default drop shadow behind the content, got %v", got)
 	}
 }
 

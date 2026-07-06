@@ -1308,3 +1308,272 @@ func TestTransformAgain_DiscreteRotate(t *testing.T) {
 		t.Errorf("after again: want 4×6, got %d×%d", b.W, b.H)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Mask transformation regression tests (S.5): transforms must carry the layer
+// mask (raster + vector) along with the pixels.
+// ---------------------------------------------------------------------------
+
+// makeDocMask builds a doc-sized single-channel mask with 255 inside the given
+// rect and 0 elsewhere.
+func makeDocMask(docW, docH int, rect LayerBounds) *LayerMask {
+	data := make([]byte, docW*docH)
+	for y := rect.Y; y < rect.Y+rect.H; y++ {
+		for x := rect.X; x < rect.X+rect.W; x++ {
+			if x >= 0 && x < docW && y >= 0 && y < docH {
+				data[y*docW+x] = 255
+			}
+		}
+	}
+	return &LayerMask{Enabled: true, Width: docW, Height: docH, Data: data}
+}
+
+func TestApplyDiscreteTransformToLayer_FlipH_RemapsRasterMask(t *testing.T) {
+	layer := NewPixelLayer("L", LayerBounds{X: 2, Y: 3, W: 4, H: 2}, makeSolidPixels(4, 2, 10, 20, 30, 255))
+	// Mask covers only the layer's local (0,0) pixel = doc (2,3).
+	layer.SetMask(makeDocMask(10, 10, LayerBounds{X: 2, Y: 3, W: 1, H: 1}))
+
+	applyDiscreteTransformToLayer(layer, "flipH")
+
+	mask := layer.Mask()
+	if mask == nil {
+		t.Fatal("mask lost after flipH")
+	}
+	// Local (0,0) flips to local (3,0) = doc (5,3).
+	if got := mask.Data[3*10+5]; got != 255 {
+		t.Errorf("mask at flipped position (5,3) = %d, want 255", got)
+	}
+	// The vacated position takes the flipped value from local (3,0), which was 0.
+	if got := mask.Data[3*10+2]; got != 0 {
+		t.Errorf("mask at original position (2,3) = %d, want 0", got)
+	}
+}
+
+func TestApplyDiscreteTransformToLayer_Rotate90CW_RemapsRasterMask(t *testing.T) {
+	layer := NewPixelLayer("L", LayerBounds{X: 10, Y: 20, W: 4, H: 2}, makeSolidPixels(4, 2, 10, 20, 30, 255))
+	// Mask covers only local (0,0) = doc (10,20).
+	layer.SetMask(makeDocMask(40, 40, LayerBounds{X: 10, Y: 20, W: 1, H: 1}))
+
+	applyDiscreteTransformToLayer(layer, "rotate90cw")
+
+	// New bounds: centre (12,21) preserved → (11,19,2,4).
+	if layer.Bounds.X != 11 || layer.Bounds.Y != 19 || layer.Bounds.W != 2 || layer.Bounds.H != 4 {
+		t.Fatalf("rotate90cw bounds = %+v, want (11,19,2,4)", layer.Bounds)
+	}
+	mask := layer.Mask()
+	if mask == nil {
+		t.Fatal("mask lost after rotate90cw")
+	}
+	// Local (0,0) rotates to new local (h-1-0, 0) = (1,0) → doc (12,19).
+	if got := mask.Data[19*40+12]; got != 255 {
+		t.Errorf("mask at rotated position (12,19) = %d, want 255", got)
+	}
+	// Old position (10,20) is inside the new bounds region? New region covers
+	// x 11..12, y 19..22 — (10,20) is outside it and retains its original value.
+	// The rest of the new region must be 0.
+	if got := mask.Data[20*40+11]; got != 0 {
+		t.Errorf("mask at (11,20) = %d, want 0", got)
+	}
+}
+
+func TestApplyDiscreteTransformToLayer_FlipH_RemapsVectorMask(t *testing.T) {
+	layer := NewPixelLayer("L", LayerBounds{X: 2, Y: 3, W: 4, H: 2}, makeSolidPixels(4, 2, 10, 20, 30, 255))
+	layer.SetVectorMask(&Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{{X: 2, Y: 3, InX: 2, InY: 3, OutX: 2.5, OutY: 3}},
+	}}})
+
+	applyDiscreteTransformToLayer(layer, "flipH")
+
+	vm := layer.VectorMask()
+	if vm == nil || len(vm.Subpaths) == 0 || len(vm.Subpaths[0].Points) == 0 {
+		t.Fatal("vector mask lost after flipH")
+	}
+	pt := vm.Subpaths[0].Points[0]
+	// flipH about the layer region: x' = 2*2 + 4 - x.
+	if math.Abs(pt.X-6) > 1e-9 || math.Abs(pt.Y-3) > 1e-9 {
+		t.Errorf("point = (%f,%f), want (6,3)", pt.X, pt.Y)
+	}
+	if math.Abs(pt.OutX-5.5) > 1e-9 || math.Abs(pt.OutY-3) > 1e-9 {
+		t.Errorf("out handle = (%f,%f), want (5.5,3)", pt.OutX, pt.OutY)
+	}
+}
+
+func TestApplyDiscreteTransformToLayer_Rotate90CW_RemapsVectorMask(t *testing.T) {
+	layer := NewPixelLayer("L", LayerBounds{X: 10, Y: 20, W: 4, H: 2}, makeSolidPixels(4, 2, 10, 20, 30, 255))
+	layer.SetVectorMask(&Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{{X: 10, Y: 20, InX: 10, InY: 20, OutX: 10, OutY: 20}},
+	}}})
+
+	applyDiscreteTransformToLayer(layer, "rotate90cw")
+
+	vm := layer.VectorMask()
+	if vm == nil || len(vm.Subpaths) == 0 || len(vm.Subpaths[0].Points) == 0 {
+		t.Fatal("vector mask lost after rotate90cw")
+	}
+	pt := vm.Subpaths[0].Points[0]
+	// The layer's TL corner maps to the rotated layer's TR corner (13,19).
+	if math.Abs(pt.X-13) > 1e-9 || math.Abs(pt.Y-19) > 1e-9 {
+		t.Errorf("point = (%f,%f), want (13,19)", pt.X, pt.Y)
+	}
+}
+
+// setupMaskedTransformDoc builds a 20×20 doc with a 4×4 pixel layer at the
+// origin whose mask (from a rect selection) reveals only the (0,0,2,2) region.
+// The selection is dropped afterwards so free transform works on the whole layer.
+func setupMaskedTransformDoc(t *testing.T) (h int32, layerID string) {
+	t.Helper()
+	h = Init("")
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "Masked", Width: 20, Height: 20, Resolution: 72,
+		ColorMode: "rgb", BitDepth: 8, Background: "white",
+	})); err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	res, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    makeSolidPixels(4, 4, 200, 100, 50, 255),
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	layerID = res.UIMeta.ActiveLayerID
+	if _, err := DispatchCommand(h, commandNewSelection, mustJSON(t, CreateSelectionPayload{
+		Shape: SelectionShapeRect, Mode: SelectionCombineReplace,
+		Rect: LayerBounds{X: 0, Y: 0, W: 2, H: 2},
+	})); err != nil {
+		t.Fatalf("selection: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandAddLayerMask, mustJSON(t, AddLayerMaskPayload{
+		LayerID: layerID, Mode: AddLayerMaskFromSelection,
+	})); err != nil {
+		t.Fatalf("add mask: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandDeselect, ""); err != nil {
+		t.Fatalf("deselect: %v", err)
+	}
+	return h, layerID
+}
+
+func TestFreeTransform_CommitTranslate_MovesLayerMask(t *testing.T) {
+	h, layerID := setupMaskedTransformDoc(t)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	})); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandUpdateFreeTransform, mustJSON(t, UpdateFreeTransformPayload{
+		A: 1, B: 0, C: 0, D: 1, TX: 5, TY: 5, PivotX: 7, PivotY: 7,
+		Interpolation: "nearest",
+	})); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandCommitFreeTransform, `{}`); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	doc := instances[h].manager.Active()
+	pl, ok := doc.findLayer(layerID).(*PixelLayer)
+	if !ok || pl == nil {
+		t.Fatal("layer not found after commit")
+	}
+	if pl.Bounds.X != 5 || pl.Bounds.Y != 5 {
+		t.Fatalf("layer bounds = %+v, want origin (5,5)", pl.Bounds)
+	}
+	mask := pl.Mask()
+	if mask == nil {
+		t.Fatal("mask lost after commit")
+	}
+	if mask.Width != 20 || mask.Height != 20 {
+		t.Fatalf("mask dims = %dx%d, want 20x20 (doc space)", mask.Width, mask.Height)
+	}
+	// Original reveal rect (0,0,2,2) must have moved to (5,5,2,2).
+	if got := mask.Data[5*20+5]; got != 255 {
+		t.Errorf("mask at (5,5) = %d, want 255 (mask must move with the layer)", got)
+	}
+	if got := mask.Data[6*20+6]; got != 255 {
+		t.Errorf("mask at (6,6) = %d, want 255", got)
+	}
+	// Inside the moved layer but outside the moved reveal rect → hidden.
+	if got := mask.Data[8*20+8]; got != 0 {
+		t.Errorf("mask at (8,8) = %d, want 0", got)
+	}
+}
+
+func TestFreeTransform_CommitScale_ScalesLayerMask(t *testing.T) {
+	h, layerID := setupMaskedTransformDoc(t)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	})); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	// Scale ×2 anchored at the origin: 4×4 → 8×8.
+	if _, err := DispatchCommand(h, commandUpdateFreeTransform, mustJSON(t, UpdateFreeTransformPayload{
+		A: 2, B: 0, C: 0, D: 2, TX: 0, TY: 0, PivotX: 0, PivotY: 0,
+		Interpolation: "nearest",
+	})); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandCommitFreeTransform, `{}`); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	doc := instances[h].manager.Active()
+	pl := doc.findLayer(layerID).(*PixelLayer)
+	if pl.Bounds.W != 8 || pl.Bounds.H != 8 {
+		t.Fatalf("layer bounds = %+v, want 8x8", pl.Bounds)
+	}
+	mask := pl.Mask()
+	if mask == nil {
+		t.Fatal("mask lost after commit")
+	}
+	// Reveal rect (0,0,2,2) scales to roughly (0,0,4,4).
+	if got := mask.Data[3*20+3]; got != 255 {
+		t.Errorf("mask at (3,3) = %d, want 255 (mask must scale with the layer)", got)
+	}
+	if got := mask.Data[5*20+5]; got != 0 {
+		t.Errorf("mask at (5,5) = %d, want 0", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// meta() SkewY tests
+// ---------------------------------------------------------------------------
+
+func TestFreeTransformMeta_SkewY_VerticalSkew(t *testing.T) {
+	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
+	s := identityState(10, 10, pixels)
+	// Pure vertical skew: dragging a side edge vertically adds to B.
+	angle := 20.0
+	s.B = math.Tan(angle * math.Pi / 180)
+
+	m := s.meta()
+	if math.Abs(m.SkewY-angle) > 0.01 {
+		t.Errorf("SkewY = %f, want %f", m.SkewY, angle)
+	}
+	if math.Abs(m.SkewX) > 0.01 {
+		t.Errorf("SkewX = %f, want 0 for a pure vertical skew", m.SkewX)
+	}
+}
+
+func TestFreeTransformMeta_SkewY_ZeroForHorizontalSkewAndIdentity(t *testing.T) {
+	pixels := makeSolidPixels(10, 10, 0, 0, 0, 255)
+
+	s := identityState(10, 10, pixels)
+	if m := s.meta(); math.Abs(m.SkewY) > 0.01 {
+		t.Errorf("identity SkewY = %f, want 0", m.SkewY)
+	}
+
+	s = identityState(10, 10, pixels)
+	s.C = math.Tan(15 * math.Pi / 180) // pure horizontal skew
+	if m := s.meta(); math.Abs(m.SkewY) > 0.01 {
+		t.Errorf("horizontal-skew SkewY = %f, want 0", m.SkewY)
+	}
+}

@@ -412,10 +412,18 @@ func (inst *instance) handleFadeFilter(payload FadeFilterPayload) (bool, error) 
 		filtered := append([]byte(nil), pl.Pixels...)
 
 		// Start with original pixels as the base, then composite the filtered
-		// result on top using the requested opacity and blend mode.
+		// result on top using the requested opacity and blend mode. The
+		// dissolve noise seed must use the same per-pixel convention as layer
+		// compositing (pixelNoiseSeed of document coordinates) — the flat byte
+		// index normalizes to ~0 against 2^32, which made dissolve degenerate
+		// to "always on" for every pixel.
 		copy(pl.Pixels, orig)
+		lw := pl.Bounds.W
 		for i := 0; i < len(pl.Pixels); i += 4 {
-			compositePixelWithBlend(pl.Pixels[i:i+4], filtered[i:i+4], blendMode, opacity, uint32(i))
+			px := (i / 4) % lw
+			py := (i / 4) / lw
+			seed := pixelNoiseSeed(pl.Bounds.X+px, pl.Bounds.Y+py)
+			compositePixelWithBlend(pl.Pixels[i:i+4], filtered[i:i+4], blendMode, opacity, seed)
 		}
 
 		doc.touchModifiedAtLayer(pl)

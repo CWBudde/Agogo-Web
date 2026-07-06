@@ -109,14 +109,26 @@ func filterSmartSharpen(pixels []byte, w, h int, selMask []byte, params json.Raw
 
 	switch p.Remove {
 	case "motion":
-		_ = filterMotionBlur(blurred, w, h, nil, marshalFilterParams(motionBlurParams{
+		mp, err := marshalFilterParams(motionBlurParams{
 			Angle:    p.Angle,
 			Distance: p.Radius,
-		}))
+		})
+		if err != nil {
+			return err
+		}
+		if err := filterMotionBlur(blurred, w, h, nil, mp); err != nil {
+			return err
+		}
 	case "lens":
-		_ = filterBoxBlur(blurred, w, h, nil, marshalFilterParams(boxBlurParams{
+		bp, err := marshalFilterParams(boxBlurParams{
 			Radius: p.Radius,
-		}))
+		})
+		if err != nil {
+			return err
+		}
+		if err := filterBoxBlur(blurred, w, h, nil, bp); err != nil {
+			return err
+		}
 	default:
 		sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
 		sb.BlurRGBA8(blurred, w, h, w*4, p.Radius)

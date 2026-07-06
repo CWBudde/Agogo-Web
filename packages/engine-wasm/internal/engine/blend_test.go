@@ -154,3 +154,165 @@ func TestGroupIsolationAffectsCompositing(t *testing.T) {
 		t.Fatalf("expected isolated composite to preserve more red than pass-through: %v vs %v", bufferPassThrough, bufferIsolated)
 	}
 }
+
+// TestBlendColorDodgeExtremes verifies the W3C/Photoshop compositing spec for
+// color dodge: if Cb==0 -> 0; else if Cs==1 -> 1; else min(1, Cb/(1-Cs)).
+// The Cb==0 check takes precedence over Cs==1, so black backdrop stays black
+// even under a white source.
+func TestBlendColorDodgeExtremes(t *testing.T) {
+	tests := []struct {
+		name     string
+		backdrop float64
+		source   float64
+		expect   float64
+	}{
+		{name: "black-backdrop-white-source", backdrop: 0, source: 1, expect: 0},
+		{name: "black-backdrop-black-source", backdrop: 0, source: 0, expect: 0},
+		{name: "black-backdrop-mid-source", backdrop: 0, source: 0.5, expect: 0},
+		{name: "white-backdrop-white-source", backdrop: 1, source: 1, expect: 1},
+		{name: "mid-backdrop-white-source", backdrop: 0.5, source: 1, expect: 1},
+		{name: "white-backdrop-black-source", backdrop: 1, source: 0, expect: 1},
+		{name: "quarter-backdrop-mid-source", backdrop: 0.25, source: 0.5, expect: 0.5},
+		{name: "mid-backdrop-clamps-to-one", backdrop: 0.5, source: 0.75, expect: 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := blendColorDodge(test.backdrop, test.source)
+			if math.Abs(got-test.expect) > 1e-12 {
+				t.Fatalf("blendColorDodge(%v, %v) = %v, want %v", test.backdrop, test.source, got, test.expect)
+			}
+		})
+	}
+}
+
+// TestBlendColorBurnExtremes verifies the W3C/Photoshop compositing spec for
+// color burn: if Cb==1 -> 1; else if Cs==0 -> 0; else 1-min(1, (1-Cb)/Cs).
+// The Cb==1 check takes precedence over Cs==0, so white backdrop stays white
+// even under a black source.
+func TestBlendColorBurnExtremes(t *testing.T) {
+	tests := []struct {
+		name     string
+		backdrop float64
+		source   float64
+		expect   float64
+	}{
+		{name: "white-backdrop-black-source", backdrop: 1, source: 0, expect: 1},
+		{name: "white-backdrop-white-source", backdrop: 1, source: 1, expect: 1},
+		{name: "white-backdrop-mid-source", backdrop: 1, source: 0.5, expect: 1},
+		{name: "black-backdrop-black-source", backdrop: 0, source: 0, expect: 0},
+		{name: "mid-backdrop-black-source", backdrop: 0.5, source: 0, expect: 0},
+		{name: "black-backdrop-white-source", backdrop: 0, source: 1, expect: 0},
+		{name: "three-quarter-backdrop-mid-source", backdrop: 0.75, source: 0.5, expect: 0.5},
+		{name: "quarter-backdrop-clamps-to-zero", backdrop: 0.25, source: 0.5, expect: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := blendColorBurn(test.backdrop, test.source)
+			if math.Abs(got-test.expect) > 1e-12 {
+				t.Fatalf("blendColorBurn(%v, %v) = %v, want %v", test.backdrop, test.source, got, test.expect)
+			}
+		})
+	}
+}
+
+// TestCompositeDodgeBurnCornerPixels exercises the spec corner cases through
+// the full byte-level compositing path.
+func TestCompositeDodgeBurnCornerPixels(t *testing.T) {
+	tests := []struct {
+		name   string
+		mode   BlendMode
+		base   []byte
+		top    []byte
+		expect [4]uint8
+	}{
+		// Photoshop: dodging a black backdrop never brightens it.
+		{name: "dodge-black-under-white", mode: BlendModeColorDodge, base: []byte{0, 0, 0, 255}, top: []byte{255, 255, 255, 255}, expect: [4]uint8{0, 0, 0, 255}},
+		// Photoshop: burning a white backdrop never darkens it.
+		{name: "burn-white-under-black", mode: BlendModeColorBurn, base: []byte{255, 255, 255, 255}, top: []byte{0, 0, 0, 255}, expect: [4]uint8{255, 255, 255, 255}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dest := append([]byte(nil), test.base...)
+			compositePixelWithBlend(dest, test.top, test.mode, 1, 0)
+			for index := range dest {
+				if dest[index] != test.expect[index] {
+					t.Fatalf("pixel[%d] = %d, want %d (full pixel %v)", index, dest[index], test.expect[index], dest)
+				}
+			}
+		})
+	}
+}
+
+// TestClipColorDegenerateInputsProduceNoNaN feeds clipColor colors for which
+// the spec scale-factor denominators (lum-min when min<0, max-lum when max>1)
+// are exactly zero in float64, which the unguarded division turns into NaN or
+// -Inf. The constants below satisfy luminosity(v,v,v) == v bit-exactly.
+// clipColor must always return finite values clamped to [0, 1].
+func TestClipColorDegenerateInputsProduceNoNaN(t *testing.T) {
+	tests := []struct {
+		name  string
+		color [3]float64
+	}{
+		{name: "huge-positive-equal", color: [3]float64{1e300, 1e300, 1e300}},
+		{name: "huge-negative-equal", color: [3]float64{-1e300, -1e300, -1e300}},
+		{name: "negative-equal-lum-collision", color: [3]float64{-0.5301086108675604, -0.5301086108675604, -0.5301086108675604}},
+		{name: "above-one-equal-lum-collision", color: [3]float64{1.2061542891037402, 1.2061542891037402, 1.2061542891037402}},
+		{name: "negative-near-equal-lum-collision", color: [3]float64{-0.3686426883719394, -0.3686426883719394, -0.36864268837193936}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := clipColor(test.color)
+			for index, value := range result {
+				if math.IsNaN(value) || math.IsInf(value, 0) {
+					t.Fatalf("clipColor(%v)[%d] = %v, want finite", test.color, index, value)
+				}
+				if value < 0 || value > 1 {
+					t.Fatalf("clipColor(%v)[%d] = %v, want in [0, 1]", test.color, index, value)
+				}
+			}
+		})
+	}
+}
+
+// TestNonSeparableBlendExtremesStayFinite sweeps every pure channel-extreme
+// backdrop/source pair through the Hue/Saturation/Color/Luminosity blend
+// modes and asserts no NaN/Inf or out-of-range component ever escapes.
+func TestNonSeparableBlendExtremesStayFinite(t *testing.T) {
+	modes := []struct {
+		name string
+		mode BlendMode
+	}{
+		{name: "hue", mode: BlendModeHue},
+		{name: "saturation", mode: BlendModeSaturation},
+		{name: "color", mode: BlendModeColor},
+		{name: "luminosity", mode: BlendModeLuminosity},
+	}
+
+	channelValue := func(bits, shift int) float64 {
+		if bits&(1<<shift) != 0 {
+			return 1
+		}
+		return 0
+	}
+
+	for _, entry := range modes {
+		t.Run(entry.name, func(t *testing.T) {
+			for backdropBits := 0; backdropBits < 8; backdropBits++ {
+				for sourceBits := 0; sourceBits < 8; sourceBits++ {
+					backdrop := rgbaColor{r: channelValue(backdropBits, 0), g: channelValue(backdropBits, 1), b: channelValue(backdropBits, 2), a: 1}
+					source := rgbaColor{r: channelValue(sourceBits, 0), g: channelValue(sourceBits, 1), b: channelValue(sourceBits, 2), a: 1}
+					result := blendRGB(backdrop, source, entry.mode)
+					for index, value := range [3]float64{result.r, result.g, result.b} {
+						if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
+							t.Fatalf("blendRGB(%v, %v, %s) channel %d = %v, want finite in [0, 1]", backdrop, source, entry.name, index, value)
+						}
+					}
+				}
+			}
+		})
+	}
+}

@@ -5,6 +5,11 @@ import (
 	"math"
 )
 
+// Distort filters displace all four channels (alpha included) so transparency
+// moves with the pixels. Resampling happens on premultiplied data to avoid
+// dark halos from transparent pixels' meaningless RGB (see filters_builtin_blur.go
+// for the shared convention).
+
 type rippleParams struct {
 	Amount int    `json:"amount"` // displacement in pixels
 	Size   string `json:"size"`   // "small", "medium", "large"
@@ -31,15 +36,17 @@ func filterRipple(pixels []byte, w, h int, selMask []byte, params json.RawMessag
 		period = 10
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	amt := float64(p.Amount)
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 		x := (i / 4) % w
 		y := (i / 4) / w
 		sx := float64(x) + amt*math.Sin(2*math.Pi*float64(y)/period)
 		sy := float64(y) + amt*math.Sin(2*math.Pi*float64(x)/period)
-		return bilinearSample(orig, sx, sy, w, h)
+		r, g, b, a := bilinearSampleRGBA(work, sx, sy, w, h)
+		return straightRGBAFromPremul(r, g, b, a)
 	})
 	return nil
 }
@@ -60,26 +67,29 @@ func filterTwirl(pixels []byte, w, h int, selMask []byte, params json.RawMessage
 	}
 
 	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	cx := float64(w) / 2
 	cy := float64(h) / 2
 	maxDist := math.Min(cx, cy)
 	maxAngle := float64(p.Angle) * math.Pi / 180.0
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 		x := (i / 4) % w
 		y := (i / 4) / w
 		dx := float64(x) - cx
 		dy := float64(y) - cy
 		dist := math.Sqrt(dx*dx + dy*dy)
 		if dist >= maxDist {
-			return orig[i], orig[i+1], orig[i+2]
+			return orig[i], orig[i+1], orig[i+2], orig[i+3]
 		}
 		angle := maxAngle * (1 - dist/maxDist)
 		cosA := math.Cos(angle)
 		sinA := math.Sin(angle)
 		sx := cx + dx*cosA - dy*sinA
 		sy := cy + dx*sinA + dy*cosA
-		return bilinearSample(orig, sx, sy, w, h)
+		r, g, b, a := bilinearSampleRGBA(work, sx, sy, w, h)
+		return straightRGBAFromPremul(r, g, b, a)
 	})
 	return nil
 }
@@ -103,7 +113,7 @@ func filterOffset(pixels []byte, w, h int, selMask []byte, params json.RawMessag
 
 	orig := append([]byte(nil), pixels...)
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 		x := (i / 4) % w
 		y := (i / 4) / w
 		sx := x - p.Horizontal
@@ -126,7 +136,7 @@ func filterOffset(pixels []byte, w, h int, selMask []byte, params json.RawMessag
 		}
 
 		si := (sy*w + sx) * 4
-		return orig[si], orig[si+1], orig[si+2]
+		return orig[si], orig[si+1], orig[si+2], orig[si+3]
 	})
 	return nil
 }
@@ -143,12 +153,13 @@ func filterPolarCoordinates(pixels []byte, w, h int, selMask []byte, params json
 		}
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	cx := float64(w) / 2
 	cy := float64(h) / 2
 	maxRadius := math.Sqrt(cx*cx + cy*cy)
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 		x := (i / 4) % w
 		y := (i / 4) / w
 
@@ -157,7 +168,8 @@ func filterPolarCoordinates(pixels []byte, w, h int, selMask []byte, params json
 			radius := float64(y) / float64(h) * maxRadius
 			sx := cx + radius*math.Cos(angle)
 			sy := cy + radius*math.Sin(angle)
-			return bilinearSample(orig, sx, sy, w, h)
+			r, g, b, a := bilinearSampleRGBA(work, sx, sy, w, h)
+			return straightRGBAFromPremul(r, g, b, a)
 		}
 
 		dx := float64(x) - cx
@@ -169,7 +181,8 @@ func filterPolarCoordinates(pixels []byte, w, h int, selMask []byte, params json
 		}
 		sx := angle / (2 * math.Pi) * float64(w)
 		sy := radius / maxRadius * float64(h)
-		return bilinearSample(orig, sx, sy, w, h)
+		r, g, b, a := bilinearSampleRGBA(work, sx, sy, w, h)
+		return straightRGBAFromPremul(r, g, b, a)
 	})
 	return nil
 }
@@ -194,11 +207,9 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	result := make([]byte, len(pixels))
-	for i := 3; i < len(result); i += 4 {
-		result[i] = 255
-	}
 
 	cx := float64(w) / 2
 	cy := float64(h) / 2
@@ -208,6 +219,18 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 	vigAmount := p.Vignette / 100.0
 	perspH := p.PerspectiveH / 100.0 * 0.3
 	perspV := p.PerspectiveV / 100.0 * 0.3
+
+	// unpremulChannel recovers a straight channel value from a premultiplied
+	// sample and the alpha sampled at the same position.
+	unpremulChannel := func(c, a float64) byte {
+		if a <= 0 {
+			return 0
+		}
+		if a > 255 {
+			a = 255
+		}
+		return clamp8(c * 255.0 / a)
+	}
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
@@ -226,7 +249,7 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 
 			gx := cx + nx*distFactor*cx
 			gy := cy + ny*distFactor*cy
-			_, gVal, _ := bilinearSample(orig, gx, gy, w, h)
+			baseR, baseG, baseB, baseA := bilinearSampleRGBA(work, gx, gy, w, h)
 
 			if caOffset != 0 {
 				caFactor := caOffset * math.Sqrt(r2) / maxR
@@ -235,20 +258,20 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 
 				rx := cx + nx*rDistFactor*cx
 				ry := cy + ny*rDistFactor*cy
-				rVal, _, _ := bilinearSample(orig, rx, ry, w, h)
+				rVal, _, _, rA := bilinearSampleRGBA(work, rx, ry, w, h)
 
 				bx := cx + nx*bDistFactor*cx
 				by := cy + ny*bDistFactor*cy
-				_, _, bVal := bilinearSample(orig, bx, by, w, h)
+				_, _, bVal, bA := bilinearSampleRGBA(work, bx, by, w, h)
 
-				result[di] = rVal
-				result[di+1] = gVal
-				result[di+2] = bVal
+				result[di] = unpremulChannel(rVal, rA)
+				result[di+1] = unpremulChannel(baseG, baseA)
+				result[di+2] = unpremulChannel(bVal, bA)
 			} else {
-				rVal, _, bVal := bilinearSample(orig, gx, gy, w, h)
-				result[di] = rVal
-				result[di+1] = gVal
-				result[di+2] = bVal
+				sr, sg, sb, _ := straightRGBAFromPremul(baseR, baseG, baseB, baseA)
+				result[di] = sr
+				result[di+1] = sg
+				result[di+2] = sb
 			}
 
 			if vigAmount != 0 {
@@ -265,12 +288,14 @@ func filterLensCorrection(pixels []byte, w, h int, selMask []byte, params json.R
 				result[di+2] = clamp8(float64(result[di+2]) * vig)
 			}
 
-			result[di+3] = orig[di+3]
+			// Alpha is displaced along with the colour (sampled at the base
+			// distorted position) instead of being copied from the original.
+			result[di+3] = clamp8(baseA)
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return result[i], result[i+1], result[i+2]
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return result[i], result[i+1], result[i+2], result[i+3]
 	})
 	return nil
 }

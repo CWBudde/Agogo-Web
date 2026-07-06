@@ -7,6 +7,11 @@ import (
 	agglib "github.com/cwbudde/agg_go"
 )
 
+// Alpha convention for all blur/averaging filters: colour is filtered
+// alpha-weighted (premultiply → filter all four channels → unpremultiply).
+// This matches the Gaussian path below and prevents transparent pixels from
+// bleeding dark RGB halos into visible pixels.
+
 type gaussianBlurParams struct {
 	Radius int `json:"radius"`
 }
@@ -24,8 +29,10 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 
 	if selMask != nil {
 		orig := append([]byte(nil), pixels...)
+		premultiplyRGBA(pixels)
 		sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
 		sb.BlurRGBA8(pixels, w, h, w*4, p.Radius)
+		unpremultiplyRGBA(pixels)
 		for i := 0; i < len(pixels); i += 4 {
 			idx := i / 4
 			a := selMask[idx]
@@ -41,8 +48,10 @@ func filterGaussianBlur(pixels []byte, w, h int, selMask []byte, params json.Raw
 		return nil
 	}
 
+	premultiplyRGBA(pixels)
 	sb := agglib.NewStackBlur[agglib.ColorSpaceSRGB]()
 	sb.BlurRGBA8(pixels, w, h, w*4, p.Radius)
+	unpremultiplyRGBA(pixels)
 	return nil
 }
 
@@ -61,7 +70,8 @@ func filterBoxBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	tmp := make([]byte, len(pixels))
 
 	r := p.Radius
@@ -69,7 +79,7 @@ func filterBoxBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			var sumR, sumG, sumB int
+			var sumR, sumG, sumB, sumA int
 			for kx := -r; kx <= r; kx++ {
 				sx := x + kx
 				if sx < 0 {
@@ -78,22 +88,23 @@ func filterBoxBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 					sx = w - 1
 				}
 				si := (y*w + sx) * 4
-				sumR += int(orig[si])
-				sumG += int(orig[si+1])
-				sumB += int(orig[si+2])
+				sumR += int(work[si])
+				sumG += int(work[si+1])
+				sumB += int(work[si+2])
+				sumA += int(work[si+3])
 			}
 			di := (y*w + x) * 4
 			tmp[di] = byte(sumR / diam)
 			tmp[di+1] = byte(sumG / diam)
 			tmp[di+2] = byte(sumB / diam)
-			tmp[di+3] = orig[di+3]
+			tmp[di+3] = byte(sumA / diam)
 		}
 	}
 
 	vert := make([]byte, len(pixels))
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			var sumR, sumG, sumB int
+			var sumR, sumG, sumB, sumA int
 			for ky := -r; ky <= r; ky++ {
 				sy := y + ky
 				if sy < 0 {
@@ -105,17 +116,19 @@ func filterBoxBlur(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 				sumR += int(tmp[si])
 				sumG += int(tmp[si+1])
 				sumB += int(tmp[si+2])
+				sumA += int(tmp[si+3])
 			}
 			di := (y*w + x) * 4
 			vert[di] = byte(sumR / diam)
 			vert[di+1] = byte(sumG / diam)
 			vert[di+2] = byte(sumB / diam)
-			vert[di+3] = tmp[di+3]
+			vert[di+3] = byte(sumA / diam)
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return vert[i], vert[i+1], vert[i+2]
+	unpremultiplyRGBA(vert)
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return vert[i], vert[i+1], vert[i+2], vert[i+3]
 	})
 	return nil
 }
@@ -136,16 +149,17 @@ func filterMotionBlur(pixels []byte, w, h int, selMask []byte, params json.RawMe
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	rad := float64(p.Angle) * math.Pi / 180.0
 	dx := math.Cos(rad)
 	dy := math.Sin(rad)
 	dist := p.Distance
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 		px := (i / 4) % w
 		py := (i / 4) / w
-		var sumR, sumG, sumB float64
+		var sumR, sumG, sumB, sumA float64
 		count := 0
 		for s := -dist; s <= dist; s++ {
 			sx := float64(px) + float64(s)*dx
@@ -163,13 +177,14 @@ func filterMotionBlur(pixels []byte, w, h int, selMask []byte, params json.RawMe
 				iy = h - 1
 			}
 			si := (iy*w + ix) * 4
-			sumR += float64(orig[si])
-			sumG += float64(orig[si+1])
-			sumB += float64(orig[si+2])
+			sumR += float64(work[si])
+			sumG += float64(work[si+1])
+			sumB += float64(work[si+2])
+			sumA += float64(work[si+3])
 			count++
 		}
 		inv := 1.0 / float64(count)
-		return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+		return straightRGBAFromPremul(sumR*inv, sumG*inv, sumB*inv, sumA*inv)
 	})
 	return nil
 }
@@ -194,7 +209,8 @@ func filterRadialBlur(pixels []byte, w, h int, selMask []byte, params json.RawMe
 		p.Quality = 1
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	cx := float64(w) / 2
 	cy := float64(h) / 2
 
@@ -205,43 +221,45 @@ func filterRadialBlur(pixels []byte, w, h int, selMask []byte, params json.RawMe
 
 	if p.Type == "zoom" {
 		scale := float64(p.Amount) / 100.0 * 0.2
-		applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 			px := (i / 4) % w
 			py := (i / 4) / w
-			var sumR, sumG, sumB float64
+			var sumR, sumG, sumB, sumA float64
 			for s := range samples {
 				t := -scale/2 + scale*float64(s)/float64(samples-1)
 				sx := cx + (float64(px)-cx)*(1+t)
 				sy := cy + (float64(py)-cy)*(1+t)
-				r, g, b := bilinearSample(orig, sx, sy, w, h)
-				sumR += float64(r)
-				sumG += float64(g)
-				sumB += float64(b)
+				r, g, b, a := bilinearSampleRGBA(work, sx, sy, w, h)
+				sumR += r
+				sumG += g
+				sumB += b
+				sumA += a
 			}
 			inv := 1.0 / float64(samples)
-			return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+			return straightRGBAFromPremul(sumR*inv, sumG*inv, sumB*inv, sumA*inv)
 		})
 	} else {
 		maxAngle := float64(p.Amount) / 100.0 * math.Pi / 4
-		applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
+		applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
 			px := (i / 4) % w
 			py := (i / 4) / w
 			dx := float64(px) - cx
 			dy := float64(py) - cy
 			dist := math.Sqrt(dx*dx + dy*dy)
 			baseAngle := math.Atan2(dy, dx)
-			var sumR, sumG, sumB float64
+			var sumR, sumG, sumB, sumA float64
 			for s := range samples {
 				a := baseAngle - maxAngle/2 + maxAngle*float64(s)/float64(samples-1)
 				sx := cx + dist*math.Cos(a)
 				sy := cy + dist*math.Sin(a)
-				r, g, b := bilinearSample(orig, sx, sy, w, h)
-				sumR += float64(r)
-				sumG += float64(g)
-				sumB += float64(b)
+				r, g, b, sa := bilinearSampleRGBA(work, sx, sy, w, h)
+				sumR += r
+				sumG += g
+				sumB += b
+				sumA += sa
 			}
 			inv := 1.0 / float64(samples)
-			return clamp8(sumR * inv), clamp8(sumG * inv), clamp8(sumB * inv)
+			return straightRGBAFromPremul(sumR*inv, sumG*inv, sumB*inv, sumA*inv)
 		})
 	}
 	return nil
@@ -263,22 +281,23 @@ func filterSurfaceBlur(pixels []byte, w, h int, selMask []byte, params json.RawM
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
-	result := make([]byte, len(pixels))
-	copy(result, pixels)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
+	result := append([]byte(nil), work...)
 	thresh := float64(p.Threshold)
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			ci := (y*w + x) * 4
-			cr, cg, cb := float64(orig[ci]), float64(orig[ci+1]), float64(orig[ci+2])
-			var sumR, sumG, sumB, sumW float64
+			cr, cg, cb := float64(work[ci]), float64(work[ci+1]), float64(work[ci+2])
+			var sumR, sumG, sumB, sumA, sumW float64
 
 			for ky := -p.Radius; ky <= p.Radius; ky++ {
 				for kx := -p.Radius; kx <= p.Radius; kx++ {
-					nr := float64(clampedSample(orig, x+kx, y+ky, 0, w, h))
-					ng := float64(clampedSample(orig, x+kx, y+ky, 1, w, h))
-					nb := float64(clampedSample(orig, x+kx, y+ky, 2, w, h))
+					nr := float64(clampedSample(work, x+kx, y+ky, 0, w, h))
+					ng := float64(clampedSample(work, x+kx, y+ky, 1, w, h))
+					nb := float64(clampedSample(work, x+kx, y+ky, 2, w, h))
+					na := float64(clampedSample(work, x+kx, y+ky, 3, w, h))
 
 					diff := (math.Abs(nr-cr) + math.Abs(ng-cg) + math.Abs(nb-cb)) / 3
 					if diff > thresh {
@@ -288,6 +307,7 @@ func filterSurfaceBlur(pixels []byte, w, h int, selMask []byte, params json.RawM
 					sumR += nr * weight
 					sumG += ng * weight
 					sumB += nb * weight
+					sumA += na * weight
 					sumW += weight
 				}
 			}
@@ -296,13 +316,14 @@ func filterSurfaceBlur(pixels []byte, w, h int, selMask []byte, params json.RawM
 				result[ci] = clamp8(sumR / sumW)
 				result[ci+1] = clamp8(sumG / sumW)
 				result[ci+2] = clamp8(sumB / sumW)
+				result[ci+3] = clamp8(sumA / sumW)
 			}
-			result[ci+3] = orig[ci+3]
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return result[i], result[i+1], result[i+2]
+	unpremultiplyRGBA(result)
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return result[i], result[i+1], result[i+2], result[i+3]
 	})
 	return nil
 }

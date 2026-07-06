@@ -237,7 +237,15 @@ func (inst *instance) drawShape(p DrawShapePayload) error {
 			if !ok {
 				return fmt.Errorf("active layer is not a pixel layer")
 			}
-			rgba, err := rasterizeVectorShape(path, px.Bounds.W, px.Bounds.H, p.FillColor, p.StrokeColor, p.StrokeWidth)
+			// The path is in document space, but the layer's pixel buffer is
+			// bounds-local: translate by (-Bounds.X, -Bounds.Y) so the shape
+			// lands at the correct position within the layer.
+			localPath := path
+			if px.Bounds.X != 0 || px.Bounds.Y != 0 {
+				localPath = clonePath(path)
+				translatePathInPlace(localPath, -float64(px.Bounds.X), -float64(px.Bounds.Y))
+			}
+			rgba, err := rasterizeVectorShape(localPath, px.Bounds.W, px.Bounds.H, p.FillColor, p.StrokeColor, p.StrokeWidth)
 			if err != nil {
 				return err
 			}

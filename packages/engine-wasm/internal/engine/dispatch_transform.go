@@ -261,6 +261,9 @@ func (inst *instance) commitFreeTransform() error {
 		beforeBounds := p.Bounds
 		p.Pixels = finalPixels
 		p.Bounds = finalBounds
+		// Carry the layer's masks through the same mapping as the pixels.
+		transformLayerMaskForFree(p.Mask(), ft, ft.Interpolation)
+		transformVectorMaskForFree(p.VectorMask(), ft)
 		d.touchModifiedAtBounds(beforeBounds, finalBounds)
 		if err := inst.manager.ReplaceActive(d); err != nil {
 			return snapshot{}, err
@@ -366,7 +369,8 @@ func (inst *instance) transformAgain() error {
 		if !ok || pl == nil {
 			return fmt.Errorf("active layer is not a pixel layer")
 		}
-		finalPixels, finalBounds := applyLastFreeTransform(lt, pl)
+		ftState := freeTransformStateFromRecord(lt, pl)
+		finalPixels, finalBounds := applyPixelTransform(ftState, lt.Interpolation)
 		command := newSnapshotCommand("Transform Again", func(inst *instance) (snapshot, error) {
 			d := inst.manager.Active()
 			if d == nil {
@@ -380,6 +384,9 @@ func (inst *instance) transformAgain() error {
 			beforeBounds := p.Bounds
 			p.Pixels = finalPixels
 			p.Bounds = finalBounds
+			// Carry the layer's masks through the same mapping as the pixels.
+			transformLayerMaskForFree(p.Mask(), ftState, lt.Interpolation)
+			transformVectorMaskForFree(p.VectorMask(), ftState)
 			d.touchModifiedAtBounds(beforeBounds, finalBounds)
 			if err := inst.manager.ReplaceActive(d); err != nil {
 				return snapshot{}, err

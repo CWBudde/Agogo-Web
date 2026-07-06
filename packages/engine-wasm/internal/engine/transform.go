@@ -190,10 +190,10 @@ func defaultBoundsCorners(b LayerBounds) [4][2]float64 {
 	return [4][2]float64{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}
 }
 
-// applyLastFreeTransform applies a LastTransformRecord (originally captured
-// from a free transform) to a pixel layer, producing new pixels and bounds.
-// The record's relative offsets are resolved against the layer's current bounds.
-func applyLastFreeTransform(lt *LastTransformRecord, pl *PixelLayer) ([]byte, LayerBounds) {
+// freeTransformStateFromRecord rebuilds a FreeTransformState from a
+// LastTransformRecord, resolving the record's relative offsets against the
+// layer's current bounds so the same shape of transform applies to any layer.
+func freeTransformStateFromRecord(lt *LastTransformRecord, pl *PixelLayer) *FreeTransformState {
 	orig := pl.Bounds
 	origX := float64(orig.X)
 	origY := float64(orig.Y)
@@ -231,7 +231,16 @@ func applyLastFreeTransform(lt *LastTransformRecord, pl *PixelLayer) ([]byte, La
 		}
 		ft.WarpGrid = grid
 	}
-	return applyPixelTransform(ft, lt.Interpolation)
+	return ft
+}
+
+// applyLastFreeTransform applies a LastTransformRecord (originally captured
+// from a free transform) to a pixel layer, producing new pixels and bounds.
+// The record's relative offsets are resolved against the layer's current bounds.
+//
+//nolint:unused
+func applyLastFreeTransform(lt *LastTransformRecord, pl *PixelLayer) ([]byte, LayerBounds) {
+	return applyPixelTransform(freeTransformStateFromRecord(lt, pl), lt.Interpolation)
 }
 
 // transformPoint maps a layer-local point through the affine matrix.
@@ -314,9 +323,14 @@ func (s *FreeTransformState) meta() *FreeTransformMeta {
 	scaleX := math.Hypot(s.A, s.B)
 	scaleY := math.Hypot(s.C, s.D)
 	rotation := math.Atan2(s.B, s.A) * 180 / math.Pi
-	// Skew: angle between the two column vectors minus 90°.
+	// Skew: absolute deviation of each basis column from its un-transformed
+	// direction. SkewX is the angle of the y-basis column (C, D) from vertical
+	// and SkewY the angle of the x-basis column (A, B) from horizontal. Both
+	// include any rotation component (a pure rotation reports skewX = skewY =
+	// rotation); the fields disambiguate pure skews: a horizontal (top/bottom
+	// edge) skew only moves SkewX, a vertical (left/right edge) skew only SkewY.
 	skewX := math.Atan2(s.D, s.C)*180/math.Pi - 90
-	skewY := 0.0
+	skewY := math.Atan2(s.B, s.A) * 180 / math.Pi
 
 	origW := float64(s.OriginalBounds.W)
 	origH := float64(s.OriginalBounds.H)
@@ -767,12 +781,14 @@ func rotatePixels180(pixels []byte, w, h int) []byte {
 
 // applyDiscreteTransformToLayer applies a non-interactive (immediate) pixel
 // transform to a PixelLayer and re-centres the bounds. The centre of the layer
-// in document space is preserved.
+// in document space is preserved. The layer's raster and vector masks are
+// remapped through the same doc-space mapping as the pixels.
 func applyDiscreteTransformToLayer(layer *PixelLayer, kind string) {
 	w, h := layer.Bounds.W, layer.Bounds.H
 	if w <= 0 || h <= 0 || len(layer.Pixels) < w*h*4 {
 		return
 	}
+	oldBounds := layer.Bounds
 	newW, newH := w, h
 	switch kind {
 	case "flipH":
@@ -795,6 +811,289 @@ func applyDiscreteTransformToLayer(layer *PixelLayer, kind string) {
 		layer.Bounds.W = newW
 		layer.Bounds.H = newH
 	}
+	remapLayerMaskDiscrete(layer.Mask(), kind, oldBounds, layer.Bounds)
+	remapVectorMaskDiscrete(layer.VectorMask(), kind, oldBounds, layer.Bounds)
+}
+
+// ---------------------------------------------------------------------------
+// Mask transformation
+//
+// Raster layer masks are stored in document space (Width×Height single-channel
+// buffers, see layerMaskAlphaAt); vector masks are Paths with absolute
+// document-space coordinates. When a layer's pixels are transformed, the mask
+// coverage under the layer must follow the exact same doc-space mapping or the
+// mask is left behind (S.5). Mask coverage outside the transformed region is
+// retained untouched — it has no effect on the transformed layer content.
+// ---------------------------------------------------------------------------
+
+// maskHasData reports whether the mask carries a usable doc-space buffer.
+func maskHasData(mask *LayerMask) bool {
+	return mask != nil && mask.Width > 0 && mask.Height > 0 &&
+		len(mask.Data) >= mask.Width*mask.Height
+}
+
+// maskRegionToRGBA extracts the doc-space mask coverage under bounds into a
+// bounds-local RGBA buffer (the mask value replicated into all four channels)
+// so it can be resampled through the same AGG pipeline as the layer pixels.
+// Doc pixels outside the mask extents read as 0.
+func maskRegionToRGBA(mask *LayerMask, bounds LayerBounds) []byte {
+	buf := make([]byte, bounds.W*bounds.H*4)
+	for y := range bounds.H {
+		docY := bounds.Y + y
+		if docY < 0 || docY >= mask.Height {
+			continue
+		}
+		for x := range bounds.W {
+			docX := bounds.X + x
+			if docX < 0 || docX >= mask.Width {
+				continue
+			}
+			v := mask.Data[docY*mask.Width+docX]
+			i := (y*bounds.W + x) * 4
+			buf[i], buf[i+1], buf[i+2], buf[i+3] = v, v, v, v
+		}
+	}
+	return buf
+}
+
+// writeMaskRegionFromRGBA writes the alpha channel of a bounds-local RGBA
+// buffer back into the doc-space mask, clipped to the mask extents.
+func writeMaskRegionFromRGBA(mask *LayerMask, bounds LayerBounds, rgba []byte) {
+	if len(rgba) < bounds.W*bounds.H*4 {
+		return
+	}
+	for y := range bounds.H {
+		docY := bounds.Y + y
+		if docY < 0 || docY >= mask.Height {
+			continue
+		}
+		for x := range bounds.W {
+			docX := bounds.X + x
+			if docX < 0 || docX >= mask.Width {
+				continue
+			}
+			mask.Data[docY*mask.Width+docX] = rgba[(y*bounds.W+x)*4+3]
+		}
+	}
+}
+
+// transformLayerMaskForFree remaps the layer's doc-space raster mask through
+// the same mapping applyPixelTransform used for the layer pixels: the mask
+// region under the original bounds is resampled through an identical
+// FreeTransformState (affine, distort, or warp) and written back under the
+// transformed bounds. A fresh state is used so the mask pass cannot clobber
+// the pixel pass's scratch buffers (which alias the committed pixels).
+func transformLayerMaskForFree(mask *LayerMask, src *FreeTransformState, interp InterpolMode) {
+	if !maskHasData(mask) || src == nil || src.OriginalBounds.W <= 0 || src.OriginalBounds.H <= 0 {
+		return
+	}
+	maskState := &FreeTransformState{
+		Active:         true,
+		OriginalPixels: maskRegionToRGBA(mask, src.OriginalBounds),
+		OriginalBounds: src.OriginalBounds,
+		A:              src.A,
+		B:              src.B,
+		C:              src.C,
+		D:              src.D,
+		TX:             src.TX,
+		TY:             src.TY,
+		PivotX:         src.PivotX,
+		PivotY:         src.PivotY,
+		Interpolation:  interp,
+		DistortCorners: src.DistortCorners,
+		WarpGrid:       src.WarpGrid,
+	}
+	outPixels, outBounds := applyPixelTransform(maskState, interp)
+	writeMaskRegionFromRGBA(mask, outBounds, outPixels)
+}
+
+// transformVectorMaskForFree maps every vector-mask point (anchor and bezier
+// handles) through the same geometry as the pixel transform.
+func transformVectorMaskForFree(path *Path, src *FreeTransformState) {
+	if path == nil || src == nil {
+		return
+	}
+	mapPathPointsInPlace(path, freeTransformPointMapper(src))
+}
+
+// mapPathPointsInPlace applies mapPt to every anchor and handle of the path.
+func mapPathPointsInPlace(path *Path, mapPt func(x, y float64) (float64, float64)) {
+	if path == nil || mapPt == nil {
+		return
+	}
+	for si := range path.Subpaths {
+		pts := path.Subpaths[si].Points
+		for pi := range pts {
+			pts[pi].X, pts[pi].Y = mapPt(pts[pi].X, pts[pi].Y)
+			pts[pi].InX, pts[pi].InY = mapPt(pts[pi].InX, pts[pi].InY)
+			pts[pi].OutX, pts[pi].OutY = mapPt(pts[pi].OutX, pts[pi].OutY)
+		}
+	}
+}
+
+// bilerpQuad bilinearly interpolates a point inside the quad (tl, tr, br, bl)
+// at normalized coordinates (u, v).
+func bilerpQuad(tl, tr, br, bl [2]float64, u, v float64) (float64, float64) {
+	topX := tl[0] + (tr[0]-tl[0])*u
+	topY := tl[1] + (tr[1]-tl[1])*u
+	botX := bl[0] + (br[0]-bl[0])*u
+	botY := bl[1] + (br[1]-bl[1])*u
+	return topX + (botX-topX)*v, topY + (botY-topY)*v
+}
+
+// freeTransformPointMapper returns a doc-space → doc-space point mapping that
+// matches the pixel mapping of the state: the affine matrix in the default
+// mode, or — for distort/warp — the bilinear interpolation of the transformed
+// corner/grid control points (an approximation of the perspective raster
+// mapping that is exact at the control points).
+func freeTransformPointMapper(s *FreeTransformState) func(x, y float64) (float64, float64) {
+	ox := float64(s.OriginalBounds.X)
+	oy := float64(s.OriginalBounds.Y)
+	w := float64(s.OriginalBounds.W)
+	h := float64(s.OriginalBounds.H)
+	if w <= 0 || h <= 0 {
+		return func(x, y float64) (float64, float64) { return x, y }
+	}
+	switch {
+	case s.WarpGrid != nil:
+		g := *s.WarpGrid
+		return func(x, y float64) (float64, float64) {
+			u := clampFloat((x-ox)/w*3, 0, 3)
+			v := clampFloat((y-oy)/h*3, 0, 3)
+			col := clampInt(int(u), 0, 2)
+			row := clampInt(int(v), 0, 2)
+			return bilerpQuad(g[row][col], g[row][col+1], g[row+1][col+1], g[row+1][col],
+				u-float64(col), v-float64(row))
+		}
+	case s.DistortCorners != nil:
+		c := *s.DistortCorners
+		return func(x, y float64) (float64, float64) {
+			return bilerpQuad(c[0], c[1], c[2], c[3], (x-ox)/w, (y-oy)/h)
+		}
+	default:
+		return func(x, y float64) (float64, float64) {
+			lx := x - ox
+			ly := y - oy
+			return s.A*lx + s.C*ly + s.TX, s.B*lx + s.D*ly + s.TY
+		}
+	}
+}
+
+// transformMaskRegionDiscrete applies a discrete transform to a single-channel
+// w×h buffer, returning the transformed buffer and its new dimensions. The
+// index mappings mirror the RGBA pixel variants exactly.
+func transformMaskRegionDiscrete(data []byte, w, h int, kind string) ([]byte, int, int) {
+	out := make([]byte, len(data))
+	switch kind {
+	case "flipH":
+		for y := range h {
+			for x := range w {
+				out[y*w+(w-1-x)] = data[y*w+x]
+			}
+		}
+		return out, w, h
+	case "flipV":
+		for y := range h {
+			for x := range w {
+				out[(h-1-y)*w+x] = data[y*w+x]
+			}
+		}
+		return out, w, h
+	case "rotate90cw":
+		for y := range h {
+			for x := range w {
+				out[x*h+(h-1-y)] = data[y*w+x]
+			}
+		}
+		return out, h, w
+	case "rotate90ccw":
+		for y := range h {
+			for x := range w {
+				out[(w-1-x)*h+y] = data[y*w+x]
+			}
+		}
+		return out, h, w
+	case "rotate180":
+		total := w * h
+		for i := range total {
+			out[total-1-i] = data[i]
+		}
+		return out, w, h
+	}
+	return data, w, h
+}
+
+// remapLayerMaskDiscrete rewrites the doc-space raster mask so that its
+// coverage under oldBounds undergoes the same flip/rotation as the layer
+// pixels and lands under newBounds. Mask values outside the new layer region
+// are retained.
+func remapLayerMaskDiscrete(mask *LayerMask, kind string, oldBounds, newBounds LayerBounds) {
+	if !maskHasData(mask) || oldBounds.W <= 0 || oldBounds.H <= 0 {
+		return
+	}
+	region := make([]byte, oldBounds.W*oldBounds.H)
+	for y := range oldBounds.H {
+		docY := oldBounds.Y + y
+		if docY < 0 || docY >= mask.Height {
+			continue
+		}
+		for x := range oldBounds.W {
+			docX := oldBounds.X + x
+			if docX < 0 || docX >= mask.Width {
+				continue
+			}
+			region[y*oldBounds.W+x] = mask.Data[docY*mask.Width+docX]
+		}
+	}
+	region, newW, newH := transformMaskRegionDiscrete(region, oldBounds.W, oldBounds.H, kind)
+	if newW != newBounds.W || newH != newBounds.H {
+		return
+	}
+	for y := range newH {
+		docY := newBounds.Y + y
+		if docY < 0 || docY >= mask.Height {
+			continue
+		}
+		for x := range newW {
+			docX := newBounds.X + x
+			if docX < 0 || docX >= mask.Width {
+				continue
+			}
+			mask.Data[docY*mask.Width+docX] = region[y*newW+x]
+		}
+	}
+}
+
+// remapVectorMaskDiscrete maps the vector-mask geometry through the doc-space
+// mapping of a discrete transform: flips mirror about the layer region's
+// centre lines, rotations pivot about its centre (with the same integer
+// re-centring the pixel path applies via newBounds).
+func remapVectorMaskDiscrete(path *Path, kind string, oldBounds, newBounds LayerBounds) {
+	if path == nil {
+		return
+	}
+	ox := float64(oldBounds.X)
+	oy := float64(oldBounds.Y)
+	w := float64(oldBounds.W)
+	h := float64(oldBounds.H)
+	nx := float64(newBounds.X)
+	ny := float64(newBounds.Y)
+	var mapPt func(x, y float64) (float64, float64)
+	switch kind {
+	case "flipH":
+		mapPt = func(x, y float64) (float64, float64) { return 2*ox + w - x, y }
+	case "flipV":
+		mapPt = func(x, y float64) (float64, float64) { return x, 2*oy + h - y }
+	case "rotate180":
+		mapPt = func(x, y float64) (float64, float64) { return 2*ox + w - x, 2*oy + h - y }
+	case "rotate90cw":
+		mapPt = func(x, y float64) (float64, float64) { return nx + (h - (y - oy)), ny + (x - ox) }
+	case "rotate90ccw":
+		mapPt = func(x, y float64) (float64, float64) { return nx + (y - oy), ny + (w - (x - ox)) }
+	default:
+		return
+	}
+	mapPathPointsInPlace(path, mapPt)
 }
 
 // ---------------------------------------------------------------------------

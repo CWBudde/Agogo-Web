@@ -111,6 +111,58 @@ func TestHandleApplyGradientUsesStops(t *testing.T) {
 	}
 }
 
+func TestRenderGradientSurfaceRadial(t *testing.T) {
+	stops := []GradientStopPayload{
+		{Position: 0, Color: [4]uint8{255, 0, 0, 255}},
+		{Position: 1, Color: [4]uint8{0, 0, 255, 255}},
+	}
+	p := ApplyGradientPayload{
+		StartX: 2,
+		StartY: 0,
+		EndX:   4,
+		EndY:   0,
+		Type:   GradientTypeRadial,
+		Stops:  stops,
+	}
+
+	buffer := renderGradientSurface(5, 1, p, [4]uint8{}, [4]uint8{})
+	if buffer == nil {
+		t.Fatal("renderGradientSurface returned nil")
+	}
+
+	center := buffer[2*4 : 2*4+4]
+	if center[0] != 255 || center[2] != 0 {
+		t.Fatalf("center pixel = %v, want start color [255 0 0 255]", center)
+	}
+	left := buffer[0:4]
+	right := buffer[4*4 : 4*4+4]
+	if left[0] != 0 || left[2] != 255 {
+		t.Fatalf("left edge pixel = %v, want end color [0 0 255 255] (distance == radius)", left)
+	}
+	if right[0] != 0 || right[2] != 255 {
+		t.Fatalf("right edge pixel = %v, want end color [0 0 255 255] (distance == radius)", right)
+	}
+	for i := 0; i < 4; i++ {
+		if left[i] != right[i] {
+			t.Fatalf("radial gradient not symmetric around start: left=%v right=%v", left, right)
+		}
+	}
+	mid := buffer[1*4 : 1*4+4]
+	if mid[0] >= 255 || mid[0] == 0 || mid[2] >= 255 || mid[2] == 0 {
+		t.Fatalf("halfway pixel = %v, want blend of start and end colors", mid)
+	}
+
+	p.Reverse = true
+	reversed := renderGradientSurface(5, 1, p, [4]uint8{}, [4]uint8{})
+	if reversed == nil {
+		t.Fatal("renderGradientSurface (reverse) returned nil")
+	}
+	revCenter := reversed[2*4 : 2*4+4]
+	if revCenter[0] != 0 || revCenter[2] != 255 {
+		t.Fatalf("reversed center pixel = %v, want end color [0 0 255 255]", revCenter)
+	}
+}
+
 func TestSampleMergedColorAverage(t *testing.T) {
 	inst, _, _ := newFillGradientTestInstance(t)
 	handle := int32(98765)

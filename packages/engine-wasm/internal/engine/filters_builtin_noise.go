@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"math/rand/v2"
+	"sync/atomic"
 
 	agglib "github.com/cwbudde/agg_go"
 )
@@ -12,7 +13,14 @@ type addNoiseParams struct {
 	Amount        int    `json:"amount"`       // 0-400
 	Distribution  string `json:"distribution"` // "uniform" or "gaussian"
 	Monochromatic bool   `json:"monochromatic"`
+	Seed          uint64 `json:"seed"` // optional: fixed seed for reproducible noise; 0 = fresh noise per application
 }
+
+// addNoiseInvocation makes each seedless Add Noise application draw from a
+// distinct RNG stream. A hard-coded seed made every application replay the
+// identical noise pattern, so reapplying the filter doubled the exact same
+// offsets (perfectly correlated 2× noise) instead of adding independent noise.
+var addNoiseInvocation atomic.Uint64
 
 func filterAddNoise(pixels []byte, _, _ int, selMask []byte, params json.RawMessage) error {
 	var p addNoiseParams
@@ -25,7 +33,11 @@ func filterAddNoise(pixels []byte, _, _ int, selMask []byte, params json.RawMess
 		return nil
 	}
 
-	rng := rand.New(rand.NewPCG(42, 0))
+	seed := p.Seed
+	if seed == 0 {
+		seed = 0x9E3779B97F4A7C15 ^ addNoiseInvocation.Add(1)
+	}
+	rng := rand.New(rand.NewPCG(seed, 0xA0761D6478BD642F))
 	amt := float64(p.Amount)
 
 	noise := func() float64 {
@@ -67,25 +79,30 @@ func filterMedian(pixels []byte, w, h int, selMask []byte, params json.RawMessag
 }
 
 func applyMedian(pixels []byte, w, h int, selMask []byte, radius int) error {
-	orig := append([]byte(nil), pixels...)
+	// Median runs on premultiplied data (all four channels). Per-channel order
+	// statistics preserve premulC <= alpha, so unpremultiplying cannot overshoot.
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	diam := 2*radius + 1
 	area := diam * diam
 
 	bufR := make([]byte, area)
 	bufG := make([]byte, area)
 	bufB := make([]byte, area)
+	bufA := make([]byte, area)
 
 	med := make([]byte, len(pixels))
-	copy(med, pixels)
+	copy(med, work)
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			n := 0
 			for ky := -radius; ky <= radius; ky++ {
 				for kx := -radius; kx <= radius; kx++ {
-					bufR[n] = clampedSample(orig, x+kx, y+ky, 0, w, h)
-					bufG[n] = clampedSample(orig, x+kx, y+ky, 1, w, h)
-					bufB[n] = clampedSample(orig, x+kx, y+ky, 2, w, h)
+					bufR[n] = clampedSample(work, x+kx, y+ky, 0, w, h)
+					bufG[n] = clampedSample(work, x+kx, y+ky, 1, w, h)
+					bufB[n] = clampedSample(work, x+kx, y+ky, 2, w, h)
+					bufA[n] = clampedSample(work, x+kx, y+ky, 3, w, h)
 					n++
 				}
 			}
@@ -94,12 +111,13 @@ func applyMedian(pixels []byte, w, h int, selMask []byte, radius int) error {
 			med[di] = selectMedian(bufR[:n], mid)
 			med[di+1] = selectMedian(bufG[:n], mid)
 			med[di+2] = selectMedian(bufB[:n], mid)
-			med[di+3] = orig[di+3]
+			med[di+3] = selectMedian(bufA[:n], mid)
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return med[i], med[i+1], med[i+2]
+	unpremultiplyRGBA(med)
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return med[i], med[i+1], med[i+2], med[i+3]
 	})
 	return nil
 }
@@ -138,18 +156,20 @@ func filterMinimum(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	result := make([]byte, len(pixels))
-	copy(result, pixels)
+	copy(result, work)
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			var minR, minG, minB byte = 255, 255, 255
+			var minR, minG, minB, minA byte = 255, 255, 255, 255
 			for ky := -p.Radius; ky <= p.Radius; ky++ {
 				for kx := -p.Radius; kx <= p.Radius; kx++ {
-					r := clampedSample(orig, x+kx, y+ky, 0, w, h)
-					g := clampedSample(orig, x+kx, y+ky, 1, w, h)
-					b := clampedSample(orig, x+kx, y+ky, 2, w, h)
+					r := clampedSample(work, x+kx, y+ky, 0, w, h)
+					g := clampedSample(work, x+kx, y+ky, 1, w, h)
+					b := clampedSample(work, x+kx, y+ky, 2, w, h)
+					a := clampedSample(work, x+kx, y+ky, 3, w, h)
 					if r < minR {
 						minR = r
 					}
@@ -159,18 +179,22 @@ func filterMinimum(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 					if b < minB {
 						minB = b
 					}
+					if a < minA {
+						minA = a
+					}
 				}
 			}
 			di := (y*w + x) * 4
 			result[di] = minR
 			result[di+1] = minG
 			result[di+2] = minB
-			result[di+3] = orig[di+3]
+			result[di+3] = minA
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return result[i], result[i+1], result[i+2]
+	unpremultiplyRGBA(result)
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return result[i], result[i+1], result[i+2], result[i+3]
 	})
 	return nil
 }
@@ -186,18 +210,20 @@ func filterMaximum(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 		return nil
 	}
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	result := make([]byte, len(pixels))
-	copy(result, pixels)
+	copy(result, work)
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			var maxR, maxG, maxB byte
+			var maxR, maxG, maxB, maxA byte
 			for ky := -p.Radius; ky <= p.Radius; ky++ {
 				for kx := -p.Radius; kx <= p.Radius; kx++ {
-					r := clampedSample(orig, x+kx, y+ky, 0, w, h)
-					g := clampedSample(orig, x+kx, y+ky, 1, w, h)
-					b := clampedSample(orig, x+kx, y+ky, 2, w, h)
+					r := clampedSample(work, x+kx, y+ky, 0, w, h)
+					g := clampedSample(work, x+kx, y+ky, 1, w, h)
+					b := clampedSample(work, x+kx, y+ky, 2, w, h)
+					a := clampedSample(work, x+kx, y+ky, 3, w, h)
 					if r > maxR {
 						maxR = r
 					}
@@ -207,18 +233,22 @@ func filterMaximum(pixels []byte, w, h int, selMask []byte, params json.RawMessa
 					if b > maxB {
 						maxB = b
 					}
+					if a > maxA {
+						maxA = a
+					}
 				}
 			}
 			di := (y*w + x) * 4
 			result[di] = maxR
 			result[di+1] = maxG
 			result[di+2] = maxB
-			result[di+3] = orig[di+3]
+			result[di+3] = maxA
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return result[i], result[i+1], result[i+2]
+	unpremultiplyRGBA(result)
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return result[i], result[i+1], result[i+2], result[i+3]
 	})
 	return nil
 }
@@ -247,27 +277,30 @@ func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawM
 	}
 	edgeThresh := float64(25 + (100-p.PreserveDetails)*2)
 
-	orig := append([]byte(nil), pixels...)
+	work := append([]byte(nil), pixels...)
+	premultiplyRGBA(work)
 	denoised := make([]byte, len(pixels))
-	copy(denoised, pixels)
+	copy(denoised, work)
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			ci := (y*w + x) * 4
-			cr, cg, cb := float64(orig[ci]), float64(orig[ci+1]), float64(orig[ci+2])
-			var sumR, sumG, sumB, sumW float64
+			cr, cg, cb := float64(work[ci]), float64(work[ci+1]), float64(work[ci+2])
+			var sumR, sumG, sumB, sumA, sumW float64
 
 			for ky := -radius; ky <= radius; ky++ {
 				for kx := -radius; kx <= radius; kx++ {
-					nr := float64(clampedSample(orig, x+kx, y+ky, 0, w, h))
-					ng := float64(clampedSample(orig, x+kx, y+ky, 1, w, h))
-					nb := float64(clampedSample(orig, x+kx, y+ky, 2, w, h))
+					nr := float64(clampedSample(work, x+kx, y+ky, 0, w, h))
+					ng := float64(clampedSample(work, x+kx, y+ky, 1, w, h))
+					nb := float64(clampedSample(work, x+kx, y+ky, 2, w, h))
+					na := float64(clampedSample(work, x+kx, y+ky, 3, w, h))
 
 					diff := (math.Abs(nr-cr) + math.Abs(ng-cg) + math.Abs(nb-cb)) / 3
 					weight := math.Exp(-(diff * diff) / (2 * edgeThresh * edgeThresh))
 					sumR += nr * weight
 					sumG += ng * weight
 					sumB += nb * weight
+					sumA += na * weight
 					sumW += weight
 				}
 			}
@@ -276,10 +309,12 @@ func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawM
 				denoised[ci] = clamp8(sumR / sumW)
 				denoised[ci+1] = clamp8(sumG / sumW)
 				denoised[ci+2] = clamp8(sumB / sumW)
+				denoised[ci+3] = clamp8(sumA / sumW)
 			}
-			denoised[ci+3] = orig[ci+3]
 		}
 	}
+
+	unpremultiplyRGBA(denoised)
 
 	if p.ReduceColorNoise > 0 {
 		chromaStrength := float64(p.ReduceColorNoise) / 100.0
@@ -304,8 +339,8 @@ func filterReduceNoise(pixels []byte, w, h int, selMask []byte, params json.RawM
 		}
 	}
 
-	applyFilteredWithMask(pixels, selMask, func(i int) (byte, byte, byte) {
-		return denoised[i], denoised[i+1], denoised[i+2]
+	applyFilteredRGBAWithMask(pixels, selMask, func(i int) (byte, byte, byte, byte) {
+		return denoised[i], denoised[i+1], denoised[i+2], denoised[i+3]
 	})
 	return nil
 }

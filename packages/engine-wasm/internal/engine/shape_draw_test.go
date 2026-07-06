@@ -348,6 +348,107 @@ func TestDrawShape_CustomShapeShapeAndPathModes(t *testing.T) {
 	}
 }
 
+// TestDrawShape_PixelsModeRespectsLayerBoundsOffset is a regression test for the
+// pixels-mode coordinate bug: the doc-space shape path must be translated by
+// (-Bounds.X, -Bounds.Y) before rasterizing into the layer-local pixel buffer.
+// Without the translation, a shape drawn onto a layer whose bounds are not at
+// the document origin lands offset by (Bounds.X, Bounds.Y).
+func TestDrawShape_PixelsModeRespectsLayerBoundsOffset(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	doc := instances[h].manager.ActiveMut()
+	root := doc.ensureLayerRoot()
+	layer := NewPixelLayer("Offset", LayerBounds{X: 50, Y: 30, W: 100, H: 100}, make([]byte, 100*100*4))
+	if err := doc.AddLayer(layer, root.ID(), -1); err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+	doc.ActiveLayerID = layer.ID()
+
+	// Rect at doc coords (60,40)-(80,60) → layer-local (10,10)-(30,30).
+	if _, err := DispatchCommand(h, commandDrawShape, mustJSON(t, DrawShapePayload{
+		ShapeType: "rect",
+		X:         60,
+		Y:         40,
+		W:         20,
+		H:         20,
+		FillColor: [4]uint8{255, 0, 0, 255},
+		Mode:      "pixels",
+	})); err != nil {
+		t.Fatalf("draw shape pixels: %v", err)
+	}
+
+	doc = instances[h].manager.Active()
+	node, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+	if !ok {
+		t.Fatal("active layer not found after draw")
+	}
+	px, ok := node.(*PixelLayer)
+	if !ok {
+		t.Fatalf("active layer type = %T, want *PixelLayer", node)
+	}
+
+	// Rect centre: doc (70,50) → layer-local (20,20) must be filled red.
+	idx := (20*px.Bounds.W + 20) * 4
+	if got := px.Pixels[idx : idx+4]; got[0] != 255 || got[1] != 0 || got[2] != 0 || got[3] != 255 {
+		t.Errorf("layer-local (20,20): got %v want [255 0 0 255]", got)
+	}
+	// The buggy (untranslated) location — layer-local (70,50) — must stay empty.
+	idx = (50*px.Bounds.W + 70) * 4
+	if got := px.Pixels[idx : idx+4]; got[3] != 0 {
+		t.Errorf("layer-local (70,50) should be transparent, got %v", got)
+	}
+}
+
+// TestDrawShape_PixelsModeOriginLayerUnchanged pins the pre-existing behaviour:
+// on a layer whose bounds sit at the document origin, doc coordinates and
+// layer-local coordinates coincide.
+func TestDrawShape_PixelsModeOriginLayerUnchanged(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	doc := instances[h].manager.ActiveMut()
+	root := doc.ensureLayerRoot()
+	layer := NewPixelLayer("Origin", LayerBounds{X: 0, Y: 0, W: 100, H: 100}, make([]byte, 100*100*4))
+	if err := doc.AddLayer(layer, root.ID(), -1); err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+	doc.ActiveLayerID = layer.ID()
+
+	if _, err := DispatchCommand(h, commandDrawShape, mustJSON(t, DrawShapePayload{
+		ShapeType: "rect",
+		X:         10,
+		Y:         10,
+		W:         30,
+		H:         30,
+		FillColor: [4]uint8{0, 255, 0, 255},
+		Mode:      "pixels",
+	})); err != nil {
+		t.Fatalf("draw shape pixels: %v", err)
+	}
+
+	doc = instances[h].manager.Active()
+	node, _, _, ok := findLayerByID(doc.ensureLayerRoot(), doc.ActiveLayerID)
+	if !ok {
+		t.Fatal("active layer not found after draw")
+	}
+	px, ok := node.(*PixelLayer)
+	if !ok {
+		t.Fatalf("active layer type = %T, want *PixelLayer", node)
+	}
+
+	// Rect centre at doc (25,25) == layer-local (25,25).
+	idx := (25*px.Bounds.W + 25) * 4
+	if got := px.Pixels[idx : idx+4]; got[0] != 0 || got[1] != 255 || got[2] != 0 || got[3] != 255 {
+		t.Errorf("layer-local (25,25): got %v want [0 255 0 255]", got)
+	}
+	// Outside the rect must stay empty.
+	idx = (80*px.Bounds.W + 80) * 4
+	if got := px.Pixels[idx : idx+4]; got[3] != 0 {
+		t.Errorf("layer-local (80,80) should be transparent, got %v", got)
+	}
+}
+
 // TestPolygonVerticesOnEllipse checks that all outer vertices of a hexagon lie on the ellipse.
 func TestPolygonVerticesOnEllipse(t *testing.T) {
 	x, y, w, h := 0.0, 0.0, 100.0, 80.0
