@@ -399,6 +399,73 @@ func TestCommitTextEdit_AfterInput_ProducesSingleHistoryEntryAndUndoRestoresOrig
 	}
 }
 
+func TestCancelTextEdit_RestoresOriginalTextWithoutHistoryEntry(t *testing.T) {
+	h := initTextTestDoc(t)
+	defer Free(h)
+
+	addResult, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypeText,
+		Name:      "Text",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 200, H: 100},
+		Text:      "Before",
+		FontSize:  24,
+		Color:     [4]uint8{0, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+	layerID := addResult.UIMeta.ActiveLayerID
+	historyBefore := len(addResult.UIMeta.History)
+
+	if _, err := DispatchCommand(h, commandEnterTextEditMode, mustJSON(t, EnterTextEditModePayload{
+		LayerID: layerID,
+	})); err != nil {
+		t.Fatalf("EnterTextEditMode: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandTextEditInput, mustJSON(t, TextEditInputPayload{Text: "abc"})); err != nil {
+		t.Fatalf("TextEditInput: %v", err)
+	}
+
+	cancelResult, err := DispatchCommand(h, commandCancelTextEdit, "{}")
+	if err != nil {
+		t.Fatalf("CancelTextEdit: %v", err)
+	}
+
+	// Cancel must restore the pre-edit text on the stored document.
+	inst, ok := instances[h]
+	if !ok {
+		t.Fatalf("no instance for handle %d", h)
+	}
+	storedDoc := inst.manager.activeMut()
+	layer := storedDoc.findLayer(layerID)
+	tl, ok := layer.(*TextLayer)
+	if !ok {
+		t.Fatalf("expected a text layer, got %T", layer)
+	}
+	if tl.Text != "Before" {
+		t.Errorf("stored text after cancel = %q, want %q", tl.Text, "Before")
+	}
+
+	// No history entry may be created for a cancelled edit.
+	if got := len(cancelResult.UIMeta.History); got != historyBefore {
+		t.Errorf("history length = %d, want %d (cancel must not create a history entry)", got, historyBefore)
+	}
+
+	// Edit mode must be cleared.
+	if cancelResult.UIMeta.EditingTextLayerID != "" {
+		t.Errorf("EditingTextLayerID = %q after cancel, want empty", cancelResult.UIMeta.EditingTextLayerID)
+	}
+}
+
+func TestCancelTextEdit_NoInFlightEdit_IsNoOp(t *testing.T) {
+	h := initTextTestDoc(t)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCancelTextEdit, "{}"); err != nil {
+		t.Fatalf("CancelTextEdit without in-flight edit: %v (want no-op)", err)
+	}
+}
+
 func TestConvertTextToPath_ProducesGlyphOutlinePath(t *testing.T) {
 	h := initTextTestDoc(t)
 	defer Free(h)

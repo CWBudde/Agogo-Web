@@ -16,12 +16,7 @@ export function PathsPanel({ engine, paths }: PathsPanelProps) {
   const activeIndex = paths.findIndex((p) => p.active);
 
   function handleClick(index: number) {
-    // No dedicated SetActivePath command exists, so we dispatch RenamePath
-    // with the same name. The engine handler treats this as "activate path".
-    engine.dispatchCommand(CommandID.RenamePath, {
-      pathIndex: index,
-      name: paths[index].name,
-    });
+    engine.dispatchCommand(CommandID.SetActivePath, { pathIndex: index });
   }
 
   function handleDoubleClick(index: number) {

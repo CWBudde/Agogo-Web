@@ -6229,7 +6229,7 @@ function TextEditOverlay({
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.preventDefault();
-            engine.dispatchCommand(CommandID.CommitTextEdit, {});
+            engine.dispatchCommand(CommandID.CancelTextEdit, {});
           }
         }}
       />

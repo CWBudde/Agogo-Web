@@ -139,6 +139,21 @@ func (inst *instance) dispatchPathCommand(commandID int32, payloadJSON string) (
 				return strokePathOnDoc(doc, idx, toolWidth, color)
 			})
 		},
+		SetActivePath: func(pathIndex int) error {
+			// Path activation is UI state, not an undoable edit (Photoshop
+			// semantics). Like SetActiveLayer, use the clone-and-replace
+			// pattern instead of executeDocCommand so no history entry is
+			// created and the latest history snapshot is not mutated in place.
+			doc := inst.manager.Active()
+			if doc == nil {
+				return fmt.Errorf("no active document")
+			}
+			if pathIndex < 0 || pathIndex >= len(doc.Paths) {
+				return fmt.Errorf("path index %d out of range (have %d paths)", pathIndex, len(doc.Paths))
+			}
+			doc.ActivePathIdx = pathIndex
+			return inst.manager.ReplaceActive(doc)
+		},
 	}); handled || err != nil {
 		return handled, err
 	}

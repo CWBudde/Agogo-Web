@@ -150,6 +150,7 @@ export enum CommandID {
   MakeSelectionFromPath = 0x0624,
   StrokePath = 0x0625,
   FillPath = 0x0626,
+  SetActivePath = 0x0627,
 
   // Phase 6.2: Shape Tools
   DrawShape = 0x0630,
@@ -166,6 +167,7 @@ export enum CommandID {
   CommitTextEdit = 0x0645,
   ConvertTextToPath = 0x0646,
   LoadFontData = 0x0647,
+  CancelTextEdit = 0x0648,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -1132,6 +1134,10 @@ export interface FillPathCommand {
   color?: [number, number, number, number];
 }
 
+export interface SetActivePathCommand {
+  pathIndex: number;
+}
+
 // Path overlay in UIMeta
 
 export interface PathOverlayAnchor {
@@ -1285,3 +1291,9 @@ export interface LoadFontDataCommand {
   /** base64-encoded TTF/OTF bytes */
   data: string;
 }
+
+/**
+ * Cancels the in-flight text edit (Escape), restoring the pre-edit text.
+ * Creates no history entry; a no-op when nothing is being edited.
+ */
+export interface CancelTextEditCommand {}

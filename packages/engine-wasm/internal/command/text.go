@@ -9,6 +9,7 @@ const (
 	commandCommitTextEdit    int32 = 0x0645
 	commandConvertTextToPath int32 = 0x0646
 	commandLoadFontData      int32 = 0x0647
+	commandCancelTextEdit    int32 = 0x0648
 )
 
 type TextAddLayerPayload struct {
@@ -80,6 +81,7 @@ type TextDeps struct {
 	CommitTextEdit    func() error
 	ConvertTextToPath func(layerID string) error
 	LoadFontData      func(TextLoadFontDataPayload) error
+	CancelTextEdit    func() error
 }
 
 func DispatchText(commandID int32, payloadJSON string, deps TextDeps) (bool, error) {
@@ -128,6 +130,8 @@ func DispatchText(commandID int32, payloadJSON string, deps TextDeps) (bool, err
 			return true, err
 		}
 		return true, deps.LoadFontData(payload)
+	case commandCancelTextEdit:
+		return true, deps.CancelTextEdit()
 	default:
 		return false, nil
 	}

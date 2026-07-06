@@ -23,6 +23,7 @@ const (
 	commandMakeSelectionFromPath int32 = 0x0624
 	commandStrokePath            int32 = 0x0625
 	commandFillPath              int32 = 0x0626
+	commandSetActivePath         int32 = 0x0627
 )
 
 type PathSetActiveToolPayload struct {
@@ -112,6 +113,10 @@ type PathStrokePayload struct {
 	Color     [4]uint8 `json:"color,omitempty"`
 }
 
+type pathSetActivePayload struct {
+	PathIndex int `json:"pathIndex"`
+}
+
 type PathCRUDDeps struct {
 	Decode        func(string, any) error
 	CreatePath    func(name string) error
@@ -141,6 +146,7 @@ type PathDeps struct {
 	MakeSelectionFromPath func(pathIndex *int) error
 	FillPath              func(pathIndex *int, color [4]uint8) error
 	StrokePath            func(pathIndex *int, toolWidth float64, color [4]uint8) error
+	SetActivePath         func(pathIndex int) error
 }
 
 func DispatchPathCRUD(commandID int32, payloadJSON string, deps PathCRUDDeps) (bool, error) {
@@ -303,6 +309,12 @@ func DispatchPath(commandID int32, payloadJSON string, deps PathDeps) (bool, err
 			return true, err
 		}
 		return true, deps.StrokePath(payload.PathIndex, payload.ToolWidth, payload.Color)
+	case commandSetActivePath:
+		var payload pathSetActivePayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SetActivePath(payload.PathIndex)
 	default:
 		return false, nil
 	}

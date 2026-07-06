@@ -126,6 +126,12 @@ func (inst *instance) dispatchTextCommand(commandID int32, payloadJSON string) (
 		LoadFontData: func(payload cmdpkg.TextLoadFontDataPayload) error {
 			return inst.loadFontData(LoadFontDataPayload(payload))
 		},
+		CancelTextEdit: func() error {
+			// Escape: discard the in-flight edit and restore the pre-edit
+			// text. No history entry; a no-op when nothing is being edited.
+			inst.revertLiveTextEdit()
+			return nil
+		},
 	})
 }
 

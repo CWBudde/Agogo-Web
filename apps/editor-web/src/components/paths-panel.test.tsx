@@ -72,6 +72,25 @@ describe("PathsPanel", () => {
     expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.FlattenPath, {});
   });
 
+  it("dispatches SetActivePath when a path row is clicked", () => {
+    const engine = createEngine();
+
+    render(
+      <PathsPanel
+        engine={engine}
+        paths={[
+          { name: "Shape 1", active: true },
+          { name: "Shape 2", active: false },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Shape 2"));
+
+    expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.SetActivePath, { pathIndex: 1 });
+    expect(engine.dispatchCommand).toHaveBeenCalledTimes(1);
+  });
+
   it("disables boolean buttons when there are not enough paths", () => {
     const engine = createEngine();
 

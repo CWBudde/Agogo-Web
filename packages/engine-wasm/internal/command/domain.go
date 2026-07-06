@@ -31,11 +31,11 @@ func DomainOf(commandID int32) Domain {
 		return DomainTransform
 	case commandID >= 0x0500 && commandID <= 0x0505:
 		return DomainFilter
-	case commandID >= 0x0600 && commandID <= 0x0626:
+	case commandID >= 0x0600 && commandID <= 0x0627:
 		return DomainPath
 	case commandID >= 0x0630 && commandID <= 0x0633:
 		return DomainShape
-	case commandID >= 0x0640 && commandID <= 0x0647:
+	case commandID >= 0x0640 && commandID <= 0x0648:
 		return DomainText
 	default:
 		return DomainUnknown

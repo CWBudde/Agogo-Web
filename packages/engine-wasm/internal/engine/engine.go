@@ -146,6 +146,7 @@ const (
 	commandMakeSelectionFromPath = 0x0624
 	commandStrokePath            = 0x0625
 	commandFillPath              = 0x0626
+	commandSetActivePath         = 0x0627
 
 	// Phase 6.2: Shape Tools
 	commandDrawShape           = 0x0630
@@ -159,9 +160,10 @@ const (
 	commandSetTextStyle      = 0x0642 // update font/size/color/alignment + re-rasterize
 	commandEnterTextEditMode = 0x0643 // enter text editing (double-click)
 	commandTextEditInput     = 0x0644 // update working text from frontend keyboard input
-	commandCommitTextEdit    = 0x0645 // finalize edit (Escape / click-outside)
+	commandCommitTextEdit    = 0x0645 // finalize edit (Enter / click-outside)
 	commandConvertTextToPath = 0x0646 // Type > Create Outlines → new VectorLayer
 	commandLoadFontData      = 0x0647 // register TTF/OTF font data app-wide (works without a document)
+	commandCancelTextEdit    = 0x0648 // discard in-flight edit, restore pre-edit text (Escape)
 
 	commandBeginTxn     = 0xffe0 //nolint:unused // kept for command ABI coverage in tests
 	commandEndTxn       = 0xffe1 //nolint:unused // kept for command ABI coverage in tests
