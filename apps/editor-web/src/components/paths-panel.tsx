@@ -326,6 +326,7 @@ function FooterButton({
     <button
       type="button"
       title={title}
+      aria-label={title}
       disabled={disabled}
       className="flex size-6 items-center justify-center rounded-sm text-slate-400 hover:bg-white/8 hover:text-slate-200 disabled:pointer-events-none disabled:opacity-40"
       onClick={onClick}

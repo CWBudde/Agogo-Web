@@ -144,6 +144,7 @@ export function LayerStyleDialog({
   return (
     <Dialog
       open={open}
+      onClose={handleCancel}
       title="Layer Style"
       description="Preview edits live, then keep them with OK or restore the captured stack with Cancel."
       className="max-w-4xl"

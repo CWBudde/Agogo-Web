@@ -556,7 +556,13 @@ export function GradientEditorDialog({
 
   return (
     <>
-      <Dialog open={open} title={title} description={description} className="max-w-4xl">
+      <Dialog
+        open={open}
+        onClose={onClose}
+        title={title}
+        description={description}
+        className="max-w-4xl"
+      >
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="space-y-3">
@@ -620,6 +626,7 @@ export function GradientEditorDialog({
                           openSelectedStopColor();
                         }}
                         title={`${Math.round(stop.position * 100)}% ${rgbaToHex(stop.color)}`}
+                        aria-label={`Gradient stop at ${Math.round(stop.position * 100)}%, ${rgbaToHex(stop.color)}`}
                       >
                         <span
                           className={[
