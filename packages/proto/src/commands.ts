@@ -485,7 +485,7 @@ export interface AddLayerCommand {
   parentLayerId?: string;
   index?: number;
   bounds?: LayerBoundsCommand;
-  pixels?: number[];
+  pixels?: string; // base64-encoded RGBA bytes (Go decodes []byte from base64)
   adjustmentKind?: AdjustmentKind;
   params?: AdjustmentLayerParams;
   text?: string;
@@ -496,7 +496,7 @@ export interface AddLayerCommand {
   fillColor?: [number, number, number, number];
   strokeColor?: [number, number, number, number];
   strokeWidth?: number;
-  cachedRaster?: number[];
+  cachedRaster?: string; // base64-encoded RGBA bytes (Go decodes []byte from base64)
   isolated?: boolean;
   isArtboard?: boolean;
   artboardBounds?: LayerBoundsCommand;

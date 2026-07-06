@@ -36,6 +36,7 @@ import {
   SwatchesPanel,
 } from "@/components/brush-color-panels";
 import { EditorCanvas } from "@/components/editor-canvas";
+import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import {
   ArtboardToolIcon,
   BrushToolIcon,
@@ -81,7 +82,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
+import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
 import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   hexToRgba,
@@ -747,7 +750,6 @@ export default function App() {
   const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
   const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
   const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
-  const lastSavedVersionRef = useRef<number>(0);
   const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
   const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
   const [marqueeStyle, setMarqueeStyle] = useState<MarqueeStyle>("normal");
@@ -1030,24 +1032,7 @@ export default function App() {
     }
   }, [contentVersion, engine.dispatchCommand, engine.handle]);
 
-  useEffect(() => {
-    if (!engine.handle || contentVersion === undefined || contentVersion === 0) {
-      return;
-    }
-    if (contentVersion - lastSavedVersionRef.current < AUTOSAVE_EVERY_N_VERSIONS) {
-      return;
-    }
-    const base64Zip = engine.exportProject();
-    if (!base64Zip) {
-      return;
-    }
-    try {
-      localStorage.setItem(AUTOSAVE_KEY, base64Zip);
-      lastSavedVersionRef.current = contentVersion;
-    } catch {
-      // localStorage quota exceeded — silently skip
-    }
-  }, [contentVersion, engine.exportProject, engine.handle]);
+  useAutosave({ engine, contentVersion, enabled: engine.handle !== null });
 
   const wasCustomShapeActiveRef = useRef(false);
   useEffect(() => {
@@ -3815,6 +3800,10 @@ export default function App() {
                     }}
                     onTransformSelectionCancel={() => setTransformSelectionActive(false)}
                   />
+                ) : engine.status === "error" ? (
+                  <EngineLoadErrorScreen
+                    message={engine.error?.message ?? "The Wasm engine could not be initialized."}
+                  />
                 ) : (
                   <WelcomeScreen
                     isDragOver={isDragOver}
@@ -5548,6 +5537,8 @@ export default function App() {
         recentColors={recentColors}
         onRecentColorSelect={setActiveColor}
       />
+
+      <ToastViewport />
     </div>
   );
 }
@@ -6088,8 +6079,6 @@ function dockTitle(panel: AuxPanel) {
   }
 }
 
-const AUTOSAVE_KEY = "agogo:autosave";
-const AUTOSAVE_EVERY_N_VERSIONS = 10;
 const PSD_MAX_DIMENSION = 30000;
 
 // Channel descriptor: short label, long name, indicator colour class.

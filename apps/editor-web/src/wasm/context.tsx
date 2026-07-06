@@ -21,6 +21,7 @@ import {
   useReducer,
   useRef,
 } from "react";
+import { emitToast } from "@/lib/toast-bus";
 import { loadEngine } from "./loader";
 import type { EngineContextValue, EngineHandle, EngineRenderState } from "./types";
 
@@ -41,6 +42,16 @@ type EngineAction =
 
 function isFullRender(result: RenderResult): result is EngineRenderState {
   return result.uiMeta !== undefined;
+}
+
+function surfaceEngineError(title: string, error: unknown): null {
+  console.error(`${title}:`, error);
+  emitToast({
+    kind: "error",
+    title,
+    message: error instanceof Error ? error.message : String(error),
+  });
+  return null;
 }
 
 function sameViewport(a: ViewportMeta, b: ViewportMeta): boolean {
@@ -171,7 +182,14 @@ export function EngineProvider({ children }: PropsWithChildren) {
       if (!handle) {
         return null;
       }
-      const result = handle.dispatchCommand(commandId, payload);
+      let result: RenderResult;
+      try {
+        result = handle.dispatchCommand(commandId, payload);
+      } catch (error) {
+        // A failed command must never throw uncaught mid-gesture — callers
+        // already tolerate null (same as "no handle yet").
+        return surfaceEngineError("Engine command failed", error);
+      }
       if (isFullRender(result)) {
         return commit(result);
       }
@@ -289,18 +307,31 @@ export function EngineProvider({ children }: PropsWithChildren) {
         return run(CommandID.SetShowGuides, { show });
       },
       exportProject() {
-        return handleRef.current?.exportProject() ?? null;
+        try {
+          return handleRef.current?.exportProject() ?? null;
+        } catch (error) {
+          return surfaceEngineError("Project export failed", error);
+        }
       },
       exportDocument(format: string) {
-        return handleRef.current?.exportDocument(format) ?? null;
+        try {
+          return handleRef.current?.exportDocument(format) ?? null;
+        } catch (error) {
+          return surfaceEngineError("Document export failed", error);
+        }
       },
       importProject(projectJSON: string) {
         const handle = handleRef.current;
         if (!handle) {
           return null;
         }
-        // ImportProject always returns a full render result.
-        const result = handle.importProject(projectJSON) as EngineRenderState;
+        let result: EngineRenderState;
+        try {
+          // ImportProject always returns a full render result.
+          result = handle.importProject(projectJSON) as EngineRenderState;
+        } catch (error) {
+          return surfaceEngineError("Project import failed", error);
+        }
         latestRenderRef.current = result;
         dispatch({ type: "render", render: result });
         return result;

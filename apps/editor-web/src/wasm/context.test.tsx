@@ -1,6 +1,7 @@
 import type { RenderResult } from "@agogo/proto";
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeToasts, type ToastOptions } from "@/lib/toast-bus";
 import { EngineProvider, useEngine } from "./context";
 import type { EngineContextValue, EngineHandle, EngineRenderState } from "./types";
 
@@ -215,5 +216,98 @@ describe("EngineProvider ack merging", () => {
     });
 
     expect(engineValue?.render).toBe(full);
+  });
+});
+
+describe("EngineProvider error surfacing", () => {
+  beforeEach(() => {
+    dispatchResults = [];
+    renderFrameResult = makeFullRender();
+    renderFrameCalls = 0;
+    rafQueue = [];
+    engineValue = null;
+    consumerRenderCount = 0;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  it("returns null and emits an error toast when dispatchCommand throws", async () => {
+    await mountProvider();
+    const before = engineValue?.render;
+    const toasts: ToastOptions[] = [];
+    const unsubscribe = subscribeToasts((toast) => toasts.push(toast));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // The fake handle throws when no dispatch result is queued.
+    dispatchResults = [];
+    let returned: EngineRenderState | null | undefined = makeFullRender();
+    expect(() => {
+      act(() => {
+        returned = engineValue?.dispatchCommand(0x0401, {});
+      });
+    }).not.toThrow();
+
+    expect(returned).toBeNull();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("error");
+    expect(toasts[0]?.title).toBe("Engine command failed");
+    expect(toasts[0]?.message).toContain("no queued dispatch result");
+    expect(consoleError).toHaveBeenCalled();
+    // The render state stays untouched by the failed command.
+    expect(engineValue?.render).toBe(before);
+
+    unsubscribe();
+    consoleError.mockRestore();
+  });
+
+  it("returns null and emits an error toast when importProject throws", async () => {
+    await mountProvider();
+    const toasts: ToastOptions[] = [];
+    const unsubscribe = subscribeToasts((toast) => toasts.push(toast));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(fakeHandle.importProject).mockImplementationOnce(() => {
+      throw new Error("corrupt archive");
+    });
+
+    let returned: EngineRenderState | null | undefined;
+    expect(() => {
+      act(() => {
+        returned = engineValue?.importProject("{}");
+      });
+    }).not.toThrow();
+
+    expect(returned).toBeNull();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("error");
+    expect(toasts[0]?.message).toContain("corrupt archive");
+
+    unsubscribe();
+    consoleError.mockRestore();
+  });
+
+  it("returns null and emits an error toast when exportProject throws", async () => {
+    await mountProvider();
+    const toasts: ToastOptions[] = [];
+    const unsubscribe = subscribeToasts((toast) => toasts.push(toast));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(fakeHandle.exportProject).mockImplementationOnce(() => {
+      throw new Error("zip failed");
+    });
+
+    let returned: string | null | undefined;
+    expect(() => {
+      returned = engineValue?.exportProject();
+    }).not.toThrow();
+
+    expect(returned).toBeNull();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("error");
+    expect(toasts[0]?.message).toContain("zip failed");
+
+    unsubscribe();
+    consoleError.mockRestore();
   });
 });

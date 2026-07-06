@@ -72,15 +72,7 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			return nil
 		},
 		PointerEvent: func(payload cmdpkg.CorePointerEventPayload) error {
-			inst.handlePointerEvent(PointerEventPayload{
-				Phase:     payload.Phase,
-				PointerID: payload.PointerID,
-				X:         payload.X,
-				Y:         payload.Y,
-				Buttons:   payload.Buttons,
-				PanMode:   payload.PanMode,
-				Pressure:  payload.Pressure,
-			})
+			inst.handlePointerEvent(corePointerEventToEngine(payload))
 			return nil
 		},
 		BeginTxn: func(description string) error {
@@ -173,4 +165,21 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			return inst.history.Execute(inst, command)
 		},
 	})
+}
+
+// corePointerEventToEngine converts the ABI-level pointer payload into the
+// engine's internal pointer event, preserving every field — notably Button,
+// which distinguishes the pressed button (0 primary, 1 middle, 2 secondary)
+// from the Buttons bitmask.
+func corePointerEventToEngine(payload cmdpkg.CorePointerEventPayload) PointerEventPayload {
+	return PointerEventPayload{
+		Phase:     payload.Phase,
+		PointerID: payload.PointerID,
+		X:         payload.X,
+		Y:         payload.Y,
+		Button:    payload.Button,
+		Buttons:   payload.Buttons,
+		PanMode:   payload.PanMode,
+		Pressure:  payload.Pressure,
+	}
 }

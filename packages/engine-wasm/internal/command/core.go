@@ -58,6 +58,7 @@ type CorePointerEventPayload struct {
 	PointerID int     `json:"pointerId"`
 	X         float64 `json:"x"`
 	Y         float64 `json:"y"`
+	Button    int     `json:"button"`
 	Buttons   int     `json:"buttons"`
 	PanMode   bool    `json:"panMode"`
 	Pressure  float64 `json:"pressure"`
