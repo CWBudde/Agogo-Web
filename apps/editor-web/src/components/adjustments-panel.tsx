@@ -5,7 +5,7 @@ import {
   CommandID,
   type LayerNodeMeta,
 } from "@agogo/proto";
-import { CharacterPanel } from "./character-panel";
+import { CharacterPanel, type FontFamilyOption } from "./character-panel";
 import { VectorPropertiesPanel } from "./vector-properties-panel";
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { EngineContextValue } from "@/wasm/types";
@@ -118,11 +118,13 @@ export function AdjPropertiesPanel({
   engine,
   layers,
   activeLayerId,
+  availableFonts,
   fallback,
 }: {
   engine: EngineContextValue;
   layers: LayerNodeMeta[];
   activeLayerId: string | null;
+  availableFonts: FontFamilyOption[];
   fallback: ReactNode;
 }) {
   const layer = activeLayerId ? findLayerById(layers, activeLayerId) : null;
@@ -132,7 +134,7 @@ export function AdjPropertiesPanel({
   }
 
   if (layer?.layerType === "text") {
-    return <CharacterPanel engine={engine} layer={layer} />;
+    return <CharacterPanel engine={engine} layer={layer} availableFonts={availableFonts} />;
   }
 
   if (!layer || layer.layerType !== "adjustment" || !layer.adjustmentKind) {

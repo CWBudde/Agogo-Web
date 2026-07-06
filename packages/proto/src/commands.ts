@@ -165,6 +165,7 @@ export enum CommandID {
   TextEditInput = 0x0644,
   CommitTextEdit = 0x0645,
   ConvertTextToPath = 0x0646,
+  LoadFontData = 0x0647,
 
   // Undo/Redo
   BeginTransaction = 0xffe0,
@@ -1270,4 +1271,17 @@ export interface CommitTextEditCommand {}
 
 export interface ConvertTextToPathCommand {
   layerId: string;
+}
+
+/**
+ * Registers TTF/OTF font bytes in the engine's app-level font registry.
+ * Works without an open document (app-startup font registration) and is
+ * not undoable.
+ */
+export interface LoadFontDataCommand {
+  name: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** base64-encoded TTF/OTF bytes */
+  data: string;
 }

@@ -3924,6 +3924,7 @@ export default function App() {
                           engine={engine}
                           layers={render?.uiMeta.layers ?? []}
                           activeLayerId={render?.uiMeta.activeLayerId ?? null}
+                          availableFonts={render?.uiMeta.availableFonts ?? []}
                           fallback={
                             <div className="space-y-[var(--ui-gap-3)]">
                               <PropertyGridRow label="Document" value={documentSize} />

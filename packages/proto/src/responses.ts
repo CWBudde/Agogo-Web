@@ -96,6 +96,8 @@ export interface UIMeta {
   stylePresets?: DocumentStylePresetEntry[];
   /** Fill patterns available in the active document (builtins followed by document-defined patterns). */
   patterns?: Array<{ id: string; name: string; width: number; height: number }>;
+  /** Font families registered in the app-level font registry (embedded defaults plus fonts loaded via LoadFontData). */
+  availableFonts?: { family: string; styles: string[] }[];
 }
 
 /**

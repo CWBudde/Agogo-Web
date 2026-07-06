@@ -161,6 +161,7 @@ const (
 	commandTextEditInput     = 0x0644 // update working text from frontend keyboard input
 	commandCommitTextEdit    = 0x0645 // finalize edit (Escape / click-outside)
 	commandConvertTextToPath = 0x0646 // Type > Create Outlines → new VectorLayer
+	commandLoadFontData      = 0x0647 // register TTF/OTF font data app-wide (works without a document)
 
 	commandBeginTxn     = 0xffe0 //nolint:unused // kept for command ABI coverage in tests
 	commandEndTxn       = 0xffe1 //nolint:unused // kept for command ABI coverage in tests
@@ -250,6 +251,10 @@ type UIMeta struct {
 	// Patterns lists the fill patterns available in the active document
 	// (builtins followed by document-defined patterns).
 	Patterns []PatternMeta `json:"patterns,omitempty"`
+	// AvailableFonts lists the font families registered in the app-level
+	// font registry (embedded defaults plus fonts loaded via LoadFontData),
+	// sorted by family name with styles in canonical order.
+	AvailableFonts []FontFamilyMeta `json:"availableFonts,omitempty"`
 }
 
 type RenderResult struct {

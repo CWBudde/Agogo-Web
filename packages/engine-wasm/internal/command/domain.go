@@ -35,7 +35,7 @@ func DomainOf(commandID int32) Domain {
 		return DomainPath
 	case commandID >= 0x0630 && commandID <= 0x0633:
 		return DomainShape
-	case commandID >= 0x0640 && commandID <= 0x0646:
+	case commandID >= 0x0640 && commandID <= 0x0647:
 		return DomainText
 	default:
 		return DomainUnknown

@@ -400,6 +400,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 			CanUndo:             inst.history.CanUndo(),
 			CanRedo:             inst.history.CanRedo(),
 			MaskEditLayerID:     inst.maskEditLayerID,
+			AvailableFonts:      buildAvailableFontsMeta(),
 		}
 	}
 
@@ -441,6 +442,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		TextCursorY:            inst.textCursorY(doc),
 		StylePresets:           cloneDocumentStylePresets(doc.StylePresets),
 		Patterns:               buildPatternsMeta(doc),
+		AvailableFonts:         buildAvailableFontsMeta(),
 	}
 }
 

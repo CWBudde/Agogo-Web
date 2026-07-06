@@ -8,6 +8,7 @@ const (
 	commandTextEditInput     int32 = 0x0644
 	commandCommitTextEdit    int32 = 0x0645
 	commandConvertTextToPath int32 = 0x0646
+	commandLoadFontData      int32 = 0x0647
 )
 
 type TextAddLayerPayload struct {
@@ -53,6 +54,14 @@ type TextSetStylePayload struct {
 	SpaceAfter    *float64  `json:"spaceAfter,omitempty"`
 }
 
+type TextLoadFontDataPayload struct {
+	Name   string `json:"name"`
+	Bold   bool   `json:"bold,omitempty"`
+	Italic bool   `json:"italic,omitempty"`
+	// Data carries the base64-encoded TTF/OTF font bytes.
+	Data string `json:"data"`
+}
+
 type textLayerIDPayload struct {
 	LayerID string `json:"layerId"`
 }
@@ -70,6 +79,7 @@ type TextDeps struct {
 	TextEditInput     func(text string) error
 	CommitTextEdit    func() error
 	ConvertTextToPath func(layerID string) error
+	LoadFontData      func(TextLoadFontDataPayload) error
 }
 
 func DispatchText(commandID int32, payloadJSON string, deps TextDeps) (bool, error) {
@@ -112,6 +122,12 @@ func DispatchText(commandID int32, payloadJSON string, deps TextDeps) (bool, err
 			return true, err
 		}
 		return true, deps.ConvertTextToPath(payload.LayerID)
+	case commandLoadFontData:
+		var payload TextLoadFontDataPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.LoadFontData(payload)
 	default:
 		return false, nil
 	}

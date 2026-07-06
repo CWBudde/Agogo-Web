@@ -4,7 +4,6 @@ import (
 	"math"
 
 	agglib "github.com/cwbudde/agg_go"
-
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 

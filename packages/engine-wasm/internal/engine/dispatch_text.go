@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/text"
 )
 
 // textEditOriginalMu guards textEditOriginalText.
@@ -81,8 +84,20 @@ type ConvertTextToPathPayload struct {
 	LayerID string `json:"layerId"`
 }
 
+// LoadFontDataPayload is the JSON payload for commandLoadFontData. Data
+// carries the base64-encoded TTF/OTF font bytes.
+type LoadFontDataPayload struct {
+	Name   string `json:"name"`
+	Bold   bool   `json:"bold,omitempty"`
+	Italic bool   `json:"italic,omitempty"`
+	Data   string `json:"data"`
+}
+
 func (inst *instance) dispatchTextCommand(commandID int32, payloadJSON string) (bool, error) {
-	if inst.manager.Active() == nil {
+	// LoadFontData registers app-level (not document) state and must work
+	// before any document is open — the frontend loads fonts at startup.
+	// Every other text command targets the active document.
+	if commandID != commandLoadFontData && inst.manager.Active() == nil {
 		return true, fmt.Errorf("no active document")
 	}
 	return cmdpkg.DispatchText(commandID, payloadJSON, cmdpkg.TextDeps{
@@ -108,7 +123,41 @@ func (inst *instance) dispatchTextCommand(commandID int32, payloadJSON string) (
 		ConvertTextToPath: func(layerID string) error {
 			return inst.convertTextToPath(ConvertTextToPathPayload{LayerID: layerID})
 		},
+		LoadFontData: func(payload cmdpkg.TextLoadFontDataPayload) error {
+			return inst.loadFontData(LoadFontDataPayload(payload))
+		},
 	})
+}
+
+// loadFontData decodes and registers TTF/OTF font bytes in the app-level
+// font registry. It is deliberately NOT undoable: fonts are application
+// state, not document state, so no history entry is created (the central
+// DispatchCommand path already bumps uiMetaVersion for the UIMeta refresh).
+func (inst *instance) loadFontData(p LoadFontDataPayload) error {
+	if strings.TrimSpace(p.Name) == "" {
+		return fmt.Errorf("font name required")
+	}
+	data, err := base64.StdEncoding.DecodeString(p.Data)
+	if err != nil {
+		return fmt.Errorf("decode font data: %w", err)
+	}
+	return text.DefaultRegistry().Register(p.Name, p.Bold, p.Italic, data)
+}
+
+// FontFamilyMeta describes one registered font family for UIMeta consumption.
+type FontFamilyMeta struct {
+	Family string   `json:"family"`
+	Styles []string `json:"styles"`
+}
+
+// buildAvailableFontsMeta enumerates the app-level font registry for UIMeta.
+func buildAvailableFontsMeta() []FontFamilyMeta {
+	infos := text.DefaultRegistry().List()
+	meta := make([]FontFamilyMeta, 0, len(infos))
+	for _, info := range infos {
+		meta = append(meta, FontFamilyMeta{Family: info.Family, Styles: info.Styles})
+	}
+	return meta
 }
 
 // addTextLayer creates a new TextLayer at (x,y) and immediately enters edit mode.

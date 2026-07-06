@@ -1,14 +1,29 @@
 import { CommandID, type LayerNodeMeta, type SetTextStyleCommand } from "@agogo/proto";
 import type { EngineContextValue } from "@/wasm/types";
 
+/** One entry of UIMeta.availableFonts: a registered family and its styles. */
+export interface FontFamilyOption {
+  family: string;
+  styles: string[];
+}
+
+const ALL_STYLES = ["Regular", "Bold", "Italic", "Bold Italic"];
+
+/** Case- and whitespace-insensitive family comparison, mirroring the engine registry. */
+function sameFamily(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export function CharacterPanel({
   engine,
   layer,
+  availableFonts,
 }: {
   engine: EngineContextValue;
   layer: LayerNodeMeta;
+  availableFonts: FontFamilyOption[];
 }) {
-  const fontFamily = layer.fontFamily ?? "Arial";
+  const fontFamily = layer.fontFamily ?? "DejaVu Sans";
   const fontStyle = layer.fontStyle ?? "Regular";
   const fontSize = layer.fontSize ?? 16;
   const color = layer.textColor ?? [0, 0, 0, 255];
@@ -40,6 +55,42 @@ export function CharacterPanel({
     } satisfies SetTextStyleCommand);
   };
 
+  // Effective style mirrors the engine's textLayerStyleFlags: the boolean
+  // flags are authoritative, a style string encoding bold/italic is OR-ed in.
+  const styleLower = fontStyle.toLowerCase();
+  const effectiveBold = bold || styleLower.includes("bold");
+  const effectiveItalic = italic || styleLower.includes("italic") || styleLower.includes("oblique");
+  const effectiveStyle =
+    effectiveBold && effectiveItalic
+      ? "Bold Italic"
+      : effectiveBold
+        ? "Bold"
+        : effectiveItalic
+          ? "Italic"
+          : "Regular";
+
+  // Families offered by the engine; keep an unknown current family selectable
+  // so the controlled <select> never shows an empty value.
+  const familyOptions = availableFonts.some((f) => sameFamily(f.family, fontFamily))
+    ? availableFonts
+    : [{ family: fontFamily, styles: ALL_STYLES }, ...availableFonts];
+  const currentFamily = familyOptions.find((f) => sameFamily(f.family, fontFamily));
+  const styleOptions =
+    currentFamily && currentFamily.styles.length > 0 ? currentFamily.styles : ALL_STYLES;
+  const styleChoices = styleOptions.includes(effectiveStyle)
+    ? styleOptions
+    : [...styleOptions, effectiveStyle];
+
+  // Maps a style name to the SetTextStyle payload: the style string is sent
+  // alongside the bold/italic flags (the engine ORs both together).
+  const applyFontStyle = (style: string) => {
+    applyStyle({
+      fontStyle: style,
+      bold: style.includes("Bold"),
+      italic: style.includes("Italic") || style.includes("Oblique"),
+    });
+  };
+
   return (
     <div className="flex flex-col gap-3 p-2">
       <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Character</div>
@@ -47,23 +98,33 @@ export function CharacterPanel({
       {/* Font Family */}
       <div className="flex items-center gap-2">
         <span className="w-14 text-[11px] text-slate-400">Font</span>
-        <input
-          type="text"
-          value={fontFamily}
+        <select
+          value={currentFamily?.family ?? fontFamily}
           onChange={(e) => applyStyle({ fontFamily: e.target.value })}
           className="h-6 flex-1 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
-        />
+        >
+          {familyOptions.map((f) => (
+            <option key={f.family} value={f.family}>
+              {f.family}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Font Style */}
       <div className="flex items-center gap-2">
         <span className="w-14 text-[11px] text-slate-400">Font Style</span>
-        <input
-          type="text"
-          value={fontStyle}
-          onChange={(e) => applyStyle({ fontStyle: e.target.value })}
+        <select
+          value={effectiveStyle}
+          onChange={(e) => applyFontStyle(e.target.value)}
           className="h-6 flex-1 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
-        />
+        >
+          {styleChoices.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Font Size */}
