@@ -335,7 +335,8 @@ func renderGradientSurface(width, height int, p ApplyGradientPayload, startColor
 func buildGradientLUT(stops []GradientStopPayload, startColor, endColor [4]uint8) [256]agglib.Color {
 	gradientStops := make([]GradientStopPayload, 0, len(stops)+2)
 	if len(stops) == 0 {
-		gradientStops = append(gradientStops,
+		gradientStops = append(
+			gradientStops,
 			GradientStopPayload{Position: 0, Color: startColor},
 			GradientStopPayload{Position: 1, Color: endColor},
 		)

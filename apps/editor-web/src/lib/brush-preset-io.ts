@@ -43,12 +43,13 @@ export async function loadBrushPresetFile(file: File): Promise<BrushPresetRecord
 
 export function parseBrushPresetJSON(json: string, sourceName = "Imported Brushes"): BrushPreset[] {
   const parsed = JSON.parse(json) as unknown;
-  const rawPresets =
-    Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === "object" && Array.isArray((parsed as { presets?: unknown[] }).presets)
-        ? (parsed as { presets: unknown[] }).presets
-        : [];
+  const rawPresets = Array.isArray(parsed)
+    ? parsed
+    : parsed &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as { presets?: unknown[] }).presets)
+      ? (parsed as { presets: unknown[] }).presets
+      : [];
   const presets = rawPresets.flatMap((preset, index) => {
     const sanitized = sanitizeBrushPreset(preset, `${slug(sourceName)}-${index + 1}`);
     return sanitized ? [sanitized] : [];
@@ -81,8 +82,14 @@ function sanitizeBrushPreset(candidate: unknown, fallbackId: string): BrushPrese
     id: typeof raw.id === "string" && raw.id.trim().length > 0 ? raw.id.trim() : fallbackId,
     name,
     tipShape,
-    hardness: clampUnitNumber(typeof raw.hardness === "number" ? raw.hardness : inferHardness(name)),
-    spacing: clampNumber(typeof raw.spacing === "number" ? raw.spacing : inferSpacing(name), 0.01, 2),
+    hardness: clampUnitNumber(
+      typeof raw.hardness === "number" ? raw.hardness : inferHardness(name),
+    ),
+    spacing: clampNumber(
+      typeof raw.spacing === "number" ? raw.spacing : inferSpacing(name),
+      0.01,
+      2,
+    ),
     angle: clampNumber(typeof raw.angle === "number" ? raw.angle : inferAngle(tipShape), -180, 180),
   };
 }

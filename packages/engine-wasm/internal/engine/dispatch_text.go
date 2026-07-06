@@ -373,9 +373,10 @@ func (inst *instance) commitTextEdit() error {
 	})
 }
 
-// convertTextToPath converts a TextLayer into a VectorLayer by tracing glyph outlines.
-// Currently produces a placeholder single-pixel path; full glyph outline tracing
-// requires a TTF engine with vector output (deferred to Phase 6.3b).
+// convertTextToPath converts a TextLayer into a VectorLayer by tracing GSV
+// glyph centerlines. GSV is a stroke font, so the resulting vector layer is
+// stroke-only: open centerline subpaths stroked at the same width Agg2D uses
+// when rasterizing GSV text.
 func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 	return inst.executeDocCommand("Create Outlines", func(doc *Document) error {
 		layer, parent, idx, ok := findLayerByID(doc.ensureLayerRoot(), p.LayerID)
@@ -388,17 +389,23 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		}
 
 		outlinePath := buildTextOutlinePath(tl)
+		if outlinePath == nil || len(outlinePath.Subpaths) == 0 {
+			return fmt.Errorf("text layer %q has no content to convert to outlines", tl.Name())
+		}
 
-		raster := make([]byte, doc.Width*doc.Height*4)
-		if outlinePath != nil && len(outlinePath.Subpaths) > 0 {
-			var err error
-			raster, err = rasterizeVectorShape(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0)
-			if err != nil {
-				return err
-			}
+		fontSize := tl.FontSize
+		if fontSize <= 0 {
+			fontSize = 16
+		}
+		strokeWidth := gsvOutlineStrokeWidth(fontSize)
+		raster, err := rasterizeVectorShape(outlinePath, doc.Width, doc.Height, [4]uint8{}, tl.Color, strokeWidth)
+		if err != nil {
+			return err
 		}
 		vectorLayer := NewVectorLayer(tl.Name()+" Outlines", tl.Bounds, outlinePath, raster)
-		vectorLayer.FillColor = tl.Color
+		vectorLayer.FillColor = [4]uint8{}
+		vectorLayer.StrokeColor = tl.Color
+		vectorLayer.StrokeWidth = strokeWidth
 
 		// Replace the text layer with the vector layer at the same position.
 		if parent == nil {

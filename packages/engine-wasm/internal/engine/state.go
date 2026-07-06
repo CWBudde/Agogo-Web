@@ -95,7 +95,8 @@ func (inst *instance) cursorType() string {
 }
 
 func (inst *instance) statusText(doc *Document) string {
-	return fmt.Sprintf("%s  %d x %d px  %.0f%%  %.0f°",
+	return fmt.Sprintf(
+		"%s  %d x %d px  %.0f%%  %.0f°",
 		doc.Name,
 		doc.Width,
 		doc.Height,

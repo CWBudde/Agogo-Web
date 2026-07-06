@@ -27,8 +27,10 @@ includes = ["*.go"]
 priority = 1
 
 # TypeScript / JavaScript / JSON — Biome
+# Use the workspace-pinned binary: a bare "biome" resolves to whatever global
+# version is on PATH and silently reformats the repo with the wrong version.
 [formatter.biome]
-command = "biome"
+command = "apps/editor-web/node_modules/.bin/biome"
 options = ["format", "--write"]
 includes = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.json"]
 excludes = ["**/node_modules/**", "**/dist/**"]

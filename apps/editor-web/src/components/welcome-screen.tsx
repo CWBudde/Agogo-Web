@@ -45,15 +45,11 @@ export function WelcomeScreen({
         <div
           className={[
             "flex w-full flex-col items-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors",
-            isDragOver
-              ? "border-cyan-400 bg-cyan-400/5"
-              : "border-white/12 bg-white/2",
+            isDragOver ? "border-cyan-400 bg-cyan-400/5" : "border-white/12 bg-white/2",
           ].join(" ")}
         >
           <UploadIcon className="h-8 w-8 text-slate-500" />
-          <p className="text-sm text-slate-400">
-            Drop an image or project file
-          </p>
+          <p className="text-sm text-slate-400">Drop an image or project file</p>
           <p className="text-xs text-slate-600">PNG, JPEG, GIF, WebP, BMP, .agp</p>
         </div>
 

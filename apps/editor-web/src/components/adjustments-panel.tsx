@@ -7,14 +7,7 @@ import {
 } from "@agogo/proto";
 import { CharacterPanel } from "./character-panel";
 import { VectorPropertiesPanel } from "./vector-properties-panel";
-import {
-  type MouseEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { EngineContextValue } from "@/wasm/types";
 
 // ---------------------------------------------------------------------------
@@ -43,13 +36,28 @@ const ADJUSTMENTS: AdjustmentDef[] = [
   { kind: "hue-sat", label: "Hue/Saturation", abbr: "H/S", defaults: {} },
   { kind: "color-balance", label: "Color Balance", abbr: "CB", defaults: {} },
   { kind: "black-white", label: "Black & White", abbr: "B&W", defaults: {} },
-  { kind: "photo-filter", label: "Photo Filter", abbr: "PF", defaults: { color: [255, 133, 54, 255], density: 25, preserveLuminosity: true } },
+  {
+    kind: "photo-filter",
+    label: "Photo Filter",
+    abbr: "PF",
+    defaults: { color: [255, 133, 54, 255], density: 25, preserveLuminosity: true },
+  },
   { kind: "channel-mixer", label: "Channel Mixer", abbr: "CM", defaults: {} },
   { kind: "invert", label: "Invert", abbr: "Inv", defaults: {} },
   { kind: "threshold", label: "Threshold", abbr: "Thr", defaults: { threshold: 128 } },
   { kind: "posterize", label: "Posterize", abbr: "Pos", defaults: { levels: 4 } },
   { kind: "selective-color", label: "Selective Color", abbr: "SC", defaults: {} },
-  { kind: "gradient-map", label: "Gradient Map", abbr: "GM", defaults: { stops: [{ color: [0, 0, 0, 255], position: 0 }, { color: [255, 255, 255, 255], position: 1 }] } },
+  {
+    kind: "gradient-map",
+    label: "Gradient Map",
+    abbr: "GM",
+    defaults: {
+      stops: [
+        { color: [0, 0, 0, 255], position: 0 },
+        { color: [255, 255, 255, 255], position: 1 },
+      ],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -92,9 +100,7 @@ export function AdjustmentsPanel({
           className="flex aspect-square flex-col items-center justify-center gap-0.5 rounded-[var(--ui-radius-sm)] border border-white/6 bg-white/[0.02] text-slate-400 transition hover:border-cyan-400/30 hover:bg-cyan-400/8 hover:text-slate-100"
           onClick={() => createAdjustment(def)}
         >
-          <span className="text-[11px] font-semibold leading-none">
-            {def.abbr}
-          </span>
+          <span className="text-[11px] font-semibold leading-none">{def.abbr}</span>
           <span className="max-w-full truncate px-0.5 text-[8px] leading-none opacity-60">
             {def.label}
           </span>
@@ -135,18 +141,9 @@ export function AdjPropertiesPanel({
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto">
-      <AdjustmentHeader
-        engine={engine}
-        layer={layer}
-      />
-      <AdjustmentParamsEditor
-        engine={engine}
-        layer={layer}
-      />
-      <MaskSection
-        engine={engine}
-        layer={layer}
-      />
+      <AdjustmentHeader engine={engine} layer={layer} />
+      <AdjustmentParamsEditor engine={engine} layer={layer} />
+      <MaskSection engine={engine} layer={layer} />
     </div>
   );
 }
@@ -155,13 +152,7 @@ export function AdjPropertiesPanel({
 // Adjustment header — name, visibility, clip, delete
 // ---------------------------------------------------------------------------
 
-function AdjustmentHeader({
-  engine,
-  layer,
-}: {
-  engine: EngineContextValue;
-  layer: LayerNodeMeta;
-}) {
+function AdjustmentHeader({ engine, layer }: { engine: EngineContextValue; layer: LayerNodeMeta }) {
   const [previewOff, setPreviewOff] = useState(false);
 
   const toggleVisibility = () => {
@@ -271,38 +262,100 @@ function AdjustmentParamsEditor({
 
   switch (kind) {
     case "brightness-contrast":
-      return <BrightnessContrastEditor params={params as AdjustmentParamsByKind["brightness-contrast"]} onChange={updateParams} />;
+      return (
+        <BrightnessContrastEditor
+          params={params as AdjustmentParamsByKind["brightness-contrast"]}
+          onChange={updateParams}
+        />
+      );
     case "levels":
-      return <LevelsEditor params={params as AdjustmentParamsByKind["levels"]} onChange={updateParams} />;
+      return (
+        <LevelsEditor params={params as AdjustmentParamsByKind["levels"]} onChange={updateParams} />
+      );
     case "curves":
-      return <CurvesEditor params={params as AdjustmentParamsByKind["curves"]} onChange={updateParams} />;
+      return (
+        <CurvesEditor params={params as AdjustmentParamsByKind["curves"]} onChange={updateParams} />
+      );
     case "exposure":
-      return <ExposureEditor params={params as AdjustmentParamsByKind["exposure"]} onChange={updateParams} />;
+      return (
+        <ExposureEditor
+          params={params as AdjustmentParamsByKind["exposure"]}
+          onChange={updateParams}
+        />
+      );
     case "vibrance":
-      return <VibranceEditor params={params as AdjustmentParamsByKind["vibrance"]} onChange={updateParams} />;
+      return (
+        <VibranceEditor
+          params={params as AdjustmentParamsByKind["vibrance"]}
+          onChange={updateParams}
+        />
+      );
     case "hue-sat":
-      return <HueSatEditor params={params as AdjustmentParamsByKind["hue-sat"]} onChange={updateParams} />;
+      return (
+        <HueSatEditor
+          params={params as AdjustmentParamsByKind["hue-sat"]}
+          onChange={updateParams}
+        />
+      );
     case "color-balance":
-      return <ColorBalanceEditor params={params as AdjustmentParamsByKind["color-balance"]} onChange={updateParams} />;
+      return (
+        <ColorBalanceEditor
+          params={params as AdjustmentParamsByKind["color-balance"]}
+          onChange={updateParams}
+        />
+      );
     case "black-white":
-      return <BlackWhiteEditor params={params as AdjustmentParamsByKind["black-white"]} onChange={updateParams} />;
+      return (
+        <BlackWhiteEditor
+          params={params as AdjustmentParamsByKind["black-white"]}
+          onChange={updateParams}
+        />
+      );
     case "photo-filter":
-      return <PhotoFilterEditor params={params as AdjustmentParamsByKind["photo-filter"]} onChange={updateParams} />;
+      return (
+        <PhotoFilterEditor
+          params={params as AdjustmentParamsByKind["photo-filter"]}
+          onChange={updateParams}
+        />
+      );
     case "channel-mixer":
-      return <ChannelMixerEditor params={params as AdjustmentParamsByKind["channel-mixer"]} onChange={updateParams} />;
+      return (
+        <ChannelMixerEditor
+          params={params as AdjustmentParamsByKind["channel-mixer"]}
+          onChange={updateParams}
+        />
+      );
     case "threshold":
-      return <ThresholdEditor params={params as AdjustmentParamsByKind["threshold"]} onChange={updateParams} />;
+      return (
+        <ThresholdEditor
+          params={params as AdjustmentParamsByKind["threshold"]}
+          onChange={updateParams}
+        />
+      );
     case "posterize":
-      return <PosterizeEditor params={params as AdjustmentParamsByKind["posterize"]} onChange={updateParams} />;
+      return (
+        <PosterizeEditor
+          params={params as AdjustmentParamsByKind["posterize"]}
+          onChange={updateParams}
+        />
+      );
     case "selective-color":
-      return <SelectiveColorEditor params={params as AdjustmentParamsByKind["selective-color"]} onChange={updateParams} />;
+      return (
+        <SelectiveColorEditor
+          params={params as AdjustmentParamsByKind["selective-color"]}
+          onChange={updateParams}
+        />
+      );
     case "gradient-map":
-      return <GradientMapEditor params={params as AdjustmentParamsByKind["gradient-map"]} onChange={updateParams} />;
+      return (
+        <GradientMapEditor
+          params={params as AdjustmentParamsByKind["gradient-map"]}
+          onChange={updateParams}
+        />
+      );
     case "invert":
       return (
-        <div className="px-1 text-[11px] text-slate-500">
-          Invert has no adjustable parameters.
-        </div>
+        <div className="px-1 text-[11px] text-slate-500">Invert has no adjustable parameters.</div>
       );
     default:
       return null;
@@ -424,9 +477,27 @@ function BrightnessContrastEditor({
 
   return (
     <EditorSection>
-      <ParamSlider label="Brightness" min={-150} max={150} step={1} value={params.brightness ?? 0} onChange={(v) => update({ brightness: v })} />
-      <ParamSlider label="Contrast" min={-150} max={150} step={1} value={params.contrast ?? 0} onChange={(v) => update({ contrast: v })} />
-      <ParamCheckbox label="Use Legacy" checked={params.legacy ?? false} onChange={(v) => update({ legacy: v })} />
+      <ParamSlider
+        label="Brightness"
+        min={-150}
+        max={150}
+        step={1}
+        value={params.brightness ?? 0}
+        onChange={(v) => update({ brightness: v })}
+      />
+      <ParamSlider
+        label="Contrast"
+        min={-150}
+        max={150}
+        step={1}
+        value={params.contrast ?? 0}
+        onChange={(v) => update({ contrast: v })}
+      />
+      <ParamCheckbox
+        label="Use Legacy"
+        checked={params.legacy ?? false}
+        onChange={(v) => update({ legacy: v })}
+      />
     </EditorSection>
   );
 }
@@ -454,12 +525,52 @@ function LevelsEditor({
         ]}
         onChange={(v) => update({ channel: v })}
       />
-      <ParamSlider label="Input Black" min={0} max={255} step={1} value={params.inputBlack ?? 0} onChange={(v) => update({ inputBlack: v })} />
-      <ParamSlider label="Input White" min={0} max={255} step={1} value={params.inputWhite ?? 255} onChange={(v) => update({ inputWhite: v })} />
-      <ParamSlider label="Gamma" min={0.1} max={9.99} step={0.01} value={params.gamma ?? 1} onChange={(v) => update({ gamma: v })} formatValue={(v) => v.toFixed(2)} />
-      <ParamSlider label="Output Black" min={0} max={255} step={1} value={params.outputBlack ?? 0} onChange={(v) => update({ outputBlack: v })} />
-      <ParamSlider label="Output White" min={0} max={255} step={1} value={params.outputWhite ?? 255} onChange={(v) => update({ outputWhite: v })} />
-      <ParamCheckbox label="Auto" checked={params.auto ?? false} onChange={(v) => update({ auto: v })} />
+      <ParamSlider
+        label="Input Black"
+        min={0}
+        max={255}
+        step={1}
+        value={params.inputBlack ?? 0}
+        onChange={(v) => update({ inputBlack: v })}
+      />
+      <ParamSlider
+        label="Input White"
+        min={0}
+        max={255}
+        step={1}
+        value={params.inputWhite ?? 255}
+        onChange={(v) => update({ inputWhite: v })}
+      />
+      <ParamSlider
+        label="Gamma"
+        min={0.1}
+        max={9.99}
+        step={0.01}
+        value={params.gamma ?? 1}
+        onChange={(v) => update({ gamma: v })}
+        formatValue={(v) => v.toFixed(2)}
+      />
+      <ParamSlider
+        label="Output Black"
+        min={0}
+        max={255}
+        step={1}
+        value={params.outputBlack ?? 0}
+        onChange={(v) => update({ outputBlack: v })}
+      />
+      <ParamSlider
+        label="Output White"
+        min={0}
+        max={255}
+        step={1}
+        value={params.outputWhite ?? 255}
+        onChange={(v) => update({ outputWhite: v })}
+      />
+      <ParamCheckbox
+        label="Auto"
+        checked={params.auto ?? false}
+        onChange={(v) => update({ auto: v })}
+      />
     </EditorSection>
   );
 }
@@ -593,9 +704,7 @@ function CurvesCanvas({
       // Add new point
       const newPoints = [...points, pos].sort((a, b) => a.x - b.x);
       onChange(newPoints);
-      const newIdx = newPoints.findIndex(
-        (p) => p.x === pos.x && p.y === pos.y,
-      );
+      const newIdx = newPoints.findIndex((p) => p.x === pos.x && p.y === pos.y);
       setDragging(newIdx >= 0 ? newIdx : null);
     }
   };
@@ -639,9 +748,33 @@ function ExposureEditor({
 
   return (
     <EditorSection>
-      <ParamSlider label="Exposure" min={-5} max={5} step={0.01} value={params.exposure ?? 0} onChange={(v) => update({ exposure: v })} formatValue={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`} />
-      <ParamSlider label="Offset" min={-0.5} max={0.5} step={0.001} value={params.offset ?? 0} onChange={(v) => update({ offset: v })} formatValue={(v) => v.toFixed(4)} />
-      <ParamSlider label="Gamma Correction" min={0.01} max={9.99} step={0.01} value={params.gamma ?? 1} onChange={(v) => update({ gamma: v })} formatValue={(v) => v.toFixed(2)} />
+      <ParamSlider
+        label="Exposure"
+        min={-5}
+        max={5}
+        step={0.01}
+        value={params.exposure ?? 0}
+        onChange={(v) => update({ exposure: v })}
+        formatValue={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`}
+      />
+      <ParamSlider
+        label="Offset"
+        min={-0.5}
+        max={0.5}
+        step={0.001}
+        value={params.offset ?? 0}
+        onChange={(v) => update({ offset: v })}
+        formatValue={(v) => v.toFixed(4)}
+      />
+      <ParamSlider
+        label="Gamma Correction"
+        min={0.01}
+        max={9.99}
+        step={0.01}
+        value={params.gamma ?? 1}
+        onChange={(v) => update({ gamma: v })}
+        formatValue={(v) => v.toFixed(2)}
+      />
     </EditorSection>
   );
 }
@@ -658,8 +791,22 @@ function VibranceEditor({
 
   return (
     <EditorSection>
-      <ParamSlider label="Vibrance" min={-100} max={100} step={1} value={params.vibrance ?? 0} onChange={(v) => update({ vibrance: v })} />
-      <ParamSlider label="Saturation" min={-100} max={100} step={1} value={params.saturation ?? 0} onChange={(v) => update({ saturation: v })} />
+      <ParamSlider
+        label="Vibrance"
+        min={-100}
+        max={100}
+        step={1}
+        value={params.vibrance ?? 0}
+        onChange={(v) => update({ vibrance: v })}
+      />
+      <ParamSlider
+        label="Saturation"
+        min={-100}
+        max={100}
+        step={1}
+        value={params.saturation ?? 0}
+        onChange={(v) => update({ saturation: v })}
+      />
     </EditorSection>
   );
 }
@@ -688,30 +835,62 @@ function HueSatEditor({
 
   const rangeParams =
     activeRange === "master"
-      ? { hueShift: params.hueShift ?? 0, saturation: params.saturation ?? 0, lightness: params.lightness ?? 0 }
-      : (params[activeRange as keyof typeof params] as { hueShift?: number; saturation?: number; lightness?: number } | undefined) ?? { hueShift: 0, saturation: 0, lightness: 0 };
+      ? {
+          hueShift: params.hueShift ?? 0,
+          saturation: params.saturation ?? 0,
+          lightness: params.lightness ?? 0,
+        }
+      : ((params[activeRange as keyof typeof params] as
+          | { hueShift?: number; saturation?: number; lightness?: number }
+          | undefined) ?? { hueShift: 0, saturation: 0, lightness: 0 });
 
   const updateRange = (patch: { hueShift?: number; saturation?: number; lightness?: number }) => {
     if (activeRange === "master") {
       update(patch);
     } else {
-      const current = (params[activeRange as keyof typeof params] as { hueShift?: number; saturation?: number; lightness?: number } | undefined) ?? {};
-      update({ [activeRange]: { ...current, ...patch } } as Partial<AdjustmentParamsByKind["hue-sat"]>);
+      const current =
+        (params[activeRange as keyof typeof params] as
+          | { hueShift?: number; saturation?: number; lightness?: number }
+          | undefined) ?? {};
+      update({ [activeRange]: { ...current, ...patch } } as Partial<
+        AdjustmentParamsByKind["hue-sat"]
+      >);
     }
   };
 
   return (
     <EditorSection>
-      <ParamSelect
-        label="Range"
-        value={activeRange}
-        options={ranges}
-        onChange={setActiveRange}
+      <ParamSelect label="Range" value={activeRange} options={ranges} onChange={setActiveRange} />
+      <ParamSlider
+        label="Hue"
+        min={-180}
+        max={180}
+        step={1}
+        value={rangeParams.hueShift ?? 0}
+        onChange={(v) => updateRange({ hueShift: v })}
+        formatValue={(v) => `${v}°`}
       />
-      <ParamSlider label="Hue" min={-180} max={180} step={1} value={rangeParams.hueShift ?? 0} onChange={(v) => updateRange({ hueShift: v })} formatValue={(v) => `${v}°`} />
-      <ParamSlider label="Saturation" min={-100} max={100} step={1} value={rangeParams.saturation ?? 0} onChange={(v) => updateRange({ saturation: v })} />
-      <ParamSlider label="Lightness" min={-100} max={100} step={1} value={rangeParams.lightness ?? 0} onChange={(v) => updateRange({ lightness: v })} />
-      <ParamCheckbox label="Colorize" checked={params.colorize ?? false} onChange={(v) => update({ colorize: v })} />
+      <ParamSlider
+        label="Saturation"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.saturation ?? 0}
+        onChange={(v) => updateRange({ saturation: v })}
+      />
+      <ParamSlider
+        label="Lightness"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.lightness ?? 0}
+        onChange={(v) => updateRange({ lightness: v })}
+      />
+      <ParamCheckbox
+        label="Colorize"
+        checked={params.colorize ?? false}
+        onChange={(v) => update({ colorize: v })}
+      />
     </EditorSection>
   );
 }
@@ -739,16 +918,43 @@ function ColorBalanceEditor({
 
   const updateTone = (patch: Tone) => {
     const current = (params[activeTone as keyof typeof params] as Tone | undefined) ?? {};
-    update({ [activeTone]: { ...current, ...patch } } as Partial<AdjustmentParamsByKind["color-balance"]>);
+    update({ [activeTone]: { ...current, ...patch } } as Partial<
+      AdjustmentParamsByKind["color-balance"]
+    >);
   };
 
   return (
     <EditorSection>
       <ParamSelect label="Tone" value={activeTone} options={tones} onChange={setActiveTone} />
-      <ParamSlider label="Cyan / Red" min={-100} max={100} step={1} value={toneParams.cyanRed ?? 0} onChange={(v) => updateTone({ cyanRed: v })} />
-      <ParamSlider label="Magenta / Green" min={-100} max={100} step={1} value={toneParams.magentaGreen ?? 0} onChange={(v) => updateTone({ magentaGreen: v })} />
-      <ParamSlider label="Yellow / Blue" min={-100} max={100} step={1} value={toneParams.yellowBlue ?? 0} onChange={(v) => updateTone({ yellowBlue: v })} />
-      <ParamCheckbox label="Preserve Luminosity" checked={params.preserveLuminosity ?? true} onChange={(v) => update({ preserveLuminosity: v })} />
+      <ParamSlider
+        label="Cyan / Red"
+        min={-100}
+        max={100}
+        step={1}
+        value={toneParams.cyanRed ?? 0}
+        onChange={(v) => updateTone({ cyanRed: v })}
+      />
+      <ParamSlider
+        label="Magenta / Green"
+        min={-100}
+        max={100}
+        step={1}
+        value={toneParams.magentaGreen ?? 0}
+        onChange={(v) => updateTone({ magentaGreen: v })}
+      />
+      <ParamSlider
+        label="Yellow / Blue"
+        min={-100}
+        max={100}
+        step={1}
+        value={toneParams.yellowBlue ?? 0}
+        onChange={(v) => updateTone({ yellowBlue: v })}
+      />
+      <ParamCheckbox
+        label="Preserve Luminosity"
+        checked={params.preserveLuminosity ?? true}
+        onChange={(v) => update({ preserveLuminosity: v })}
+      />
     </EditorSection>
   );
 }
@@ -765,13 +971,59 @@ function BlackWhiteEditor({
 
   return (
     <EditorSection>
-      <ParamSlider label="Reds" min={-200} max={300} step={1} value={params.reds ?? 40} onChange={(v) => update({ reds: v })} />
-      <ParamSlider label="Yellows" min={-200} max={300} step={1} value={params.yellows ?? 60} onChange={(v) => update({ yellows: v })} />
-      <ParamSlider label="Greens" min={-200} max={300} step={1} value={params.greens ?? 40} onChange={(v) => update({ greens: v })} />
-      <ParamSlider label="Cyans" min={-200} max={300} step={1} value={params.cyans ?? 60} onChange={(v) => update({ cyans: v })} />
-      <ParamSlider label="Blues" min={-200} max={300} step={1} value={params.blues ?? 20} onChange={(v) => update({ blues: v })} />
-      <ParamSlider label="Magentas" min={-200} max={300} step={1} value={params.magentas ?? 80} onChange={(v) => update({ magentas: v })} />
-      <ParamCheckbox label="Tint" checked={params.tint ?? false} onChange={(v) => update({ tint: v })} />
+      <ParamSlider
+        label="Reds"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.reds ?? 40}
+        onChange={(v) => update({ reds: v })}
+      />
+      <ParamSlider
+        label="Yellows"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.yellows ?? 60}
+        onChange={(v) => update({ yellows: v })}
+      />
+      <ParamSlider
+        label="Greens"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.greens ?? 40}
+        onChange={(v) => update({ greens: v })}
+      />
+      <ParamSlider
+        label="Cyans"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.cyans ?? 60}
+        onChange={(v) => update({ cyans: v })}
+      />
+      <ParamSlider
+        label="Blues"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.blues ?? 20}
+        onChange={(v) => update({ blues: v })}
+      />
+      <ParamSlider
+        label="Magentas"
+        min={-200}
+        max={300}
+        step={1}
+        value={params.magentas ?? 80}
+        onChange={(v) => update({ magentas: v })}
+      />
+      <ParamCheckbox
+        label="Tint"
+        checked={params.tint ?? false}
+        onChange={(v) => update({ tint: v })}
+      />
     </EditorSection>
   );
 }
@@ -787,7 +1039,10 @@ function PhotoFilterEditor({
     onChange({ ...params, ...patch });
 
   const color = params.color ?? [255, 133, 54, 255];
-  const hexColor = `#${color.slice(0, 3).map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+  const hexColor = `#${color
+    .slice(0, 3)
+    .map((c) => c.toString(16).padStart(2, "0"))
+    .join("")}`;
 
   return (
     <EditorSection>
@@ -808,8 +1063,20 @@ function PhotoFilterEditor({
           }}
         />
       </label>
-      <ParamSlider label="Density" min={0} max={100} step={1} value={params.density ?? 25} onChange={(v) => update({ density: v })} formatValue={(v) => `${Math.round(v)}%`} />
-      <ParamCheckbox label="Preserve Luminosity" checked={params.preserveLuminosity ?? true} onChange={(v) => update({ preserveLuminosity: v })} />
+      <ParamSlider
+        label="Density"
+        min={0}
+        max={100}
+        step={1}
+        value={params.density ?? 25}
+        onChange={(v) => update({ density: v })}
+        formatValue={(v) => `${Math.round(v)}%`}
+      />
+      <ParamCheckbox
+        label="Preserve Luminosity"
+        checked={params.preserveLuminosity ?? true}
+        onChange={(v) => update({ preserveLuminosity: v })}
+      />
     </EditorSection>
   );
 }
@@ -838,7 +1105,9 @@ function ChannelMixerEditor({
     green: [0, 100, 0],
     blue: [0, 0, 100],
   };
-  const current = (params[outputChannel as keyof typeof params] as MixerArray | undefined) ?? defaults[outputChannel];
+  const current =
+    (params[outputChannel as keyof typeof params] as MixerArray | undefined) ??
+    defaults[outputChannel];
 
   const updateChannel = (idx: number, v: number) => {
     const arr: MixerArray = [...current] as MixerArray;
@@ -848,11 +1117,44 @@ function ChannelMixerEditor({
 
   return (
     <EditorSection>
-      <ParamSelect label="Output Channel" value={outputChannel} options={channels} onChange={setOutputChannel} />
-      <ParamSlider label="Red" min={-200} max={200} step={1} value={current[0]} onChange={(v) => updateChannel(0, v)} formatValue={(v) => `${v}%`} />
-      <ParamSlider label="Green" min={-200} max={200} step={1} value={current[1]} onChange={(v) => updateChannel(1, v)} formatValue={(v) => `${v}%`} />
-      <ParamSlider label="Blue" min={-200} max={200} step={1} value={current[2]} onChange={(v) => updateChannel(2, v)} formatValue={(v) => `${v}%`} />
-      <ParamCheckbox label="Monochrome" checked={params.monochrome ?? false} onChange={(v) => update({ monochrome: v })} />
+      <ParamSelect
+        label="Output Channel"
+        value={outputChannel}
+        options={channels}
+        onChange={setOutputChannel}
+      />
+      <ParamSlider
+        label="Red"
+        min={-200}
+        max={200}
+        step={1}
+        value={current[0]}
+        onChange={(v) => updateChannel(0, v)}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamSlider
+        label="Green"
+        min={-200}
+        max={200}
+        step={1}
+        value={current[1]}
+        onChange={(v) => updateChannel(1, v)}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamSlider
+        label="Blue"
+        min={-200}
+        max={200}
+        step={1}
+        value={current[2]}
+        onChange={(v) => updateChannel(2, v)}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamCheckbox
+        label="Monochrome"
+        checked={params.monochrome ?? false}
+        onChange={(v) => update({ monochrome: v })}
+      />
     </EditorSection>
   );
 }
@@ -866,7 +1168,14 @@ function ThresholdEditor({
 }) {
   return (
     <EditorSection>
-      <ParamSlider label="Threshold Level" min={1} max={255} step={1} value={params.threshold ?? 128} onChange={(v) => onChange({ threshold: v })} />
+      <ParamSlider
+        label="Threshold Level"
+        min={1}
+        max={255}
+        step={1}
+        value={params.threshold ?? 128}
+        onChange={(v) => onChange({ threshold: v })}
+      />
     </EditorSection>
   );
 }
@@ -880,7 +1189,14 @@ function PosterizeEditor({
 }) {
   return (
     <EditorSection>
-      <ParamSlider label="Levels" min={2} max={255} step={1} value={params.levels ?? 4} onChange={(v) => onChange({ levels: v })} />
+      <ParamSlider
+        label="Levels"
+        min={2}
+        max={255}
+        step={1}
+        value={params.levels ?? 4}
+        onChange={(v) => onChange({ levels: v })}
+      />
     </EditorSection>
   );
 }
@@ -914,16 +1230,50 @@ function SelectiveColorEditor({
 
   const updateRange = (patch: Tone) => {
     const current = (params[activeRange as keyof typeof params] as Tone | undefined) ?? {};
-    update({ [activeRange]: { ...current, ...patch } } as Partial<AdjustmentParamsByKind["selective-color"]>);
+    update({ [activeRange]: { ...current, ...patch } } as Partial<
+      AdjustmentParamsByKind["selective-color"]
+    >);
   };
 
   return (
     <EditorSection>
       <ParamSelect label="Colors" value={activeRange} options={ranges} onChange={setActiveRange} />
-      <ParamSlider label="Cyan" min={-100} max={100} step={1} value={rangeParams.cyanRed ?? 0} onChange={(v) => updateRange({ cyanRed: v })} formatValue={(v) => `${v}%`} />
-      <ParamSlider label="Magenta" min={-100} max={100} step={1} value={rangeParams.magentaGreen ?? 0} onChange={(v) => updateRange({ magentaGreen: v })} formatValue={(v) => `${v}%`} />
-      <ParamSlider label="Yellow" min={-100} max={100} step={1} value={rangeParams.yellowBlue ?? 0} onChange={(v) => updateRange({ yellowBlue: v })} formatValue={(v) => `${v}%`} />
-      <ParamSlider label="Black" min={-100} max={100} step={1} value={rangeParams.black ?? 0} onChange={(v) => updateRange({ black: v })} formatValue={(v) => `${v}%`} />
+      <ParamSlider
+        label="Cyan"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.cyanRed ?? 0}
+        onChange={(v) => updateRange({ cyanRed: v })}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamSlider
+        label="Magenta"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.magentaGreen ?? 0}
+        onChange={(v) => updateRange({ magentaGreen: v })}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamSlider
+        label="Yellow"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.yellowBlue ?? 0}
+        onChange={(v) => updateRange({ yellowBlue: v })}
+        formatValue={(v) => `${v}%`}
+      />
+      <ParamSlider
+        label="Black"
+        min={-100}
+        max={100}
+        step={1}
+        value={rangeParams.black ?? 0}
+        onChange={(v) => updateRange({ black: v })}
+        formatValue={(v) => `${v}%`}
+      />
       <ParamSelect
         label="Method"
         value={params.mode ?? "relative"}
@@ -956,7 +1306,8 @@ function GradientMapEditor({
   const gradientStyle = (() => {
     const sorted = [...stops].sort((a, b) => a.position - b.position);
     const colorStops = sorted.map(
-      (s) => `rgba(${s.color[0]},${s.color[1]},${s.color[2]},${(s.color[3] ?? 255) / 255}) ${s.position * 100}%`,
+      (s) =>
+        `rgba(${s.color[0]},${s.color[1]},${s.color[2]},${(s.color[3] ?? 255) / 255}) ${s.position * 100}%`,
     );
     return { background: `linear-gradient(to right, ${colorStops.join(", ")})` };
   })();
@@ -968,7 +1319,11 @@ function GradientMapEditor({
         style={gradientStyle}
         title="Gradient preview (edit via Gradient Map dialog)"
       />
-      <ParamCheckbox label="Reverse" checked={params.reverse ?? false} onChange={(v) => update({ reverse: v })} />
+      <ParamCheckbox
+        label="Reverse"
+        checked={params.reverse ?? false}
+        onChange={(v) => update({ reverse: v })}
+      />
     </EditorSection>
   );
 }
@@ -977,13 +1332,7 @@ function GradientMapEditor({
 // Mask section
 // ---------------------------------------------------------------------------
 
-function MaskSection({
-  engine,
-  layer,
-}: {
-  engine: EngineContextValue;
-  layer: LayerNodeMeta;
-}) {
+function MaskSection({ engine, layer }: { engine: EngineContextValue; layer: LayerNodeMeta }) {
   if (!layer.hasMask) return null;
 
   const toggleMask = () => {
@@ -1008,9 +1357,7 @@ function MaskSection({
   return (
     <div className="space-y-1.5 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 p-2">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-[0.15em] text-slate-500">
-          Mask
-        </span>
+        <span className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Mask</span>
         <div className="flex gap-1">
           <HeaderButton
             title={layer.maskEnabled ? "Disable mask" : "Enable mask"}
@@ -1038,10 +1385,7 @@ function MaskSection({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function findLayerById(
-  layers: LayerNodeMeta[],
-  id: string,
-): LayerNodeMeta | null {
+function findLayerById(layers: LayerNodeMeta[], id: string): LayerNodeMeta | null {
   for (const layer of layers) {
     if (layer.id === id) return layer;
     if (layer.children) {
@@ -1063,11 +1407,7 @@ function findLayerPositionInTree(
     }
     const children = layers[i].children;
     if (children) {
-      const found = findLayerPositionInTree(
-        children,
-        targetId,
-        layers[i].id,
-      );
+      const found = findLayerPositionInTree(children, targetId, layers[i].id);
       if (found) return found;
     }
   }

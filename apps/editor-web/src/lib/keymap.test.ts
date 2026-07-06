@@ -14,9 +14,7 @@ describe("shortcutKey", () => {
   });
 
   it("preserves non-printable keys and space", () => {
-    expect(
-      shortcutKey(new KeyboardEvent("keydown", { key: "ArrowLeft" })),
-    ).toBe("ArrowLeft");
+    expect(shortcutKey(new KeyboardEvent("keydown", { key: "ArrowLeft" }))).toBe("ArrowLeft");
     expect(shortcutKey(new KeyboardEvent("keydown", { key: " " }))).toBe(" ");
   });
 });

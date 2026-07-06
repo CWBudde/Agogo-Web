@@ -70,10 +70,6 @@ func (p *psdParser) parseLayerAndMaskInfo(header psdHeader) ([]psdLayerRecord, e
 	return p.parser().ParseLayerAndMaskInfo(header)
 }
 
-func (p *psdParser) parseCompositeImageData(header psdHeader) ([]byte, error) {
-	return p.parser().ParseCompositeImageData(header)
-}
-
 func parsePSDLayerExtraData(data []byte, record *psdLayerRecord) error {
 	return psdio.ParseLayerExtraData(data, record)
 }

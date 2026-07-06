@@ -18,14 +18,15 @@ linters:
             - max: 1500
               skip-comments: false
               skip-blank-lines: false
-formatters:
-  enable:
-    - gofumpt
-    - gci
-
-issues:
   exclusions:
     rules:
       # Functions registered via js.FuncOf are called from JS, not Go — suppress false "unused" warnings.
       - path: cmd/engine/main\.go
         linters: [unused]
+      # Long table-driven test files are acceptable; the length limit targets production code.
+      - path: _test\.go$
+        linters: [revive]
+formatters:
+  enable:
+    - gofumpt
+    - gci

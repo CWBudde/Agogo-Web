@@ -30,18 +30,14 @@ function mockTrackRect(width = 256, left = 0) {
 
 describe("BlendIfSlider", () => {
   it("renders with default-identity values without errors", () => {
-    render(
-      <BlendIfSlider value={[0, 0, 255, 255]} onChange={() => undefined} label="Gray" />,
-    );
+    render(<BlendIfSlider value={[0, 0, 255, 255]} onChange={() => undefined} label="Gray" />);
     expect(screen.getByTestId("blend-if-slider-track")).toBeTruthy();
     expect(screen.getByTestId("blend-if-handle-low")).toBeTruthy();
     expect(screen.getByTestId("blend-if-handle-high")).toBeTruthy();
   });
 
   it("exposes label text and aria attributes", () => {
-    render(
-      <BlendIfSlider value={[10, 20, 200, 230]} onChange={() => undefined} label="Red" />,
-    );
+    render(<BlendIfSlider value={[10, 20, 200, 230]} onChange={() => undefined} label="Red" />);
     expect(screen.getByText("Red")).toBeTruthy();
     const track = screen.getByTestId("blend-if-slider-track");
     expect(track.getAttribute("aria-valuemin")).toBe("0");
@@ -51,9 +47,7 @@ describe("BlendIfSlider", () => {
   });
 
   it("renders split halves when low or high handles are split", () => {
-    render(
-      <BlendIfSlider value={[0, 64, 192, 255]} onChange={() => undefined} />,
-    );
+    render(<BlendIfSlider value={[0, 64, 192, 255]} onChange={() => undefined} />);
 
     // Low is split (0 !== 64) → two halves.
     expect(screen.getByTestId("blend-if-handle-low-hard")).toBeTruthy();

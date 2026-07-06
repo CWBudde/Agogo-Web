@@ -51,16 +51,8 @@ export interface EngineContextValue {
   pickLayerAtPoint(command: PickLayerAtPointCommand): RenderResult | null;
   translateLayer(command: TranslateLayerCommand): RenderResult | null;
   transformSelection(command: TransformSelectionCommand): RenderResult | null;
-  resizeViewport(
-    canvasW: number,
-    canvasH: number,
-    devicePixelRatio: number,
-  ): RenderResult | null;
-  setZoom(
-    zoom: number,
-    anchorX?: number,
-    anchorY?: number,
-  ): RenderResult | null;
+  resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number): RenderResult | null;
+  setZoom(zoom: number, anchorX?: number, anchorY?: number): RenderResult | null;
   setPan(centerX: number, centerY: number): RenderResult | null;
   dispatchPointerEvent(command: PointerEventCommand): RenderResult | null;
   beginTransaction(description: string): RenderResult | null;

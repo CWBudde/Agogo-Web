@@ -1272,10 +1272,9 @@ function LayerThumbnail({
   onToggleMaskEdit: () => void;
   onDoubleClick?: () => void;
 }) {
-  const toneClass =
-    layer.isArtboard
-      ? "from-cyan-500/30 via-slate-800/70 to-slate-950"
-      : layer.layerType === "group"
+  const toneClass = layer.isArtboard
+    ? "from-cyan-500/30 via-slate-800/70 to-slate-950"
+    : layer.layerType === "group"
       ? "from-slate-500/60 via-slate-700/60 to-slate-950"
       : layer.layerType === "pixel"
         ? "from-cyan-500/25 via-slate-800/60 to-slate-950"
@@ -1294,7 +1293,13 @@ function LayerThumbnail({
       onDoubleClick={onDoubleClick}
       role={onDoubleClick ? "button" : undefined}
       tabIndex={onDoubleClick ? 0 : undefined}
-      onKeyDown={onDoubleClick ? (e) => { if (e.key === "Enter") onDoubleClick(); } : undefined}
+      onKeyDown={
+        onDoubleClick
+          ? (e) => {
+              if (e.key === "Enter") onDoubleClick();
+            }
+          : undefined
+      }
     >
       <div
         className={[
@@ -1316,7 +1321,11 @@ function LayerThumbnail({
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_60%)]" />
             <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-slate-100">
-              {layer.isArtboard ? "ab" : layer.layerType === "group" ? "grp" : layer.layerType.slice(0, 2)}
+              {layer.isArtboard
+                ? "ab"
+                : layer.layerType === "group"
+                  ? "grp"
+                  : layer.layerType.slice(0, 2)}
             </span>
           </>
         )}

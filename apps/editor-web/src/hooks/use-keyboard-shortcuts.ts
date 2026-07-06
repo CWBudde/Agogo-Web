@@ -1,7 +1,24 @@
 import { useEffect } from "react";
 import { defaultKeymap, shortcutKey } from "@/lib/keymap";
 
-export type ShortcutTool = "move" | "marquee" | "lasso" | "wand" | "hand" | "zoom" | "crop" | "brush" | "cloneStamp" | "historyBrush" | "pencil" | "eraser" | "fill" | "gradient" | "eyedropper" | "pen" | "directSelect";
+export type ShortcutTool =
+  | "move"
+  | "marquee"
+  | "lasso"
+  | "wand"
+  | "hand"
+  | "zoom"
+  | "crop"
+  | "brush"
+  | "cloneStamp"
+  | "historyBrush"
+  | "pencil"
+  | "eraser"
+  | "fill"
+  | "gradient"
+  | "eyedropper"
+  | "pen"
+  | "directSelect";
 
 type KeyboardActions = {
   onPanModeChange(active: boolean): void;

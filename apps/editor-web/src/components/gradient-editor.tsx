@@ -1,9 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { GradientStopCommand } from "@agogo/proto";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ColorPickerDialog, type ColorChannelMode } from "@/components/brush-color-panels";
-import { clampByte, clampUnit, rgbaToCss, rgbaToHex, toMutableRgba, toRgba, type Rgba } from "@/lib/color";
+import {
+  clampByte,
+  clampUnit,
+  rgbaToCss,
+  rgbaToHex,
+  toMutableRgba,
+  toRgba,
+  type Rgba,
+} from "@/lib/color";
 
 type GradientEditorProps = {
   open: boolean;
@@ -68,7 +82,9 @@ const DEFAULT_GRADIENT_PRESETS: GradientPreset[] = [
 ];
 
 function makeStopId() {
-  return globalThis.crypto?.randomUUID?.() ?? `stop-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return (
+    globalThis.crypto?.randomUUID?.() ?? `stop-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 function clampPosition(value: number) {
@@ -85,10 +101,13 @@ function makePresetId(name: string) {
 }
 
 function normalizeStops(stops: GradientStopCommand[]) {
-  const normalized = stops.length > 0 ? stops : [
-    { position: 0, color: [0, 0, 0, 255] },
-    { position: 1, color: [255, 255, 255, 255] },
-  ];
+  const normalized =
+    stops.length > 0
+      ? stops
+      : [
+          { position: 0, color: [0, 0, 0, 255] },
+          { position: 1, color: [255, 255, 255, 255] },
+        ];
   const sorted = normalized
     .map((stop, index) => ({
       id: makeStopId(),
@@ -266,9 +285,7 @@ function PresetSection({
                 key={preset.id}
                 className={[
                   "flex items-center gap-2 rounded border px-2 py-1.5 transition",
-                  active
-                    ? "border-cyan-400/35 bg-cyan-400/10"
-                    : "border-white/8 bg-black/10",
+                  active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/8 bg-black/10",
                 ].join(" ")}
               >
                 <button
@@ -362,7 +379,11 @@ export function GradientEditorDialog({
 
   const currentStops = useMemo(() => serializeStops(editorStops), [editorStops]);
   const builtInPresets = useMemo(
-    () => DEFAULT_GRADIENT_PRESETS.map((preset) => ({ ...preset, stops: normalizePresetStops(preset.stops) })),
+    () =>
+      DEFAULT_GRADIENT_PRESETS.map((preset) => ({
+        ...preset,
+        stops: normalizePresetStops(preset.stops),
+      })),
     [],
   );
   const activePresetId = useMemo(() => {
@@ -379,7 +400,8 @@ export function GradientEditorDialog({
     return userPresets.find((preset) => preset.name.toLowerCase() === normalizedName) ?? null;
   }, [presetName, userPresets]);
 
-  const selectedStop = editorStops.find((stop) => stop.id === selectedStopId) ?? editorStops[0] ?? null;
+  const selectedStop =
+    editorStops.find((stop) => stop.id === selectedStopId) ?? editorStops[0] ?? null;
 
   useEffect(() => {
     if (selectedStop && selectedStop.id !== selectedStopId) {
@@ -411,9 +433,7 @@ export function GradientEditorDialog({
       return;
     }
     commitStops(
-      editorStops.map((stop) =>
-        stop.id === selectedStop.id ? { ...stop, ...patch } : stop,
-      ),
+      editorStops.map((stop) => (stop.id === selectedStop.id ? { ...stop, ...patch } : stop)),
     );
   };
 
@@ -449,9 +469,7 @@ export function GradientEditorDialog({
     const rect = trackRef.current.getBoundingClientRect();
     const position = clampPosition((event.clientX - rect.left) / rect.width);
     commitStops(
-      editorStops.map((stop) =>
-        stop.id === draggingStopId ? { ...stop, position } : stop,
-      ),
+      editorStops.map((stop) => (stop.id === draggingStopId ? { ...stop, position } : stop)),
     );
   };
 
@@ -536,10 +554,17 @@ export function GradientEditorDialog({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Stops</p>
-                    <p className="text-[12px] text-slate-300">Drag to move. Click empty space to add a stop.</p>
+                    <p className="text-[12px] text-slate-300">
+                      Drag to move. Click empty space to add a stop.
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={handleAddStop}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={handleAddStop}
+                    >
                       Add
                     </Button>
                     <Button
@@ -608,7 +633,9 @@ export function GradientEditorDialog({
               {selectedStop ? (
                 <div className="grid gap-3 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
                   <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Selected Stop</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      Selected Stop
+                    </p>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -623,7 +650,9 @@ export function GradientEditorDialog({
                     </Button>
                     <div className="grid gap-2">
                       <label className="flex flex-col gap-1">
-                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Position</span>
+                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          Position
+                        </span>
                         <input
                           type="number"
                           min={0}
@@ -638,7 +667,9 @@ export function GradientEditorDialog({
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Opacity</span>
+                        <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          Opacity
+                        </span>
                         <input
                           type="number"
                           min={0}
@@ -648,7 +679,14 @@ export function GradientEditorDialog({
                           value={selectedStop.color[3]}
                           onChange={(event) => {
                             const alpha = clampByte(Number(event.target.value));
-                            updateSelectedStop({ color: [selectedStop.color[0], selectedStop.color[1], selectedStop.color[2], alpha] });
+                            updateSelectedStop({
+                              color: [
+                                selectedStop.color[0],
+                                selectedStop.color[1],
+                                selectedStop.color[2],
+                                alpha,
+                              ],
+                            });
                           }}
                         />
                       </label>
@@ -665,13 +703,22 @@ export function GradientEditorDialog({
                             type="button"
                             className={[
                               "flex w-full items-center gap-2 border-b border-white/8 px-2 py-1.5 text-left text-[12px] last:border-b-0",
-                              active ? "bg-cyan-400/12 text-slate-100" : "text-slate-300 hover:bg-white/5",
+                              active
+                                ? "bg-cyan-400/12 text-slate-100"
+                                : "text-slate-300 hover:bg-white/5",
                             ].join(" ")}
                             onClick={() => setSelectedStopId(stop.id)}
                           >
-                            <span className="h-4 w-4 rounded border border-white/10" style={{ backgroundColor: rgbaToCss(stop.color) }} />
-                            <span className="w-16 shrink-0">{Math.round(stop.position * 100)}%</span>
-                            <span className="font-mono text-[11px] text-slate-500">{rgbaToHex(stop.color)}</span>
+                            <span
+                              className="h-4 w-4 rounded border border-white/10"
+                              style={{ backgroundColor: rgbaToCss(stop.color) }}
+                            />
+                            <span className="w-16 shrink-0">
+                              {Math.round(stop.position * 100)}%
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-500">
+                              {rgbaToHex(stop.color)}
+                            </span>
                           </button>
                         );
                       })}
@@ -684,13 +731,18 @@ export function GradientEditorDialog({
             <div className="space-y-3">
               <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Preview</p>
-                <div className="mt-2 h-24 rounded border border-white/10" style={{ backgroundImage: gradientToCss(serializeStops(editorStops)) }} />
+                <div
+                  className="mt-2 h-24 rounded border border-white/10"
+                  style={{ backgroundImage: gradientToCss(serializeStops(editorStops)) }}
+                />
               </div>
 
               <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Presets</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      Presets
+                    </p>
                     <p className="text-[12px] text-slate-300">Save and reuse stop layouts.</p>
                   </div>
                 </div>

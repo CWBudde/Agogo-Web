@@ -610,7 +610,7 @@ func featherSelection(selection *Selection, radius float64) *Selection {
 	kernel := make([]float64, kernelRadius*2+1)
 	sum := 0.0
 	for index := -kernelRadius; index <= kernelRadius; index++ {
-		value := math.Exp(-(float64(index * index)) / (2 * sigma * sigma))
+		value := math.Exp(-float64(index*index) / (2 * sigma * sigma))
 		kernel[index+kernelRadius] = value
 		sum += value
 	}

@@ -63,7 +63,7 @@ func (inst *instance) renderRaw() RawRenderResult {
 		return RawRenderResult{
 			FrameID:   frameID,
 			Viewport:  inst.viewport,
-			BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+			BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:govet // intentional Wasm ABI pointer handoff to JS
 			BufferLen: int32(len(inst.pixels)),
 			Reused:    true,
 		}
@@ -78,7 +78,7 @@ func (inst *instance) renderRaw() RawRenderResult {
 	return RawRenderResult{
 		FrameID:   frameID,
 		Viewport:  inst.viewport,
-		BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:unsafeptr
+		BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:govet // intentional Wasm ABI pointer handoff to JS
 		BufferLen: int32(len(inst.pixels)),
 		Reused:    false,
 	}

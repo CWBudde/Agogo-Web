@@ -483,7 +483,8 @@ func utf16Encode(value string) []uint16 {
 			continue
 		}
 		r -= 0x10000
-		encoded = append(encoded,
+		encoded = append(
+			encoded,
 			uint16(0xd800+((r>>10)&0x3ff)),
 			uint16(0xdc00+(r&0x3ff)),
 		)

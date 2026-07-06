@@ -3,7 +3,14 @@ import { exportSwatchesAsAco, parseAcoSwatches, parseSwatchSetJSON } from "@/lib
 
 describe("swatch io", () => {
   it("parses JSON swatch sets", () => {
-    const swatches = parseSwatchSetJSON(JSON.stringify({ swatches: [[255, 0, 0, 255], [0, 0, 255, 255]] }));
+    const swatches = parseSwatchSetJSON(
+      JSON.stringify({
+        swatches: [
+          [255, 0, 0, 255],
+          [0, 0, 255, 255],
+        ],
+      }),
+    );
     expect(swatches).toEqual([
       [255, 0, 0, 255],
       [0, 0, 255, 255],

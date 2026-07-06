@@ -149,7 +149,15 @@ export async function loadEngine({
   const exportDocument = window.ExportDocument;
   const importProject = window.ImportProject;
 
-  if (!init || !dispatch || !renderFrame || !renderFrameRaw || !exportProject || !exportDocument || !importProject) {
+  if (
+    !init ||
+    !dispatch ||
+    !renderFrame ||
+    !renderFrameRaw ||
+    !exportProject ||
+    !exportDocument ||
+    !importProject
+  ) {
     throw new WasmEngineLoadError("The Go runtime did not register the expected engine functions.");
   }
 

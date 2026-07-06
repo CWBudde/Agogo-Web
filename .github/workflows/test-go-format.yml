@@ -22,13 +22,15 @@ jobs:
           curl -fsSL https://github.com/numtide/treefmt/releases/download/v2.1.1/treefmt_2.1.1_linux_amd64.tar.gz \
             | sudo tar -C /usr/local/bin -xz treefmt
 
+      # Pinned: @latest formatter drift breaks check-formatted on unchanged code.
+      # Keep these in sync with the versions used to format the repo.
       - name: Install Go formatters
         run: |
-          go install mvdan.cc/gofumpt@latest
-          go install github.com/daixiang0/gci@latest
+          go install mvdan.cc/gofumpt@v0.10.0
+          go install github.com/daixiang0/gci@v0.14.0
 
       - name: Install shfmt
-        run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+        run: go install mvdan.cc/sh/v3/cmd/shfmt@v3.12.0
 
       - name: Setup just
         uses: extractions/setup-just@v2

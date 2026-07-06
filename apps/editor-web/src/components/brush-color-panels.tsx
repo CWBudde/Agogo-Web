@@ -30,12 +30,47 @@ export type BrushPreset = {
 };
 
 export const BRUSH_PRESETS: BrushPreset[] = [
-  { id: "soft-round", name: "Soft Round", tipShape: "round", hardness: 0.2, spacing: 0.08, angle: 0 },
-  { id: "painter-round", name: "Painter Round", tipShape: "round", hardness: 0.6, spacing: 0.14, angle: 0 },
-  { id: "hard-square", name: "Hard Square", tipShape: "square", hardness: 1, spacing: 0.22, angle: 0 },
-  { id: "flat-diamond", name: "Flat Diamond", tipShape: "diamond", hardness: 0.8, spacing: 0.18, angle: 35 },
+  {
+    id: "soft-round",
+    name: "Soft Round",
+    tipShape: "round",
+    hardness: 0.2,
+    spacing: 0.08,
+    angle: 0,
+  },
+  {
+    id: "painter-round",
+    name: "Painter Round",
+    tipShape: "round",
+    hardness: 0.6,
+    spacing: 0.14,
+    angle: 0,
+  },
+  {
+    id: "hard-square",
+    name: "Hard Square",
+    tipShape: "square",
+    hardness: 1,
+    spacing: 0.22,
+    angle: 0,
+  },
+  {
+    id: "flat-diamond",
+    name: "Flat Diamond",
+    tipShape: "diamond",
+    hardness: 0.8,
+    spacing: 0.18,
+    angle: 35,
+  },
   { id: "ink-star", name: "Ink Star", tipShape: "star", hardness: 0.95, spacing: 0.1, angle: 0 },
-  { id: "marker-line", name: "Marker Line", tipShape: "line", hardness: 0.7, spacing: 0.3, angle: 0 },
+  {
+    id: "marker-line",
+    name: "Marker Line",
+    tipShape: "line",
+    hardness: 0.7,
+    spacing: 0.3,
+    angle: 0,
+  },
 ];
 
 export type MixerBrushPreset = {
@@ -177,7 +212,8 @@ export function BrushPresetPicker({
   }, [open]);
 
   const selectedPreset = useMemo(
-    () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
+    () =>
+      presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
     [presets, selectedPresetId],
   );
   const filteredPresets = useMemo(() => {
@@ -252,7 +288,9 @@ export function BrushPresetPicker({
               />
             ) : null}
             {filteredPresets.length === 0 ? (
-              <p className="py-8 text-center text-[12px] text-slate-500">No presets match that search.</p>
+              <p className="py-8 text-center text-[12px] text-slate-500">
+                No presets match that search.
+              </p>
             ) : null}
             {importStatus ? <p className="text-[11px] text-slate-500">{importStatus}</p> : null}
           </div>
@@ -294,7 +332,8 @@ export function BrushSettingsPanel({
   onControlSourceChange,
 }: BrushSettingsPanelProps) {
   const currentPreset = useMemo(
-    () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
+    () =>
+      presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? BRUSH_PRESETS[0],
     [presets, selectedPresetId],
   );
 
@@ -302,9 +341,7 @@ export function BrushSettingsPanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            {title}
-          </p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{title}</p>
           <p className="text-[12px] text-slate-200">{subtitle ?? currentPreset.name}</p>
         </div>
         {hidePresetPicker ? null : (
@@ -351,11 +388,46 @@ export function BrushSettingsPanel({
       />
 
       <div className="grid gap-3">
-        <RangeControl label="Size" min={1} max={2500} step={1} value={size} onChange={onSizeChange} />
-        <RangeControl label="Hardness" min={0} max={1} step={0.01} value={hardness} onChange={onHardnessChange} />
-        <RangeControl label="Angle" min={-180} max={180} step={1} value={angle} onChange={onAngleChange} />
-        <RangeControl label="Roundness" min={0} max={1} step={0.01} value={roundness} onChange={onRoundnessChange} />
-        <RangeControl label="Spacing" min={0.01} max={2} step={0.01} value={spacing} onChange={onSpacingChange} />
+        <RangeControl
+          label="Size"
+          min={1}
+          max={2500}
+          step={1}
+          value={size}
+          onChange={onSizeChange}
+        />
+        <RangeControl
+          label="Hardness"
+          min={0}
+          max={1}
+          step={0.01}
+          value={hardness}
+          onChange={onHardnessChange}
+        />
+        <RangeControl
+          label="Angle"
+          min={-180}
+          max={180}
+          step={1}
+          value={angle}
+          onChange={onAngleChange}
+        />
+        <RangeControl
+          label="Roundness"
+          min={0}
+          max={1}
+          step={0.01}
+          value={roundness}
+          onChange={onRoundnessChange}
+        />
+        <RangeControl
+          label="Spacing"
+          min={0.01}
+          max={2}
+          step={0.01}
+          value={spacing}
+          onChange={onSpacingChange}
+        />
       </div>
 
       <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
@@ -375,9 +447,30 @@ export function BrushSettingsPanel({
           </select>
         </div>
         <div className="grid gap-2">
-          <RangeControl label="Size Jitter" min={0} max={1} step={0.01} value={sizeJitter} onChange={onSizeJitterChange} />
-          <RangeControl label="Opacity Jitter" min={0} max={1} step={0.01} value={opacityJitter} onChange={onOpacityJitterChange} />
-          <RangeControl label="Flow Jitter" min={0} max={1} step={0.01} value={flowJitter} onChange={onFlowJitterChange} />
+          <RangeControl
+            label="Size Jitter"
+            min={0}
+            max={1}
+            step={0.01}
+            value={sizeJitter}
+            onChange={onSizeJitterChange}
+          />
+          <RangeControl
+            label="Opacity Jitter"
+            min={0}
+            max={1}
+            step={0.01}
+            value={opacityJitter}
+            onChange={onOpacityJitterChange}
+          />
+          <RangeControl
+            label="Flow Jitter"
+            min={0}
+            max={1}
+            step={0.01}
+            value={flowJitter}
+            onChange={onFlowJitterChange}
+          />
         </div>
       </div>
     </div>
@@ -509,12 +602,22 @@ export function SwatchesPanel({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1">
           {onImportSwatches ? (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onImportSwatches}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onImportSwatches}
+            >
               Import
             </Button>
           ) : null}
           {onExportSwatches ? (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={onExportSwatches}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onExportSwatches}
+            >
               Save .aco
             </Button>
           ) : null}
@@ -550,12 +653,12 @@ export function SwatchesPanel({
                   {rgbaToHex(swatch)}
                 </span>
               </button>
-                <button
-                  type="button"
-                  className="absolute right-1 top-1 hidden rounded bg-black/55 px-1 text-[9px] text-white group-hover:block"
-                  aria-label="Delete swatch"
-                  onClick={() => onDeleteSwatch(index)}
-                >
+              <button
+                type="button"
+                className="absolute right-1 top-1 hidden rounded bg-black/55 px-1 text-[9px] text-white group-hover:block"
+                aria-label="Delete swatch"
+                onClick={() => onDeleteSwatch(index)}
+              >
                 ×
               </button>
             </div>
@@ -670,7 +773,9 @@ function ColorEditor({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Active Color</p>
-              <p className="text-[12px] text-slate-300">{isWebSafeColor(color) ? "Web-safe" : "Full gamut"}</p>
+              <p className="text-[12px] text-slate-300">
+                {isWebSafeColor(color) ? "Web-safe" : "Full gamut"}
+              </p>
             </div>
             <div className="flex gap-2">
               <button
@@ -684,9 +789,7 @@ function ColorEditor({
               />
               <div className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-3 py-2 text-[12px] text-slate-300">
                 <div>{hexValue}</div>
-                <div className="text-slate-500">
-                  RGB {color.slice(0, 3).join(", ")}
-                </div>
+                <div className="text-slate-500">RGB {color.slice(0, 3).join(", ")}</div>
               </div>
             </div>
           </div>
@@ -742,8 +845,14 @@ function ColorEditor({
                 setHsvBoxDrag(true);
                 (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
                 const rect = event.currentTarget.getBoundingClientRect();
-                const saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-                const value = Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height));
+                const saturation = Math.max(
+                  0,
+                  Math.min(1, (event.clientX - rect.left) / rect.width),
+                );
+                const value = Math.max(
+                  0,
+                  Math.min(1, 1 - (event.clientY - rect.top) / rect.height),
+                );
                 handleChange(hsvToRgba([hsv[0], saturation, value], color[3]));
               }}
             >
@@ -843,7 +952,14 @@ function ColorEditor({
                 min={0}
                 max={255}
                 value={color[3]}
-                onChange={(event) => handleChange([color[0], color[1], color[2], clampByte(Number(event.target.value))])}
+                onChange={(event) =>
+                  handleChange([
+                    color[0],
+                    color[1],
+                    color[2],
+                    clampByte(Number(event.target.value)),
+                  ])
+                }
               />
             </label>
           </div>
@@ -894,7 +1010,11 @@ function ColorEditor({
                 isWebSafeColor(color) ? "bg-emerald-400" : "bg-amber-400",
               ].join(" ")}
             />
-            <span>{isWebSafeColor(color) ? "Color already matches the web-safe palette." : "Color will snap when Only Web Colors is enabled."}</span>
+            <span>
+              {isWebSafeColor(color)
+                ? "Color already matches the web-safe palette."
+                : "Color will snap when Only Web Colors is enabled."}
+            </span>
           </div>
         </div>
       </div>
@@ -921,7 +1041,9 @@ function RangeControl({
     <label className="block">
       <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
         <span>{label}</span>
-        <span className="text-slate-300">{Number.isInteger(value) ? Math.round(value) : value.toFixed(2)}</span>
+        <span className="text-slate-300">
+          {Number.isInteger(value) ? Math.round(value) : value.toFixed(2)}
+        </span>
       </div>
       <input
         className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
@@ -966,7 +1088,12 @@ function BrushTipPreview({
             : "rounded-full";
 
   return (
-    <div className={["flex items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]", className ?? "h-16"].join(" ")}>
+    <div
+      className={[
+        "flex items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]",
+        className ?? "h-16",
+      ].join(" ")}
+    >
       <div
         className={[
           "relative flex items-center justify-center overflow-hidden border border-white/10 bg-cyan-400/20",

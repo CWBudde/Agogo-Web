@@ -122,14 +122,53 @@ func appendJustifiedTextOutline(subpaths *[]Subpath, measurer *agglib.Agg2D, lay
 	}
 }
 
+// appendOutlinedText traces GSV glyph centerlines into open subpaths.
+// GSV is a stroke font: each subpath is a pen stroke, not a closed fill
+// contour, so the resulting vector layer must render stroke-only with
+// gsvOutlineStrokeWidth(fontSize) to match rasterized GSV text.
 func appendOutlinedText(subpaths *[]Subpath, text string, x, y, fontSize, tracking float64) {
 	if text == "" {
 		return
 	}
-	// Text-to-outline conversion is pending upstream agg_go API
-	// (agglib.BuildGSVTextOutlinePath not yet published). Until then,
-	// convert-to-shape on text layers produces an empty path.
-	_, _, _, _, _ = x, y, fontSize, tracking, subpaths
+
+	gsv := agglib.NewGSVText()
+	// flip=true matches Agg2D's configuration for top-down buffers
+	// (document space, Y grows down): glyphs ascend above the baseline.
+	gsv.SetFlip(true)
+	gsv.SetSize(fontSize, 0)
+	if tracking != 0 {
+		gsv.SetSpace(tracking)
+	}
+	gsv.SetStartPoint(x, y)
+	gsv.SetText(text)
+	gsv.Rewind(0)
+
+	var current []PathPoint
+	flush := func() {
+		if len(current) >= 2 {
+			*subpaths = append(*subpaths, Subpath{Closed: false, Points: current})
+		}
+		current = nil
+	}
+	for {
+		vx, vy, cmd := gsv.Vertex()
+		switch cmd {
+		case agglib.GSVPathCmdMoveTo:
+			flush()
+			current = append(current, PathPoint{X: vx, Y: vy, HandleType: HandleCorner})
+		case agglib.GSVPathCmdLineTo:
+			current = append(current, PathPoint{X: vx, Y: vy, HandleType: HandleCorner})
+		default:
+			flush()
+			return
+		}
+	}
+}
+
+// gsvOutlineStrokeWidth returns the stroke width Agg2D uses when rasterizing
+// GSV text (~8% of glyph height), so converted outlines match rendered text.
+func gsvOutlineStrokeWidth(fontSize float64) float64 {
+	return fontSize * 0.08
 }
 
 func alignedTrackedX(x, totalWidth float64, alignment string, availWidth float64) float64 {

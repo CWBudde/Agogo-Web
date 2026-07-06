@@ -61,10 +61,6 @@ test-go-coverage:
     cd packages/engine-wasm && go test -v -coverprofile=coverage.out $(go list ./... | grep -v 'cmd/engine')
     cd packages/engine-wasm && go tool cover -html=coverage.out -o coverage.html
 
-# Update golden test snapshots
-update-golden:
-    cd packages/engine-wasm && UPDATE_GOLDEN=1 go test $(go list ./... | grep -v 'cmd/engine')
-
 # Ensure go.mod is tidy
 check-tidy:
     cd packages/engine-wasm && go mod tidy

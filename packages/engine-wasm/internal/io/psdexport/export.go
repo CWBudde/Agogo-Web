@@ -261,7 +261,8 @@ func encodeLayerChannels(colorMode string, psb bool, bounds model.LayerBounds, r
 			if err != nil {
 				return nil, err
 			}
-			channels = append(channels,
+			channels = append(
+				channels,
 				psdio.ExportChannel{ID: 0, Length: uint64(len(grayPayload)), Payload: grayPayload},
 				psdio.ExportChannel{ID: -1, Length: uint64(len(alphaPayload)), Payload: alphaPayload},
 			)

@@ -23,9 +23,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
-      "@agogo/proto": fileURLToPath(
-        new URL("../../packages/proto/src/index.ts", import.meta.url),
-      ),
+      "@agogo/proto": fileURLToPath(new URL("../../packages/proto/src/index.ts", import.meta.url)),
     },
   },
 });

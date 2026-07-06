@@ -77,9 +77,9 @@ describe("PathsPanel", () => {
 
     render(<PathsPanel engine={engine} paths={[{ name: "Shape 1", active: true }]} />);
 
-		expect(screen.getByTitle("Combine Paths").hasAttribute("disabled")).toBe(true);
-		expect(screen.getByTitle("Subtract Paths").hasAttribute("disabled")).toBe(true);
-		expect(screen.getByTitle("Exclude Paths").hasAttribute("disabled")).toBe(true);
-		expect(screen.getByTitle("Flatten Paths").hasAttribute("disabled")).toBe(true);
-	});
+    expect(screen.getByTitle("Combine Paths").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTitle("Subtract Paths").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTitle("Exclude Paths").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTitle("Flatten Paths").hasAttribute("disabled")).toBe(true);
+  });
 });

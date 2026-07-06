@@ -65,9 +65,7 @@ export function BlendIfSlider({
   const applyDrag = useCallback(
     (target: DragTarget, clientX: number, shiftKey: boolean, altKey: boolean) => {
       const raw = positionToValue(clientX);
-      const stepped = shiftKey
-        ? Math.round(raw / SHIFT_STEP) * SHIFT_STEP
-        : Math.round(raw);
+      const stepped = shiftKey ? Math.round(raw / SHIFT_STEP) * SHIFT_STEP : Math.round(raw);
       const next: BlendIfSliderValue = [value[0], value[1], value[2], value[3]];
 
       if (target.kind === "low") {
@@ -150,9 +148,7 @@ export function BlendIfSlider({
       let effective: DragTarget = drag;
       if (event.altKey && drag.splitIndex === null) {
         effective =
-          drag.kind === "low"
-            ? { kind: "low", splitIndex: 1 }
-            : { kind: "high", splitIndex: 2 };
+          drag.kind === "low" ? { kind: "low", splitIndex: 1 } : { kind: "high", splitIndex: 2 };
         setDrag(effective);
       }
       applyDrag(effective, event.clientX, event.shiftKey, event.altKey);
@@ -174,9 +170,7 @@ export function BlendIfSlider({
 
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      {label ? (
-        <div className="text-[11px] text-slate-400">{label}</div>
-      ) : null}
+      {label ? <div className="text-[11px] text-slate-400">{label}</div> : null}
       <div
         ref={trackRef}
         role="slider"
@@ -244,12 +238,8 @@ export function BlendIfSlider({
         className="flex justify-between text-[10px] text-slate-500 tabular-nums"
         data-testid="blend-if-readout"
       >
-        <span>
-          {lowSplit ? `${lowHard} / ${lowSoft}` : `${lowHard}`}
-        </span>
-        <span>
-          {highSplit ? `${highSoft} / ${highHard}` : `${highHard}`}
-        </span>
+        <span>{lowSplit ? `${lowHard} / ${lowSoft}` : `${lowHard}`}</span>
+        <span>{highSplit ? `${highSoft} / ${highHard}` : `${highHard}`}</span>
       </div>
     </div>
   );

@@ -438,7 +438,8 @@ func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
 	for c := range 4 {
 		var row [4]float64
 		for j := range 4 {
-			row[j] = catmullRomKernel(tx,
+			row[j] = catmullRomKernel(
+				tx,
 				float64(txPixelAt(pixels, w, h, x-1, y-1+j)[c]),
 				float64(txPixelAt(pixels, w, h, x, y-1+j)[c]),
 				float64(txPixelAt(pixels, w, h, x+1, y-1+j)[c]),

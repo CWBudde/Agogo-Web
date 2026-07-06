@@ -83,10 +83,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
         }
         dispatch({
           type: "error",
-          error:
-            error instanceof Error
-              ? error
-              : new Error("Failed to load the Wasm engine."),
+          error: error instanceof Error ? error : new Error("Failed to load the Wasm engine."),
         });
       });
 
@@ -156,11 +153,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
       transformSelection(command: TransformSelectionCommand) {
         return run(CommandID.TransformSelection, command);
       },
-      resizeViewport(
-        canvasW: number,
-        canvasH: number,
-        devicePixelRatio: number,
-      ) {
+      resizeViewport(canvasW: number, canvasH: number, devicePixelRatio: number) {
         return run(CommandID.Resize, { canvasW, canvasH, devicePixelRatio });
       },
       setZoom(zoom: number, anchorX?: number, anchorY?: number) {
@@ -237,9 +230,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
     [handlers, state.error, state.handle, state.render, state.status],
   );
 
-  return (
-    <EngineContext.Provider value={value}>{children}</EngineContext.Provider>
-  );
+  return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;
 }
 
 export function useEngine() {

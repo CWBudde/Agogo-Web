@@ -28,7 +28,11 @@ vi.mock("@/components/layer-style-dialog", () => ({
   },
 }));
 
-function makeLayer(id: string, name: string, overrides: Partial<LayerNodeMeta> = {}): LayerNodeMeta {
+function makeLayer(
+  id: string,
+  name: string,
+  overrides: Partial<LayerNodeMeta> = {},
+): LayerNodeMeta {
   return {
     id,
     name,

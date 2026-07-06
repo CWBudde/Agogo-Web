@@ -38,9 +38,7 @@ export function InfoPanel({
       <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/14 p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              Color Samplers
-            </p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Color Samplers</p>
             <p className="mt-1 text-[12px] text-slate-300">
               Shift-click with the Eyedropper to place up to four live sampler points.
             </p>
@@ -152,7 +150,9 @@ function ColorSamplerCard({
           />
           <div
             className="absolute inset-0"
-            style={{ backgroundColor: point.color ? rgbaToCss(point.color) : "rgba(15, 23, 42, 0.9)" }}
+            style={{
+              backgroundColor: point.color ? rgbaToCss(point.color) : "rgba(15, 23, 42, 0.9)",
+            }}
           />
         </div>
         <span className="text-[11px] text-slate-400">

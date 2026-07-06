@@ -6,10 +6,7 @@ interface PathOverlayRendererProps {
 
 export function PathOverlayRenderer({ overlay }: PathOverlayRendererProps) {
   return (
-    <svg
-      className="pointer-events-none absolute inset-0"
-      style={{ width: "100%", height: "100%" }}
-    >
+    <svg className="pointer-events-none absolute inset-0" style={{ width: "100%", height: "100%" }}>
       <title>Path overlay</title>
       {/* Path segments — blue lines */}
       {overlay.segments?.map((seg, i) => (
@@ -36,9 +33,7 @@ export function PathOverlayRenderer({ overlay }: PathOverlayRendererProps) {
       {/* Rubber band preview — dashed blue */}
       {overlay.rubberBand && (
         <polyline
-          points={overlay.rubberBand.points
-            .map((p) => `${p.x},${p.y}`)
-            .join(" ")}
+          points={overlay.rubberBand.points.map((p) => `${p.x},${p.y}`).join(" ")}
           fill="none"
           stroke="#00a8ff"
           strokeWidth={1}

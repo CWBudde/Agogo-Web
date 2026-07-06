@@ -833,7 +833,7 @@ func GetBufferPtr(handle int32) int32 {
 	if !ok || len(inst.pixels) == 0 {
 		return 0
 	}
-	return int32(uintptr(unsafe.Pointer(&inst.pixels[0]))) //nolint:unsafeptr
+	return int32(uintptr(unsafe.Pointer(&inst.pixels[0]))) //nolint:govet // intentional Wasm ABI pointer handoff to JS
 }
 
 // GetBufferLen returns the byte length of the current pixel buffer.

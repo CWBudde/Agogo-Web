@@ -20,12 +20,13 @@ export async function loadSwatchSetFile(file: File): Promise<SwatchSetRecord> {
 
 export function parseSwatchSetJSON(json: string): Rgba[] {
   const parsed = JSON.parse(json) as unknown;
-  const rawSwatches =
-    Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === "object" && Array.isArray((parsed as { swatches?: unknown[] }).swatches)
-        ? (parsed as { swatches: unknown[] }).swatches
-        : [];
+  const rawSwatches = Array.isArray(parsed)
+    ? parsed
+    : parsed &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as { swatches?: unknown[] }).swatches)
+      ? (parsed as { swatches: unknown[] }).swatches
+      : [];
   const swatches = rawSwatches.flatMap((entry) => {
     const swatch = sanitizeSwatch(entry);
     return swatch ? [swatch] : [];
@@ -121,15 +122,16 @@ function dedupeSwatches(swatches: Rgba[]) {
   });
 }
 
-function decodeAcoColor(colorSpace: number, c1: number, c2: number, c3: number, _c4: number): Rgba | null {
+function decodeAcoColor(
+  colorSpace: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  _c4: number,
+): Rgba | null {
   switch (colorSpace) {
     case 0:
-      return [
-        clampByte(c1 / 257),
-        clampByte(c2 / 257),
-        clampByte(c3 / 257),
-        255,
-      ];
+      return [clampByte(c1 / 257), clampByte(c2 / 257), clampByte(c3 / 257), 255];
     case 1:
       return hsvToRgba([(c1 / 65535) * 360, c2 / 65535, c3 / 65535], 255);
     case 8: {
@@ -165,11 +167,12 @@ function readUint16(bytes: Uint8Array, offset: number) {
 
 function readUint32(bytes: Uint8Array, offset: number) {
   return (
-    (bytes[offset] << 24) |
-    (bytes[offset + 1] << 16) |
-    (bytes[offset + 2] << 8) |
-    bytes[offset + 3]
-  ) >>> 0;
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
+    0
+  );
 }
 
 function writeUint16(bytes: Uint8Array, offset: number, value: number) {

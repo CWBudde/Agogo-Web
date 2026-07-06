@@ -19,9 +19,7 @@ describe("ErrorBoundary", () => {
   });
 
   it("renders the fallback UI when a child throws", () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     render(
       <ErrorBoundary>

@@ -756,7 +756,7 @@ func TestCloneStampStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
 	}
 	first := layerPixelAt(layer, 12, 10)
 	second := layerPixelAt(layer, 16, 10)
-	if first[0] < 200 || first[3] == 0 || first[3] >= 255 {
+	if first[0] < 200 || first[3] == 0 || first[3] == 255 {
 		t.Fatalf("first clone dab = %v, want red source color with partial alpha from clone opacity control", first)
 	}
 	if second[3] >= first[3] {
@@ -981,7 +981,7 @@ func TestHistoryBrushStroke_OpacityAndLoadControlsAffectDeposit(t *testing.T) {
 	}
 	first := layerPixelAt(painted, 14, 10)
 	second := layerPixelAt(painted, 18, 10)
-	if first[0] < 200 || first[3] == 0 || first[3] >= 255 {
+	if first[0] < 200 || first[3] == 0 || first[3] == 255 {
 		t.Fatalf("first history brush dab = %v, want red source color with partial alpha", first)
 	}
 	if second[3] >= first[3] {
