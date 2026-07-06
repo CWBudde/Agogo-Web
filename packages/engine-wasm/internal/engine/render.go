@@ -7,21 +7,43 @@ import (
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
+// compositeSurface is a compatibility wrapper around compositeSurfaceChecked
+// for sampling/paint-preview call sites that cannot propagate an error; it
+// returns nil on failure. The frame render path uses compositeSurfaceChecked
+// so composite errors reach the frontend.
 func (inst *instance) compositeSurface(doc *Document) []byte {
+	surface, err := inst.compositeSurfaceChecked(doc)
+	if err != nil {
+		return nil
+	}
+	return surface
+}
+
+func (inst *instance) compositeSurfaceChecked(doc *Document) ([]byte, error) {
 	if doc == nil {
 		inst.cachedDocSurface = nil
 		inst.cachedDocID = ""
 		inst.cachedDocContentVersion = 0
-		return nil
+		return nil, nil
 	}
 	if inst.cachedDocID == doc.ID && inst.cachedDocContentVersion == doc.ContentVersion && len(inst.cachedDocSurface) > 0 {
-		return inst.cachedDocSurface
+		return inst.cachedDocSurface, nil
 	}
-	inst.cachedDocSurface = doc.renderCompositeSurface()
+	surface, err := doc.renderCompositeSurfaceChecked()
+	if err != nil {
+		// Never cache a failed composite: drop any stale cached surface so the
+		// next render after the underlying problem is fixed recomputes instead
+		// of serving a blank frame keyed to the same ContentVersion.
+		inst.cachedDocSurface = nil
+		inst.cachedDocID = ""
+		inst.cachedDocContentVersion = 0
+		return nil, err
+	}
+	inst.cachedDocSurface = surface
 	inst.cachedDocID = doc.ID
 	inst.cachedDocContentVersion = doc.ContentVersion
 	doc.clearDirtyCompositeRect()
-	return inst.cachedDocSurface
+	return inst.cachedDocSurface, nil
 }
 
 func (inst *instance) render() RenderResult {
@@ -35,6 +57,7 @@ func (inst *instance) render() RenderResult {
 		BufferPtr:   raw.BufferPtr,
 		BufferLen:   raw.BufferLen,
 		UIMeta:      uiMeta,
+		Error:       raw.Error,
 	}
 }
 
@@ -69,10 +92,26 @@ func (inst *instance) renderRaw() RawRenderResult {
 		}
 	}
 
-	inst.pixels = inst.renderViewportWithCache(doc, inst.compositeSurface(doc))
+	surface, compositeErr := inst.compositeSurfaceChecked(doc)
+	inst.pixels = inst.renderViewportWithCache(doc, surface)
 	inst.pixels = RenderSelectionOverlay(doc, &inst.viewport, inst.pixels, doc.Selection, frameID, inst.selectionViewMode)
 	inst.pixels = RenderTransformHandlesOverlay(inst.freeTransform, &inst.viewport, inst.pixels)
 	inst.pixels = RenderCropOverlay(inst.crop, &inst.viewport, inst.pixels)
+	if compositeErr != nil {
+		// Do not cache a frame rendered from a failed composite: once the
+		// underlying problem is fixed the next render must recompute rather
+		// than reuse the blank frame. The error is surfaced to the frontend
+		// via RenderResult.Error.
+		inst.hasCachedRawFrame = false
+		return RawRenderResult{
+			FrameID:   frameID,
+			Viewport:  inst.viewport,
+			BufferPtr: int32(uintptr(unsafe.Pointer(&inst.pixels[0]))), //nolint:govet // intentional Wasm ABI pointer handoff to JS
+			BufferLen: int32(len(inst.pixels)),
+			Reused:    false,
+			Error:     compositeErr.Error(),
+		}
+	}
 	inst.cachedRawFrameKey = key
 	inst.hasCachedRawFrame = inst.canReuseRawFrame(doc)
 	return RawRenderResult{

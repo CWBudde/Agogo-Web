@@ -9,14 +9,23 @@ import (
 
 const textDefaultLeading = 1.2
 
-// rasterizeTextLayer renders a TextLayer's text string into an RGBA buffer
-// sized docW×docH. The result is suitable for storing in TextLayer.CachedRaster.
-// Returns a transparent buffer (no error) when Text is empty.
-func rasterizeTextLayer(layer *TextLayer, docW, docH int) ([]byte, error) {
-	stride := docW * 4
-	buf := make([]byte, stride*docH)
+// rasterizeTextLayer renders a TextLayer's text string into a BOUNDS-LOCAL
+// RGBA buffer sized layer.Bounds.W × layer.Bounds.H. Raster pixel (0,0)
+// corresponds to document pixel (Bounds.X, Bounds.Y); the layer position is
+// deliberately NOT baked into the raster — compositeRasterIntoDocument applies
+// the bounds offset when compositing (see the CachedRaster contract on
+// model.TextLayer). Returns a transparent buffer (no error) when Text is empty
+// and nil when the bounds are degenerate.
+func rasterizeTextLayer(layer *TextLayer) ([]byte, error) {
+	rasterW := layer.Bounds.W
+	rasterH := layer.Bounds.H
+	if rasterW <= 0 || rasterH <= 0 {
+		return nil, nil
+	}
+	stride := rasterW * 4
+	buf := make([]byte, stride*rasterH)
 
-	if layer.Text == "" || docW <= 0 || docH <= 0 {
+	if layer.Text == "" {
 		return buf, nil
 	}
 
@@ -26,7 +35,7 @@ func rasterizeTextLayer(layer *TextLayer, docW, docH int) ([]byte, error) {
 	}
 
 	r := agglib.NewAgg2D()
-	r.Attach(buf, docW, docH, stride)
+	r.Attach(buf, rasterW, rasterH, stride)
 	r.ResetTransformations()
 
 	// Use WASM-safe GSV font (no CGO, no font files required).
@@ -43,8 +52,9 @@ func rasterizeTextLayer(layer *TextLayer, docW, docH int) ([]byte, error) {
 	}
 	lineHeight := fontSize * leading
 
-	x := float64(layer.Bounds.X)
-	baseY := float64(layer.Bounds.Y) + fontSize
+	// Bounds-local coordinates: the text anchor sits at the raster origin.
+	x := 0.0
+	baseY := fontSize
 
 	// Apply caps transformation to text.
 	text := applyCapsTransform(layer.Text, layer.AllCaps, layer.SmallCaps)

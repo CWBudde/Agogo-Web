@@ -234,6 +234,20 @@ func (inst *instance) commitFreeTransform() error {
 		inst.cachedDocContentVersion = -1
 		return nil
 	}
+	// The stored document still holds the last on-screen preview frame
+	// (updateFreeTransform installs preview pixels via ReplaceActive). Revert
+	// the layer to its pre-transform state before executing the command so the
+	// command's before-snapshot captures the original — otherwise undoing the
+	// committed transform would rewind to the preview instead of the source
+	// pixels. ReplaceActive clones, so handing it ft.OriginalPixels directly is
+	// safe.
+	previewBounds := pl.Bounds
+	pl.Pixels = ft.OriginalPixels
+	pl.Bounds = ft.OriginalBounds
+	doc.touchModifiedAtBounds(previewBounds, ft.OriginalBounds)
+	if err := inst.manager.ReplaceActive(doc); err != nil {
+		return err
+	}
 	command := newSnapshotCommand("Free Transform", func(inst *instance) (snapshot, error) {
 		d := inst.manager.Active()
 		if d == nil {
@@ -469,30 +483,35 @@ func (inst *instance) commitCrop() error {
 		rotRad := cropRot * math.Pi / 180
 		cx := cropX + cropW/2
 		cy := cropY + cropH/2
-		if cropRot != 0 {
-			walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-				if pl, ok := n.(*PixelLayer); ok {
+		// The new document origin is the crop box origin, so all document-space
+		// geometry translates by (-cropX, -cropY).
+		x := int(math.Round(cropX))
+		y := int(math.Round(cropY))
+		dx := -x
+		dy := -y
+		walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+			if pl, ok := n.(*PixelLayer); ok {
+				if cropRot != 0 {
 					newPixels, newBounds := applyRotatedCropToPixelLayer(pl, cx, cy, cropW, cropH, rotRad)
 					pl.Pixels = newPixels
 					pl.Bounds = newBounds
-				}
-			})
-		} else {
-			x := int(math.Round(cropX))
-			y := int(math.Round(cropY))
-			walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-				if pl, ok := n.(*PixelLayer); ok {
-					pl.Bounds.X -= x
-					pl.Bounds.Y -= y
+				} else {
+					pl.Bounds.X += dx
+					pl.Bounds.Y += dy
 					if deletePixels {
 						trimPixelLayerToBounds(pl, w, h)
 					}
 				}
-			})
-		}
+			}
+			// Remap masks, and shift + re-rasterize text/vector layers against the
+			// new document dimensions (a stale doc-sized raster would mismatch the
+			// resized document and render blank).
+			remapLayerIntoDocumentSpace(n, w, h, dx, dy)
+		})
 		doc.Width = w
 		doc.Height = h
 		doc.Resolution = cropResolution
+		remapDocumentSelections(doc, w, h, dx, dy)
 		if contentAwareFill {
 			fillPixels, ok := buildContentAwareCropFillLayer(preCropSurface, preCropWidth, preCropHeight, cropX, cropY, cropW, cropH, rotRad)
 			if ok {

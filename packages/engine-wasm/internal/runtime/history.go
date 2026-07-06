@@ -62,6 +62,10 @@ func (c *SnapshotCommand[C, S]) After() S {
 	return c.after
 }
 
+func (c *SnapshotCommand[C, S]) Before() S {
+	return c.before
+}
+
 type groupedCommand[C any, S any] struct {
 	description string
 	before      S
@@ -131,8 +135,32 @@ func (h *HistoryStack[C, S]) Execute(ctx C, command Command[C]) error {
 		h.active.after = h.capture(ctx)
 		return nil
 	}
+	// Suppress no-op commands: if the command exposes both its before and after
+	// snapshots and they compare equal, applying it changed nothing meaningful,
+	// so pushing it would only pollute the history (e.g. renaming a layer to its
+	// current name, or a viewport command that resolves to the same view). This
+	// mirrors the no-op suppression EndTransaction already performs for grouped
+	// commands. Commands that do not expose both snapshots are always pushed.
+	if h.equal != nil {
+		if before, after, ok := commandSnapshots[C, S](command); ok && h.equal(before, after) {
+			return nil
+		}
+	}
 	h.push(command)
 	return nil
+}
+
+// commandSnapshots extracts a command's before/after snapshots when it exposes
+// both accessors (as SnapshotCommand does). It returns ok=false for commands
+// that cannot describe their effect via snapshots (e.g. delta commands), which
+// are then always pushed.
+func commandSnapshots[C any, S any](command Command[C]) (before, after S, ok bool) {
+	beforeCarrier, hasBefore := command.(interface{ Before() S })
+	afterCarrier, hasAfter := command.(interface{ After() S })
+	if !hasBefore || !hasAfter {
+		return before, after, false
+	}
+	return beforeCarrier.Before(), afterCarrier.After(), true
 }
 
 func (h *HistoryStack[C, S]) BeginTransaction(ctx C, description string) {
@@ -172,28 +200,43 @@ func (h *HistoryStack[C, S]) Push(command Command[C]) {
 	h.push(command)
 }
 
+// ClearRedo discards the redo stack while leaving the undo stack intact. Use it
+// when the document is mutated outside the normal Execute/Undo/Redo path so that
+// the recorded history diverges from the live document: a surviving redo entry
+// would replay onto a different base state and corrupt the document.
+func (h *HistoryStack[C, S]) ClearRedo() {
+	h.redo = h.redo[:0]
+}
+
+// Undo reverses the most recent command. The command is only moved from the undo
+// stack to the redo stack after its Undo succeeds; on failure both stacks are
+// left exactly as they were and the error is returned. This keeps the history
+// consistent when a restore fails (the entry is not lost and can be retried).
 func (h *HistoryStack[C, S]) Undo(ctx C) error {
 	if len(h.undo) == 0 {
 		return nil
 	}
 	command := h.undo[len(h.undo)-1]
-	h.undo = h.undo[:len(h.undo)-1]
 	if err := command.Undo(ctx); err != nil {
 		return err
 	}
+	h.undo = h.undo[:len(h.undo)-1]
 	h.redo = append(h.redo, command)
 	return nil
 }
 
+// Redo re-applies the most recently undone command. As with Undo, the entry is
+// only moved between stacks after Apply succeeds; on failure both stacks are left
+// unchanged and the error is returned.
 func (h *HistoryStack[C, S]) Redo(ctx C) error {
 	if len(h.redo) == 0 {
 		return nil
 	}
 	command := h.redo[len(h.redo)-1]
-	h.redo = h.redo[:len(h.redo)-1]
 	if err := command.Apply(ctx); err != nil {
 		return err
 	}
+	h.redo = h.redo[:len(h.redo)-1]
 	h.undo = append(h.undo, command)
 	return nil
 }
@@ -256,6 +299,9 @@ func (h *HistoryStack[C, S]) JumpTo(ctx C, historyIndex int) error {
 	if historyIndex > total {
 		historyIndex = total
 	}
+	// Each Undo/Redo step is atomic: on failure it leaves both stacks unchanged.
+	// Stopping at the first error therefore leaves the history in a consistent
+	// state (the successfully replayed steps have moved, the failing one has not).
 	for len(h.undo) > historyIndex {
 		if err := h.Undo(ctx); err != nil {
 			return err

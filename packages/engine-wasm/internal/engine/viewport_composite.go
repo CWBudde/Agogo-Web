@@ -2,11 +2,23 @@ package engine
 
 import "math"
 
-func (doc *Document) renderCompositeSurface() []byte {
+// renderCompositeSurfaceChecked renders the document's full layer stack into a
+// doc-sized RGBA surface and propagates any compositing error (for example a
+// CachedRaster whose length does not match its layer bounds). The interactive
+// render path must use this variant so failures reach the frontend instead of
+// silently producing — and caching — a blank document.
+func (doc *Document) renderCompositeSurfaceChecked() ([]byte, error) {
 	if doc == nil || doc.Width <= 0 || doc.Height <= 0 {
-		return nil
+		return nil, nil
 	}
-	buffer, err := doc.renderLayersToSurfaceWithOptions(doc.ensureLayerRoot().Children(), true)
+	return doc.renderLayersToSurfaceWithOptions(doc.ensureLayerRoot().Children(), true)
+}
+
+// renderCompositeSurface is a compatibility wrapper around
+// renderCompositeSurfaceChecked for call sites that cannot propagate an error;
+// it returns nil on failure. New code should prefer the checked variant.
+func (doc *Document) renderCompositeSurface() []byte {
+	buffer, err := doc.renderCompositeSurfaceChecked()
 	if err != nil {
 		return nil
 	}

@@ -29,6 +29,10 @@ type RawRenderResult struct {
 	BufferPtr int32         `json:"bufferPtr"`
 	BufferLen int32         `json:"bufferLen"`
 	Reused    bool          `json:"reused"`
+	// Error reports a non-fatal render pipeline failure (e.g. layer
+	// compositing failed). The frame buffer is still valid but may not
+	// include document content. Empty when rendering succeeded.
+	Error string `json:"error,omitempty"`
 }
 
 type ProjectArchive struct {

@@ -118,3 +118,35 @@ func TestManagerIDsReturnsCopy(t *testing.T) {
 		t.Fatalf("IDs mutation leaked into manager: %v", got)
 	}
 }
+
+func TestManagerReplaceActiveNoCloneStoresSamePointer(t *testing.T) {
+	m := newDocManager()
+	m.Create(&doc{id: "a", name: "A"})
+
+	// Ownership transfer: the exact value handed in must be stored, no clone.
+	transferred := &doc{id: "a", name: "A2"}
+	if err := m.ReplaceActiveNoClone(transferred); err != nil {
+		t.Fatalf("ReplaceActiveNoClone: %v", err)
+	}
+	if got := m.ActiveMut(); got != transferred {
+		t.Fatalf("stored pointer = %p, want the transferred value %p (must NOT clone)", got, transferred)
+	}
+
+	// It must reject values without an id, like ReplaceActive.
+	if err := m.ReplaceActiveNoClone(&doc{id: ""}); err == nil {
+		t.Fatal("expected ReplaceActiveNoClone to reject an empty id")
+	}
+}
+
+func TestManagerReplaceActiveNoCloneWithoutActiveCreates(t *testing.T) {
+	m := newDocManager()
+	if err := m.ReplaceActiveNoClone(&doc{id: "a", name: "A"}); err != nil {
+		t.Fatalf("ReplaceActiveNoClone on empty manager: %v", err)
+	}
+	if m.ActiveID() != "a" {
+		t.Fatalf("active id = %q, want %q", m.ActiveID(), "a")
+	}
+	if got := m.ActiveMut(); got == nil || got.name != "A" {
+		t.Fatalf("stored value = %+v, want name A", got)
+	}
+}

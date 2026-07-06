@@ -6,6 +6,17 @@ import (
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 )
 
+// executeDocCommand runs mutate against a private working copy of the active
+// document and records the change as a single history entry.
+//
+// Clone economics (see the invariant on captureSnapshot): exactly ONE deep
+// clone per command. Active() clones the stored document into a discardable
+// working copy — kept deliberately, because mutate may fail and must not leave
+// partial changes behind. On success the working copy is installed via
+// ReplaceActiveNoClone (ownership transfer, no second clone), which displaces
+// the previously stored object and thereby freezes it for the history entry's
+// before-snapshot; the after-snapshot then pointer-captures the newly stored
+// document.
 func (inst *instance) executeDocCommand(description string, mutate func(*Document) error) error {
 	command := newSnapshotCommand(description, func(inst *instance) (snapshot, error) {
 		doc := inst.manager.Active()
@@ -15,7 +26,7 @@ func (inst *instance) executeDocCommand(description string, mutate func(*Documen
 		if err := mutate(doc); err != nil {
 			return snapshot{}, err
 		}
-		if err := inst.manager.ReplaceActive(doc); err != nil {
+		if err := inst.manager.ReplaceActiveNoClone(doc); err != nil {
 			return snapshot{}, err
 		}
 		return inst.captureSnapshot(), nil

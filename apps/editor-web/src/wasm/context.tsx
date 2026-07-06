@@ -68,13 +68,16 @@ export function EngineProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let active = true;
+    let loadedHandle: EngineHandle | null = null;
     dispatch({ type: "load" });
 
     void loadEngine()
       .then((handle) => {
         if (!active) {
+          handle.dispose();
           return;
         }
+        loadedHandle = handle;
         dispatch({ type: "ready", handle, render: handle.renderFrame() });
       })
       .catch((error: unknown) => {
@@ -89,6 +92,8 @@ export function EngineProvider({ children }: PropsWithChildren) {
 
     return () => {
       active = false;
+      loadedHandle?.dispose();
+      loadedHandle = null;
     };
   }, []);
 

@@ -15,6 +15,7 @@ declare global {
     ExportDocument?: (handle: number, format?: string) => string;
     ImportProject?: (handle: number, payloadJSON?: string) => string;
     Free?: (pointer: number) => void;
+    EngineFree?: (handle: number) => void;
   }
 }
 
@@ -202,6 +203,9 @@ export async function loadEngine({
     },
     free(pointer: number) {
       window.Free?.(pointer);
+    },
+    dispose() {
+      window.EngineFree?.(handle);
     },
   };
 }

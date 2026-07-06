@@ -80,31 +80,63 @@ func TestCreateDocumentUpdatesStatusAndMetadata(t *testing.T) {
 	}
 }
 
-func TestUndoRedoRestoresViewportState(t *testing.T) {
+// TestNavigationCommandsDoNotAddHistoryEntries locks in Photoshop semantics:
+// zoom, pan and rotate-view are pure camera changes and must never be
+// undoable, so they must never touch inst.history.
+func TestNavigationCommandsDoNotAddHistoryEntries(t *testing.T) {
 	h := Init("")
 	defer Free(h)
 
-	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 2})); err != nil {
-		t.Fatalf("zoom: %v", err)
-	}
-	if _, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 400, CenterY: 240})); err != nil {
-		t.Fatalf("pan: %v", err)
+	historyLen := func(t *testing.T) int {
+		t.Helper()
+		return len(instances[h].history.Entries())
 	}
 
+	if got := historyLen(t); got != 0 {
+		t.Fatalf("history length before navigation = %d, want 0", got)
+	}
+
+	zoomed, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 2}))
+	if err != nil {
+		t.Fatalf("zoom: %v", err)
+	}
+	if zoomed.Viewport.Zoom != 2 {
+		t.Fatalf("zoom = %.2f, want 2", zoomed.Viewport.Zoom)
+	}
+	if got := historyLen(t); got != 0 {
+		t.Fatalf("history length after zoom = %d, want 0", got)
+	}
+
+	panned, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 400, CenterY: 240}))
+	if err != nil {
+		t.Fatalf("pan: %v", err)
+	}
+	if panned.Viewport.CenterX != 400 || panned.Viewport.CenterY != 240 {
+		t.Fatalf("center after pan = %.2f, %.2f, want 400, 240", panned.Viewport.CenterX, panned.Viewport.CenterY)
+	}
+	if got := historyLen(t); got != 0 {
+		t.Fatalf("history length after pan = %d, want 0", got)
+	}
+
+	rotated, err := DispatchCommand(h, commandRotateViewSet, mustJSON(t, RotatePayload{Rotation: 45}))
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if rotated.Viewport.Rotation != 45 {
+		t.Fatalf("rotation = %.2f, want 45", rotated.Viewport.Rotation)
+	}
+	if got := historyLen(t); got != 0 {
+		t.Fatalf("history length after rotate = %d, want 0", got)
+	}
+
+	// With nothing in history, undo/redo must be no-ops that leave the
+	// (unrelated) viewport state alone.
 	undone, err := DispatchCommand(h, commandUndo, "")
 	if err != nil {
 		t.Fatalf("undo: %v", err)
 	}
-	if undone.Viewport.CenterX == 400 && undone.Viewport.CenterY == 240 {
-		t.Fatal("undo did not restore the previous viewport center")
-	}
-
-	redone, err := DispatchCommand(h, commandRedo, "")
-	if err != nil {
-		t.Fatalf("redo: %v", err)
-	}
-	if redone.Viewport.CenterX != 400 || redone.Viewport.CenterY != 240 {
-		t.Fatalf("redo viewport center = %.2f, %.2f, want 400, 240", redone.Viewport.CenterX, redone.Viewport.CenterY)
+	if undone.Viewport.CenterX != 400 || undone.Viewport.CenterY != 240 || undone.Viewport.Zoom != 2 || undone.Viewport.Rotation != 45 {
+		t.Fatalf("undo with empty history changed the viewport: %+v", undone.Viewport)
 	}
 }
 
@@ -808,7 +840,11 @@ func TestZoomAnchorKeepsAnchorStable(t *testing.T) {
 	}
 }
 
-func TestTransactionGroupsMultipleViewportChangesIntoOneHistoryEntry(t *testing.T) {
+// TestTransactionWithOnlyNavigationProducesNoHistoryEntry verifies that even
+// when zoom changes happen inside an explicit Begin/EndTxn bracket (as the
+// frontend does while dragging a zoom slider), the transaction contributes no
+// history entry: navigation never reaches inst.history, grouped or not.
+func TestTransactionWithOnlyNavigationProducesNoHistoryEntry(t *testing.T) {
 	h := Init("")
 	defer Free(h)
 
@@ -832,62 +868,88 @@ func TestTransactionGroupsMultipleViewportChangesIntoOneHistoryEntry(t *testing.
 		t.Fatalf("end transaction: %v", err)
 	}
 
-	if len(afterEnd.UIMeta.History) != 1 {
-		t.Fatalf("history length = %d, want 1", len(afterEnd.UIMeta.History))
+	if len(afterEnd.UIMeta.History) != 0 {
+		t.Fatalf("history length = %d, want 0 (navigation-only transaction)", len(afterEnd.UIMeta.History))
 	}
-	if afterEnd.UIMeta.History[0].Description != "Zoom drag" {
-		t.Fatalf("history description = %q, want Zoom drag", afterEnd.UIMeta.History[0].Description)
+	if afterEnd.Viewport.Zoom != 2 {
+		t.Fatalf("zoom after transaction = %.2f, want 2", afterEnd.Viewport.Zoom)
+	}
+
+	// With nothing in history, undo must be a no-op — the zoom is not undone.
+	undone, err := DispatchCommand(h, commandUndo, "")
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if undone.Viewport.Zoom != 2 {
+		t.Fatalf("zoom after undo = %.2f, want 2 (navigation is not undoable)", undone.Viewport.Zoom)
+	}
+}
+
+// TestPanAfterEditThenUndoKeepsViewportButRevertsEdit exercises the core
+// scenario from the bug report: a real, undoable document edit followed by
+// the user panning the view. Undo must revert the edit but leave the
+// viewport exactly where the user panned it (and redo must restore the edit
+// without moving the viewport again) — matching Photoshop, where navigation
+// and document history are entirely independent.
+func TestPanAfterEditThenUndoKeepsViewportButRevertsEdit(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Doc",
+		Width:      64,
+		Height:     64,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	historyAfterAdd := len(added.UIMeta.History)
+	if historyAfterAdd == 0 {
+		t.Fatal("adding a layer should push a history entry")
+	}
+	layerCountAfterAdd := len(instances[h].manager.Active().LayerRoot.Children())
+
+	panned, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 111, CenterY: 222}))
+	if err != nil {
+		t.Fatalf("pan: %v", err)
+	}
+	if len(panned.UIMeta.History) != historyAfterAdd {
+		t.Fatalf("pan changed history length: got %d, want %d", len(panned.UIMeta.History), historyAfterAdd)
 	}
 
 	undone, err := DispatchCommand(h, commandUndo, "")
 	if err != nil {
 		t.Fatalf("undo: %v", err)
 	}
-	if undone.Viewport.Zoom != 1 {
-		t.Fatalf("zoom after undo = %.2f, want 1", undone.Viewport.Zoom)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != layerCountAfterAdd-1 {
+		t.Fatalf("layer count after undo = %d, want %d (add-layer reverted)", got, layerCountAfterAdd-1)
 	}
-}
-
-func TestTransactionRedoRestoresGroupedCommandState(t *testing.T) {
-	h := Init("")
-	defer Free(h)
-
-	before, err := RenderFrame(h)
-	if err != nil {
-		t.Fatalf("render before: %v", err)
-	}
-
-	if _, err := DispatchCommand(h, commandBeginTxn, mustJSON(t, BeginTransactionPayload{Description: "Viewport drag"})); err != nil {
-		t.Fatalf("begin transaction: %v", err)
-	}
-	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 1.5})); err != nil {
-		t.Fatalf("zoom in transaction: %v", err)
-	}
-	afterCommit, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 240, CenterY: 180}))
-	if err != nil {
-		t.Fatalf("pan in transaction: %v", err)
-	}
-	if _, err := DispatchCommand(h, commandEndTxn, mustJSON(t, EndTransactionPayload{Commit: true})); err != nil {
-		t.Fatalf("end transaction: %v", err)
-	}
-
-	undone, err := DispatchCommand(h, commandUndo, "")
-	if err != nil {
-		t.Fatalf("undo transaction: %v", err)
-	}
-	if undone.Viewport.Zoom != before.Viewport.Zoom || undone.Viewport.CenterX != before.Viewport.CenterX || undone.Viewport.CenterY != before.Viewport.CenterY {
-		t.Fatalf("undo transaction viewport = %+v, want %+v", undone.Viewport, before.Viewport)
+	if undone.Viewport.CenterX != 111 || undone.Viewport.CenterY != 222 {
+		t.Fatalf("viewport after undo = %+v, want center (111, 222) unchanged by undo", undone.Viewport)
 	}
 
 	redone, err := DispatchCommand(h, commandRedo, "")
 	if err != nil {
-		t.Fatalf("redo transaction: %v", err)
+		t.Fatalf("redo: %v", err)
 	}
-	if redone.Viewport.Zoom != afterCommit.Viewport.Zoom || redone.Viewport.CenterX != afterCommit.Viewport.CenterX || redone.Viewport.CenterY != afterCommit.Viewport.CenterY {
-		t.Fatalf("redo transaction viewport = %+v, want %+v", redone.Viewport, afterCommit.Viewport)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != layerCountAfterAdd {
+		t.Fatalf("layer count after redo = %d, want %d (add-layer reapplied)", got, layerCountAfterAdd)
 	}
-	if redone.UIMeta.CurrentHistoryIndex != 1 || len(redone.UIMeta.History) != 1 || redone.UIMeta.History[0].State != "current" {
-		t.Fatalf("unexpected history after redo transaction: %+v index=%d", redone.UIMeta.History, redone.UIMeta.CurrentHistoryIndex)
+	if redone.Viewport.CenterX != 111 || redone.Viewport.CenterY != 222 {
+		t.Fatalf("viewport after redo = %+v, want center (111, 222) still unchanged", redone.Viewport)
 	}
 }
 
@@ -942,30 +1004,62 @@ func TestHistoryStackHandlesDiscardedTransactionsAndNoopNavigation(t *testing.T)
 	}
 }
 
+// TestJumpHistoryMovesLinearlyToTargetState builds real, undoable document
+// history (document creation + two layer adds) and confirms JumpTo traverses
+// it linearly. It also performs navigation (zoom/pan) alongside the edits to
+// confirm jumping through history never touches the viewport: navigation
+// lives entirely outside inst.history now.
 func TestJumpHistoryMovesLinearlyToTargetState(t *testing.T) {
 	h := Init("")
 	defer Free(h)
 
-	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 1.5})); err != nil {
-		t.Fatalf("zoom: %v", err)
+	if _, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name:       "Doc",
+		Width:      64,
+		Height:     64,
+		Resolution: 72,
+		ColorMode:  "rgb",
+		BitDepth:   8,
+		Background: "transparent",
+	})); err != nil {
+		t.Fatalf("create document: %v", err)
 	}
-	if _, err := DispatchCommand(h, commandRotateViewSet, mustJSON(t, RotatePayload{Rotation: 30})); err != nil {
-		t.Fatalf("rotate: %v", err)
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L1",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	})); err != nil {
+		t.Fatalf("add layer 1: %v", err)
 	}
-	latest, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 200, CenterY: 150}))
+	latest, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L2",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{0, 255, 0, 255},
+	}))
 	if err != nil {
-		t.Fatalf("pan: %v", err)
+		t.Fatalf("add layer 2: %v", err)
 	}
 	if len(latest.UIMeta.History) != 3 || latest.UIMeta.CurrentHistoryIndex != 3 {
 		t.Fatalf("history len/index = %d/%d, want 3/3", len(latest.UIMeta.History), latest.UIMeta.CurrentHistoryIndex)
+	}
+
+	// Navigation performed after the edits must be unaffected by history jumps.
+	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 1.5})); err != nil {
+		t.Fatalf("zoom: %v", err)
+	}
+	navigated, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 200, CenterY: 150}))
+	if err != nil {
+		t.Fatalf("pan: %v", err)
 	}
 
 	jumpedBack, err := DispatchCommand(h, commandJumpHistory, mustJSON(t, JumpHistoryPayload{HistoryIndex: 1}))
 	if err != nil {
 		t.Fatalf("jump back: %v", err)
 	}
-	if jumpedBack.Viewport.Zoom != 1.5 || jumpedBack.Viewport.Rotation != 0 {
-		t.Fatalf("jump back state = zoom %.2f rotation %.2f, want 1.5 / 0", jumpedBack.Viewport.Zoom, jumpedBack.Viewport.Rotation)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != 0 {
+		t.Fatalf("layer count after jump back to index 1 = %d, want 0", got)
 	}
 	if jumpedBack.UIMeta.CurrentHistoryIndex != 1 {
 		t.Fatalf("currentHistoryIndex = %d, want 1", jumpedBack.UIMeta.CurrentHistoryIndex)
@@ -973,29 +1067,58 @@ func TestJumpHistoryMovesLinearlyToTargetState(t *testing.T) {
 	if jumpedBack.UIMeta.History[0].State != "current" || jumpedBack.UIMeta.History[1].State != "undone" {
 		t.Fatalf("unexpected history states after jump back: %+v", jumpedBack.UIMeta.History)
 	}
+	if jumpedBack.Viewport != navigated.Viewport {
+		t.Fatalf("jump back changed the viewport: got %+v, want %+v (navigation is independent of history)", jumpedBack.Viewport, navigated.Viewport)
+	}
 
 	jumpedForward, err := DispatchCommand(h, commandJumpHistory, mustJSON(t, JumpHistoryPayload{HistoryIndex: 3}))
 	if err != nil {
 		t.Fatalf("jump forward: %v", err)
 	}
-	if jumpedForward.Viewport.CenterX != 200 || jumpedForward.Viewport.CenterY != 150 || jumpedForward.Viewport.Rotation != 30 {
-		t.Fatalf("jump forward viewport = %+v, want restored latest state", jumpedForward.Viewport)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != 2 {
+		t.Fatalf("layer count after jump forward to index 3 = %d, want 2", got)
+	}
+	if jumpedForward.Viewport != navigated.Viewport {
+		t.Fatalf("jump forward changed the viewport: got %+v, want %+v (navigation is independent of history)", jumpedForward.Viewport, navigated.Viewport)
 	}
 }
 
+// TestClearHistoryDropsUndoRedoButKeepsCurrentState uses real layer-add edits
+// to populate history (clearing history no longer has anything to do with
+// navigation, since zoom/pan never entered it) and confirms ClearHistory
+// drops undo/redo while leaving the current document and viewport intact.
 func TestClearHistoryDropsUndoRedoButKeepsCurrentState(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L1",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	})); err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	current, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L2",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{0, 255, 0, 255},
+	}))
+	if err != nil {
+		t.Fatalf("add layer 2: %v", err)
+	}
+	if len(current.UIMeta.History) == 0 {
+		t.Fatal("expected history entries before clear")
+	}
+	layerCountBeforeClear := len(instances[h].manager.Active().LayerRoot.Children())
 
 	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 2})); err != nil {
 		t.Fatalf("zoom: %v", err)
 	}
-	current, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 320, CenterY: 180}))
+	navigated, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 320, CenterY: 180}))
 	if err != nil {
 		t.Fatalf("pan: %v", err)
-	}
-	if len(current.UIMeta.History) == 0 {
-		t.Fatal("expected history entries before clear")
 	}
 
 	cleared, err := DispatchCommand(h, commandClearHistory, "")
@@ -1009,7 +1132,10 @@ func TestClearHistoryDropsUndoRedoButKeepsCurrentState(t *testing.T) {
 	if cleared.UIMeta.CanUndo || cleared.UIMeta.CanRedo {
 		t.Fatalf("canUndo/canRedo after clear = %v/%v, want false/false", cleared.UIMeta.CanUndo, cleared.UIMeta.CanRedo)
 	}
-	if cleared.Viewport.Zoom != 2 || cleared.Viewport.CenterX != 320 || cleared.Viewport.CenterY != 180 {
-		t.Fatalf("viewport after clear = %+v, want preserved current state", cleared.Viewport)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != layerCountBeforeClear {
+		t.Fatalf("layer count after clear = %d, want %d (current document state preserved)", got, layerCountBeforeClear)
+	}
+	if cleared.Viewport != navigated.Viewport {
+		t.Fatalf("viewport after clear = %+v, want preserved current state %+v", cleared.Viewport, navigated.Viewport)
 	}
 }

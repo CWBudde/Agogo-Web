@@ -1,10 +1,16 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 
 	agglib "github.com/cwbudde/agg_go"
 )
+
+// buildStrokeDelta builds the undo delta for a finished brush stroke. It is a
+// package variable (defaulting to newPixelDeltaFromRows) so tests can force the
+// otherwise hard-to-trigger failure path of handleEndPaintStroke.
+var buildStrokeDelta = newPixelDeltaFromRows
 
 func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 	doc := inst.manager.activeMut()
@@ -166,9 +172,17 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 	}
 }
 
-func (inst *instance) handleEndPaintStroke() {
+// handleEndPaintStroke finalizes the active stroke and records it as an
+// undoable history entry. It returns an error when the stroke pixels were
+// already committed to the layer but the undo delta could not be built: in that
+// case the document has diverged from the recorded history, so the stroke is not
+// undoable. When that happens we drop the redo stack (ClearRedo) — the live
+// document no longer matches the base a stale redo entry would replay onto, so
+// keeping it would corrupt the document — and surface the error so the dispatch
+// layer can report the failure over the ABI instead of silently swallowing it.
+func (inst *instance) handleEndPaintStroke() error {
 	if inst.paintStroke == nil {
-		return
+		return nil
 	}
 	doc := inst.manager.activeMut()
 	stroke := inst.paintStroke
@@ -178,11 +192,11 @@ func (inst *instance) handleEndPaintStroke() {
 		if stroke.params.MixerBrush {
 			inst.mixerBrush = stroke.mixer
 		}
-		return
+		return nil
 	}
 	layer := findPixelLayer(doc, stroke.layerID)
 	if layer == nil {
-		return
+		return nil
 	}
 
 	rect := DirtyRect{
@@ -190,12 +204,19 @@ func (inst *instance) handleEndPaintStroke() {
 		W: stroke.dirtyMax[0] - stroke.dirtyMin[0],
 		H: stroke.dirtyMax[1] - stroke.dirtyMin[1],
 	}
-	delta, err := newPixelDeltaFromRows(
+	delta, err := buildStrokeDelta(
 		stroke.beforeRowBuf, stroke.beforeRowStart, stroke.layerW,
 		layer.Pixels, layer.Bounds.W, layer.Bounds.H, rect,
 	)
 	if err != nil {
-		return
+		// The stroke pixels are already on the layer but cannot be recorded as an
+		// undo step. Discard any redo entries (the document has diverged from
+		// history) and surface the error rather than leaving a non-undoable stroke.
+		if stroke.params.MixerBrush {
+			inst.mixerBrush = stroke.mixer
+		}
+		inst.history.ClearRedo()
+		return fmt.Errorf("record brush stroke: %w", err)
 	}
 	layerID := stroke.layerID
 	cmd := &pixelDeltaCommand{
@@ -213,6 +234,43 @@ func (inst *instance) handleEndPaintStroke() {
 	inst.history.push(cmd)
 	if stroke.params.MixerBrush {
 		inst.mixerBrush = stroke.mixer
+	}
+	return nil
+}
+
+// revertActivePaintStroke discards an in-progress brush stroke and restores the
+// pixel rows it has painted so far from the stroke's lazily saved before-rows.
+// The row snapshot is exactly what handleEndPaintStroke would have used to
+// build the undo delta, so the revert is byte-exact. Called when a history
+// restore interrupts a stroke (see revertInFlightPreviewMutations): the stored
+// document may be referenced by pointer snapshots, so the half-finished stroke
+// must not survive on it.
+func (inst *instance) revertActivePaintStroke() {
+	stroke := inst.paintStroke
+	if stroke == nil {
+		return
+	}
+	inst.paintStroke = nil
+	if !stroke.hasDirty || stroke.layerW == 0 {
+		return
+	}
+	doc := inst.manager.activeMut()
+	if doc == nil {
+		return
+	}
+	layer := findPixelLayer(doc, stroke.layerID)
+	if layer == nil || layer.Bounds.W != stroke.layerW {
+		return
+	}
+	rowBytes := stroke.layerW * 4
+	start := stroke.beforeRowStart * rowBytes
+	end := stroke.beforeRowEnd * rowBytes
+	if start < 0 || end > len(layer.Pixels) || len(stroke.beforeRowBuf) != end-start {
+		return
+	}
+	copy(layer.Pixels[start:end], stroke.beforeRowBuf)
+	if rect, ok := strokeDirtyRectInDocument(stroke, layer); ok {
+		doc.bumpContentVersionRect(rect)
 	}
 }
 

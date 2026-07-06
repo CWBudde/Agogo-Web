@@ -9,6 +9,7 @@ apps/editor-web/public/engine.wasm
 apps/editor-web/public/wasm_exec.js
 
 # ── Go build artifacts ────────────────────────────────────────────────────────
+packages/engine-wasm/engine
 packages/engine-wasm/coverage.out
 packages/engine-wasm/coverage.html
 *.test
@@ -29,5 +30,3 @@ Thumbs.db
 
 # ── AI Agents ────────────────────────────────────────────────────────────────
 .codex
-# TypeScript incremental build metadata
-*.tsbuildinfo

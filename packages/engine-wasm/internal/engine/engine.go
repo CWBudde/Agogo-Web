@@ -253,6 +253,10 @@ type RenderResult struct {
 	Histogram *HistogramData `json:"histogram,omitempty"`
 	// IdentifiedHueRange is set only in response to commandIdentifyHueRange.
 	IdentifiedHueRange string `json:"identifiedHueRange,omitempty"`
+	// Error reports a non-fatal render pipeline failure (e.g. layer
+	// compositing failed). The frame buffer is still valid but may not
+	// include document content. Empty when rendering succeeded.
+	Error string `json:"error,omitempty"`
 }
 
 type EngineConfig struct {

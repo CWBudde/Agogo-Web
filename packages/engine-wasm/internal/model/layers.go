@@ -435,7 +435,14 @@ type TextLayer struct {
 	IndentFirst   float64     `json:"indentFirst,omitempty"`
 	SpaceBefore   float64     `json:"spaceBefore,omitempty"`
 	SpaceAfter    float64     `json:"spaceAfter,omitempty"`
-	CachedRaster  []byte      `json:"cachedRaster,omitempty"`
+	// CachedRaster is the rasterized text content and is BOUNDS-LOCAL:
+	// an RGBA buffer of exactly Bounds.W × Bounds.H × 4 bytes whose pixel
+	// (0,0) corresponds to document pixel (Bounds.X, Bounds.Y). The layer
+	// position is never baked into the raster — the compositor applies the
+	// bounds offset, so translating the layer only updates Bounds.X/Y and
+	// does not require re-rasterization. Any other length is a contract
+	// violation and fails compositing with a raster-length error.
+	CachedRaster []byte `json:"cachedRaster,omitempty"`
 }
 
 func NewTextLayer(name string, bounds LayerBounds, text string, cachedRaster []byte) *TextLayer {
@@ -496,12 +503,19 @@ func (l *TextLayer) Clone() LayerNode {
 
 type VectorLayer struct {
 	layerBase
-	Bounds       LayerBounds `json:"bounds"`
-	Shape        *Path       `json:"shape,omitempty"`
-	FillColor    [4]uint8    `json:"fillColor"`
-	StrokeColor  [4]uint8    `json:"strokeColor"`
-	StrokeWidth  float64     `json:"strokeWidth"`
-	CachedRaster []byte      `json:"cachedRaster,omitempty"`
+	Bounds      LayerBounds `json:"bounds"`
+	Shape       *Path       `json:"shape,omitempty"`
+	FillColor   [4]uint8    `json:"fillColor"`
+	StrokeColor [4]uint8    `json:"strokeColor"`
+	StrokeWidth float64     `json:"strokeWidth"`
+	// CachedRaster is the rasterized shape content and is BOUNDS-LOCAL:
+	// an RGBA buffer of exactly Bounds.W × Bounds.H × 4 bytes whose pixel
+	// (0,0) corresponds to document pixel (Bounds.X, Bounds.Y). Shape layers
+	// are created with Bounds at the document origin (Shape coordinates are
+	// document coordinates), and translation afterwards only moves Bounds.X/Y.
+	// Any other length is a contract violation and fails compositing with a
+	// raster-length error.
+	CachedRaster []byte `json:"cachedRaster,omitempty"`
 }
 
 func NewVectorLayer(name string, bounds LayerBounds, shape *Path, cachedRaster []byte) *VectorLayer {

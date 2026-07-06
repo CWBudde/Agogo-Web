@@ -135,7 +135,14 @@ func makeLinePath(x1, y1, x2, y2 float64) *Path {
 }
 
 // rasterizeVectorShape renders a Path with fill and/or stroke colors into an RGBA buffer
-// sized docW×docH. The result is suitable for storing in VectorLayer.CachedRaster.
+// sized docW×docH, with path coordinates mapped 1:1 to buffer pixels.
+//
+// The result is suitable for VectorLayer.CachedRaster (a BOUNDS-LOCAL raster,
+// see model.VectorLayer) only when paired with bounds of W=docW, H=docH and
+// X=Y=0 at creation time: the path is in document coordinates, so the raster
+// origin must coincide with the document origin. Later translations move only
+// Bounds.X/Y and remain consistent because the raster is position-independent
+// of the bounds offset.
 func rasterizeVectorShape(p *Path, docW, docH int, fillColor, strokeColor [4]uint8, strokeWidth float64) ([]byte, error) {
 	if p == nil || len(p.Subpaths) == 0 {
 		return nil, fmt.Errorf("empty path")

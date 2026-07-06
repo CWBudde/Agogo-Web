@@ -44,32 +44,26 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			})
 			return inst.history.Execute(inst, command)
 		},
+		// ZoomSet, PanSet and RotateViewSet are pure viewport (camera) changes.
+		// Photoshop never treats navigation as an undoable action, so these
+		// mutate inst.viewport directly and never touch inst.history.
 		ZoomSet: func(payload cmdpkg.CoreZoomPayload) error {
-			command := newSnapshotCommand(fmt.Sprintf("Zoom to %.0f%%", payload.Zoom*100), func(inst *instance) (snapshot, error) {
-				nextZoom := clampZoom(payload.Zoom)
-				if payload.HasAnchor {
-					inst.viewport.CenterX = payload.AnchorX - (payload.AnchorX-inst.viewport.CenterX)*(inst.viewport.Zoom/nextZoom)
-					inst.viewport.CenterY = payload.AnchorY - (payload.AnchorY-inst.viewport.CenterY)*(inst.viewport.Zoom/nextZoom)
-				}
-				inst.viewport.Zoom = nextZoom
-				return inst.captureSnapshot(), nil
-			})
-			return inst.history.Execute(inst, command)
+			nextZoom := clampZoom(payload.Zoom)
+			if payload.HasAnchor {
+				inst.viewport.CenterX = payload.AnchorX - (payload.AnchorX-inst.viewport.CenterX)*(inst.viewport.Zoom/nextZoom)
+				inst.viewport.CenterY = payload.AnchorY - (payload.AnchorY-inst.viewport.CenterY)*(inst.viewport.Zoom/nextZoom)
+			}
+			inst.viewport.Zoom = nextZoom
+			return nil
 		},
 		PanSet: func(payload cmdpkg.CorePanPayload) error {
-			command := newSnapshotCommand("Pan viewport", func(inst *instance) (snapshot, error) {
-				inst.viewport.CenterX = payload.CenterX
-				inst.viewport.CenterY = payload.CenterY
-				return inst.captureSnapshot(), nil
-			})
-			return inst.history.Execute(inst, command)
+			inst.viewport.CenterX = payload.CenterX
+			inst.viewport.CenterY = payload.CenterY
+			return nil
 		},
 		RotateViewSet: func(payload cmdpkg.CoreRotatePayload) error {
-			command := newSnapshotCommand(fmt.Sprintf("Rotate view to %.0f°", payload.Rotation), func(inst *instance) (snapshot, error) {
-				inst.viewport.Rotation = normalizeRotation(payload.Rotation)
-				return inst.captureSnapshot(), nil
-			})
-			return inst.history.Execute(inst, command)
+			inst.viewport.Rotation = normalizeRotation(payload.Rotation)
+			return nil
 		},
 		Resize: func(payload cmdpkg.CoreResizePayload) error {
 			inst.viewport.CanvasW = maxInt(payload.CanvasW, 1)
@@ -108,12 +102,11 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			inst.history.Clear()
 			return nil
 		},
+		// FitToView only recenters/rescales the viewport to the active
+		// document; like the other navigation commands it is not undoable.
 		FitToView: func() error {
-			command := newSnapshotCommand("Fit document on screen", func(inst *instance) (snapshot, error) {
-				inst.fitViewportToActiveDocument()
-				return inst.captureSnapshot(), nil
-			})
-			return inst.history.Execute(inst, command)
+			inst.fitViewportToActiveDocument()
+			return nil
 		},
 		Undo: func() error {
 			return inst.history.Undo(inst)

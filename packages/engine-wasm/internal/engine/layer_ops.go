@@ -478,7 +478,10 @@ func (doc *Document) MergeVisible() error {
 
 	// Render the full document composite so that all nested visible content at every
 	// level of the layer hierarchy is included, not just root-level layers.
-	surface := doc.renderCompositeSurface()
+	surface, err := doc.renderCompositeSurfaceChecked()
+	if err != nil {
+		return fmt.Errorf("render composite surface: %w", err)
+	}
 	if surface == nil {
 		return fmt.Errorf("failed to render composite surface")
 	}
@@ -520,7 +523,10 @@ func (doc *Document) FlattenImage() error {
 		return fmt.Errorf("no visible layers to flatten")
 	}
 
-	surface := doc.renderCompositeSurface()
+	surface, err := doc.renderCompositeSurfaceChecked()
+	if err != nil {
+		return fmt.Errorf("render composite surface: %w", err)
+	}
 	if surface == nil {
 		return fmt.Errorf("failed to render composite surface")
 	}
@@ -778,7 +784,7 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 		}
 		// Auto-rasterize when created via payload with text but no pre-baked raster.
 		if len(layer.CachedRaster) == 0 {
-			raster, err := rasterizeTextLayer(layer, doc.Width, doc.Height)
+			raster, err := rasterizeTextLayer(layer)
 			if err != nil {
 				return nil, err
 			}
@@ -984,6 +990,11 @@ func effectiveContentOpacity(layer LayerNode) float64 {
 	return clampUnit(layer.FillOpacity())
 }
 
+// compositeRasterIntoDocument composites a BOUNDS-LOCAL raster into the
+// doc-sized dest surface: src must be exactly bounds.W × bounds.H × 4 bytes and
+// its pixel (0,0) is placed at document pixel (bounds.X, bounds.Y). This is the
+// canonical geometry contract for PixelLayer.Pixels and the CachedRaster fields
+// of TextLayer/VectorLayer (see internal/model/layers.go).
 func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds, src []byte, blendMode BlendMode, opacity float64, mask *LayerMask, clipAlpha []byte, blendIf *BlendIfConfig) error {
 	if bounds.W <= 0 || bounds.H <= 0 || len(src) == 0 || opacity <= 0 {
 		return nil

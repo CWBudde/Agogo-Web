@@ -63,6 +63,28 @@ func (m *Manager[T]) ReplaceActive(value T) error {
 	return nil
 }
 
+// ReplaceActiveNoClone stores value under the active id WITHOUT cloning it.
+// This is an ownership transfer: the caller must hand over an exclusively-owned
+// value (e.g. a working copy obtained from Active(), which clones) and must not
+// retain or mutate it afterwards — the manager becomes the sole owner. Callers
+// that cannot guarantee exclusive ownership must use ReplaceActive instead.
+//
+// It exists so that snapshot-based commands can install their already-private
+// working copy without paying a second deep clone (see the pointer-snapshot
+// history design in internal/engine/state.go).
+func (m *Manager[T]) ReplaceActiveNoClone(value T) error {
+	id := m.idOf(value)
+	if id == "" {
+		return fmt.Errorf("value id is required")
+	}
+	if m.activeID == "" {
+		m.Create(value)
+		return nil
+	}
+	m.docs[m.activeID] = value
+	return nil
+}
+
 func (m *Manager[T]) Active() T {
 	var zero T
 	if m.activeID == "" {

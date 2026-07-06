@@ -185,7 +185,7 @@ func (inst *instance) setTextContent(p SetTextContentPayload) error {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
 		tl.Text = p.Text
-		raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height)
+		raster, err := rasterizeTextLayer(tl)
 		if err != nil {
 			return err
 		}
@@ -283,7 +283,7 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if p.SpaceAfter != nil {
 			tl.SpaceAfter = *p.SpaceAfter
 		}
-		raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height)
+		raster, err := rasterizeTextLayer(tl)
 		if err != nil {
 			return err
 		}
@@ -293,8 +293,14 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 }
 
 // enterTextEditMode sets up in-flight text edit state without creating a history entry.
+//
+// The ActiveLayerID change deliberately uses the clone-and-replace pattern
+// (like SetActiveLayer) instead of mutating the stored document in place:
+// history snapshots reference stored documents directly (see captureSnapshot),
+// and ActiveLayerID is part of the compared/captured document state, so an
+// in-place write here would retroactively alter the latest history snapshot.
 func (inst *instance) enterTextEditMode(p EnterTextEditModePayload) error {
-	doc := inst.manager.activeMut()
+	doc := inst.manager.Active()
 	if doc == nil {
 		return fmt.Errorf("no active document")
 	}
@@ -306,12 +312,15 @@ func (inst *instance) enterTextEditMode(p EnterTextEditModePayload) error {
 	if !ok {
 		return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 	}
+	doc.ActiveLayerID = p.LayerID
+	if err := inst.manager.ReplaceActive(doc); err != nil {
+		return err
+	}
 	inst.textEdit.layerID = p.LayerID
 	inst.textEdit.workingText = tl.Text
 	textEditOriginalMu.Lock()
 	textEditOriginalText[inst] = tl.Text
 	textEditOriginalMu.Unlock()
-	doc.ActiveLayerID = p.LayerID
 	return nil
 }
 
@@ -338,7 +347,7 @@ func (inst *instance) textEditInput(p TextEditInputPayload) error {
 	// Direct mutation — intentionally bypasses executeDocCommand so that
 	// mid-edit keystrokes are not individual undo entries.
 	tl.Text = p.Text
-	raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height)
+	raster, err := rasterizeTextLayer(tl)
 	if err != nil {
 		return err
 	}
@@ -388,7 +397,7 @@ func (inst *instance) commitTextEdit() error {
 	// the pre-edit text/raster here so history records the correct
 	// original -> newText transition (and undo restores the original text).
 	tl.Text = originalText
-	if raster, err := rasterizeTextLayer(tl, doc.Width, doc.Height); err == nil {
+	if raster, err := rasterizeTextLayer(tl); err == nil {
 		tl.CachedRaster = raster
 	}
 	return inst.executeDocCommand("Edit text", func(doc *Document) error {
@@ -401,13 +410,51 @@ func (inst *instance) commitTextEdit() error {
 			return nil
 		}
 		textLayer.Text = newText
-		raster, err := rasterizeTextLayer(textLayer, doc.Width, doc.Height)
+		raster, err := rasterizeTextLayer(textLayer)
 		if err != nil {
 			return err
 		}
 		textLayer.CachedRaster = raster
 		return nil
 	})
+}
+
+// revertLiveTextEdit rolls back an in-flight text edit to the pre-edit text
+// recorded in the side table and discards the edit state without committing a
+// history entry. Called when a history restore interrupts live text editing
+// (see revertInFlightPreviewMutations): textEditInput mutates the stored
+// document in place on every keystroke, and pointer-based history snapshots
+// may reference that document, so the uncommitted keystrokes must be undone
+// byte-exactly before a snapshot is installed.
+func (inst *instance) revertLiveTextEdit() {
+	if inst.textEdit.layerID == "" {
+		return
+	}
+	layerID := inst.textEdit.layerID
+	inst.textEdit = textEditState{}
+
+	textEditOriginalMu.Lock()
+	originalText := textEditOriginalText[inst]
+	delete(textEditOriginalText, inst)
+	textEditOriginalMu.Unlock()
+
+	doc := inst.manager.activeMut()
+	if doc == nil {
+		return
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return
+	}
+	tl, ok := layer.(*TextLayer)
+	if !ok || tl.Text == originalText {
+		return
+	}
+	tl.Text = originalText
+	if raster, err := rasterizeTextLayer(tl); err == nil {
+		tl.CachedRaster = raster
+	}
+	doc.ContentVersion++
 }
 
 // convertTextToPath converts a TextLayer into a VectorLayer by tracing GSV
@@ -439,7 +486,13 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		if err != nil {
 			return err
 		}
-		vectorLayer := NewVectorLayer(tl.Name()+" Outlines", tl.Bounds, outlinePath, raster)
+		// The outline path and its raster are both in document coordinates, so
+		// the vector layer's bounds must sit at the document origin to satisfy
+		// the bounds-local CachedRaster contract (raster pixel (0,0) maps to
+		// document pixel (Bounds.X, Bounds.Y)). Using tl.Bounds here would
+		// apply the text layer's position twice.
+		outlineBounds := LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}
+		vectorLayer := NewVectorLayer(tl.Name()+" Outlines", outlineBounds, outlinePath, raster)
 		vectorLayer.FillColor = [4]uint8{}
 		vectorLayer.StrokeColor = tl.Color
 		vectorLayer.StrokeWidth = strokeWidth

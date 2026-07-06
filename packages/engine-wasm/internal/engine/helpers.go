@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
 func cloneDocument(doc *Document) *Document {
@@ -27,6 +29,16 @@ func snapshotsEqual(a, b snapshot) bool {
 	if a.Viewport != b.Viewport {
 		return false
 	}
+	// Fast path for pointer snapshots (see captureSnapshot): identical Document
+	// pointers mean no snapshot-based command replaced the stored document
+	// between the two captures, so they describe the same state. In-place pixel
+	// mutations that may have happened in between (brush strokes) are recorded
+	// by their own pixelDeltaCommands and are deliberately NOT a difference
+	// here — this mirrors how transactions whose commands never replaced the
+	// document must collapse to a no-op instead of deep-comparing megabytes.
+	if a.Document == b.Document {
+		return true
+	}
 	if (a.Document == nil) != (b.Document == nil) {
 		return false
 	}
@@ -36,7 +48,31 @@ func snapshotsEqual(a, b snapshot) bool {
 	return documentsEqual(a.Document, b.Document)
 }
 
+// documentsEqual reports whether two documents are equal for the purpose of
+// history no-op detection (it is the only consumer, via snapshotsEqual).
+//
+// ModifiedAt and ContentVersion are intentionally NOT treated as content:
+// several no-op mutations bump them unconditionally (for example SetLayerName
+// calls touchModifiedAt even when the name is unchanged, which bumps both). If
+// they were compared as ordinary fields, genuine no-ops such as "rename a layer
+// to its current name" would never be suppressed.
+//
+// ContentVersion is instead used only as a cheap fast-path signal for the
+// expensive layer-tree comparison. Every pixel mutation bumps ContentVersion
+// (verified: paint, fill, gradient, transforms, filters, magic eraser all route
+// through touchModified*/bumpContentVersionRect/ContentVersion++). Therefore an
+// identical ContentVersion guarantees identical pixel bytes, so we can compare
+// only structure/metadata and skip the multi-hundred-millisecond bytes.Equal
+// over large pixel buffers (see layerTreeEqualSkipPixels). The converse does not
+// hold — a metadata-only touch also bumps ContentVersion — so when the versions
+// differ we fall back to the full pixel-inclusive comparison. That fallback runs
+// a full byte scan only when the trees are otherwise identical (a true no-op that
+// still bumped the version); for real edits bytes.Equal short-circuits at the
+// first differing pixel.
 func documentsEqual(a, b *Document) bool {
+	if a == b {
+		return true
+	}
 	if (a == nil) != (b == nil) {
 		return false
 	}
@@ -49,7 +85,7 @@ func documentsEqual(a, b *Document) bool {
 	if a.BitDepth != b.BitDepth || a.Background != b.Background || a.ID != b.ID || a.Name != b.Name {
 		return false
 	}
-	if a.CreatedAt != b.CreatedAt || a.CreatedBy != b.CreatedBy || a.ModifiedAt != b.ModifiedAt {
+	if a.CreatedAt != b.CreatedAt || a.CreatedBy != b.CreatedBy {
 		return false
 	}
 	if a.ActiveLayerID != b.ActiveLayerID {
@@ -72,7 +108,84 @@ func documentsEqual(a, b *Document) bool {
 	if !documentStylePresetsEqual(a.StylePresets, b.StylePresets) {
 		return false
 	}
+	if a.ContentVersion == b.ContentVersion {
+		// Identical version ⇒ identical pixels; compare structure only.
+		return layerTreeEqualSkipPixels(a.LayerRoot, b.LayerRoot)
+	}
 	return layerTreeEqual(a.LayerRoot, b.LayerRoot)
+}
+
+// layerTreeEqualSkipPixels compares two layer trees for structural and metadata
+// equality WITHOUT byte-comparing PixelLayer pixel buffers. It is only sound
+// when the enclosing documents share an identical ContentVersion (see
+// documentsEqual): under that precondition identical pixel content is guaranteed,
+// so comparing PixelLayer buffer lengths is sufficient. Non-pixel leaf layers
+// (adjustment/text/vector) carry only small buffers and are delegated to the
+// authoritative model comparison to keep a single source of truth for their
+// many fields; those leaf types never have children, so no descendant pixel
+// buffers are byte-compared.
+func layerTreeEqualSkipPixels(a, b LayerNode) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	switch left := a.(type) {
+	case *PixelLayer:
+		right, ok := b.(*PixelLayer)
+		if !ok || !layerCommonFieldsEqual(a, b) {
+			return false
+		}
+		// Skip bytes.Equal(left.Pixels, right.Pixels): the shared ContentVersion
+		// precondition guarantees the bytes are identical. A length check still
+		// catches resizes (which also change Bounds). PixelLayers have no children.
+		return left.Bounds == right.Bounds && len(left.Pixels) == len(right.Pixels)
+	case *GroupLayer:
+		right, ok := b.(*GroupLayer)
+		if !ok || !layerCommonFieldsEqual(a, b) || left.Isolated != right.Isolated {
+			return false
+		}
+		switch {
+		case left.Artboard == nil && right.Artboard == nil:
+		case left.Artboard == nil || right.Artboard == nil:
+			return false
+		case left.Artboard.Bounds != right.Artboard.Bounds || left.Artboard.Background != right.Artboard.Background:
+			return false
+		}
+		leftChildren := a.Children()
+		rightChildren := b.Children()
+		if len(leftChildren) != len(rightChildren) {
+			return false
+		}
+		for index := range leftChildren {
+			if !layerTreeEqualSkipPixels(leftChildren[index], rightChildren[index]) {
+				return false
+			}
+		}
+		return true
+	default:
+		// Adjustment/Text/Vector leaves: small buffers, authoritative model compare.
+		return layerTreeEqual(a, b)
+	}
+}
+
+// layerCommonFieldsEqual compares the type-independent LayerNode fields shared by
+// every node kind. It mirrors the common-field checks in model.LayerTreeEqual.
+func layerCommonFieldsEqual(a, b LayerNode) bool {
+	if a.ID() != b.ID() || a.LayerType() != b.LayerType() || a.Name() != b.Name() || a.Visible() != b.Visible() {
+		return false
+	}
+	if a.LockMode() != b.LockMode() || a.Opacity() != b.Opacity() || a.FillOpacity() != b.FillOpacity() {
+		return false
+	}
+	if a.BlendMode() != b.BlendMode() || a.ClipToBelow() != b.ClipToBelow() || a.ClippingBase() != b.ClippingBase() {
+		return false
+	}
+	if !model.LayerMaskEqual(a.Mask(), b.Mask()) || !model.PathEqual(a.VectorMask(), b.VectorMask()) || !model.BlendIfEqual(a.BlendIf(), b.BlendIf()) {
+		return false
+	}
+	return model.LayerStylesEqual(a.StyleStack(), b.StyleStack())
 }
 
 func screenDeltaToDocument(deltaX, deltaY, zoom, rotation float64) (float64, float64) {

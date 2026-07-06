@@ -125,15 +125,25 @@ func TestGetBufferPtrAndFreePointerBehavior(t *testing.T) {
 	}
 }
 
+// TestDispatchCommandTransactionDefaultsToCommitWhenPayloadEmpty checks that
+// EndTxn with an empty payload defaults to Commit:true. It uses a real
+// document edit (AddLayer) rather than a viewport change inside the
+// transaction, since navigation commands no longer produce history entries
+// at all (see dispatch_core.go) and would make this transaction a no-op.
 func TestDispatchCommandTransactionDefaultsToCommitWhenPayloadEmpty(t *testing.T) {
-	h := Init("")
+	h := initWithDefaultDoc(t)
 	defer Free(h)
 
 	if _, err := DispatchCommand(h, commandBeginTxn, mustJSON(t, BeginTransactionPayload{})); err != nil {
 		t.Fatalf("begin transaction: %v", err)
 	}
-	if _, err := DispatchCommand(h, commandZoomSet, mustJSON(t, ZoomPayload{Zoom: 2.5})); err != nil {
-		t.Fatalf("zoom in transaction: %v", err)
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "L1",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+		Pixels:    []byte{255, 0, 0, 255},
+	})); err != nil {
+		t.Fatalf("add layer in transaction: %v", err)
 	}
 
 	committed, err := DispatchCommand(h, commandEndTxn, "")
@@ -150,12 +160,11 @@ func TestDispatchCommandTransactionDefaultsToCommitWhenPayloadEmpty(t *testing.T
 		t.Fatalf("unexpected history state after commit: index=%d canUndo=%v", committed.UIMeta.CurrentHistoryIndex, committed.UIMeta.CanUndo)
 	}
 
-	undone, err := DispatchCommand(h, commandUndo, "")
-	if err != nil {
+	if _, err := DispatchCommand(h, commandUndo, ""); err != nil {
 		t.Fatalf("undo committed transaction: %v", err)
 	}
-	if undone.Viewport.Zoom != 1 {
-		t.Fatalf("zoom after undo = %.2f, want 1", undone.Viewport.Zoom)
+	if len(instances[h].manager.Active().LayerRoot.Children()) != 0 {
+		t.Fatal("undo of the committed transaction should remove the added layer")
 	}
 }
 
@@ -189,8 +198,10 @@ func TestDispatchCommandFitToViewCentersAndScalesDocument(t *testing.T) {
 	if fitted.Viewport.Zoom != expectedZoom {
 		t.Fatalf("zoom after fit = %.6f, want %.6f", fitted.Viewport.Zoom, expectedZoom)
 	}
-	if len(fitted.UIMeta.History) == 0 || fitted.UIMeta.History[len(fitted.UIMeta.History)-1].Description != "Fit document on screen" {
-		t.Fatalf("unexpected history after fit to view: %+v", fitted.UIMeta.History)
+	// FitToView, like the other navigation commands, is pure viewport state
+	// and must never be undoable, so it must not add a history entry.
+	if len(fitted.UIMeta.History) != 0 {
+		t.Fatalf("fit to view should not add a history entry, got %+v", fitted.UIMeta.History)
 	}
 }
 
@@ -646,8 +657,16 @@ func TestDocumentAndSnapshotHelpersCoverMismatchBranches(t *testing.T) {
 		t.Fatal("documentsEqual should detect width mismatch")
 	}
 
+	// ModifiedAt is bookkeeping and is intentionally ignored so no-op mutations
+	// (which bump it unconditionally) can still be suppressed by history.
+	modifiedAtIgnored := cloneDocument(doc)
+	modifiedAtIgnored.ModifiedAt = "2026-03-27T11:00:00Z"
+	if !documentsEqual(doc, modifiedAtIgnored) {
+		t.Fatal("documentsEqual should ignore ModifiedAt differences")
+	}
+
 	metadataMismatch := cloneDocument(doc)
-	metadataMismatch.ModifiedAt = "2026-03-27T11:00:00Z"
+	metadataMismatch.CreatedBy = "someone-else"
 	if documentsEqual(doc, metadataMismatch) {
 		t.Fatal("documentsEqual should detect metadata mismatch")
 	}
@@ -683,7 +702,8 @@ func TestDocumentAndSnapshotHelpersCoverMismatchBranches(t *testing.T) {
 }
 
 func TestRestoreSnapshotAndUtilityHelpers(t *testing.T) {
-	inst := &instance{manager: newDocumentManager(), viewport: ViewportState{Zoom: 4}}
+	initialViewport := ViewportState{Zoom: 4}
+	inst := &instance{manager: newDocumentManager(), viewport: initialViewport}
 	doc := testDocumentFixture("doc-restore", "Restore", 80, 40)
 	layer := NewPixelLayer("Layer", LayerBounds{X: 0, Y: 0, W: 1, H: 1}, filledPixels(1, 1, [4]byte{9, 8, 7, 255}))
 	doc.LayerRoot.SetChildren([]LayerNode{layer})
@@ -708,8 +728,11 @@ func TestRestoreSnapshotAndUtilityHelpers(t *testing.T) {
 	if inst.manager.Active().Name != "Restore" {
 		t.Fatal("restoreSnapshot should clone the restored document")
 	}
-	if inst.viewport != state.Viewport {
-		t.Fatalf("viewport after restore = %+v, want %+v", inst.viewport, state.Viewport)
+	// restoreSnapshot must never touch the viewport: navigation (zoom/pan/
+	// rotate) is independent of document undo/redo (see restoreSnapshot's
+	// doc comment in state.go).
+	if inst.viewport != initialViewport {
+		t.Fatalf("restoreSnapshot changed the viewport: got %+v, want unchanged %+v", inst.viewport, initialViewport)
 	}
 
 	clearedState := snapshot{Viewport: ViewportState{CenterX: 1, CenterY: 2, Zoom: 0.5}}
@@ -719,8 +742,8 @@ func TestRestoreSnapshotAndUtilityHelpers(t *testing.T) {
 	if inst.manager.Active() != nil {
 		t.Fatal("restoreSnapshot with nil document should clear the active document")
 	}
-	if inst.viewport != clearedState.Viewport {
-		t.Fatalf("viewport after clearing restore = %+v, want %+v", inst.viewport, clearedState.Viewport)
+	if inst.viewport != initialViewport {
+		t.Fatalf("restoreSnapshot with nil document changed the viewport: got %+v, want unchanged %+v", inst.viewport, initialViewport)
 	}
 
 	if got := defaultDocumentName(""); got != "Untitled" {

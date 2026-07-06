@@ -42,14 +42,21 @@ func (inst *instance) importProject(payload string) (RenderResult, error) {
 	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
 		switch {
 		case len(decoded) >= 2 && decoded[0] == 0x50 && decoded[1] == 0x4b:
-			if d, _, zipErr := LoadProjectZip(decoded); zipErr == nil {
-				doc = d
+			// The payload is a zip archive; a parse failure must surface the
+			// real cause instead of collapsing to "unsupported import payload".
+			d, _, zipErr := LoadProjectZip(decoded)
+			if zipErr != nil {
+				return RenderResult{}, fmt.Errorf("load project zip: %w", zipErr)
 			}
+			doc = d
 		case len(decoded) >= 4 && string(decoded[:4]) == "8BPS":
-			if d, importWarnings, psdErr := LoadPSD(decoded); psdErr == nil {
-				doc = d
-				warnings = importWarnings
+			// The payload is a PSD; surface the real parse error.
+			d, importWarnings, psdErr := LoadPSD(decoded)
+			if psdErr != nil {
+				return RenderResult{}, fmt.Errorf("load PSD: %w", psdErr)
 			}
+			doc = d
+			warnings = importWarnings
 		}
 	}
 	if doc == nil {

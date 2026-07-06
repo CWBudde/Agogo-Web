@@ -30,6 +30,7 @@ export interface EngineHandle {
   importProject(projectJSON: string): RenderResult;
   readPixels(render: { bufferPtr: number; bufferLen: number }): Uint8ClampedArray;
   free(pointer: number): void;
+  dispose(): void;
 }
 
 export interface EngineContextValue {

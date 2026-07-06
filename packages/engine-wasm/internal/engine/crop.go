@@ -99,62 +99,180 @@ type ResizeCanvasPayload struct {
 	Anchor string `json:"anchor"`
 }
 
-// applyResizeCanvas resizes the document and shifts layers based on the anchor.
+// canvasAnchorOffset returns the (dx, dy) translation applied to document-space
+// geometry when the canvas is resized from oldW×oldH to newW×newH using the
+// given anchor placement.
+func canvasAnchorOffset(anchor string, oldW, oldH, newW, newH int) (dx, dy int) {
+	switch anchor {
+	case "top-left":
+		dx, dy = 0, 0
+	case "top-center":
+		dx, dy = (newW-oldW)/2, 0
+	case "top-right":
+		dx, dy = newW-oldW, 0
+	case "middle-left":
+		dx, dy = 0, (newH-oldH)/2
+	case "center":
+		dx, dy = (newW-oldW)/2, (newH-oldH)/2
+	case "middle-right":
+		dx, dy = newW-oldW, (newH-oldH)/2
+	case "bottom-left":
+		dx, dy = 0, newH-oldH
+	case "bottom-center":
+		dx, dy = (newW-oldW)/2, newH-oldH
+	case "bottom-right":
+		dx, dy = newW-oldW, newH-oldH
+	default:
+		dx, dy = 0, 0 // fallback to top-left
+	}
+	return dx, dy
+}
+
+// applyResizeCanvas resizes the document and remaps every layer kind, its masks
+// and the document selections into the new document space based on the anchor.
 func applyResizeCanvas(doc *Document, w, h int, anchor string) error {
 	if w <= 0 || h <= 0 {
 		return fmt.Errorf("invalid canvas dimensions: %dx%d", w, h)
 	}
 
-	dx := 0
-	dy := 0
-
-	oldW := doc.Width
-	oldH := doc.Height
-
-	switch anchor {
-	case "top-left":
-		dx, dy = 0, 0
-	case "top-center":
-		dx = (w - oldW) / 2
-		dy = 0
-	case "top-right":
-		dx = w - oldW
-		dy = 0
-	case "middle-left":
-		dx = 0
-		dy = (h - oldH) / 2
-	case "center":
-		dx = (w - oldW) / 2
-		dy = (h - oldH) / 2
-	case "middle-right":
-		dx = w - oldW
-		dy = (h - oldH) / 2
-	case "bottom-left":
-		dx = 0
-		dy = h - oldH
-	case "bottom-center":
-		dx = (w - oldW) / 2
-		dy = h - oldH
-	case "bottom-right":
-		dx = w - oldW
-		dy = h - oldH
-	default:
-		dx, dy = 0, 0 // fallback to top-left
-	}
+	dx, dy := canvasAnchorOffset(anchor, doc.Width, doc.Height, w, h)
 
 	doc.Width = w
 	doc.Height = h
 
-	// Shift all pixel layers by dx, dy
-	if dx != 0 || dy != 0 {
-		walkLayerTree(doc.LayerRoot, func(n LayerNode) {
-			if pl, ok := n.(*PixelLayer); ok {
-				pl.Bounds.X += dx
-				pl.Bounds.Y += dy
-			}
-		})
-	}
+	walkLayerTree(doc.LayerRoot, func(n LayerNode) {
+		if pl, ok := n.(*PixelLayer); ok {
+			pl.Bounds.X += dx
+			pl.Bounds.Y += dy
+		}
+		remapLayerIntoDocumentSpace(n, w, h, dx, dy)
+	})
+	remapDocumentSelections(doc, w, h, dx, dy)
 	return nil
+}
+
+// translatePathInPlace shifts every anchor point and its bezier handles by
+// (dx, dy). Handle coordinates are stored in absolute document space, so they
+// translate alongside the anchor.
+func translatePathInPlace(p *Path, dx, dy float64) {
+	if p == nil {
+		return
+	}
+	for si := range p.Subpaths {
+		pts := p.Subpaths[si].Points
+		for pi := range pts {
+			pts[pi].X += dx
+			pts[pi].Y += dy
+			pts[pi].InX += dx
+			pts[pi].InY += dy
+			pts[pi].OutX += dx
+			pts[pi].OutY += dy
+		}
+	}
+}
+
+// remapDocMask resamples a document-space, single-channel (alpha) buffer of size
+// srcW×srcH into a new dstW×dstH buffer translated by (dx, dy). Destination
+// pixels that map outside the source are left at 0.
+func remapDocMask(data []byte, srcW, srcH, dstW, dstH, dx, dy int) []byte {
+	out := make([]byte, dstW*dstH)
+	if srcW <= 0 || srcH <= 0 || len(data) < srcW*srcH {
+		return out
+	}
+	for ny := range dstH {
+		sy := ny - dy
+		if sy < 0 || sy >= srcH {
+			continue
+		}
+		dstRow := ny * dstW
+		srcRow := sy * srcW
+		for nx := range dstW {
+			sx := nx - dx
+			if sx < 0 || sx >= srcW {
+				continue
+			}
+			out[dstRow+nx] = data[srcRow+sx]
+		}
+	}
+	return out
+}
+
+// remapLayerMaskInPlace crops/extends a document-space layer mask to newW×newH,
+// translating its coverage by (dx, dy).
+func remapLayerMaskInPlace(mask *LayerMask, newW, newH, dx, dy int) {
+	if mask == nil || mask.Width <= 0 || mask.Height <= 0 {
+		return
+	}
+	mask.Data = remapDocMask(mask.Data, mask.Width, mask.Height, newW, newH, dx, dy)
+	mask.Width = newW
+	mask.Height = newH
+}
+
+// remapSelection translates a document-space selection into a newW×newH space by
+// (dx, dy), clipping to the new bounds. Returns nil when the selection becomes
+// empty (fully outside the new document), which deselects.
+func remapSelection(sel *Selection, newW, newH, dx, dy int) *Selection {
+	if sel == nil || sel.Width <= 0 || sel.Height <= 0 {
+		return nil
+	}
+	remapped := &Selection{
+		Width:  newW,
+		Height: newH,
+		Mask:   remapDocMask(sel.Mask, sel.Width, sel.Height, newW, newH, dx, dy),
+	}
+	return normalizeSelection(remapped)
+}
+
+// remapDocumentSelections translates the active, last and saved selections into
+// the new document space, deselecting any that become empty.
+func remapDocumentSelections(doc *Document, newW, newH, dx, dy int) {
+	doc.Selection = remapSelection(doc.Selection, newW, newH, dx, dy)
+	doc.LastSelection = remapSelection(doc.LastSelection, newW, newH, dx, dy)
+	for i := range doc.SavedSelections {
+		doc.SavedSelections[i].Selection = remapSelection(doc.SavedSelections[i].Selection, newW, newH, dx, dy)
+	}
+}
+
+// remapLayerIntoDocumentSpace translates a single layer's document-space
+// auxiliary data (raster mask, vector mask) into the new document space and, for
+// text and vector layers, shifts their position by (dx, dy) and re-rasterizes
+// their cached raster against the new document dimensions so it never mismatches
+// the resized document. Pixel-layer bounds and pixel content are handled by the
+// caller (crop resamples/trims; canvas-size shifts).
+func remapLayerIntoDocumentSpace(n LayerNode, newW, newH, dx, dy int) {
+	remapLayerMaskInPlace(n.Mask(), newW, newH, dx, dy)
+	translatePathInPlace(n.VectorMask(), float64(dx), float64(dy))
+
+	switch layer := n.(type) {
+	case *TextLayer:
+		// Text rasters are bounds-local (size follows Bounds.W×Bounds.H, which the
+		// resize does not change): translate the position and re-rasterize.
+		layer.Bounds.X += dx
+		layer.Bounds.Y += dy
+		if raster, err := rasterizeTextLayer(layer); err == nil && raster != nil {
+			layer.CachedRaster = raster
+		}
+	case *VectorLayer:
+		// Vector rasters are document-local (doc-sized, Bounds == full document,
+		// Shape points in absolute document space): translate the geometry, resize
+		// the bounds to the new document and re-rasterize at the new dimensions.
+		translatePathInPlace(layer.Shape, float64(dx), float64(dy))
+		layer.Bounds = LayerBounds{X: 0, Y: 0, W: newW, H: newH}
+		if layer.Shape != nil && len(layer.Shape.Subpaths) > 0 {
+			if raster, err := rasterizeVectorShape(layer.Shape, newW, newH, layer.FillColor, layer.StrokeColor, layer.StrokeWidth); err == nil {
+				layer.CachedRaster = raster
+			}
+		}
+	case *AdjustmentLayer:
+		// Cached adjustment output is document-sized; invalidate so it recomputes
+		// against the new dimensions.
+		layer.Cache = AdjustmentCache{}
+	case *GroupLayer:
+		if layer.Artboard != nil {
+			layer.Artboard.Bounds.X += dx
+			layer.Artboard.Bounds.Y += dy
+		}
+	}
 }
 
 // RenderCropOverlay draws the darkened area outside the crop box and the

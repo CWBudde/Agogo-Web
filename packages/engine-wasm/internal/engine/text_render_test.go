@@ -11,7 +11,7 @@ func TestRasterizeTextLayer_PointTextProducesPixels(t *testing.T) {
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.TextType = "point"
 
-	buf, err := rasterizeTextLayer(layer, 200, 50)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestRasterizeTextLayer_EmptyTextReturnsTransparent(t *testing.T) {
 	layer := NewTextLayer("Empty", LayerBounds{X: 0, Y: 0, W: 100, H: 50}, "", nil)
 	layer.FontSize = 16
 
-	buf, err := rasterizeTextLayer(layer, 100, 50)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestRasterizeTextLayer_AreaTextProducesPixels(t *testing.T) {
 	layer.TextType = "area"
 	layer.Color = [4]uint8{0, 0, 0, 255}
 
-	buf, err := rasterizeTextLayer(layer, 100, 100)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
@@ -82,8 +82,8 @@ func TestRasterizeTextLayer_DifferentTextsProduceDifferentBuffers(t *testing.T) 
 	layerB.FontSize = 24
 	layerB.Color = [4]uint8{0, 0, 0, 255}
 
-	bufA, _ := rasterizeTextLayer(layerA, 200, 50)
-	bufB, _ := rasterizeTextLayer(layerB, 200, 50)
+	bufA, _ := rasterizeTextLayer(layerA)
+	bufB, _ := rasterizeTextLayer(layerB)
 
 	if bytes.Equal(bufA, bufB) {
 		t.Error("expected different rasters for different text strings")
@@ -140,11 +140,11 @@ func TestRasterizeTextLayer_TrackingProducesDifferentWidth(t *testing.T) {
 	layerB.TextType = "point"
 	layerB.Tracking = 10
 
-	bufA, err := rasterizeTextLayer(layerA, 400, 60)
+	bufA, err := rasterizeTextLayer(layerA)
 	if err != nil {
 		t.Fatalf("rasterize without tracking: %v", err)
 	}
-	bufB, err := rasterizeTextLayer(layerB, 400, 60)
+	bufB, err := rasterizeTextLayer(layerB)
 	if err != nil {
 		t.Fatalf("rasterize with tracking: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestRasterizeTextLayer_UnderlineProducesPixels(t *testing.T) {
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.Underline = true
 
-	buf, err := rasterizeTextLayer(layer, 300, 60)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterize underline: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestRasterizeTextLayer_UnderlineProducesPixels(t *testing.T) {
 	layerNoU := NewTextLayer("NU", LayerBounds{X: 10, Y: 0, W: 300, H: 60}, "Hello", nil)
 	layerNoU.FontSize = 24
 	layerNoU.Color = [4]uint8{0, 0, 0, 255}
-	bufNoU, _ := rasterizeTextLayer(layerNoU, 300, 60)
+	bufNoU, _ := rasterizeTextLayer(layerNoU)
 
 	if bytes.Equal(buf, bufNoU) {
 		t.Error("underline text should differ from non-underlined text")
@@ -191,7 +191,7 @@ func TestRasterizeTextLayer_StrikethroughProducesPixels(t *testing.T) {
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.Strikethrough = true
 
-	buf, err := rasterizeTextLayer(layer, 300, 60)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterize strikethrough: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestRasterizeTextLayer_StrikethroughProducesPixels(t *testing.T) {
 	layerNoS := NewTextLayer("NS", LayerBounds{X: 10, Y: 0, W: 300, H: 60}, "Hello", nil)
 	layerNoS.FontSize = 24
 	layerNoS.Color = [4]uint8{0, 0, 0, 255}
-	bufNoS, _ := rasterizeTextLayer(layerNoS, 300, 60)
+	bufNoS, _ := rasterizeTextLayer(layerNoS)
 
 	if bytes.Equal(buf, bufNoS) {
 		t.Error("strikethrough text should differ from plain text")
@@ -218,11 +218,11 @@ func TestRasterizeTextLayer_AllCapsTransformsText(t *testing.T) {
 	layerUpper.FontSize = 24
 	layerUpper.Color = [4]uint8{0, 0, 0, 255}
 
-	bufCaps, err := rasterizeTextLayer(layerCaps, 300, 60)
+	bufCaps, err := rasterizeTextLayer(layerCaps)
 	if err != nil {
 		t.Fatalf("rasterize allCaps: %v", err)
 	}
-	bufUpper, err := rasterizeTextLayer(layerUpper, 300, 60)
+	bufUpper, err := rasterizeTextLayer(layerUpper)
 	if err != nil {
 		t.Fatalf("rasterize upper: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestRasterizeTextLayer_JustifyAlignment(t *testing.T) {
 	layer.TextType = "area"
 	layer.Alignment = "justify"
 
-	buf, err := rasterizeTextLayer(layer, 200, 200)
+	buf, err := rasterizeTextLayer(layer)
 	if err != nil {
 		t.Fatalf("rasterize justify: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestRasterizeTextLayer_JustifyAlignment(t *testing.T) {
 	layerLeft.Color = [4]uint8{0, 0, 0, 255}
 	layerLeft.TextType = "area"
 	layerLeft.Alignment = "left"
-	bufLeft, _ := rasterizeTextLayer(layerLeft, 200, 200)
+	bufLeft, _ := rasterizeTextLayer(layerLeft)
 
 	if bytes.Equal(buf, bufLeft) {
 		t.Error("justified text should differ from left-aligned text")
@@ -281,11 +281,11 @@ func TestRasterizeTextLayer_ParagraphSpacing(t *testing.T) {
 	layerPara.SpaceBefore = 10
 	layerPara.SpaceAfter = 10
 
-	bufSingle, err := rasterizeTextLayer(layerSingle, 300, 300)
+	bufSingle, err := rasterizeTextLayer(layerSingle)
 	if err != nil {
 		t.Fatalf("rasterize single: %v", err)
 	}
-	bufPara, err := rasterizeTextLayer(layerPara, 300, 300)
+	bufPara, err := rasterizeTextLayer(layerPara)
 	if err != nil {
 		t.Fatalf("rasterize para: %v", err)
 	}

@@ -215,8 +215,7 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 			return nil
 		},
 		EndPaintStroke: func() error {
-			inst.handleEndPaintStroke()
-			return nil
+			return inst.handleEndPaintStroke()
 		},
 		SetForegroundColor: func(color [4]uint8) error {
 			inst.foregroundColor = color
@@ -227,7 +226,12 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 			return nil
 		},
 		MagicErase: func(payload cmdpkg.PaintMagicErasePayload) error {
-			doc := inst.manager.Active()
+			// Must operate on the STORED document (activeMut), not an Active()
+			// clone: handleMagicErase mutates the layer in place and records a
+			// pixelDeltaCommand against the stored document. With a clone the
+			// erase would be silently discarded while the pushed delta diverged
+			// from the real document.
+			doc := inst.manager.activeMut()
 			if doc == nil {
 				return nil
 			}

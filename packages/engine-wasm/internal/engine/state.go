@@ -12,10 +12,29 @@ func (inst *instance) nextFrameID() int64 {
 	return inst.frameID
 }
 
+// captureSnapshot records the current engine state for history purposes. It
+// stores the active document POINTER — deliberately without cloning.
+//
+// INVARIANT (immutability by replacement): documents stored in the Manager are
+// only ever *replaced* by snapshot-based commands (working copy = Active()
+// clone, mutate, ReplaceActiveNoClone/ReplaceActive), never mutated in place by
+// them. The displaced object is therefore immutable from the moment of
+// replacement, and history may reference it directly without a defensive copy.
+// In-place mutations of the live stored object (brush strokes via activeMut(),
+// live text editing, filter previews) are byte-exactly reverted by their own
+// LIFO-ordered history commands (pixelDeltaCommand) or by explicit
+// revert-before-commit (filter preview OrigPixels, text edit side table) — and
+// restoreSnapshot additionally reverts any still-in-flight preview mutation
+// before installing a snapshot — so a referenced state is always byte-correct
+// at the moment history traversal reaches it.
+//
+// Corollary for consumers: a snapshot's Document must be treated as read-only.
+// restoreSnapshot installs a CLONE of it (Manager.Replace clones) precisely so
+// that post-restore in-place mutations cannot corrupt the referenced object.
 func (inst *instance) captureSnapshot() snapshot {
 	return snapshot{
 		DocumentID: inst.manager.ActiveID(),
-		Document:   inst.manager.Active(),
+		Document:   inst.manager.activeMut(),
 		Viewport:   inst.viewport,
 	}
 }
@@ -27,10 +46,33 @@ func (inst *instance) captureSnapshot() snapshot {
 // every other open document — and their order — untouched. Historically this
 // recreated the manager from scratch, which silently destroyed all other open
 // documents on every undo/redo; that data-loss bug is what this guards against.
+//
+// It deliberately does NOT restore state.Viewport: navigation (zoom/pan/
+// rotate) is never pushed onto inst.history (see dispatch_core.go), so
+// undo/redo of a document edit must never yank the user's current view back
+// to wherever it happened to be when the edit was made — Photoshop doesn't do
+// this either. The Viewport field stays on the snapshot struct itself (see
+// captureSnapshot) since other callers still read the struct as a whole; it
+// simply carries the viewport that was live at capture time and is never fed
+// back into inst.viewport.
+//
+// Because snapshots hold direct pointers into history (see captureSnapshot),
+// restoring MUST install a clone of state.Document — never the referenced
+// object itself. Manager.Replace clones on store, which provides exactly that:
+// post-restore in-place mutations (brush strokes, previews) hit the fresh
+// clone, leaving the history's referenced object untouched.
 func (inst *instance) restoreSnapshot(state snapshot) error {
-	inst.viewport = state.Viewport
 	inst.resetMixerBrushState()
 	inst.resetCloneStampState()
+
+	// History snapshots reference stored documents directly (see
+	// captureSnapshot). In-flight preview flows (active brush stroke, filter
+	// preview, live text edit) mutate the stored document in place and only
+	// revert/record on their own end events — which have not happened yet if a
+	// history restore arrives mid-flight. Revert them here first so the
+	// document that is about to be displaced returns to the exact byte state
+	// its referencing snapshots captured.
+	inst.revertInFlightPreviewMutations()
 
 	if state.Document == nil {
 		// The snapshot captured a state with no active document. We must not
@@ -49,6 +91,19 @@ func (inst *instance) restoreSnapshot(state snapshot) error {
 		id = state.Document.ID
 	}
 	return inst.manager.SetActiveID(id)
+}
+
+// revertInFlightPreviewMutations byte-exactly rolls back every in-place
+// mutation of the stored active document that belongs to a still-open preview
+// flow, and discards the corresponding transient state. It is called by
+// restoreSnapshot so that pointer-based history snapshots (see captureSnapshot)
+// never observe half-finished preview bytes.
+func (inst *instance) revertInFlightPreviewMutations() {
+	inst.revertActivePaintStroke()
+	if inst.filterPreview != nil {
+		_, _ = inst.handleCancelFilterPreview()
+	}
+	inst.revertLiveTextEdit()
 }
 
 func (inst *instance) fitViewportToActiveDocument() {
@@ -73,7 +128,9 @@ func (inst *instance) handlePointerEvent(event PointerEventPayload) {
 			inst.pointer = pointerDragState{}
 			return
 		}
-		inst.history.BeginTransaction(inst, "Pan viewport")
+		// Panning is pure navigation and must never enter document history
+		// (see restoreSnapshot / dispatch_core.go), so this no longer opens a
+		// history transaction — it just tracks the drag-start state below.
 		inst.pointer = pointerDragState{
 			PointerID: event.PointerID,
 			StartX:    event.X,
@@ -96,7 +153,6 @@ func (inst *instance) handlePointerEvent(event PointerEventPayload) {
 	case "up":
 		if inst.pointer.PointerID == event.PointerID {
 			inst.pointer = pointerDragState{}
-			inst.history.EndTransaction(true)
 		}
 	}
 }
