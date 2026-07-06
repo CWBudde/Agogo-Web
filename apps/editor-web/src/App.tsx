@@ -19,7 +19,14 @@ import {
   type ThumbnailEntry,
   type UpdateCropCommand,
 } from "@agogo/proto";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
   BRUSH_PRESETS,
@@ -799,6 +806,8 @@ export default function App() {
   const [transformSelectionActive, setTransformSelectionActive] = useState(false);
   const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [menubarFocusIndex, setMenubarFocusIndex] = useState(0);
+  const menuOpenedByKeyboard = useRef(false);
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
     width: number;
@@ -2019,6 +2028,82 @@ export default function App() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [openMenu]);
+
+  // When a menu is opened via the keyboard (ArrowDown), move focus to its first item.
+  useEffect(() => {
+    if (openMenu && menuOpenedByKeyboard.current) {
+      menuOpenedByKeyboard.current = false;
+      menuBarRef.current
+        ?.querySelector<HTMLElement>('[role="menu"] [role="menuitem"]:not([disabled])')
+        ?.focus();
+    }
+  }, [openMenu]);
+
+  const handleMenubarKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    const nav = event.currentTarget;
+    const dropdown = target.closest<HTMLElement>('[role="menu"]');
+
+    if (!dropdown) {
+      // Top-level menubar items: roving focus + ArrowDown opens the menu.
+      const topItems = Array.from(
+        nav.querySelectorAll<HTMLButtonElement>(':scope > div > button[role="menuitem"]'),
+      );
+      const index = topItems.indexOf(target as HTMLButtonElement);
+      if (index === -1) {
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        event.stopPropagation();
+        const next =
+          event.key === "ArrowRight"
+            ? (index + 1) % topItems.length
+            : (index - 1 + topItems.length) % topItems.length;
+        setMenubarFocusIndex(next);
+        topItems[next]?.focus();
+        if (openMenu) {
+          setOpenMenu(menuItems[next]?.label ?? null);
+        }
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        const label = menuItems[index]?.label ?? null;
+        if (openMenu === label) {
+          // Already open (e.g. via click): the state update below would be a
+          // no-op and the [openMenu] effect would never re-fire, so move
+          // focus into the menu directly.
+          target.parentElement
+            ?.querySelector<HTMLElement>('[role="menu"] [role="menuitem"]:not([disabled])')
+            ?.focus();
+        } else {
+          menuOpenedByKeyboard.current = true;
+          setOpenMenu(label);
+        }
+      }
+      return;
+    }
+
+    // Inside an open dropdown: ArrowUp/ArrowDown cycle, Escape closes and returns focus.
+    const items = Array.from(
+      dropdown.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])'),
+    );
+    const itemIndex = items.indexOf(target as HTMLButtonElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      items[(itemIndex + 1) % items.length]?.focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      items[(itemIndex - 1 + items.length) % items.length]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenMenu(null);
+      dropdown.parentElement?.querySelector<HTMLElement>('button[role="menuitem"]')?.focus();
+    }
+  };
 
   const hasDocument = (render?.uiMeta.documentWidth ?? 0) > 0;
   const documentSize = render
@@ -3242,6 +3327,7 @@ export default function App() {
             <button
               type="button"
               title="Fill color"
+              aria-label="Fill color"
               style={{
                 background: `rgba(${shapeFillColor[0]},${shapeFillColor[1]},${shapeFillColor[2]},${shapeFillColor[3] / 255})`,
               }}
@@ -3276,6 +3362,7 @@ export default function App() {
             <button
               type="button"
               title="Stroke color"
+              aria-label="Stroke color"
               style={{
                 background: `rgba(${shapeStrokeColor[0]},${shapeStrokeColor[1]},${shapeStrokeColor[2]},${shapeStrokeColor[3] / 255})`,
               }}
@@ -3519,13 +3606,20 @@ export default function App() {
                 </span>
               </div>
 
-              <nav className="flex min-w-0 flex-nowrap items-center gap-1 border-l border-white/8 pl-3">
-                {menuItems.map((menu) => {
+              <div
+                role="menubar"
+                aria-label="Application menu"
+                className="flex min-w-0 flex-nowrap items-center gap-1 border-l border-white/8 pl-3"
+                onKeyDown={handleMenubarKeyDown}
+              >
+                {menuItems.map((menu, menuIndex) => {
                   const isOpen = openMenu === menu.label;
                   return (
                     <div key={menu.label} className="relative shrink-0">
                       <button
                         type="button"
+                        role="menuitem"
+                        tabIndex={menuIndex === menubarFocusIndex ? 0 : -1}
                         className={[
                           "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
                           isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
@@ -3535,6 +3629,7 @@ export default function App() {
                         onClick={() =>
                           setOpenMenu((current) => (current === menu.label ? null : menu.label))
                         }
+                        onFocus={() => setMenubarFocusIndex(menuIndex)}
                         onPointerEnter={() => {
                           if (openMenu) {
                             setOpenMenu(menu.label);
@@ -3555,7 +3650,7 @@ export default function App() {
                     </div>
                   );
                 })}
-              </nav>
+              </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
@@ -3592,18 +3687,18 @@ export default function App() {
           </header>
 
           {hasAutosave && engine.status === "ready" ? (
-            <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-950/40 px-3 py-1.5 text-[12px] text-amber-200">
+            <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
               <span>Unsaved session detected.</span>
               <button
                 type="button"
-                className="rounded bg-amber-600 px-2 py-0.5 text-white hover:bg-amber-500 focus-visible:outline-none"
+                className="rounded bg-warning px-2 py-0.5 text-background hover:bg-warning/80 focus-visible:outline-none"
                 onClick={recoverAutosave}
               >
                 Restore
               </button>
               <button
                 type="button"
-                className="rounded px-2 py-0.5 text-amber-400 hover:text-amber-200 focus-visible:outline-none"
+                className="rounded px-2 py-0.5 text-warning hover:text-warning/80 focus-visible:outline-none"
                 onClick={dismissAutosave}
               >
                 Discard
@@ -3623,13 +3718,13 @@ export default function App() {
           ) : null}
 
           {editingVectorLayerID ? (
-            <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-amber-500/30 bg-amber-500/8 px-3 py-1">
-              <span className="text-[11px] text-amber-200">
+            <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-warning/30 bg-warning/8 px-3 py-1">
+              <span className="text-[11px] text-warning">
                 Editing shape path — switch tool to commit changes
               </span>
               <button
                 type="button"
-                className="ml-auto rounded border border-amber-500/40 px-2 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/15 focus-visible:outline-none"
+                className="ml-auto rounded border border-warning/40 px-2 py-0.5 text-[11px] text-warning hover:bg-warning/15 focus-visible:outline-none"
                 onClick={() => engine.dispatchCommand(CommandID.CommitVectorEdit, {})}
               >
                 Done
@@ -3667,6 +3762,8 @@ export default function App() {
                         : "bg-transparent text-slate-400 hover:bg-white/6 hover:text-slate-100",
                     ].join(" ")}
                     title={tool.label}
+                    aria-label={tool.label}
+                    aria-pressed={active}
                     onClick={() => activateTool(tool.id)}
                   >
                     <ToolIcon className="h-4 w-4" />
@@ -3681,6 +3778,7 @@ export default function App() {
                   className="absolute bottom-0 right-0 h-6 w-6 rounded-sm border border-border"
                   style={{ backgroundColor: rgbaToCss(backgroundColor) }}
                   title="Background color"
+                  aria-label="Background color"
                   onClick={() => openColorPicker("background")}
                 />
                 {/* Foreground swatch (front) */}
@@ -3689,6 +3787,7 @@ export default function App() {
                   className="absolute left-0 top-0 h-6 w-6 rounded-sm border border-border"
                   style={{ backgroundColor: rgbaToCss(foregroundColor) }}
                   title="Foreground color"
+                  aria-label="Foreground color"
                   onClick={() => openColorPicker("foreground")}
                 />
               </div>
@@ -3861,6 +3960,7 @@ export default function App() {
                     variant="ghost"
                     size="icon"
                     className="text-[11px]"
+                    aria-label="Expand panel"
                     onClick={() => setPanelCollapsed(false)}
                   >
                     »
@@ -3912,6 +4012,7 @@ export default function App() {
                         variant="ghost"
                         size="icon"
                         className="text-[11px]"
+                        aria-label="Collapse panel"
                         onClick={() => setPanelCollapsed(true)}
                       >
                         «
@@ -4455,12 +4556,12 @@ export default function App() {
             </aside>
           </section>
 
-          <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-white/8 px-2 text-[11px] text-slate-500">
+          <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-border px-2 text-[11px] text-muted-foreground/70">
             <div className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate text-slate-300">{draft.name}.agp</span>
-              <Separator orientation="vertical" className="h-3 bg-white/8" />
+              <span className="truncate text-muted-foreground">{draft.name}.agp</span>
+              <Separator orientation="vertical" className="h-3 bg-border" />
               <span>{documentSize}</span>
-              <Separator orientation="vertical" className="h-3 bg-white/8" />
+              <Separator orientation="vertical" className="h-3 bg-border" />
               <span>{cursorText}</span>
             </div>
             <div className="relative flex items-center gap-2">
@@ -4476,7 +4577,7 @@ export default function App() {
                     {[25, 50, 75, 100, 150, 200, 300, 400].map((level) => (
                       <DropdownMenuItem
                         key={level}
-                        className={`text-[11px] py-1 px-3 rounded-lg ${Math.round((render?.viewport.zoom ?? 1) * 100) === level ? "text-blue-400" : ""}`}
+                        className={`text-[11px] py-1 px-3 rounded-lg ${Math.round((render?.viewport.zoom ?? 1) * 100) === level ? "text-accent" : ""}`}
                         onClick={() => {
                           engine.setZoom(level / 100);
                           setZoomMenuOpen(false);
@@ -4490,7 +4591,7 @@ export default function App() {
               )}
               <button
                 type="button"
-                className="cursor-pointer select-none tabular-nums text-slate-200 hover:text-white"
+                className="cursor-pointer select-none tabular-nums text-foreground hover:text-white"
                 onClick={handleZoomClick}
                 onDoubleClick={handleZoomDoubleClick}
                 title="Click for zoom options · Double-click to reset to 100%"
@@ -4504,6 +4605,7 @@ export default function App() {
 
       <Dialog
         open={newDocumentOpen}
+        onClose={() => setNewDocumentOpen(false)}
         title="Create Document"
         description="Presets, dimensions, resolution, color mode, bit depth, and background feed the Go engine document manager."
       >
@@ -4696,6 +4798,7 @@ export default function App() {
 
       <Dialog
         open={openRecentOpen}
+        onClose={() => setOpenRecentOpen(false)}
         title="Open Recent"
         description="The browser build cannot reopen local files automatically yet, so recent documents are informational only for now."
         className="max-w-lg"
@@ -4728,6 +4831,7 @@ export default function App() {
 
       <Dialog
         open={exportDialogOpen}
+        onClose={() => setExportDialogOpen(false)}
         title="Export As"
         description="Choose a layered archive, PSD, or PSB export."
         className="max-w-lg"
@@ -4795,6 +4899,7 @@ export default function App() {
 
       <Dialog
         open={canvasSizeOpen}
+        onClose={() => setCanvasSizeOpen(false)}
         title="Canvas Size"
         description="Resizing the canvas shifts layers relative to the selected anchor."
         className="max-w-md"
@@ -4876,6 +4981,7 @@ export default function App() {
 
       <Dialog
         open={featherDialogOpen}
+        onClose={() => setFeatherDialogOpen(false)}
         title="Feather Selection"
         description="Softens the selection edges by blurring."
         className="max-w-xs"
@@ -4907,6 +5013,7 @@ export default function App() {
 
       <Dialog
         open={modifyDialog.open}
+        onClose={() => setModifyDialog((d) => ({ ...d, open: false }))}
         title={
           {
             expand: "Expand Selection",
@@ -4966,7 +5073,13 @@ export default function App() {
         </div>
       </Dialog>
 
-      <Dialog open={fillDialogOpen} title="Fill" description={fillModeSummary} className="max-w-sm">
+      <Dialog
+        open={fillDialogOpen}
+        onClose={() => setFillDialogOpen(false)}
+        title="Fill"
+        description={fillModeSummary}
+        className="max-w-sm"
+      >
         <div className="space-y-4">
           <ToolOptionGroup label="Source">
             <ToolChoiceButton
@@ -5070,6 +5183,7 @@ export default function App() {
 
       <Dialog
         open={thresholdDialogOpen}
+        onClose={() => setThresholdDialogOpen(false)}
         title="Threshold"
         description="Threshold uses Rec. 601 luminance: pixels at or above the slider become white, below become black."
         className="max-w-sm"
@@ -5100,7 +5214,7 @@ export default function App() {
               <span className="text-slate-300">{thresholdValue}</span>
             </div>
             <input
-              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              className="h-2 w-full accent-accent focus-visible:outline-none"
               type="range"
               min={0}
               max={255}
@@ -5144,6 +5258,7 @@ export default function App() {
 
       <Dialog
         open={posterizeDialogOpen}
+        onClose={() => setPosterizeDialogOpen(false)}
         title="Posterize"
         description="Posterize reduces each RGB channel to a fixed number of levels. Alpha is preserved."
         className="max-w-sm"
@@ -5165,7 +5280,7 @@ export default function App() {
               <span className="text-slate-300">{posterizeLevels}</span>
             </div>
             <input
-              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              className="h-2 w-full accent-accent focus-visible:outline-none"
               type="range"
               min={2}
               max={255}
@@ -5209,6 +5324,7 @@ export default function App() {
 
       <Dialog
         open={photoFilterDialogOpen}
+        onClose={() => setPhotoFilterDialogOpen(false)}
         title="Photo Filter"
         description="Simulate a gel filter by blending the image toward a tinted filter color. Preserve luminosity keeps the original brightness."
         className="max-w-sm"
@@ -5245,7 +5361,7 @@ export default function App() {
               <span className="text-slate-300">{photoFilterDensity}</span>
             </div>
             <input
-              className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+              className="h-2 w-full accent-accent focus-visible:outline-none"
               type="range"
               min={0}
               max={100}
@@ -5287,6 +5403,7 @@ export default function App() {
 
       <Dialog
         open={channelMixerDialogOpen}
+        onClose={() => setChannelMixerDialogOpen(false)}
         title="Channel Mixer"
         description="Mix source RGB into each output channel. Monochrome collapses the mixed result to grayscale."
         className="max-w-4xl"
@@ -5357,6 +5474,7 @@ export default function App() {
 
       <Dialog
         open={selectiveColorDialogOpen}
+        onClose={() => setSelectiveColorDialogOpen(false)}
         title="Selective Color"
         description="Adjust CMYK-style components inside named color ranges. Relative mode scales the effect by pixel strength; Absolute applies the full offsets."
         className="max-w-6xl"
@@ -5468,6 +5586,7 @@ export default function App() {
 
       <Dialog
         open={colorRangeOpen}
+        onClose={() => setColorRangeOpen(false)}
         title="Color Range"
         description="Select pixels by color similarity."
         className="max-w-sm"
@@ -5489,7 +5608,7 @@ export default function App() {
           <Field label={`Fuzziness: ${colorRangeFuzziness}`}>
             <input
               type="range"
-              className="w-full accent-cyan-400"
+              className="w-full accent-accent"
               min={0}
               max={200}
               step={1}
@@ -5520,6 +5639,7 @@ export default function App() {
 
       <Dialog
         open={saveSelectionOpen}
+        onClose={() => setSaveSelectionOpen(false)}
         title="Save Selection"
         description="Store the current selection as an alpha channel."
         className="max-w-sm"
@@ -5546,6 +5666,7 @@ export default function App() {
 
       <Dialog
         open={loadSelectionOpen}
+        onClose={() => setLoadSelectionOpen(false)}
         title="Load Selection"
         description="Restore a saved alpha channel as the current selection."
         className="max-w-sm"
@@ -5729,6 +5850,7 @@ function TransformRefGrid({
               key={`${row}-${col}`}
               type="button"
               title={REF_POINT_LABELS[row][col]}
+              aria-label={REF_POINT_LABELS[row][col]}
               className={[
                 "h-[7px] w-[7px] rounded-[1px] focus-visible:outline-none",
                 isActive ? "bg-cyan-400" : "bg-slate-500 hover:bg-slate-300",
@@ -5884,6 +6006,8 @@ function MenuPreviewPanel({
 
   return (
     <div
+      role="menu"
+      aria-label={menu.label}
       className={[
         "editor-popup absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden",
         menu.align === "right" ? "right-0" : "left-0",
@@ -5928,6 +6052,7 @@ function MenuPreviewAction({
   return (
     <button
       type="button"
+      role="menuitem"
       className={[
         "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
         disabled
@@ -6091,7 +6216,7 @@ function CompactRange({
       </div>
       <input
         id={id}
-        className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+        className="h-2 w-full accent-accent focus-visible:outline-none"
         type="range"
         min={min}
         max={max}
@@ -6184,6 +6309,7 @@ function ChannelsPanel({
           <button
             type="button"
             title={visible[ch.id] ? "Hide channel" : "Show channel"}
+            aria-label={visible[ch.id] ? "Hide channel" : "Show channel"}
             className={[
               "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
               visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",

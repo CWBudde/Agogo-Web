@@ -112,7 +112,7 @@ export function AdjustmentsPanel({
           key={def.kind}
           type="button"
           title={def.label}
-          className="flex aspect-square flex-col items-center justify-center gap-0.5 rounded-[var(--ui-radius-sm)] border border-white/6 bg-white/[0.02] text-slate-400 transition hover:border-cyan-400/30 hover:bg-cyan-400/8 hover:text-slate-100"
+          className="flex aspect-square flex-col items-center justify-center gap-0.5 rounded-[var(--ui-radius-sm)] border border-border/60 bg-muted/20 text-muted-foreground transition hover:border-accent/30 hover:bg-accent/8 hover:text-foreground"
           onClick={() => createAdjustment(def)}
         >
           <span className="text-[11px] font-semibold leading-none">{def.abbr}</span>
@@ -200,8 +200,8 @@ function AdjustmentHeader({ engine, layer }: { engine: EngineContextValue; layer
   const def = ADJUSTMENTS.find((a) => a.kind === layer.adjustmentKind);
 
   return (
-    <div className="flex items-center gap-1.5 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 px-2 py-1.5">
-      <span className="flex-1 truncate text-[12px] font-medium text-slate-100">
+    <div className="flex items-center gap-1.5 rounded-[var(--ui-radius-sm)] border border-border bg-black/14 px-2 py-1.5">
+      <span className="flex-1 truncate text-[12px] font-medium text-foreground">
         {def?.label ?? layer.name}
       </span>
       <HeaderButton
@@ -243,8 +243,8 @@ function HeaderButton({
       className={[
         "rounded-[var(--ui-radius-sm)] border px-1.5 py-0.5 text-[10px] font-medium transition",
         active
-          ? "border-cyan-400/35 bg-cyan-400/12 text-cyan-200"
-          : "border-white/8 text-slate-500 hover:bg-white/5 hover:text-slate-300",
+          ? "border-accent/35 bg-accent/12 text-accent"
+          : "border-border text-muted-foreground/70 hover:bg-muted/40 hover:text-muted-foreground",
       ].join(" ")}
       onClick={onClick}
     >
@@ -409,7 +409,9 @@ function AdjustmentEditorBody({
       );
     case "invert":
       return (
-        <div className="px-1 text-[11px] text-slate-500">Invert has no adjustable parameters.</div>
+        <div className="px-1 text-[11px] text-muted-foreground/70">
+          Invert has no adjustable parameters.
+        </div>
       );
     default:
       return null;
@@ -450,14 +452,14 @@ function ParamSlider({
 
   return (
     <label className="block">
-      <div className="mb-0.5 flex items-center justify-between text-[10px] uppercase tracking-[0.15em] text-slate-500">
+      <div className="mb-0.5 flex items-center justify-between text-[10px] uppercase tracking-[0.15em] text-muted-foreground/70">
         <span>{label}</span>
-        <span className="text-slate-300">
+        <span className="text-muted-foreground">
           {formatValue ? formatValue(value) : Math.round(value)}
         </span>
       </div>
       <input
-        className="h-1.5 w-full accent-cyan-400 focus-visible:outline-none"
+        className="h-1.5 w-full accent-accent focus-visible:outline-none"
         type="range"
         min={min}
         max={max}
@@ -480,10 +482,10 @@ function ParamCheckbox({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
       <input
         type="checkbox"
-        className="accent-cyan-400"
+        className="accent-accent"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -505,11 +507,11 @@ function ParamSelect({
 }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block text-[10px] uppercase tracking-[0.15em] text-slate-500">
+      <span className="mb-0.5 block text-[10px] uppercase tracking-[0.15em] text-muted-foreground/70">
         {label}
       </span>
       <select
-        className="w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+        className="w-full rounded-[var(--ui-radius-sm)] border border-border bg-black/30 px-1.5 py-1 text-[11px] text-foreground focus-visible:outline-none"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -800,7 +802,7 @@ export function CurvesCanvas({
       ref={canvasRef}
       width={SIZE}
       height={SIZE}
-      className="w-full cursor-crosshair rounded-[var(--ui-radius-sm)] border border-white/10"
+      className="w-full cursor-crosshair rounded-[var(--ui-radius-sm)] border border-border"
       style={{ imageRendering: "auto", aspectRatio: "1" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -1121,12 +1123,12 @@ function PhotoFilterEditor({
   return (
     <EditorSection>
       <label className="block">
-        <span className="mb-0.5 block text-[10px] uppercase tracking-[0.15em] text-slate-500">
+        <span className="mb-0.5 block text-[10px] uppercase tracking-[0.15em] text-muted-foreground/70">
           Filter Color
         </span>
         <input
           type="color"
-          className="h-6 w-full cursor-pointer rounded-[var(--ui-radius-sm)] border border-white/10 bg-transparent"
+          className="h-6 w-full cursor-pointer rounded-[var(--ui-radius-sm)] border border-border bg-transparent"
           value={hexColor}
           onChange={(e) => {
             const hex = e.target.value;
@@ -1389,7 +1391,7 @@ function GradientMapEditor({
   return (
     <EditorSection>
       <div
-        className="h-4 w-full rounded-[var(--ui-radius-sm)] border border-white/10"
+        className="h-4 w-full rounded-[var(--ui-radius-sm)] border border-border"
         style={gradientStyle}
         title="Gradient preview (edit via Gradient Map dialog)"
       />
@@ -1429,9 +1431,11 @@ function MaskSection({ engine, layer }: { engine: EngineContextValue; layer: Lay
   };
 
   return (
-    <div className="space-y-1.5 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 p-2">
+    <div className="space-y-1.5 rounded-[var(--ui-radius-sm)] border border-border bg-black/14 p-2">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Mask</span>
+        <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground/70">
+          Mask
+        </span>
         <div className="flex gap-1">
           <HeaderButton
             title={layer.maskEnabled ? "Disable mask" : "Enable mask"}
@@ -1448,7 +1452,7 @@ function MaskSection({ engine, layer }: { engine: EngineContextValue; layer: Lay
           </HeaderButton>
         </div>
       </div>
-      <p className="text-[10px] text-slate-600">
+      <p className="text-[10px] text-muted-foreground/60">
         Density and Feather controls require engine support (planned).
       </p>
     </div>

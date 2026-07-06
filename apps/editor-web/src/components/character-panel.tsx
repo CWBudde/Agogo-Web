@@ -93,15 +93,17 @@ export function CharacterPanel({
 
   return (
     <div className="flex flex-col gap-3 p-2">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Character</div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+        Character
+      </div>
 
       {/* Font Family */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Font</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Font</span>
         <select
           value={currentFamily?.family ?? fontFamily}
           onChange={(e) => applyStyle({ fontFamily: e.target.value })}
-          className="h-6 flex-1 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 flex-1 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {familyOptions.map((f) => (
             <option key={f.family} value={f.family}>
@@ -113,11 +115,11 @@ export function CharacterPanel({
 
       {/* Font Style */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Font Style</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Font Style</span>
         <select
           value={effectiveStyle}
           onChange={(e) => applyFontStyle(e.target.value)}
-          className="h-6 flex-1 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 flex-1 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {styleChoices.map((s) => (
             <option key={s} value={s}>
@@ -129,7 +131,7 @@ export function CharacterPanel({
 
       {/* Font Size */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Size</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Size</span>
         <input
           type="number"
           min={1}
@@ -140,14 +142,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (val > 0) applyStyle({ fontSize: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Baseline Shift */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Baseline</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Baseline</span>
         <input
           type="number"
           min={-100}
@@ -158,14 +160,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ baselineShift: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Kerning */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Kerning</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Kerning</span>
         <input
           type="number"
           min={-200}
@@ -176,17 +178,17 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ kerning: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
 
       {/* Anti-Alias */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Antialias</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Antialias</span>
         <select
           value={antiAlias}
           onChange={(e) => applyStyle({ antiAlias: e.target.value })}
-          className="h-6 w-28 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-28 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <option value="None">None</option>
           <option value="Grayscale">Grayscale</option>
@@ -198,18 +200,18 @@ export function CharacterPanel({
 
       {/* Language */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Language</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Language</span>
         <input
           type="text"
           value={language}
           onChange={(e) => applyStyle({ language: e.target.value })}
-          className="h-6 flex-1 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 flex-1 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
       </div>
 
       {/* Leading */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Leading</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Leading</span>
         <input
           type="number"
           min={0.5}
@@ -220,14 +222,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (val > 0) applyStyle({ leading: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">×</span>
+        <span className="text-[10px] text-muted-foreground/70">×</span>
       </div>
 
       {/* Tracking */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Tracking</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Tracking</span>
         <input
           type="number"
           min={-50}
@@ -238,21 +240,22 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ tracking: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Color */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Color</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Color</span>
         <button
           type="button"
           title="Text color"
+          aria-label="Text color"
           style={{
             background: `rgba(${color[0]},${color[1]},${color[2]},${color[3] / 255})`,
           }}
-          className="h-6 w-6 flex-shrink-0 rounded border border-white/20 focus-visible:outline-none"
+          className="h-6 w-6 flex-shrink-0 rounded border border-border focus-visible:outline-none"
           onClick={() => {
             // Toggle between black and red as a simple demo.
             // A full color picker will be wired in Phase 6.4.
@@ -262,14 +265,14 @@ export function CharacterPanel({
             });
           }}
         />
-        <span className="text-[10px] text-slate-500">
+        <span className="text-[10px] text-muted-foreground/70">
           rgba({color[0]},{color[1]},{color[2]},{(color[3] / 255).toFixed(2)})
         </span>
       </div>
 
       {/* Alignment */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Align</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Align</span>
         <div className="flex gap-0.5">
           {(["left", "center", "right", "justify"] as const).map((a) => (
             <button
@@ -278,8 +281,8 @@ export function CharacterPanel({
               title={`Align ${a}`}
               className={`h-6 w-7 rounded text-[10px] ${
                 alignment === a
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
               }`}
               onClick={() => applyStyle({ alignment: a })}
             >
@@ -291,13 +294,15 @@ export function CharacterPanel({
 
       {/* Decoration */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Style</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Style</span>
         <div className="flex gap-0.5">
           <button
             type="button"
             title="Bold"
             className={`h-6 w-7 rounded text-[10px] font-bold ${
-              bold ? "bg-blue-600 text-white" : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+              bold
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ bold: !bold })}
           >
@@ -307,7 +312,9 @@ export function CharacterPanel({
             type="button"
             title="Italic"
             className={`h-6 w-7 rounded text-[10px] italic ${
-              italic ? "bg-blue-600 text-white" : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+              italic
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ italic: !italic })}
           >
@@ -318,8 +325,8 @@ export function CharacterPanel({
             title="Underline"
             className={`h-6 w-7 rounded text-[10px] underline ${
               underline
-                ? "bg-blue-600 text-white"
-                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ underline: !underline })}
           >
@@ -330,8 +337,8 @@ export function CharacterPanel({
             title="Strikethrough"
             className={`h-6 w-7 rounded text-[10px] line-through ${
               strikethrough
-                ? "bg-blue-600 text-white"
-                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ strikethrough: !strikethrough })}
           >
@@ -341,7 +348,9 @@ export function CharacterPanel({
             type="button"
             title="All Caps"
             className={`h-6 w-7 rounded text-[10px] font-semibold ${
-              allCaps ? "bg-blue-600 text-white" : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+              allCaps
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ allCaps: !allCaps, smallCaps: false })}
           >
@@ -352,8 +361,8 @@ export function CharacterPanel({
             title="Small Caps"
             className={`h-6 w-7 rounded text-[10px] font-semibold ${
               smallCaps
-                ? "bg-blue-600 text-white"
-                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ smallCaps: !smallCaps, allCaps: false })}
           >
@@ -364,15 +373,15 @@ export function CharacterPanel({
 
       {/* Superscript / Subscript */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Script</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Script</span>
         <div className="flex gap-0.5">
           <button
             type="button"
             title="Superscript"
             className={`h-6 w-9 rounded text-[10px] ${
               superscript
-                ? "bg-blue-600 text-white"
-                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ superscript: !superscript, subscript: false })}
           >
@@ -383,8 +392,8 @@ export function CharacterPanel({
             title="Subscript"
             className={`h-6 w-9 rounded text-[10px] ${
               subscript
-                ? "bg-blue-600 text-white"
-                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                ? "bg-accent text-accent-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             }`}
             onClick={() => applyStyle({ subscript: !subscript, superscript: false })}
           >
@@ -393,11 +402,13 @@ export function CharacterPanel({
         </div>
       </div>
 
-      <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">Paragraph</div>
+      <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+        Paragraph
+      </div>
 
       {/* Indent Left */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Indent L</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Indent L</span>
         <input
           type="number"
           min={0}
@@ -408,14 +419,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ indentLeft: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Indent Right */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Indent R</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Indent R</span>
         <input
           type="number"
           min={0}
@@ -426,14 +437,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ indentRight: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Indent First Line */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Indent 1st</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Indent 1st</span>
         <input
           type="number"
           min={-500}
@@ -444,14 +455,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ indentFirst: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Space Before */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Space ↑</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Space ↑</span>
         <input
           type="number"
           min={0}
@@ -462,14 +473,14 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ spaceBefore: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
 
       {/* Space After */}
       <div className="flex items-center gap-2">
-        <span className="w-14 text-[11px] text-slate-400">Space ↓</span>
+        <span className="w-14 text-[11px] text-muted-foreground">Space ↓</span>
         <input
           type="number"
           min={0}
@@ -480,9 +491,9 @@ export function CharacterPanel({
             const val = Number.parseFloat(e.target.value);
             if (!Number.isNaN(val)) applyStyle({ spaceAfter: val });
           }}
-          className="h-6 w-16 rounded border border-white/10 bg-slate-800 px-1 text-[11px] text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="h-6 w-16 rounded border border-border bg-panel-strong px-1 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <span className="text-[10px] text-slate-500">px</span>
+        <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
     </div>
   );

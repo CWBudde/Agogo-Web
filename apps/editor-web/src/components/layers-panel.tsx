@@ -495,11 +495,11 @@ export function LayersPanel({
   return (
     <div className="flex h-full min-h-0 flex-col gap-[var(--ui-gap-2)]">
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <div className="flex items-center gap-2 text-slate-300">
-          <span className="font-medium text-slate-100">Active</span>
-          <span className="truncate text-slate-400">{activeLayer?.name ?? "None"}</span>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span className="font-medium text-foreground">Active</span>
+          <span className="truncate text-muted-foreground">{activeLayer?.name ?? "None"}</span>
         </div>
-        <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/12 px-1.5 py-1 text-slate-400">
+        <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/12 px-1.5 py-1 text-muted-foreground">
           {selectedIds.length > 1 ? `${selectedIds.length} selected` : layerCount}
         </div>
       </div>
@@ -560,9 +560,9 @@ export function LayersPanel({
       </div>
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-[var(--ui-gap-2)]">
-        <ScrollArea className="min-h-0 rounded-[var(--ui-radius-md)] border border-white/8 bg-black/12">
+        <ScrollArea className="min-h-0 rounded-[var(--ui-radius-md)] border border-border bg-black/12">
           {layers.length === 0 ? (
-            <div className="px-3 py-4 text-[12px] text-slate-400">
+            <div className="px-3 py-4 text-[12px] text-muted-foreground">
               No layers yet. Create a layer or group to start the stack.
             </div>
           ) : (
@@ -630,13 +630,13 @@ export function LayersPanel({
           )}
         </ScrollArea>
 
-        <div className="rounded-[var(--ui-radius-md)] border border-white/8 bg-black/12 p-[var(--ui-gap-2)]">
+        <div className="rounded-[var(--ui-radius-md)] border border-border bg-black/12 p-[var(--ui-gap-2)]">
           <div className="grid gap-[var(--ui-gap-2)]">
             <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-              <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
                 Blend
                 <select
-                  className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-2 text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-border bg-panel-soft px-2 text-[12px] text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!activeLayer}
                   value={activeLayer?.blendMode ?? "normal"}
                   onChange={(event) => {
@@ -660,7 +660,7 @@ export function LayersPanel({
                   ))}
                 </select>
               </label>
-              <div className="text-right text-[11px] text-slate-400">
+              <div className="text-right text-[11px] text-muted-foreground">
                 {activeLayer ? describeLayer(activeLayer) : "No selection"}
               </div>
             </div>
@@ -854,6 +854,7 @@ function ToolbarAction({
       size="sm"
       className="min-w-0 px-0 text-[11px]"
       title={title}
+      aria-label={title}
       disabled={disabled}
       onClick={onClick}
     >
@@ -969,20 +970,20 @@ function LayerTreeRow({
         <div
           className={[
             "h-[2px] rounded-full transition",
-            dropState === "before" ? "bg-cyan-300/90" : "bg-transparent",
+            dropState === "before" ? "bg-accent/90" : "bg-transparent",
           ].join(" ")}
         />
 
         <div
           className={[
             "rounded-[var(--ui-radius-md)] border transition",
-            isDragging ? "border-white/5 bg-white/[0.02] opacity-50" : "",
+            isDragging ? "border-border/40 bg-muted/20 opacity-50" : "",
             isEditingMask
               ? "border-orange-400/60 bg-orange-400/8"
               : isSelected || isActive
-                ? "border-cyan-400/35 bg-cyan-400/10"
-                : "border-white/8 bg-white/[0.02] hover:border-white/12 hover:bg-white/[0.04]",
-            dropState === "inside" ? "border-cyan-300/60 bg-cyan-300/10" : "",
+                ? "border-accent/35 bg-accent/10"
+                : "border-border/60 bg-muted/20 hover:border-border hover:bg-muted/30",
+            dropState === "inside" ? "border-accent/60 bg-accent/10" : "",
           ].join(" ")}
           role="treeitem"
           tabIndex={0}
@@ -1017,7 +1018,7 @@ function LayerTreeRow({
               {isGroup ? (
                 <button
                   type="button"
-                  className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] text-slate-400 transition hover:bg-white/6 hover:text-slate-100 focus-visible:outline-none"
+                  className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] text-muted-foreground transition hover:bg-muted/50 hover:text-foreground focus-visible:outline-none"
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleGroup(layer.id);
@@ -1033,14 +1034,15 @@ function LayerTreeRow({
                 className={[
                   "flex h-5 min-w-5 items-center justify-center rounded-[var(--ui-radius-sm)] px-1 text-[10px] transition focus-visible:outline-none",
                   layer.visible
-                    ? "bg-emerald-400/12 text-emerald-100"
-                    : "bg-black/20 text-slate-500",
+                    ? "bg-success/12 text-success"
+                    : "bg-black/20 text-muted-foreground/70",
                 ].join(" ")}
                 onClick={(event) => {
                   event.stopPropagation();
                   onToggleVisibility(layer.id, !layer.visible);
                 }}
                 title={layer.visible ? "Hide layer" : "Show layer"}
+                aria-label={layer.visible ? "Hide layer" : "Show layer"}
               >
                 {layer.visible ? "O" : "-"}
               </button>
@@ -1065,7 +1067,7 @@ function LayerTreeRow({
               <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)]">
                 {isEditing ? (
                   <input
-                    className="h-6 w-full rounded-[var(--ui-radius-sm)] border border-cyan-400/30 bg-black/25 px-1.5 text-[12px] text-slate-100 outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/30"
+                    className="h-6 w-full rounded-[var(--ui-radius-sm)] border border-accent/30 bg-black/25 px-1.5 text-[12px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
                     value={editingName}
                     onBlur={onCommitRename}
                     onChange={(event) => onEditingNameChange(event.target.value)}
@@ -1090,7 +1092,7 @@ function LayerTreeRow({
                       onStartRename(layer);
                     }}
                   >
-                    <span className="block truncate text-[12px] font-medium text-slate-100">
+                    <span className="block truncate text-[12px] font-medium text-foreground">
                       {layer.name}
                     </span>
                   </button>
@@ -1101,7 +1103,7 @@ function LayerTreeRow({
                 {layer.hasMask ? <MiniBadge label="mask" tone="fuchsia" /> : null}
                 {layer.hasVectorMask ? <MiniBadge label="vmask" tone="emerald" /> : null}
               </div>
-              <div className="mt-[2px] flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+              <div className="mt-[2px] flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
                 <span>{formatBlendMode(layer.blendMode)}</span>
                 <span>{Math.round(layer.opacity * 100)}%</span>
                 {isGroup ? <span>{layer.isolated ? "Isolated" : "Pass-through"}</span> : null}
@@ -1111,24 +1113,26 @@ function LayerTreeRow({
             <div className="flex items-center gap-[var(--ui-gap-1)]">
               <button
                 type="button"
-                className="flex h-5 min-w-6 items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 focus-visible:outline-none"
+                className="flex h-5 min-w-6 items-center justify-center rounded-[var(--ui-radius-sm)] border border-border bg-black/18 px-1 text-[10px] text-muted-foreground transition hover:bg-black/30 focus-visible:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onCycleLock(layer.id, layer.lockMode);
                 }}
                 title="Cycle lock mode"
+                aria-label="Cycle lock mode"
               >
                 {shortLockLabel(layer.lockMode)}
               </button>
               <button
                 type="button"
-                className="flex h-5 min-w-6 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/18 px-1 text-[10px] text-slate-300 transition hover:bg-black/30 active:cursor-grabbing focus-visible:outline-none"
+                className="flex h-5 min-w-6 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border border-border bg-black/18 px-1 text-[10px] text-muted-foreground transition hover:bg-black/30 active:cursor-grabbing focus-visible:outline-none"
                 onClick={(event) => event.stopPropagation()}
                 onDoubleClick={(event) => {
                   event.stopPropagation();
                   onDuplicate(layer.id);
                 }}
                 title="Drag to reorder, double-click to duplicate"
+                aria-label="Drag to reorder, double-click to duplicate"
               >
                 ::
               </button>
@@ -1139,7 +1143,7 @@ function LayerTreeRow({
         <div
           className={[
             "h-[2px] rounded-full transition",
-            dropState === "after" ? "bg-cyan-300/90" : "bg-transparent",
+            dropState === "after" ? "bg-accent/90" : "bg-transparent",
           ].join(" ")}
         />
       </div>
@@ -1300,7 +1304,7 @@ function LayerThumbnail({
     >
       <div
         className={[
-          "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-200",
+          "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border border-border text-[9px] font-semibold uppercase tracking-[0.16em] text-foreground",
           layer.hasMask && !layer.maskEnabled ? "opacity-60" : "",
         ].join(" ")}
         title={`${layer.layerType} layer${layer.hasMask ? (layer.maskEnabled ? ", mask enabled" : ", mask disabled") : ""}`}
@@ -1317,7 +1321,7 @@ function LayerThumbnail({
               className={`absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] bg-gradient-to-br ${toneClass}`}
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_60%)]" />
-            <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-slate-100">
+            <span className="relative z-10 text-[8px] uppercase tracking-[0.18em] text-foreground">
               {layer.isArtboard
                 ? "ab"
                 : layer.layerType === "group"
@@ -1347,11 +1351,12 @@ function LayerThumbnail({
         <button
           type="button"
           title={isEditingMask ? "Exit mask edit mode" : "Edit mask"}
+          aria-label={isEditingMask ? "Exit mask edit mode" : "Edit mask"}
           className={[
             "relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border transition focus-visible:outline-none",
             isEditingMask
               ? "border-orange-400/60 bg-orange-400/8"
-              : "border-white/8 bg-black/18 hover:border-fuchsia-400/40",
+              : "border-border bg-black/18 hover:border-fuchsia-400/40",
           ].join(" ")}
           onClick={(event) => {
             event.stopPropagation();
@@ -1365,7 +1370,7 @@ function LayerThumbnail({
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : (
-            <span className="text-[8px] uppercase tracking-[0.18em] text-slate-400">m</span>
+            <span className="text-[8px] uppercase tracking-[0.18em] text-muted-foreground">m</span>
           )}
           {isEditingMask ? (
             <span className="absolute inset-0 rounded-[var(--ui-radius-sm)] ring-1 ring-orange-400/60" />
@@ -1518,10 +1523,10 @@ function MenuAction({
       className={[
         "flex w-full items-center rounded-[var(--ui-radius-sm)] px-2.5 py-1.5 text-left text-[12px] transition focus-visible:outline-none",
         disabled
-          ? "cursor-not-allowed text-slate-600"
+          ? "cursor-not-allowed text-muted-foreground/60"
           : destructive
             ? "text-rose-200 hover:bg-rose-500/12"
-            : "text-slate-100 hover:bg-white/6",
+            : "text-foreground hover:bg-muted/50",
       ].join(" ")}
       disabled={disabled}
       onClick={() => {
@@ -1537,7 +1542,7 @@ function MenuAction({
 }
 
 function MenuSeparator() {
-  return <div className="my-1 h-px bg-white/8" />;
+  return <div className="my-1 h-px bg-border" />;
 }
 
 function RangeField({
@@ -1563,13 +1568,13 @@ function RangeField({
   };
   return (
     <label className="block">
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
         <span>{label}</span>
-        <span className="text-slate-300">{value}</span>
+        <span className="text-muted-foreground">{value}</span>
       </div>
       <div className="grid grid-cols-[1fr_44px] items-center gap-[var(--ui-gap-2)]">
         <input
-          className="h-2 w-full accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
+          className="h-2 w-full accent-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
           type="range"
           min="0"
           max="100"
@@ -1579,7 +1584,7 @@ function RangeField({
           {...commitProps}
         />
         <input
-          className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-white/8 bg-panel-soft px-1.5 text-right text-[12px] text-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
+          className="h-[var(--ui-h-sm)] rounded-[var(--ui-radius-md)] border border-border bg-panel-soft px-1.5 text-right text-[12px] text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none"
           type="number"
           min="0"
           max="100"
@@ -1753,13 +1758,13 @@ export function LayerPropertiesDialog({
       }}
     >
       <div className="editor-popup w-72 rounded-[var(--ui-radius-md)] p-4">
-        <h2 className="mb-3 text-[13px] font-semibold text-slate-100">Layer Properties</h2>
+        <h2 className="mb-3 text-[13px] font-semibold text-foreground">Layer Properties</h2>
 
         <div className="mb-3">
-          <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          <label className="block text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
             Name
             <input
-              className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-white/8 bg-black/25 px-2 text-[12px] text-slate-100 outline-none focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
+              className="mt-1 h-[var(--ui-h-sm)] w-full rounded-[var(--ui-radius-md)] border border-border bg-black/25 px-2 text-[12px] text-foreground outline-none focus:border-accent/40 focus-visible:ring-1 focus-visible:ring-ring/30"
               value={name}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
@@ -1777,7 +1782,7 @@ export function LayerPropertiesDialog({
         </div>
 
         <div className="mb-4">
-          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
             Color Label
           </div>
           <div className="flex gap-1.5">
@@ -1786,19 +1791,20 @@ export function LayerPropertiesDialog({
                 key={tag.id}
                 type="button"
                 title={tag.label}
+                aria-label={tag.label}
                 className={[
                   "h-5 w-5 rounded-full border-2 transition hover:scale-110",
                   tag.id === "none"
-                    ? "border-white/20 bg-transparent hover:border-white/40"
+                    ? "border-border bg-transparent hover:border-muted-foreground"
                     : `${tag.bg} ${tag.border}`,
                   colorTag === tag.id
-                    ? "ring-2 ring-cyan-400/60 ring-offset-1 ring-offset-[#1d2026]"
+                    ? "ring-2 ring-ring/60 ring-offset-1 ring-offset-panel-soft"
                     : "",
                 ].join(" ")}
                 onClick={() => onColorTag(tag.id)}
               >
                 {tag.id === "none" ? (
-                  <span className="flex h-full w-full items-center justify-center text-[8px] text-slate-400">
+                  <span className="flex h-full w-full items-center justify-center text-[8px] text-muted-foreground">
                     ×
                   </span>
                 ) : null}

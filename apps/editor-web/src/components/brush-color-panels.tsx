@@ -231,18 +231,18 @@ export function BrushPresetPicker({
       <Button
         variant="ghost"
         size="sm"
-        className="h-7 border border-white/10 bg-black/20 px-2 text-[11px] text-slate-200 hover:bg-white/6"
+        className="h-7 border border-border bg-black/20 px-2 text-[11px] text-foreground hover:bg-muted/50"
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="mr-2 text-slate-500">Preset</span>
+        <span className="mr-2 text-muted-foreground/70">Preset</span>
         {selectedPreset.name}
       </Button>
 
       {open ? (
         <div className="editor-popup absolute left-0 top-[calc(100%+6px)] z-50 w-[22rem] rounded-[var(--ui-radius-md)] p-3">
-          <div className="flex items-center gap-2 border-b border-white/8 pb-2">
+          <div className="flex items-center gap-2 border-b border-border pb-2">
             <input
-              className="h-8 flex-1 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/25 px-2 text-[12px] text-slate-100 outline-none"
+              className="h-8 flex-1 rounded-[var(--ui-radius-sm)] border border-border bg-black/25 px-2 text-[12px] text-foreground outline-none"
               value={query}
               placeholder="Search brush presets"
               onChange={(event) => setQuery(event.target.value)}
@@ -250,7 +250,7 @@ export function BrushPresetPicker({
             {onImportPresets ? (
               <button
                 type="button"
-                className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/6"
+                className="rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/50"
                 onClick={onImportPresets}
               >
                 Import
@@ -258,7 +258,7 @@ export function BrushPresetPicker({
             ) : null}
             <button
               type="button"
-              className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/6"
+              className="rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/50"
               onClick={() => setQuery("")}
             >
               Clear
@@ -288,11 +288,13 @@ export function BrushPresetPicker({
               />
             ) : null}
             {filteredPresets.length === 0 ? (
-              <p className="py-8 text-center text-[12px] text-slate-500">
+              <p className="py-8 text-center text-[12px] text-muted-foreground/70">
                 No presets match that search.
               </p>
             ) : null}
-            {importStatus ? <p className="text-[11px] text-slate-500">{importStatus}</p> : null}
+            {importStatus ? (
+              <p className="text-[11px] text-muted-foreground/70">{importStatus}</p>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -341,8 +343,10 @@ export function BrushSettingsPanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{title}</p>
-          <p className="text-[12px] text-slate-200">{subtitle ?? currentPreset.name}</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+            {title}
+          </p>
+          <p className="text-[12px] text-foreground">{subtitle ?? currentPreset.name}</p>
         </div>
         {hidePresetPicker ? null : (
           <BrushPresetPicker
@@ -364,13 +368,13 @@ export function BrushSettingsPanel({
             className={[
               "rounded-[var(--ui-radius-sm)] border p-2 text-left transition focus-visible:outline-none",
               tipShape === shape
-                ? "border-cyan-400/35 bg-cyan-400/12"
-                : "border-white/8 bg-black/16 hover:border-white/16 hover:bg-white/5",
+                ? "border-accent/35 bg-accent/12"
+                : "border-border/60 bg-black/16 hover:border-border hover:bg-muted/40",
             ].join(" ")}
             onClick={() => onTipShapeChange(shape)}
           >
             <BrushTipPreview shape={shape} />
-            <div className="mt-2 text-[12px] text-slate-100">
+            <div className="mt-2 text-[12px] text-foreground">
               {shape.charAt(0).toUpperCase() + shape.slice(1)}
             </div>
           </button>
@@ -430,14 +434,16 @@ export function BrushSettingsPanel({
         />
       </div>
 
-      <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+      <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/16 p-3">
         <div className="mb-2 flex items-center justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Dynamics</p>
-            <p className="text-[12px] text-slate-300">Phase 4.1b controls</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+              Dynamics
+            </p>
+            <p className="text-[12px] text-muted-foreground">Phase 4.1b controls</p>
           </div>
           <select
-            className="h-7 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-[12px] text-slate-100 outline-none"
+            className="h-7 rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-2 text-[12px] text-foreground outline-none"
             value={controlSource}
             onChange={(event) => onControlSourceChange(event.target.value as BrushControlSource)}
           >
@@ -518,7 +524,13 @@ export function ColorPickerDialog({
   onRecentColorSelect: (color: Rgba) => void;
 }) {
   return (
-    <Dialog open={open} title={title} description={description} className="max-w-3xl">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={title}
+      description={description}
+      className="max-w-3xl"
+    >
       <ColorEditor
         color={color}
         onChange={onChange}
@@ -595,8 +607,10 @@ export function SwatchesPanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Swatches</p>
-          <p className="text-[12px] text-slate-300">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+            Swatches
+          </p>
+          <p className="text-[12px] text-muted-foreground">
             {setName ? `${setName} · ` : ""}Click to set foreground. Alt+click sets background.
           </p>
         </div>
@@ -626,7 +640,9 @@ export function SwatchesPanel({
           </Button>
         </div>
       </div>
-      {statusMessage ? <p className="text-[11px] text-slate-500">{statusMessage}</p> : null}
+      {statusMessage ? (
+        <p className="text-[11px] text-muted-foreground/70">{statusMessage}</p>
+      ) : null}
 
       <div className="grid grid-cols-6 gap-2">
         {swatches.map((swatch, index) => {
@@ -637,10 +653,11 @@ export function SwatchesPanel({
                 type="button"
                 className={[
                   "relative h-10 w-full rounded-[var(--ui-radius-sm)] border transition focus-visible:outline-none",
-                  selected ? "border-cyan-400/40" : "border-white/10 hover:border-white/20",
+                  selected ? "border-accent/40" : "border-border/60 hover:border-border",
                 ].join(" ")}
                 style={{ backgroundColor: rgbaToCss(swatch) }}
                 title="Click to set foreground. Alt+click for background."
+                aria-label={`Swatch ${rgbaToHex(swatch)}`}
                 onClick={(event) => {
                   if (event.altKey) {
                     onPickBackground(swatch);
@@ -665,7 +682,7 @@ export function SwatchesPanel({
           );
         })}
         {swatches.length === 0 ? (
-          <p className="col-span-6 py-8 text-center text-[12px] text-slate-500">
+          <p className="col-span-6 py-8 text-center text-[12px] text-muted-foreground/70">
             No swatches loaded yet.
           </p>
         ) : null}
@@ -687,7 +704,7 @@ function BrushPresetSection({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</p>
       <div className="grid grid-cols-2 gap-2">
         {presets.map((preset) => {
           const active = preset.id === selectedPresetId;
@@ -698,14 +715,14 @@ function BrushPresetSection({
               className={[
                 "rounded-[var(--ui-radius-sm)] border p-2 text-left transition focus-visible:outline-none",
                 active
-                  ? "border-cyan-400/35 bg-cyan-400/12"
-                  : "border-white/8 bg-black/16 hover:border-white/16 hover:bg-white/5",
+                  ? "border-accent/35 bg-accent/12"
+                  : "border-border/60 bg-black/16 hover:border-border hover:bg-muted/40",
               ].join(" ")}
               onClick={() => onSelectPreset(preset)}
             >
               <BrushTipPreview shape={preset.tipShape} />
-              <div className="mt-2 text-[12px] text-slate-100">{preset.name}</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">
+              <div className="mt-2 text-[12px] text-foreground">{preset.name}</div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground/70">
                 {formatPercent(preset.spacing)} spacing · {Math.round(preset.hardness * 100)}% hard
               </div>
             </button>
@@ -769,11 +786,13 @@ function ColorEditor({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="space-y-3">
-        <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+        <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/16 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Active Color</p>
-              <p className="text-[12px] text-slate-300">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+                Active Color
+              </p>
+              <p className="text-[12px] text-muted-foreground">
                 {isWebSafeColor(color) ? "Web-safe" : "Full gamut"}
               </p>
             </div>
@@ -781,21 +800,22 @@ function ColorEditor({
               <button
                 type="button"
                 className={[
-                  "h-10 w-10 rounded-[var(--ui-radius-sm)] border border-white/10",
-                  onlyWebColors ? "ring-1 ring-cyan-400/30" : "",
+                  "h-10 w-10 rounded-[var(--ui-radius-sm)] border border-border",
+                  onlyWebColors ? "ring-1 ring-ring/30" : "",
                 ].join(" ")}
                 style={{ backgroundColor: rgbaToCss(color) }}
                 title="Current color"
+                aria-label="Current color"
               />
-              <div className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-3 py-2 text-[12px] text-slate-300">
+              <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-3 py-2 text-[12px] text-muted-foreground">
                 <div>{hexValue}</div>
-                <div className="text-slate-500">RGB {color.slice(0, 3).join(", ")}</div>
+                <div className="text-muted-foreground/70">RGB {color.slice(0, 3).join(", ")}</div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="space-y-2 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
+        <div className="space-y-2 rounded-[var(--ui-radius-sm)] border border-border bg-black/16 p-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <button
@@ -803,8 +823,8 @@ function ColorEditor({
                 className={[
                   "rounded-[var(--ui-radius-sm)] border px-2 py-1 text-[11px] transition",
                   channelMode === "rgb"
-                    ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
-                    : "border-white/8 text-slate-400 hover:bg-white/5",
+                    ? "border-accent/35 bg-accent/12 text-foreground"
+                    : "border-border text-muted-foreground hover:bg-muted/40",
                 ].join(" ")}
                 onClick={() => onChannelModeChange("rgb")}
               >
@@ -815,15 +835,15 @@ function ColorEditor({
                 className={[
                   "rounded-[var(--ui-radius-sm)] border px-2 py-1 text-[11px] transition",
                   channelMode === "hsv"
-                    ? "border-cyan-400/35 bg-cyan-400/12 text-slate-100"
-                    : "border-white/8 text-slate-400 hover:bg-white/5",
+                    ? "border-accent/35 bg-accent/12 text-foreground"
+                    : "border-border text-muted-foreground hover:bg-muted/40",
                 ].join(" ")}
                 onClick={() => onChannelModeChange("hsv")}
               >
                 HSB
               </button>
             </div>
-            <label className="flex items-center gap-2 text-[11px] text-slate-400">
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={onlyWebColors}
@@ -833,10 +853,10 @@ function ColorEditor({
             </label>
           </div>
 
-          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/25 p-2">
+          <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/25 p-2">
             <div
               ref={boxRef}
-              className="relative aspect-[16/11] overflow-hidden rounded-[var(--ui-radius-sm)] border border-white/8"
+              className="relative aspect-[16/11] overflow-hidden rounded-[var(--ui-radius-sm)] border border-border"
               style={{
                 backgroundColor: `hsl(${Math.round(hsv[0])} 100% 50%)`,
                 touchAction: "none",
@@ -932,9 +952,11 @@ function ColorEditor({
 
           <div className="grid gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Hex</span>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+                Hex
+              </span>
               <input
-                className="h-8 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-[12px] text-slate-100 outline-none"
+                className="h-8 rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-2 text-[12px] text-foreground outline-none"
                 value={hexValue}
                 onChange={(event) => {
                   const parsed = hexToRgba(event.target.value);
@@ -945,9 +967,11 @@ function ColorEditor({
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Alpha</span>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+                Alpha
+              </span>
               <input
-                className="h-8 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-[12px] text-slate-100 outline-none"
+                className="h-8 rounded-[var(--ui-radius-sm)] border border-border bg-black/20 px-2 text-[12px] text-foreground outline-none"
                 type="number"
                 min={0}
                 max={255}
@@ -967,47 +991,53 @@ function ColorEditor({
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Recent Colors</p>
+        <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/16 p-3">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+            Recent Colors
+          </p>
           <div className="mt-2 grid grid-cols-5 gap-2">
             {recentColors.length > 0 ? (
               recentColors.map((recent) => (
                 <button
                   key={recent.join("-")}
                   type="button"
-                  className="h-10 rounded-[var(--ui-radius-sm)] border border-white/10"
+                  className="h-10 rounded-[var(--ui-radius-sm)] border border-border"
                   style={{ backgroundColor: rgbaToCss(recent) }}
                   onClick={() => onRecentColorSelect(recent)}
                   title={rgbaToHex(recent)}
+                  aria-label={`Recent color ${rgbaToHex(recent)}`}
                 />
               ))
             ) : (
-              <p className="col-span-5 py-4 text-center text-[12px] text-slate-500">
+              <p className="col-span-5 py-4 text-center text-[12px] text-muted-foreground/70">
                 No recent colors yet.
               </p>
             )}
           </div>
         </div>
 
-        <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/16 p-3">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Web Palette</p>
+        <div className="rounded-[var(--ui-radius-sm)] border border-border bg-black/16 p-3">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
+            Web Palette
+          </p>
           <div className="mt-2 grid grid-cols-6 gap-2">
             {WEB_SAFE_SWATCHES.map((swatch) => (
               <button
                 key={rgbaToHex(swatch)}
                 type="button"
-                className="h-8 rounded-[var(--ui-radius-sm)] border border-white/10"
+                className="h-8 rounded-[var(--ui-radius-sm)] border border-border"
                 style={{ backgroundColor: rgbaToCss(swatch) }}
                 title={rgbaToHex(swatch)}
+                aria-label={`Web color ${rgbaToHex(swatch)}`}
                 onClick={() => handleChange(swatch)}
               />
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground/70">
             <span
               className={[
                 "h-2.5 w-2.5 rounded-full",
-                isWebSafeColor(color) ? "bg-emerald-400" : "bg-amber-400",
+                isWebSafeColor(color) ? "bg-success" : "bg-warning",
               ].join(" ")}
             />
             <span>
@@ -1039,14 +1069,14 @@ function RangeControl({
 }) {
   return (
     <label className="block">
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
+      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
         <span>{label}</span>
-        <span className="text-slate-300">
+        <span className="text-muted-foreground">
           {Number.isInteger(value) ? Math.round(value) : value.toFixed(2)}
         </span>
       </div>
       <input
-        className="h-2 w-full accent-cyan-400 focus-visible:outline-none"
+        className="h-2 w-full accent-accent focus-visible:outline-none"
         type="range"
         min={min}
         max={max}
@@ -1090,13 +1120,13 @@ function BrushTipPreview({
   return (
     <div
       className={[
-        "flex items-center justify-center rounded-[var(--ui-radius-sm)] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]",
+        "flex items-center justify-center rounded-[var(--ui-radius-sm)] border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))]",
         className ?? "h-16",
       ].join(" ")}
     >
       <div
         className={[
-          "relative flex items-center justify-center overflow-hidden border border-white/10 bg-cyan-400/20",
+          "relative flex items-center justify-center overflow-hidden border border-border bg-accent/20",
           shape === "line" ? "w-10 h-4" : "w-10 h-10",
           tipClassName,
         ].join(" ")}
@@ -1110,7 +1140,7 @@ function BrushTipPreview({
               : undefined,
         }}
       >
-        {shape === "star" ? <div className="h-6 w-6 rotate-45 bg-cyan-200/80" /> : null}
+        {shape === "star" ? <div className="h-6 w-6 rotate-45 bg-accent/80" /> : null}
       </div>
     </div>
   );

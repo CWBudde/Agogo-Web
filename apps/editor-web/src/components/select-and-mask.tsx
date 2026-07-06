@@ -205,7 +205,7 @@ function SliderField({
       <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
       <input
         type="range"
-        className="w-full accent-cyan-400"
+        className="w-full accent-accent"
         min={min}
         max={max}
         step={step}

@@ -134,7 +134,7 @@ function LayerStyleSection({
           <input
             aria-label={formatLayerStyleLabel(entry.kind)}
             type="checkbox"
-            className="accent-cyan-400"
+            className="accent-accent"
             checked={entry.enabled}
             onChange={(event) => onEnabledChange(entry.kind, event.target.checked)}
           />
@@ -732,7 +732,7 @@ function RangeField({
       </div>
       <input
         aria-label={label}
-        className="h-1.5 w-full accent-cyan-400 focus-visible:outline-none"
+        className="h-1.5 w-full accent-accent focus-visible:outline-none"
         type="range"
         min={min}
         max={max}
@@ -798,7 +798,7 @@ function CheckboxField({
       <input
         aria-label={label}
         type="checkbox"
-        className="accent-cyan-400"
+        className="accent-accent"
         checked={checked}
         onChange={(event) => onParamsChange(kind, { [param]: event.target.checked })}
       />
@@ -1038,7 +1038,7 @@ function BlendIfSection({
             <input
               aria-label="Channel R"
               type="checkbox"
-              className="accent-cyan-400"
+              className="accent-accent"
               checked={blendIf.channels.r}
               onChange={(event) => toggleChannel("r", event.target.checked)}
             />
@@ -1048,7 +1048,7 @@ function BlendIfSection({
             <input
               aria-label="Channel G"
               type="checkbox"
-              className="accent-cyan-400"
+              className="accent-accent"
               checked={blendIf.channels.g}
               onChange={(event) => toggleChannel("g", event.target.checked)}
             />
@@ -1058,7 +1058,7 @@ function BlendIfSection({
             <input
               aria-label="Channel B"
               type="checkbox"
-              className="accent-cyan-400"
+              className="accent-accent"
               checked={blendIf.channels.b}
               onChange={(event) => toggleChannel("b", event.target.checked)}
             />

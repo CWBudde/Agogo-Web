@@ -29,7 +29,7 @@ export function WelcomeScreen({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className="flex w-[480px] flex-col items-center gap-6 rounded-xl border border-white/8 bg-[#1a1d22] p-10 shadow-2xl">
+      <div className="flex w-[480px] flex-col items-center gap-6 rounded-xl border border-border bg-panel-soft p-10 shadow-2xl">
         {/* Logo */}
         <div className="flex flex-col items-center gap-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-400/95 text-xl font-black text-slate-950">
@@ -38,19 +38,19 @@ export function WelcomeScreen({
           <span className="font-serif text-lg font-semibold italic tracking-wide text-white">
             Agogo Studio
           </span>
-          <p className="text-sm text-slate-400">Your creative workspace</p>
+          <p className="text-sm text-muted-foreground">Your creative workspace</p>
         </div>
 
         {/* Drop zone */}
         <div
           className={[
             "flex w-full flex-col items-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors",
-            isDragOver ? "border-cyan-400 bg-cyan-400/5" : "border-white/12 bg-white/2",
+            isDragOver ? "border-accent bg-accent/5" : "border-border bg-muted/20",
           ].join(" ")}
         >
-          <UploadIcon className="h-8 w-8 text-slate-500" />
-          <p className="text-sm text-slate-400">Drop an image or project file</p>
-          <p className="text-xs text-slate-600">PNG, JPEG, GIF, WebP, BMP, .agp</p>
+          <UploadIcon className="h-8 w-8 text-muted-foreground/70" />
+          <p className="text-sm text-muted-foreground">Drop an image or project file</p>
+          <p className="text-xs text-muted-foreground/60">PNG, JPEG, GIF, WebP, BMP, .agp</p>
         </div>
 
         {/* Action buttons */}
@@ -58,14 +58,14 @@ export function WelcomeScreen({
           <button
             type="button"
             onClick={onNew}
-            className="w-full rounded-md bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             New Document
           </button>
           <button
             type="button"
             onClick={onOpen}
-            className="w-full rounded-md border border-white/12 bg-white/4 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="w-full rounded-md border border-border bg-muted/40 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Open File…
           </button>
@@ -73,7 +73,7 @@ export function WelcomeScreen({
             <button
               type="button"
               onClick={onResume}
-              className="w-full rounded-md px-4 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+              className="w-full rounded-md px-4 py-2 text-sm font-medium text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Resume last session
             </button>
