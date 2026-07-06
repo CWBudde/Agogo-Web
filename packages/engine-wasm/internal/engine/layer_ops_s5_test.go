@@ -172,7 +172,7 @@ func TestLayerStyleOverlayDissolveSeedUsesDocCoordinates(t *testing.T) {
 			Color:     [4]uint8{255, 255, 255, 255},
 			Opacity:   0.5,
 		},
-	})
+	}, styleRenderContext{})
 
 	dissolved, kept := 0, 0
 	for y := 0; y < docH; y++ {

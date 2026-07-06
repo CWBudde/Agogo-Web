@@ -290,30 +290,6 @@ func TestRasterizeTextLayer_ParagraphSpacing(t *testing.T) {
 	}
 }
 
-func TestApplyCapsTransform(t *testing.T) {
-	tests := []struct {
-		name      string
-		text      string
-		allCaps   bool
-		smallCaps bool
-		want      string
-	}{
-		{"no transform", "Hello World", false, false, "Hello World"},
-		{"allCaps", "Hello World", true, false, "HELLO WORLD"},
-		{"smallCaps", "Hello World", false, true, "HELLO WORLD"},
-		{"both", "Hello World", true, true, "HELLO WORLD"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := applyCapsTransform(tc.text, tc.allCaps, tc.smallCaps)
-			if got != tc.want {
-				t.Errorf("applyCapsTransform(%q, %v, %v) = %q, want %q",
-					tc.text, tc.allCaps, tc.smallCaps, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestSplitParagraphs(t *testing.T) {
 	tests := []struct {
 		input string

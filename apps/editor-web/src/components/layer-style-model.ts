@@ -64,9 +64,13 @@ export function defaultLayerStyleParams(kind: LayerStyleKind): Record<string, un
     case "color-overlay":
       return { blendMode: "normal", color: [0, 0, 0, 255], opacity: 1 };
     case "gradient-overlay":
-      return { blendMode: "normal", opacity: 1, angle: 90, scale: 1, align: true };
+      // stops stays empty by default: the engine renders the legacy
+      // blue-to-orange ramp for empty stops, keeping old documents and
+      // freshly created styles byte-identical. Users add stops explicitly.
+      return { blendMode: "normal", opacity: 1, angle: 90, scale: 1, align: true, stops: [] };
     case "pattern-overlay":
-      return { blendMode: "normal", opacity: 1, scale: 1, link: true };
+      // Empty patternId keeps the legacy procedural checker.
+      return { blendMode: "normal", opacity: 1, scale: 1, link: true, patternId: "" };
     case "stroke":
       return {
         size: 1,
@@ -75,6 +79,9 @@ export function defaultLayerStyleParams(kind: LayerStyleKind): Record<string, un
         opacity: 1,
         color: [0, 0, 0, 255],
         fillType: "color",
+        gradientAngle: 90,
+        stops: [],
+        patternId: "",
       };
     default:
       return {};

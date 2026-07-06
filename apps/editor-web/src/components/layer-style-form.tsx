@@ -23,14 +23,47 @@ const blendModeOptions = [
   { value: "overlay", label: "Overlay" },
 ];
 
+const contourOptions = [
+  { value: "linear", label: "Linear" },
+  { value: "gaussian", label: "Gaussian" },
+  { value: "cone", label: "Cone" },
+  { value: "rolling-slope", label: "Rolling Slope" },
+  { value: "rounded-steps", label: "Rounded Steps" },
+];
+
+// Satin's engine-side contour enum has no rounded-steps variant.
+const satinContourOptions = contourOptions.filter((option) => option.value !== "rounded-steps");
+
+export interface LayerStylePatternOption {
+  id: string;
+  name: string;
+}
+
+export interface GradientStopParam {
+  position: number;
+  color: [number, number, number, number];
+}
+
+// Fallback when the caller does not supply the UIMeta pattern list: the four
+// builtin tiles registered by the engine's pattern registry.
+const builtinPatternOptions: LayerStylePatternOption[] = [
+  { id: "builtin/checker", name: "Checker" },
+  { id: "builtin/stripes", name: "Diagonal Stripes" },
+  { id: "builtin/dots", name: "Dots" },
+  { id: "builtin/noise", name: "Noise" },
+];
+
 export function LayerStyleForm({
   layer,
   styles,
+  patterns,
   onEnabledChange,
   onParamsChange,
 }: {
   layer: LayerNodeMeta | null;
   styles: LayerStyleEntryCommand[] | undefined;
+  /** Pattern list from uiMeta.patterns; falls back to the builtin tiles. */
+  patterns?: LayerStylePatternOption[];
   onEnabledChange: (kind: LayerStyleKind, enabled: boolean) => void;
   onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void;
 }) {
@@ -70,6 +103,7 @@ export function LayerStyleForm({
           <LayerStyleSection
             key={entry.kind}
             entry={entry}
+            patterns={patterns?.length ? patterns : builtinPatternOptions}
             onEnabledChange={onEnabledChange}
             onParamsChange={updateParams}
           />
@@ -81,10 +115,12 @@ export function LayerStyleForm({
 
 function LayerStyleSection({
   entry,
+  patterns,
   onEnabledChange,
   onParamsChange,
 }: {
   entry: LayerStyleEntryCommand;
+  patterns: LayerStylePatternOption[];
   onEnabledChange: (kind: LayerStyleKind, enabled: boolean) => void;
   onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void;
 }) {
@@ -107,7 +143,7 @@ function LayerStyleSection({
       </div>
       {entry.enabled ? (
         <div className="mt-3 space-y-2">
-          {renderEffectEditor(entry.kind, entry.params ?? {}, onParamsChange)}
+          {renderEffectEditor(entry.kind, entry.params ?? {}, patterns, onParamsChange)}
         </div>
       ) : null}
     </section>
@@ -117,6 +153,7 @@ function LayerStyleSection({
 function renderEffectEditor(
   kind: LayerStyleKind,
   params: Record<string, unknown>,
+  patterns: LayerStylePatternOption[],
   onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void,
 ) {
   switch (kind) {
@@ -160,6 +197,23 @@ function renderEffectEditor(
             label="Size"
             param="size"
             value={numberParam(params.size, 0)}
+            onParamsChange={onParamsChange}
+          />
+          <RangeField
+            kind={kind}
+            label="Noise"
+            param="noise"
+            value={numberParam(params.noise, 0)}
+            min={0}
+            max={1}
+            step={0.01}
+            onParamsChange={onParamsChange}
+          />
+          <CheckboxField
+            kind={kind}
+            label="Layer Knocks Out Drop Shadow"
+            param="knockout"
+            checked={booleanParam(params.knockout, false)}
             onParamsChange={onParamsChange}
           />
         </>
@@ -206,6 +260,16 @@ function renderEffectEditor(
             value={numberParam(params.size, 0)}
             onParamsChange={onParamsChange}
           />
+          <RangeField
+            kind={kind}
+            label="Noise"
+            param="noise"
+            value={numberParam(params.noise, 0)}
+            min={0}
+            max={1}
+            step={0.01}
+            onParamsChange={onParamsChange}
+          />
         </>
       );
     case "outer-glow":
@@ -235,6 +299,16 @@ function renderEffectEditor(
             label="Size"
             param="size"
             value={numberParam(params.size, 0)}
+            onParamsChange={onParamsChange}
+          />
+          <RangeField
+            kind={kind}
+            label="Noise"
+            param="noise"
+            value={numberParam(params.noise, 0)}
+            min={0}
+            max={1}
+            step={0.01}
             onParamsChange={onParamsChange}
           />
         </>
@@ -314,6 +388,14 @@ function renderEffectEditor(
             value={numberParam(params.altitude, 30)}
             onParamsChange={onParamsChange}
           />
+          <SelectField
+            kind={kind}
+            label="Contour"
+            param="contour"
+            value={stringParam(params.contour, "linear")}
+            options={contourOptions}
+            onParamsChange={onParamsChange}
+          />
         </>
       );
     case "satin":
@@ -356,6 +438,14 @@ function renderEffectEditor(
             label="Invert"
             param="invert"
             checked={booleanParam(params.invert, false)}
+            onParamsChange={onParamsChange}
+          />
+          <SelectField
+            kind={kind}
+            label="Contour"
+            param="contour"
+            value={stringParam(params.contour, "gaussian")}
+            options={satinContourOptions}
             onParamsChange={onParamsChange}
           />
         </>
@@ -425,6 +515,12 @@ function renderEffectEditor(
             checked={booleanParam(params.align, true)}
             onParamsChange={onParamsChange}
           />
+          <GradientStopsField
+            kind={kind}
+            param="stops"
+            stops={gradientStopsParam(params.stops)}
+            onParamsChange={onParamsChange}
+          />
         </>
       );
     case "pattern-overlay":
@@ -453,6 +549,12 @@ function renderEffectEditor(
             label="Link With Layer"
             param="link"
             checked={booleanParam(params.link, true)}
+            onParamsChange={onParamsChange}
+          />
+          <PatternSelectField
+            kind={kind}
+            value={stringParam(params.patternId, "")}
+            patterns={patterns}
             onParamsChange={onParamsChange}
           />
         </>
@@ -502,6 +604,31 @@ function renderEffectEditor(
             ]}
             onParamsChange={onParamsChange}
           />
+          {stringParam(params.fillType, "color") === "gradient" ? (
+            <>
+              <NumberField
+                kind={kind}
+                label="Gradient Angle"
+                param="gradientAngle"
+                value={numberParam(params.gradientAngle, 90)}
+                onParamsChange={onParamsChange}
+              />
+              <GradientStopsField
+                kind={kind}
+                param="stops"
+                stops={gradientStopsParam(params.stops)}
+                onParamsChange={onParamsChange}
+              />
+            </>
+          ) : null}
+          {stringParam(params.fillType, "color") === "pattern" ? (
+            <PatternSelectField
+              kind={kind}
+              value={stringParam(params.patternId, "")}
+              patterns={patterns}
+              onParamsChange={onParamsChange}
+            />
+          ) : null}
         </>
       );
   }
@@ -663,6 +790,155 @@ function CheckboxField({
       {label}
     </label>
   );
+}
+
+function PatternSelectField({
+  kind,
+  value,
+  patterns,
+  onParamsChange,
+}: {
+  kind: LayerStyleKind;
+  value: string;
+  patterns: LayerStylePatternOption[];
+  onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void;
+}) {
+  return (
+    <SelectField
+      kind={kind}
+      label="Pattern"
+      param="patternId"
+      value={value}
+      options={[
+        { value: "", label: "Default Checker" },
+        ...patterns.map((pattern) => ({ value: pattern.id, label: pattern.name })),
+      ]}
+      onParamsChange={onParamsChange}
+    />
+  );
+}
+
+function GradientStopsField({
+  kind,
+  param,
+  stops,
+  onParamsChange,
+}: {
+  kind: LayerStyleKind;
+  param: string;
+  stops: GradientStopParam[];
+  onParamsChange: (kind: LayerStyleKind, params: Record<string, unknown>) => void;
+}) {
+  const emit = (nextStops: GradientStopParam[]) => {
+    onParamsChange(kind, { [param]: nextStops });
+  };
+  const updateStop = (index: number, patch: Partial<GradientStopParam>) => {
+    emit(stops.map((stop, i) => (i === index ? { ...stop, ...patch } : stop)));
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-[0.15em] text-slate-500">
+          Gradient Stops
+        </span>
+        <button
+          type="button"
+          className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-0.5 text-[10px] text-slate-200 hover:bg-black/50"
+          onClick={() =>
+            emit([...stops, { position: stops.length === 0 ? 0 : 1, color: [255, 255, 255, 255] }])
+          }
+        >
+          Add Stop
+        </button>
+      </div>
+      {stops.length === 0 ? (
+        <p className="text-[10px] text-slate-500">No stops: default two-color ramp.</p>
+      ) : (
+        stops.map((stop, index) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: stops have no stable identity
+            key={index}
+            className="flex items-center gap-2"
+          >
+            <input
+              aria-label={`Stop ${index + 1} position`}
+              className="w-16 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-1 text-[11px] text-slate-200 focus-visible:outline-none"
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={stop.position}
+              onChange={(event) => {
+                const next = parseFiniteNumber(event.target.value);
+                if (next === null) {
+                  return;
+                }
+                updateStop(index, { position: Math.min(1, Math.max(0, next)) });
+              }}
+            />
+            <input
+              aria-label={`Stop ${index + 1} color`}
+              className="h-6 w-8 cursor-pointer rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30"
+              type="color"
+              value={rgbaToHex(stop.color)}
+              onChange={(event) => updateStop(index, { color: hexToRgba(event.target.value) })}
+            />
+            <button
+              type="button"
+              aria-label={`Remove stop ${index + 1}`}
+              className="rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/30 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-100"
+              onClick={() => emit(stops.filter((_, i) => i !== index))}
+            >
+              Remove
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function gradientStopsParam(value: unknown): GradientStopParam[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const stops: GradientStopParam[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const { position, color } = entry as { position?: unknown; color?: unknown };
+    if (typeof position !== "number" || !Array.isArray(color) || color.length !== 4) {
+      continue;
+    }
+    stops.push({
+      position,
+      color: [Number(color[0]), Number(color[1]), Number(color[2]), Number(color[3])],
+    });
+  }
+  return stops;
+}
+
+function rgbaToHex(color: [number, number, number, number]): string {
+  const channel = (value: number) =>
+    Math.min(255, Math.max(0, Math.round(value)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(color[0])}${channel(color[1])}${channel(color[2])}`;
+}
+
+function hexToRgba(hex: string): [number, number, number, number] {
+  const parsed = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!parsed) {
+    return [0, 0, 0, 255];
+  }
+  return [
+    Number.parseInt(parsed[1].slice(0, 2), 16),
+    Number.parseInt(parsed[1].slice(2, 4), 16),
+    Number.parseInt(parsed[1].slice(4, 6), 16),
+    255,
+  ];
 }
 
 function numberParam(value: unknown, fallback: number): number {

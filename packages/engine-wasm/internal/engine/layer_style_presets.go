@@ -175,7 +175,9 @@ func renderPresetThumbnail(styles []LayerStyle) string {
 
 	baseSurface := append([]byte(nil), sourceSurface...)
 	decoded := decodeLayerStyles(styles)
-	finalSurface := applyLayerStylesToSurface(baseSurface, sourceSurface, size, size, decoded)
+	// Preset thumbnails render without a document; the nil-doc context still
+	// resolves builtin patterns.
+	finalSurface := applyLayerStylesToSurface(baseSurface, sourceSurface, size, size, decoded, documentStyleContext(nil))
 
 	img := &image.NRGBA{
 		Pix:    finalSurface,

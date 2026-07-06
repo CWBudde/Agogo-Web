@@ -434,7 +434,10 @@ func TestConvertTextToPath_ProducesGlyphOutlinePath(t *testing.T) {
 	}
 
 	totalPoints := 0
-	for _, subpath := range vectorLayer.Shape.Subpaths {
+	for si, subpath := range vectorLayer.Shape.Subpaths {
+		if !subpath.Closed {
+			t.Errorf("subpath %d: Closed = false, want true (filled glyph contour)", si)
+		}
 		totalPoints += len(subpath.Points)
 	}
 	if totalPoints <= 4 {

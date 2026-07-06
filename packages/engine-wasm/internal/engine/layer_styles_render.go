@@ -20,7 +20,7 @@ func (doc *Document) renderStyledLayerSurface(layer LayerNode, clipAlpha []byte)
 	if err != nil {
 		return nil, err
 	}
-	return applyLayerStylesToSurface(baseSurface, sourceSurface, doc.Width, doc.Height, decoded), nil
+	return applyLayerStylesToSurface(baseSurface, sourceSurface, doc.Width, doc.Height, decoded, documentStyleContext(doc)), nil
 }
 
 func (doc *Document) renderRasterizableContentSurface(layer LayerNode, clipAlpha []byte, opacity float64) ([]byte, error) {
@@ -112,20 +112,20 @@ func buildDocumentSurfaceFromRaster(docW, docH int, bounds LayerBounds, src []by
 // the layer's own pixels), then the layer content, then the remaining
 // effects above it. The result depends only on baseSurface/sourceSurface,
 // never on the document backdrop, so incremental compositing stays valid.
-func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle) []byte {
+func applyLayerStylesToSurface(baseSurface, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle, ctx styleRenderContext) []byte {
 	if !hasEnabledBehindContentStyles(styles) {
 		// No drop shadow / outer glow enabled: skip the full-document
 		// composite pass and paint the top-side effects straight onto a
 		// copy of the layer content, exactly as before.
 		finalSurface := append([]byte(nil), baseSurface...)
-		applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
+		applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false, ctx)
 		return finalSurface
 	}
 
 	finalSurface := make([]byte, len(baseSurface))
-	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, true)
+	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, true, ctx)
 	compositeDocumentSurfaceClipped(finalSurface, baseSurface, docW, BlendModeNormal, 1, nil, nil)
-	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false)
+	applyLayerStyleEffectsForPlacement(finalSurface, sourceSurface, docW, docH, styles, false, ctx)
 	return finalSurface
 }
 
@@ -138,7 +138,7 @@ func hasEnabledBehindContentStyles(styles []DecodedLayerStyle) bool {
 	return false
 }
 
-func applyLayerStyleEffectsForPlacement(dst, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle, behindContent bool) {
+func applyLayerStyleEffectsForPlacement(dst, sourceSurface []byte, docW, docH int, styles []DecodedLayerStyle, behindContent bool, ctx styleRenderContext) {
 	for _, kind := range orderedLayerStyleKinds() {
 		if layerStyleKindRendersBehindContent(kind) != behindContent {
 			continue
@@ -147,7 +147,7 @@ func applyLayerStyleEffectsForPlacement(dst, sourceSurface []byte, docW, docH in
 			if !style.Enabled || LayerStyleKind(style.Kind) != kind {
 				continue
 			}
-			applyLayerStyleEffect(dst, sourceSurface, docW, docH, style)
+			applyLayerStyleEffect(dst, sourceSurface, docW, docH, style, ctx)
 		}
 	}
 }

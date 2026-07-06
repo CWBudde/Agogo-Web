@@ -205,8 +205,8 @@ func TestApplyLayerStylesToSurface_TopOnlyStylesMatchGeneralPathByteForByte(t *t
 		t.Fatal("inert-shadow stack must report behind-content styles (general path precondition)")
 	}
 
-	fast := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, topOnly)
-	general := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, withInertShadow)
+	fast := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, topOnly, styleRenderContext{})
+	general := applyLayerStylesToSurface(baseSurface, sourceSurface, docW, docH, withInertShadow, styleRenderContext{})
 
 	if !bytes.Equal(fast, general) {
 		t.Fatalf("fast copy-then-overlay path diverged from general path\nfast    = %v\ngeneral = %v", fast, general)

@@ -446,10 +446,10 @@ func (inst *instance) revertLiveTextEdit() {
 	doc.ContentVersion++
 }
 
-// convertTextToPath converts a TextLayer into a VectorLayer by tracing GSV
-// glyph centerlines. GSV is a stroke font, so the resulting vector layer is
-// stroke-only: open centerline subpaths stroked at the same width Agg2D uses
-// when rasterizing GSV text.
+// convertTextToPath converts a TextLayer into a fill-only VectorLayer whose
+// shape is the layer's glyph outlines as closed contours (Type > Create
+// Outlines). The vector layer fills with the text color and carries no
+// stroke, matching the rasterized text's appearance.
 func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 	return inst.executeDocCommand("Create Outlines", func(doc *Document) error {
 		layer, parent, idx, ok := findLayerByID(doc.ensureLayerRoot(), p.LayerID)
@@ -466,12 +466,12 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 			return fmt.Errorf("text layer %q has no content to convert to outlines", tl.Name())
 		}
 
-		fontSize := tl.FontSize
-		if fontSize <= 0 {
-			fontSize = 16
-		}
-		strokeWidth := gsvOutlineStrokeWidth(fontSize)
-		raster, err := rasterizeVectorShape(outlinePath, doc.Width, doc.Height, [4]uint8{}, tl.Color, strokeWidth)
+		// rasterizeVectorShape fills even-odd (hardwired for all vector
+		// layers), while the text raster fills non-zero. For well-formed
+		// glyph contours — nested, non-self-intersecting, counters as
+		// separate contours — the two rules produce the same ink, so the
+		// converted layer renders visually identical to the original text.
+		raster, err := rasterizeVectorShape(outlinePath, doc.Width, doc.Height, tl.Color, [4]uint8{}, 0)
 		if err != nil {
 			return err
 		}
@@ -482,9 +482,9 @@ func (inst *instance) convertTextToPath(p ConvertTextToPathPayload) error {
 		// apply the text layer's position twice.
 		outlineBounds := LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}
 		vectorLayer := NewVectorLayer(tl.Name()+" Outlines", outlineBounds, outlinePath, raster)
-		vectorLayer.FillColor = [4]uint8{}
-		vectorLayer.StrokeColor = tl.Color
-		vectorLayer.StrokeWidth = strokeWidth
+		vectorLayer.FillColor = tl.Color
+		vectorLayer.StrokeColor = [4]uint8{}
+		vectorLayer.StrokeWidth = 0
 
 		// Replace the text layer with the vector layer at the same position.
 		if parent == nil {

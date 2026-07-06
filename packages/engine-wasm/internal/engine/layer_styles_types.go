@@ -73,13 +73,14 @@ type ColorOverlayParams struct {
 }
 
 type GradientOverlayParams struct {
-	BlendMode BlendMode `json:"blendMode"`
-	Opacity   float64   `json:"opacity"`
-	Angle     float64   `json:"angle"`
-	Scale     float64   `json:"scale"`
-	Reverse   bool      `json:"reverse"`
-	Dither    bool      `json:"dither"`
-	Align     bool      `json:"align"`
+	BlendMode BlendMode             `json:"blendMode"`
+	Opacity   float64               `json:"opacity"`
+	Angle     float64               `json:"angle"`
+	Scale     float64               `json:"scale"`
+	Reverse   bool                  `json:"reverse"`
+	Dither    bool                  `json:"dither"`
+	Align     bool                  `json:"align"`
+	Stops     []GradientStopPayload `json:"stops,omitempty"`
 }
 
 type PatternOverlayParams struct {
@@ -87,15 +88,19 @@ type PatternOverlayParams struct {
 	Opacity   float64   `json:"opacity"`
 	Scale     float64   `json:"scale"`
 	Link      bool      `json:"link"`
+	PatternID string    `json:"patternId"`
 }
 
 type StrokeParams struct {
-	Size      float64   `json:"size"`
-	Position  string    `json:"position"`
-	BlendMode BlendMode `json:"blendMode"`
-	Opacity   float64   `json:"opacity"`
-	Color     [4]uint8  `json:"color"`
-	FillType  string    `json:"fillType"`
+	Size          float64               `json:"size"`
+	Position      string                `json:"position"`
+	BlendMode     BlendMode             `json:"blendMode"`
+	Opacity       float64               `json:"opacity"`
+	Color         [4]uint8              `json:"color"`
+	FillType      string                `json:"fillType"`
+	Stops         []GradientStopPayload `json:"stops,omitempty"`
+	GradientAngle float64               `json:"gradientAngle"`
+	PatternID     string                `json:"patternId"`
 }
 
 type DecodedLayerStyle struct {
@@ -217,6 +222,7 @@ func decodeBevelEmbossParams(params json.RawMessage) BevelEmbossParams {
 	decoded.ShadowC = normalizeRGBAField(params, "shadowColor", decoded.ShadowC, defaultBevelEmbossParams().ShadowC)
 	decoded.ShadowO = clampUnit(decoded.ShadowO)
 	decoded.Contour = normalizeStringEnum(decoded.Contour, defaultBevelEmbossParams().Contour, "linear", "gaussian", "cone", "rolling-slope", "rounded-steps")
+	decoded.Altitude = clampAltitude(decoded.Altitude)
 	return decoded
 }
 
@@ -247,6 +253,7 @@ func decodeGradientOverlayParams(params json.RawMessage) GradientOverlayParams {
 	decoded.BlendMode = normalizeBlendMode(decoded.BlendMode, BlendModeNormal)
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Scale = clampNonNegative(decoded.Scale)
+	decoded.Stops = normalizeGradientStops(decoded.Stops)
 	return decoded
 }
 
@@ -268,7 +275,36 @@ func decodeStrokeParams(params json.RawMessage) StrokeParams {
 	decoded.Opacity = clampUnit(decoded.Opacity)
 	decoded.Color = normalizeRGBAField(params, "color", decoded.Color, defaultStrokeParams().Color)
 	decoded.FillType = normalizeStringEnum(decoded.FillType, defaultStrokeParams().FillType, "color", "gradient", "pattern")
+	decoded.Stops = normalizeGradientStops(decoded.Stops)
 	return decoded
+}
+
+// normalizeGradientStops clamps every stop position into [0, 1]; an empty
+// list stays nil so the legacy two-color ramp path is used.
+func normalizeGradientStops(stops []GradientStopPayload) []GradientStopPayload {
+	if len(stops) == 0 {
+		return nil
+	}
+	normalized := make([]GradientStopPayload, len(stops))
+	for i, stop := range stops {
+		normalized[i] = GradientStopPayload{
+			Position: clampGradientPosition(stop.Position),
+			Color:    stop.Color,
+		}
+	}
+	return normalized
+}
+
+// clampAltitude limits the bevel light altitude to the Photoshop range
+// [0, 90] degrees.
+func clampAltitude(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 90 {
+		return 90
+	}
+	return value
 }
 
 func defaultDropShadowParams() DropShadowParams {
@@ -354,12 +390,13 @@ func defaultPatternOverlayParams() PatternOverlayParams {
 
 func defaultStrokeParams() StrokeParams {
 	return StrokeParams{
-		Size:      1,
-		Position:  "outside",
-		BlendMode: BlendModeNormal,
-		Opacity:   1,
-		Color:     [4]uint8{0, 0, 0, 255},
-		FillType:  "color",
+		Size:          1,
+		Position:      "outside",
+		BlendMode:     BlendModeNormal,
+		Opacity:       1,
+		Color:         [4]uint8{0, 0, 0, 255},
+		FillType:      "color",
+		GradientAngle: 90,
 	}
 }
 
