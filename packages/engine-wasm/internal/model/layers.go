@@ -163,23 +163,23 @@ type ArtboardData struct {
 }
 
 type layerBase struct {
-	id           string
-	name         string
-	visible      bool
-	lockMode     LayerLockMode
-	opacity      float64
-	fillOpacity  float64
-	blendMode    BlendMode
-	parent       LayerNode
-	mask         *LayerMask
-	vectorMask   *Path
+	id          string
+	name        string
+	visible     bool
+	lockMode    LayerLockMode
+	opacity     float64
+	fillOpacity float64
+	blendMode   BlendMode
+	parent      LayerNode
+	mask        *LayerMask
+	vectorMask  *Path
 	// vectorMaskRaster is a render-time memoization of the rasterized vector
 	// mask. Not serialized; validated by content (see VectorMaskRasterCache).
 	vectorMaskRaster *VectorMaskRasterCache
 	clipToBelow      bool
-	clippingBase bool
-	styleStack   []LayerStyle
-	blendIf      *BlendIfConfig
+	clippingBase     bool
+	styleStack       []LayerStyle
+	blendIf          *BlendIfConfig
 }
 
 type mutableLayerNode interface {
@@ -355,24 +355,24 @@ func (l *layerBase) SetBlendIf(config *BlendIfConfig) {
 
 func (l *layerBase) cloneBase() layerBase {
 	return layerBase{
-		id:           l.id,
-		name:         l.name,
-		visible:      l.visible,
-		lockMode:     l.lockMode,
-		opacity:      l.opacity,
-		fillOpacity:  l.fillOpacity,
-		blendMode:    l.blendMode,
-		mask:       CloneLayerMask(l.mask),
-		vectorMask: ClonePath(l.vectorMask),
+		id:          l.id,
+		name:        l.name,
+		visible:     l.visible,
+		lockMode:    l.lockMode,
+		opacity:     l.opacity,
+		fillOpacity: l.fillOpacity,
+		blendMode:   l.blendMode,
+		mask:        CloneLayerMask(l.mask),
+		vectorMask:  ClonePath(l.vectorMask),
 		// Pointer copy on purpose: the cache struct is immutable by convention
 		// (pointer-replaced on refresh, never mutated in place) and validated
 		// by content, so sharing it across clones is safe and avoids
 		// re-rasterizing after every snapshot.
 		vectorMaskRaster: l.vectorMaskRaster,
 		clipToBelow:      l.clipToBelow,
-		clippingBase: l.clippingBase,
-		styleStack:   CloneLayerStyles(l.styleStack),
-		blendIf:      CloneBlendIfConfig(l.blendIf),
+		clippingBase:     l.clippingBase,
+		styleStack:       CloneLayerStyles(l.styleStack),
+		blendIf:          CloneBlendIfConfig(l.blendIf),
 	}
 }
 

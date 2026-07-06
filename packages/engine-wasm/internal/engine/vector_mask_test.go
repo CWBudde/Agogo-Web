@@ -207,20 +207,34 @@ func TestVectorMaskOnGroupClipsChildren(t *testing.T) {
 		t.Fatal("placeholder vector mask on group changed the composite")
 	}
 
-	// Real mask: inside matches the unmasked composite, outside the group
-	// contributes nothing (matches the base-only composite).
+	// Real vector mask: must behave exactly like the equivalent RASTER mask on
+	// the group (the pre-existing masked-group semantics, isolated-surface
+	// path included): inside the rect the group contributes, outside it the
+	// composite equals the base alone.
 	sq := makeSquarePath(8, 8, 24, 24)
 	group.SetVectorMask(&sq)
 	got := referenceComposite(t, doc)
 
+	group.SetVectorMask(nil)
+	rectRaster := make([]byte, docW*docH)
+	for y := 8; y < 24; y++ {
+		for x := 8; x < 24; x++ {
+			rectRaster[y*docW+x] = 255
+		}
+	}
+	group.SetMask(&LayerMask{Enabled: true, Width: docW, Height: docH, Data: rectRaster})
+	want := referenceComposite(t, doc)
+
+	if !bytes.Equal(got, want) {
+		t.Fatal("vector mask on group differs from the equivalent raster mask on the group")
+	}
+	insideIdx := (16*docW + 16) * 4
+	if got[insideIdx+3] == 0 {
+		t.Fatal("inside mask pixel is transparent; group content must show through")
+	}
 	baseOnly := testDocumentFixture("vm-group-ref", "VMGroupRef", docW, docH)
 	addSolidLayerForVMTest(baseOnly, "base", LayerBounds{W: docW, H: docH}, [4]uint8{0, 200, 0, 255})
 	baseOnlySurface := referenceComposite(t, baseOnly)
-
-	insideIdx := (16*docW + 16) * 4
-	if !bytes.Equal(got[insideIdx:insideIdx+4], baseline[insideIdx:insideIdx+4]) {
-		t.Fatalf("inside mask pixel = %v, want %v (unmasked composite)", got[insideIdx:insideIdx+4], baseline[insideIdx:insideIdx+4])
-	}
 	outsideIdx := (2*docW + 2) * 4
 	if !bytes.Equal(got[outsideIdx:outsideIdx+4], baseOnlySurface[outsideIdx:outsideIdx+4]) {
 		t.Fatalf("outside mask pixel = %v, want %v (base only)", got[outsideIdx:outsideIdx+4], baseOnlySurface[outsideIdx:outsideIdx+4])
