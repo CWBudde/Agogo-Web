@@ -87,6 +87,7 @@ import {
 import { parseNumericInput } from "@/lib/utils";
 import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
+import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import {
@@ -95,6 +96,7 @@ import {
   type ShapeSubTool,
   useShapeState,
 } from "@/state/shape-state";
+import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
 
@@ -396,12 +398,39 @@ export default function App() {
     setSelectedLayerIds,
   } = useViewState();
   const { cursor, setCursor } = useCursorState();
-  const [activeTool, setActiveTool] = useState<EditorTool>("marquee");
-  const [newDocumentOpen, setNewDocumentOpen] = useState(false);
-  const [canvasSizeOpen, setCanvasSizeOpen] = useState(false);
-  const [openRecentOpen, setOpenRecentOpen] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [featherDialogOpen, setFeatherDialogOpen] = useState(false);
+  const { activeTool, setActiveTool } = useToolState();
+  const {
+    newDocumentOpen,
+    setNewDocumentOpen,
+    canvasSizeOpen,
+    setCanvasSizeOpen,
+    openRecentOpen,
+    setOpenRecentOpen,
+    exportDialogOpen,
+    setExportDialogOpen,
+    featherDialogOpen,
+    setFeatherDialogOpen,
+    colorRangeOpen,
+    setColorRangeOpen,
+    saveSelectionOpen,
+    setSaveSelectionOpen,
+    loadSelectionOpen,
+    setLoadSelectionOpen,
+    selectAndMaskOpen,
+    setSelectAndMaskOpen,
+    thresholdDialogOpen,
+    setThresholdDialogOpen,
+    posterizeDialogOpen,
+    setPosterizeDialogOpen,
+    channelMixerDialogOpen,
+    setChannelMixerDialogOpen,
+    selectiveColorDialogOpen,
+    setSelectiveColorDialogOpen,
+    photoFilterDialogOpen,
+    setPhotoFilterDialogOpen,
+    gradientMapDialogOpen,
+    setGradientMapDialogOpen,
+  } = useDialogState();
   const [featherDialogValue, setFeatherDialogValue] = useState(5);
   type ModifyKind = "expand" | "contract" | "smooth" | "border";
   const [modifyDialog, setModifyDialog] = useState<{
@@ -411,15 +440,11 @@ export default function App() {
   }>({ open: false, kind: "expand", value: 4 });
   const openModifyDialog = (kind: ModifyKind) =>
     setModifyDialog({ open: true, kind, value: kind === "smooth" ? 2 : 4 });
-  const [colorRangeOpen, setColorRangeOpen] = useState(false);
   const [colorRangeColor, setColorRangeColor] = useState<Rgba>([128, 128, 128, 255]);
   const [colorRangeFuzziness, setColorRangeFuzziness] = useState(40);
   const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
-  const [saveSelectionOpen, setSaveSelectionOpen] = useState(false);
   const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
-  const [loadSelectionOpen, setLoadSelectionOpen] = useState(false);
   const [loadSelectionName, setLoadSelectionName] = useState("");
-  const [selectAndMaskOpen, setSelectAndMaskOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menubarFocusIndex, setMenubarFocusIndex] = useState(0);
   const menuOpenedByKeyboard = useRef(false);
@@ -446,11 +471,8 @@ export default function App() {
   const zoomClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
-  const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
   const [thresholdValue, setThresholdValue] = useState(128);
-  const [posterizeDialogOpen, setPosterizeDialogOpen] = useState(false);
   const [posterizeLevels, setPosterizeLevels] = useState(6);
-  const [channelMixerDialogOpen, setChannelMixerDialogOpen] = useState(false);
   const [channelMixerMonochrome, setChannelMixerMonochrome] = useState(false);
   const [channelMixerMatrix, setChannelMixerMatrix] = useState<{
     red: [number, number, number];
@@ -461,7 +483,6 @@ export default function App() {
     green: [0, 100, 0],
     blue: [0, 0, 100],
   });
-  const [selectiveColorDialogOpen, setSelectiveColorDialogOpen] = useState(false);
   const [selectiveColorMode, setSelectiveColorMode] = useState<"relative" | "absolute">("relative");
   const [selectiveColorAdjustments, setSelectiveColorAdjustments] = useState({
     reds: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
@@ -474,13 +495,11 @@ export default function App() {
     neutrals: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
     blacks: { cyanRed: 0, magentaGreen: 0, yellowBlue: 0, black: 0 },
   });
-  const [photoFilterDialogOpen, setPhotoFilterDialogOpen] = useState(false);
   const [photoFilterColor, setPhotoFilterColor] = useState<[number, number, number, number]>([
     255, 190, 120, 255,
   ]);
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
-  const [gradientMapDialogOpen, setGradientMapDialogOpen] = useState(false);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
