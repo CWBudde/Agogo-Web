@@ -29,6 +29,13 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		}
 		return
 	}
+	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+		// The layer's pixels are locked. Record a rejected stroke so continue
+		// points stay no-ops and handleEndPaintStroke surfaces the lock error
+		// over the ABI, mirroring the non-pixel-layer rejection above.
+		inst.paintStroke = &activePaintStroke{layerID: layer.ID(), rejected: err}
+		return
+	}
 	brushParams := p.Brush
 	brushParams = normalizeMixerBrushParams(brushParams)
 	brushParams = normalizeCloneStampParams(brushParams)
@@ -163,7 +170,7 @@ func (inst *instance) handleContinuePaintStroke(p ContinuePaintStrokePayload) {
 // single legacy point; the content-version dirty rect is bumped once per batch
 // (not per point) to mirror the pre-batching single-point behavior.
 func (inst *instance) handleContinuePaintStrokePoints(points []StrokePoint) {
-	if inst.paintStroke == nil {
+	if inst.paintStroke == nil || inst.paintStroke.rejected != nil {
 		return
 	}
 	doc := inst.manager.activeMut()
@@ -246,6 +253,11 @@ func (inst *instance) handleEndPaintStroke() error {
 		}
 		return nil
 	}
+	if stroke.rejected != nil {
+		// The stroke was refused at begin time (locked layer) and never
+		// painted a single dab — surface the recorded error over the ABI.
+		return stroke.rejected
+	}
 	layer := findPixelLayer(doc, stroke.layerID)
 	if layer == nil {
 		if stroke.params.MixerBrush {
@@ -306,8 +318,8 @@ func (inst *instance) handleEndPaintStroke() error {
 }
 
 // paintTargetError describes why the given layer node cannot be painted on.
-// The wording is part of the ABI surface: the frontend matches on it to offer
-// rasterizing the layer.
+// The wording travels over the ABI so the frontend can offer to rasterize the
+// layer.
 func paintTargetError(node LayerNode) error {
 	if node == nil {
 		return fmt.Errorf("no active layer to paint on")
@@ -371,6 +383,9 @@ func strokeDirtyRectInDocument(stroke *activePaintStroke, layer *PixelLayer) (Di
 // pixels within tolerance of the clicked color and clears their alpha to 0.
 // The operation is undoable.
 func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer *PixelLayer) error {
+	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+		return err
+	}
 	// Determine the source surface for color sampling.
 	var surface []byte
 	if p.SampleMerged {
@@ -416,8 +431,12 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 	copy(before, layer.Pixels)
 
 	// Apply mask to layer alpha: multiply dest alpha by (1 - mask/255).
+	// Track the bounding box of pixels that actually changed so the dirty
+	// rect (and composite invalidation) stays as tight as possible.
 	lw := layer.Bounds.W
 	lh := layer.Bounds.H
+	minX, minY := lw, lh
+	maxX, maxY := -1, -1
 	for ly := range lh {
 		for lx := range lw {
 			// Map layer-local coordinates to mask coordinates.
@@ -442,13 +461,31 @@ func (inst *instance) handleMagicErase(p MagicErasePayload, doc *Document, layer
 			if newAlpha < 0 {
 				newAlpha = 0
 			}
-			layer.Pixels[idx+3] = uint8(newAlpha)
+			if na := uint8(newAlpha); na != layer.Pixels[idx+3] {
+				layer.Pixels[idx+3] = na
+				if lx < minX {
+					minX = lx
+				}
+				if lx > maxX {
+					maxX = lx
+				}
+				if ly < minY {
+					minY = ly
+				}
+				if ly > maxY {
+					maxY = ly
+				}
+			}
 		}
 	}
 	// Use the shared atomic version counter and dirty-rect marking (S.2/S.4)
 	// like every other pixel edit — a bare ContentVersion++ neither advances
 	// the global counter nor invalidates the composite cache region.
-	doc.bumpContentVersionRect(DirtyRect{X: layer.Bounds.X, Y: layer.Bounds.Y, W: lw, H: lh})
+	dirty := DirtyRect{X: layer.Bounds.X, Y: layer.Bounds.Y, W: lw, H: lh}
+	if maxX >= minX && maxY >= minY {
+		dirty = DirtyRect{X: layer.Bounds.X + minX, Y: layer.Bounds.Y + minY, W: maxX - minX + 1, H: maxY - minY + 1}
+	}
+	doc.bumpContentVersionRect(dirty)
 
 	// Record undo.
 	layerID := layer.ID()

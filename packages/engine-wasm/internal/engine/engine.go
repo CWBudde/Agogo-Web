@@ -431,7 +431,12 @@ type SetShowGuidesPayload struct {
 
 // activePaintStroke holds per-stroke state while painting is in progress.
 type activePaintStroke struct {
-	layerID              string
+	layerID string
+	// rejected is set when the stroke was refused at begin time (e.g. the
+	// target layer's pixels are locked). Continue points are ignored and
+	// handleEndPaintStroke surfaces this error over the ABI — the
+	// begin/continue dispatch path discards return values.
+	rejected             error
 	params               BrushParams
 	strokeState          brushStrokeState
 	stabilizer           stabilizerState

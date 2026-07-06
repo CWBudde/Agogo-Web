@@ -128,3 +128,34 @@ func TestPathArchiveRoundTrip(t *testing.T) {
 		t.Fatalf("expected active path index 1, got %d", loaded.ActivePathIdx)
 	}
 }
+
+// S.5 review nit: combining path A with a lower-indexed path B removes B and
+// shifts A down, so the active index must follow the result, not the stale
+// pre-removal slot.
+func TestPathBooleanCombineAdjustsActiveIdxWhenBBelowA(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	for _, name := range []string{"P0", "P1", "P2", "P3"} {
+		if _, err := DispatchCommand(h, commandCreatePath, mustJSON(t, CreatePathPayload{Name: name})); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	// Combine A=2 with B=0: B is removed, the result (in A's slot) lands at index 1.
+	result, err := DispatchCommand(h, commandPathCombine, mustJSON(t, PathBooleanPayload{PathIndexA: 2, PathIndexB: 0}))
+	if err != nil {
+		t.Fatalf("combine: %v", err)
+	}
+	if len(result.UIMeta.Paths) != 3 {
+		t.Fatalf("expected 3 paths after combine, got %d", len(result.UIMeta.Paths))
+	}
+	if result.UIMeta.Paths[1].Name != "P2" {
+		t.Fatalf("expected result path %q at index 1, got %q", "P2", result.UIMeta.Paths[1].Name)
+	}
+	for i, p := range result.UIMeta.Paths {
+		if p.Active != (i == 1) {
+			t.Errorf("path %d (%s): active = %v, want active only at index 1", i, p.Name, p.Active)
+		}
+	}
+}

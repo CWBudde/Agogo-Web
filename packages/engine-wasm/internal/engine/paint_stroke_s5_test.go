@@ -97,6 +97,40 @@ func TestPaintStroke_ClipsToActiveSelection(t *testing.T) {
 	}
 }
 
+// A dab landing on fully transparent pixels through partial selection
+// coverage must keep the paint colour at full strength and only scale alpha.
+// A straight per-channel lerp instead dragged RGB towards the meaningless
+// colour of the transparent "before" pixels (red → dark red fringe).
+func TestPaintStroke_SelectionCoverageOverTransparencyKeepsColor(t *testing.T) {
+	const w, h = 40, 40
+	transparent := [4]uint8{0, 0, 0, 0}
+	inst, layerID := newStrokeTestInstance(t, w, h, transparent)
+	doc := inst.manager.activeMut()
+	// Uniform 50% selection coverage everywhere.
+	sel := newSelection(w, h)
+	for i := range sel.Mask {
+		sel.Mask[i] = 128
+	}
+	doc.Selection = sel
+
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{
+		X: 20, Y: 20, Pressure: 1,
+		Brush: BrushParams{Size: 12, Hardness: 1, Flow: 1, Color: [4]uint8{255, 0, 0, 255}},
+	})
+	if err := inst.handleEndPaintStroke(); err != nil {
+		t.Fatalf("end stroke: %v", err)
+	}
+
+	layer := findPixelLayer(inst.manager.activeMut(), layerID)
+	got := layerPixelAt(layer, 20, 20)
+	if got[0] < 250 {
+		t.Errorf("dab centre R = %d, want ≈255 (full-strength colour, premultiplied lerp)", got[0])
+	}
+	if got[3] < 120 || got[3] > 136 {
+		t.Errorf("dab centre alpha = %d, want ≈128 (coverage-halved)", got[3])
+	}
+}
+
 func TestEraseStroke_ClipsToActiveSelection(t *testing.T) {
 	const w, h = 50, 50
 	white := [4]uint8{255, 255, 255, 255}

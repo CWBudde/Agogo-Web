@@ -64,16 +64,46 @@ func findLayerByID(group *GroupLayer, layerID string) (LayerNode, *GroupLayer, i
 	return docpkg.FindLayerByID(group, layerID)
 }
 
-func isLayerPositionLocked(layer LayerNode) bool {
+// layerEditKind classifies what a command wants to do to a layer so lock
+// enforcement can decide whether the layer's lock mode forbids it.
+type layerEditKind int
+
+const (
+	// editLayerPixels covers destructive pixel edits: painting, erasing,
+	// fills, gradients, filters, and baking a mask into the raster.
+	editLayerPixels layerEditKind = iota
+	// editLayerPosition covers moving the layer.
+	editLayerPosition
+)
+
+// ensureLayerEditable is the single lock check for layer edits: it returns a
+// Photoshop-style error when the layer's lock mode forbids the given edit
+// kind, and nil otherwise. The messages are part of the ABI surface — the
+// frontend shows them verbatim — so keep them stable:
+//
+//	layer "X" is locked            (lock mode "all", any edit)
+//	layer "X" pixels are locked    (lock mode "pixels", pixel edits)
+//	layer "X" position is locked   (lock mode "position", moves)
+//
+// Callers must reject the command before mutating anything so a locked layer
+// is a strict no-op (no history entry, no content-version bump).
+func ensureLayerEditable(layer LayerNode, kind layerEditKind) error {
 	if layer == nil {
-		return false
+		return nil
 	}
 	switch layer.LockMode() {
-	case LayerLockPosition, LayerLockAll:
-		return true
-	default:
-		return false
+	case LayerLockAll:
+		return fmt.Errorf("layer %q is locked", layer.Name())
+	case LayerLockPixels:
+		if kind == editLayerPixels {
+			return fmt.Errorf("layer %q pixels are locked", layer.Name())
+		}
+	case LayerLockPosition:
+		if kind == editLayerPosition {
+			return fmt.Errorf("layer %q position is locked", layer.Name())
+		}
 	}
+	return nil
 }
 
 func translateLayerNode(layer LayerNode, dx, dy int) error {

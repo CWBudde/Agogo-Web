@@ -47,9 +47,10 @@ const pathBooleanScale = 1000.0
 
 // pathBooleanCurveSteps is the number of polyline steps per Bezier segment
 // when flattening for clipping. Matches the engine's existing flattening
-// convention in flattenSubpathToPolyline (path_agg.go), whose default is 16;
-// at that density the chord error is a small fraction of a pixel for
-// typical on-canvas curve sizes.
+// convention in flattenSubpathToPolyline (path_agg.go), whose default is 16.
+// The chord error grows with segment size: well below a pixel for typical
+// on-canvas curves, approaching ~1px for very large ones (an adaptive
+// flattener would remove that ceiling if it ever matters).
 const pathBooleanCurveSteps = 16
 
 // pathBoolean performs a real boolean geometry operation on two paths:

@@ -237,8 +237,8 @@ func (doc *Document) TranslateLayer(layerID string, dx, dy int) error {
 	if !ok {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
-	if isLayerPositionLocked(layer) {
-		return fmt.Errorf("layer %q position is locked", layer.Name())
+	if err := ensureLayerEditable(layer, editLayerPosition); err != nil {
+		return err
 	}
 	beforeRect, hasBefore := doc.layerCompositeDirtyRect(layer)
 	if err := translateLayerNode(layer, dx, dy); err != nil {
@@ -335,6 +335,10 @@ func (doc *Document) ApplyLayerMask(layerID string) error {
 	mask := layer.Mask()
 	if mask == nil {
 		return fmt.Errorf("layer %q has no mask", layer.Name())
+	}
+	// Applying a mask bakes it into the raster — a destructive pixel edit.
+	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+		return err
 	}
 	switch typed := layer.(type) {
 	case *PixelLayer:
@@ -538,18 +542,21 @@ func (doc *Document) MergeVisible() error {
 
 	// Preserve root-level hidden layers at their original stack positions; the
 	// merged composite (which represents all visible content, including groups
-	// and their nested children) takes the slot of the topmost visible layer —
-	// the same convention Photoshop uses for Merge Visible.
-	topVisible := -1
+	// and their nested children) takes the slot of the BOTTOMMOST visible
+	// layer — Photoshop's Merge Visible collapses into the Background / lowest
+	// visible layer, so hidden layers survive above the merged result (same
+	// direction as Merge Down, which lands in the lower layer's slot).
+	bottomVisible := -1
 	for index, child := range children {
 		if child.Visible() {
-			topVisible = index
+			bottomVisible = index
+			break
 		}
 	}
 	next := make([]LayerNode, 0, len(children))
 	for index, child := range children {
 		switch {
-		case index == topVisible:
+		case index == bottomVisible:
 			next = append(next, merged)
 		case !child.Visible():
 			next = append(next, child)

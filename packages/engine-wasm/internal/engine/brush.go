@@ -952,10 +952,17 @@ func dabFootprintSize(p BrushParams) float64 {
 // paintDabClippedToSelection runs paint() and then re-blends every pixel in
 // the dab's footprint against the document-space selection mask so the dab
 // only lands inside the selection. Coverage is weighted, not a hard cutoff:
-// for a mask value m the result is lerp(before, after, m/255) per channel,
-// matching the 0–255 coverage convention fillRasterWithMask uses for fills
-// and gradients — feathered or anti-aliased selection edges scale the paint
-// proportionally.
+// for a mask value m the result is lerp(before, after, m/255) in
+// premultiplied-alpha space (lerpRGBAPremul), so feathered or anti-aliased
+// selection edges scale the paint proportionally without darkening towards
+// transparent pixels.
+//
+// The 0–255 mask semantics match fillRasterWithMask, but the weighting is
+// only equivalent per dab, not per stroke: where consecutive dabs overlap, a
+// feathered edge accumulates 1−(1−m/255)^N and converges towards full paint
+// as the stroke passes over it, whereas a fill scales the whole operation
+// once. Photoshop caps the entire stroke at the mask coverage; matching that
+// would need a stroke-level opacity buffer and is out of scope for S.5.
 //
 // footprint is the dab's write diameter (see dabFootprintSize). The examined
 // region matches what saveRowsBeforeDab/expandDirty cover for the same
@@ -1020,11 +1027,15 @@ func paintDabClippedToSelection(layer *PixelLayer, selection *Selection, cx, cy,
 				copy(layer.Pixels[idx:idx+4], buf[sIdx:sIdx+4])
 				continue
 			}
-			c := uint32(cov)
-			inv := 255 - c
-			for ch := 0; ch < 4; ch++ {
-				layer.Pixels[idx+ch] = uint8((uint32(buf[sIdx+ch])*inv + uint32(layer.Pixels[idx+ch])*c + 127) / 255)
-			}
+			// Lerp in premultiplied space: a straight per-channel lerp would
+			// drag the painted colour towards the (meaningless) RGB of
+			// low-alpha "before" pixels — e.g. a red dab over transparency at
+			// coverage 128 would come out dark red instead of half-opaque red.
+			layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3] = lerpRGBAPremul(
+				buf[sIdx], buf[sIdx+1], buf[sIdx+2], buf[sIdx+3],
+				layer.Pixels[idx], layer.Pixels[idx+1], layer.Pixels[idx+2], layer.Pixels[idx+3],
+				cov,
+			)
 		}
 	}
 }

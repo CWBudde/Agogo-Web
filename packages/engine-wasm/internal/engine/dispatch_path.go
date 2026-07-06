@@ -182,17 +182,13 @@ func (inst *instance) dispatchPathBooleanPayload(payload PathBooleanPayload, op 
 		// Replace path A with the result.
 		doc.Paths[idxA].Path = *result
 
-		// Remove path B.
+		// Remove path B; the result in A's slot shifts down if B was below it.
 		doc.Paths = append(doc.Paths[:idxB], doc.Paths[idxB+1:]...)
-
-		// Adjust active index if needed.
-		if doc.ActivePathIdx >= len(doc.Paths) {
-			doc.ActivePathIdx = len(doc.Paths) - 1
+		if idxB < idxA {
+			idxA--
 		}
-		// Keep A active.
-		if idxA < len(doc.Paths) {
-			doc.ActivePathIdx = idxA
-		}
+		// Keep the result active.
+		doc.ActivePathIdx = idxA
 
 		return nil
 	})

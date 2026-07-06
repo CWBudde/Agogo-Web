@@ -457,21 +457,25 @@
 
 > Deferred within S.4: adjustment-layer incremental compositing (needs adjustment-cache invalidation redesign); sub-rect dirty tracking for the ants path (reports full canvas); partial content update combined with an active selection (falls back to full render — correct, just not partial).
 
-### Phase S.5: Engine Feature-Bug Fixes
+### Phase S.5: Engine Feature-Bug Fixes — ✅ DONE (2026-07-06)
 
-- [ ] **Radial gradient is not implemented** — UI offers it; `fill_gradient.go:445` switch has no radial case and falls through to linear
-- [ ] **Brush/eraser/clone strokes ignore the active selection** (`paint.go`/`brush.go` never consult `doc.Selection`; fills/gradients do it correctly via `fillRasterWithMask`)
-- [ ] **Pixel/all lock never enforced for pixel edits**: only position lock is checked (`layer_ops_helpers.go:59`, TranslateLayer only) — painting/fills/filters modify fully-locked layers
-- [ ] **Transforms don't transform layer masks**: free transform and discrete flips/rotates move pixels only; the mask stays behind in document space
-- [ ] **FlattenLayer double-applies opacity/fill-opacity** (`layer_ops.go:805–820`): 50% opacity renders at 25% after flatten; MergeDown/MergeVisible use the other convention
-- [ ] **Drop shadow falls toward the light** (`layer_styles_effects.go:274–279` — sign error at PS-default 120°) and DropShadow/OuterGlow composite **on top of** layer content instead of behind it (`layer_styles_render.go:105–116`)
-- [ ] **Non-Gaussian filters mishandle alpha**: box/motion/radial/surface/median average RGB only and copy original alpha (black halo bleed, frozen silhouettes under ripple/twirl) while Gaussian blurs all four channels
-- [ ] **Levels/Exposure gamma convention inverted** (`adjustments_core.go:170–172`: `v^gamma` instead of `v^(1/gamma)` — sliders work backwards) and `{outputBlack:10}` alone yields output range [10→0]
-- [ ] **Mouse input paints at 75% size / 50% flow**: pressure defaults to 0.5 with PressureSize/Flow on (`brush.go:317–337`) — a 100px brush paints 75px for every mouse user; make dynamics neutral when no pressure device reports
-- [ ] **drawShape pixels-mode coordinate bug** (`dispatch_shape.go:240`): doc-space path rasterized into a layer-local buffer without `-Bounds.X/Y` translation — shapes offset on any layer not at origin
-- [ ] **Path booleans are not real geometry** (`path_boolean.go:38–46`): Combine/Exclude = subpath concatenation over even-odd fill, Subtract = winding reversal (no-op under even-odd), Intersect returns an error — implement via Clipper2 (also resolves the GPC licensing blocker)
-- [ ] Blend-mode edge cases: color dodge/burn extremes deviate from spec (`blend.go:167–179`); `clipColor` divides by zero when lum==min → NaN pixels (`blend.go:244–256`)
-- [ ] Minor batch: magic eraser bypasses the atomic version counter and dirty-rect marking (`paint.go:305`); mixer rim dabs can paint outside saved undo rows (`brush.go:879–896`); fixed-seed Add Noise doubles on reapply; Fade-with-dissolve seed bug; `meta()` never computes SkewY; MergeVisible loses hidden-layer z-order; `DeletePath` doesn't adjust `activePathIdx`; painting on non-pixel layers should surface "rasterize?" instead of silently no-op'ing; library panics in `filters_builtin_helpers.go:98` / `model/layers.go:838`; `RenderResult.PixelFormat` claims "rgba8-premultiplied" but the pipeline is straight alpha
+> Executed via 11 implementer subagents in 3 batches (disjoint file ownership) + per-batch adversarial review with fix loops; every fix landed TDD-first (red confirmed, then green).
+
+- [x] **Radial gradient implemented**: `renderCustomGradient` radial case, `t = hypot(px−start)/|end−start|`, symmetry-pinned test discriminates it from the old linear fallthrough
+- [x] **Brush/eraser/clone strokes clip to the active selection**: `paintDabClippedToSelection` wraps every dab (paint/erase/background-erase/clone/history/mixer) — dab footprint snapshot, then per-pixel `lerp(before, after, coverage/255)` matching `fillRasterWithMask`'s 0–255 coverage convention; magic eraser multiplies erase coverage by selection coverage; undo pixel-delta rows stay byte-exact
+- [x] **Pixel/all lock enforced for all pixel edits**: centralized `ensureLayerEditable(layer, editKind)` (replaces the position-only helper); enforced at begin-paint-stroke (rejected-stroke pattern, error at stroke end), magic erase, fill/gradient (non-CreateLayer), apply/reapply/preview/commit/fade filter, fill/stroke path, ApplyLayerMask; rejection is a guaranteed no-op (no history entry, no ContentVersion bump). Transparency lock has NO model flag yet (out of scope); transform-commit doesn't check position lock (flagged follow-up)
+- [x] **Transforms remap layer masks**: free-transform commit + Transform Again transform raster masks through the same AGG pixel pipeline (fresh scratch state) and vector masks via `freeTransformPointMapper`; discrete flip/rotate remap raster+vector masks with the exact pixel index mappings incl. 90° re-centring; all inside the snapshot command so undo covers the mask. Known gaps (deliberate): live preview shows the mask un-transformed until commit; vacated mask regions retain stale values (invisible, documented)
+- [x] **FlattenLayer opacity fixed**: `rasterizeAsPixelLayer` no longer re-applies opacity/fill-opacity after the render already baked them (50%→25% bug); flatten now matches the MergeDown/MergeVisible bake-in convention (also fixes the same double-apply in the shape-rasterize path)
+- [x] **Drop shadow falls away from the light**: `dropShadowOffset = (−cos a, +sin a)·d` (y-down; 120° → down-right); shared helper also fixes inner shadow/bevel/satin consistency. DropShadow/OuterGlow now composite **behind** layer content (two-phase `applyLayerStyleEffectsForPlacement`, still backdrop-independent per S.4); layers without behind-content effects keep the cheap copy path
+- [x] **Non-Gaussian filters process alpha premultiplied**: box/motion/radial/surface/median/min/max/reduce-noise premultiply → filter all 4 channels → unpremultiply (bit-compatible for opaque input); distort filters (ripple/twirl/offset/polar/lens) displace alpha with RGB; Gaussian upgraded to the same convention; feathered-selection blending is premultiplied too (`lerpRGBAPremul`, integer-exact)
+- [x] **Levels/Exposure gamma un-inverted** (`v^(1/gamma)` — gamma 2.0 brightens 128→181) and partial payloads get Photoshop defaults via shared `applyLevelsDefaults` (`{outputBlack:10}` → range [10→255]); caveat: explicit `outputWhite:0` inversion no longer expressible (float64 payload ambiguity, documented)
+- [x] **Mouse input paints at full size/flow**: frontend sends pressure 1 unless `pointerType === "pen"` reports real pressure (`strokePressure()` replaced all 8 `event.pressure || 0.5` sites); engine treats pressure ≤ 0 as neutral 1.0
+- [x] **drawShape pixels-mode offset fixed**: path cloned and translated by `(−Bounds.X, −Bounds.Y)` before rasterizing into the layer-local buffer; origin layers keep the zero-copy path
+- [x] **Path booleans are real geometry**: Combine/Subtract/Intersect/Exclude via pure-Go Clipper2 port `bolom009/go-clipper2` v1.3.0 (Boost 1.0, wasm-safe — resolves the Clipper2 side of the GPC licensing blocker); even-odd inputs, ×1000 int64 coords, beziers flattened at the engine's 16-step convention; Intersect no longer errors; coverage-based tests incl. donut-hole preservation. (In-house `cwbudde/go-clipper2` was evaluated — its fixes are unpushed and the module path is wrong; comment in `path_boolean.go`)
+- [x] Blend-mode edge cases: ColorDodge/ColorBurn corners now match the W3C/PS spec order (backdrop check first: dodge(0,1)=0, burn(1,0)=1 — also corrects Vivid Light/Hard Mix corners); `clipColor` guards zero denominators (flattens to lum) so Hue/Sat/Color/Luminosity can never emit NaN
+- [x] Minor batch — all done: magic eraser uses `bumpContentVersionRect`; mixer rim dab footprint (`dabFootprintSize`) covers save-rows/dirty/selection regions before painting; Add Noise takes an optional `seed` param (seed 0 = fresh stream per apply — reapply no longer correlates); Fade-with-dissolve seeds with `pixelNoiseSeed(doc coords)` (was flat index ≈ 0 → everything dissolved); `meta()` decomposes rotation vs skew (pure rotation → skew 0/0, pure skews exact; 4-DOF attribution heuristic documented); MergeVisible puts the merged layer in the topmost visible slot, hidden layers keep their positions; `DeletePath` decrements `activePathIdx` when deleting below it; painting on text/vector/adjustment layers returns `layer must be rasterized before painting` over the ABI; `marshalFilterParams` returns an error instead of panicking and `NewLayerID` degrades to a time+counter fallback; `PixelFormat` reports `"rgba8-straight"` (Go + proto); dissolve-in-compositor seeds by doc coords and `pixelNoiseSeed` uses the splitmix64 finalizer (old hash never dissolved near the origin)
+
+> Deferred within S.5 (flagged by review, low): live free-transform preview doesn't move masks until commit; stale mask values at vacated positions (mask-editing phase); transform commits don't check position lock; transparency lock needs a model flag first; `pixelNoiseSeed`-style seeding won't survive a future command-log replay architecture.
 
 ### Phase S.6: Text & Vector Completion
 
@@ -708,9 +712,9 @@
 
 ### Phase 2 — Review gaps (2026-07-06, see Phase S)
 
-- [ ] Blend engine is a manual per-pixel float64 implementation bypassing agg_go; dodge/burn extremes deviate from spec; `clipColor` NaN on lum==min (→ S.5, S.9)
-- [ ] `FlattenLayer` double-applies opacity/fill-opacity (50% renders as 25%); MergeVisible loses hidden-layer z-order (→ S.5)
-- [ ] Pixel/all layer locks are not enforced for painting, fills, or filters (→ S.5)
+- [ ] Blend engine is a manual per-pixel float64 implementation bypassing agg_go (→ S.9); ~~dodge/burn extremes deviate from spec; `clipColor` NaN on lum==min~~ — fixed in S.5 (2026-07-06)
+- [x] `FlattenLayer` double-applies opacity/fill-opacity; MergeVisible loses hidden-layer z-order — fixed in S.5 (2026-07-06)
+- [x] Pixel/all layer locks are not enforced for painting, fills, or filters — fixed in S.5 (2026-07-06)
 - [x] "Cache layer composites" was a single document-level cache with no partial invalidation — S.4 added dirty-rect incremental recomposite into the cached surface (2026-07-06); true per-layer/subtree caching remains future work if profiling demands it
 - [ ] Alt+click eye-icon solo is missing; layers context menu doesn't work with a real pointer (closes before click fires) (→ S.7, S.8)
 - [ ] "Golden-image unit tests" are expected-pixel tables — no actual image-snapshot tests exist (→ S.11)
@@ -835,7 +839,7 @@
 
 ### Phase 3 — Review gaps (2026-07-06, see Phase S)
 
-- [ ] Transforms (free transform and discrete flip/rotate) do not transform layer masks — the mask stays behind in doc space (→ S.5)
+- [x] Transforms (free transform and discrete flip/rotate) do not transform layer masks — fixed in S.5 (2026-07-06; live-preview mask still static until commit, see S.5 deferred notes)
 - [ ] Crop / Canvas Size only handle PixelLayers; text/vector layers, masks, and the active selection stay in the old coordinate space and can blank the canvas (→ S.2)
 - [ ] "Again (repeat last transform)" is backend-complete but has zero frontend wiring (→ S.8)
 - [ ] Content-Aware Fill is BFS neighbor-average diffusion, not PatchMatch-class inpainting — the checked item overstates
@@ -920,7 +924,7 @@
   - [x] Respects selection mask
   - [x] `Edit > Fill` dialog: fill with color / background color / pattern
 - [x] **Gradient Tool (G):**
-  - [ ] Types: Linear, ~~Radial~~, Angle, Reflected, Diamond — **Radial is not implemented: the UI offers it but `fill_gradient.go:445` falls through to linear (→ S.5)**
+  - [x] Types: Linear, Radial, Angle, Reflected, Diamond — Radial implemented in S.5 (2026-07-06)
   - [x] Gradient editor:
     - [x] Color stops (add/remove/move)
     - [x] Opacity stops
@@ -967,8 +971,8 @@
 
 ### Phase 4 — Review gaps (2026-07-06, see Phase S)
 
-- [ ] Brush/eraser/clone strokes ignore the active selection — painting with a marquee active paints outside it (→ S.5)
-- [ ] Mouse input paints at 75% size / 50% flow: pressure defaults to 0.5 with size/flow dynamics on, so every mouse user gets a weakened brush (→ S.5)
+- [x] Brush/eraser/clone strokes ignore the active selection — fixed in S.5 (2026-07-06)
+- [x] Mouse input paints at 75% size / 50% flow — fixed in S.5 (2026-07-06; pointerType-gated pressure)
 - [ ] Brush dynamics jitter sliders + control-source dropdown are display-only — values never reach the engine, no proto fields exist (→ S.8)
 - [ ] `.abr` import is a filename-regex heuristic, not a format parser (→ S.8)
 - [ ] Gradient "fill layer" is rasterized, not a non-destructive parametric layer; opacity stops are folded into stop colors, not independent
@@ -1136,9 +1140,9 @@
 
 - [ ] **The entire filter system is unreachable from the UI**: all ~22 engine filters, the preview pipeline, Ctrl+F, and Fade work and are tested in Go, but the Filter menu is a static mock with no dispatch and no TS payload types (→ S.8)
 - [ ] Filter-dialog commit applies the filter with nil params — OK is a visual no-op even once wired (→ S.2)
-- [ ] Levels/Exposure gamma convention is inverted vs Photoshop (`v^gamma` instead of `v^(1/gamma)`); output-white default trap yields near-black output (→ S.5)
+- [x] Levels/Exposure gamma convention is inverted vs Photoshop; output-white default trap — fixed in S.5 (2026-07-06)
 - [ ] Curves black/white/gray eyedropper (`SetPointFromSample`) and Hue/Sat range eyedropper (`IdentifyHueRange`) exist in the engine but are never dispatched (→ S.8)
-- [ ] Non-Gaussian filters average RGB only and copy original alpha (halo bleed, frozen silhouettes in distort filters) (→ S.5)
+- [x] Non-Gaussian filters average RGB only and copy original alpha — fixed in S.5 (2026-07-06; premultiplied 4-channel filtering)
 - [ ] Adjustment sliders dispatch one synchronous engine command per tick with no debounce/transaction batching (→ S.7)
 
 ---
@@ -1170,7 +1174,7 @@
   - [x] Shift+click: add/remove from selection
   - [x] Drag selection rect: marquee-select multiple anchors
 - [x] **Path Operations:**
-  - [ ] Combine (union), Subtract, ~~Intersect~~, Exclude, ~~Divide~~ — **not real boolean geometry: Combine/Exclude are subpath concatenation over even-odd fill, Subtract is a winding reversal (no-op under even-odd), Intersect returns an error; needs Clipper2 (→ S.5)**
+  - [x] Combine (union), Subtract, Intersect, Exclude — real boolean geometry via Clipper2 since S.5 (2026-07-06); ~~Divide~~ (no engine op exists)
   - [x] Flatten path to single subpath
 - [x] **Rasterize path to mask / layer:**
   - [x] Render path via AGG rasterizer with AA → alpha mask or pixel layer
@@ -1300,7 +1304,7 @@
 
 ### Phase 6.5 — Review gaps (2026-07-06, see Phase S)
 
-- [ ] Drop shadow falls *toward* the light at the PS-default 120° angle (sign error), and DropShadow/OuterGlow composite on top of layer content instead of behind it (→ S.5)
+- [x] Drop shadow falls *toward* the light at the PS-default 120° angle, and DropShadow/OuterGlow composite on top of layer content instead of behind it — fixed in S.5 (2026-07-06)
 - [ ] Gradient Overlay renders a hardcoded blue→orange ramp — user gradient stops are ignored; Pattern Overlay / pattern stroke are hardcoded checkerboards (→ S.6)
 - [ ] Contour, Noise, Knockout, Altitude, and bevel Technique params are decoded but never used in rendering (→ S.6)
 

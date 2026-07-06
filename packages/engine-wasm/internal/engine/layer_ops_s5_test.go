@@ -66,8 +66,10 @@ func TestFlattenLayerDoesNotDoubleApplyOpacity(t *testing.T) {
 }
 
 // S.5.2: Merge Visible must keep hidden layers at their original stack
-// positions; the merged layer replaces the topmost visible layer's slot
-// (Photoshop behaviour), instead of pushing hidden layers below the result.
+// positions; the merged layer replaces the BOTTOMMOST visible layer's slot
+// (Photoshop behaviour: Merge Visible collapses into the Background / lowest
+// visible layer, and hidden layers survive above the merged result — same
+// direction as Merge Down, which also lands in the lower layer's slot).
 func TestMergeVisiblePreservesHiddenLayerZOrder(t *testing.T) {
 	doc := &Document{Width: 1, Height: 1, LayerRoot: NewGroupLayer("Root")}
 	newLayer := func(name string, visible bool) *PixelLayer {
@@ -92,14 +94,14 @@ func TestMergeVisiblePreservesHiddenLayerZOrder(t *testing.T) {
 	for _, child := range children {
 		got = append(got, child.Name())
 	}
-	want := []string{"H0", "H2", "Merged Visible", "H4"}
+	want := []string{"H0", "Merged Visible", "H2", "H4"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("layer order after merge visible = %v, want %v (merged replaces topmost visible slot, hidden layers keep positions)", got, want)
+		t.Fatalf("layer order after merge visible = %v, want %v (merged replaces bottommost visible slot, hidden layers keep positions)", got, want)
 	}
-	if children[2].ID() != doc.ActiveLayerID {
-		t.Fatalf("active layer = %q, want merged layer %q", doc.ActiveLayerID, children[2].ID())
+	if children[1].ID() != doc.ActiveLayerID {
+		t.Fatalf("active layer = %q, want merged layer %q", doc.ActiveLayerID, children[1].ID())
 	}
-	for _, index := range []int{0, 1, 3} {
+	for _, index := range []int{0, 2, 3} {
 		if children[index].Visible() {
 			t.Fatalf("hidden layer %q became visible after merge visible", children[index].Name())
 		}
@@ -151,6 +153,45 @@ func TestCompositeDocumentSurfaceDissolveSeedUsesDocCoordinates(t *testing.T) {
 				t.Fatalf("clipped dissolve differs from full pass at (%d,%d): %d != %d", x, y, clipDest[offset], dest[offset])
 			}
 		}
+	}
+}
+
+// S.5.4b: Layer-style effect overlays composite through the document-surface
+// path and must use the same doc-coordinate dissolve seed as everything else
+// (previously they went through the width-less compositeDocumentSurface and
+// seeded by flat pixel index, which dissolves ~every pixel).
+func TestLayerStyleOverlayDissolveSeedUsesDocCoordinates(t *testing.T) {
+	const docW, docH = 8, 8
+	dst := bytes.Repeat([]byte{0, 0, 0, 255}, docW*docH)
+	source := bytes.Repeat([]byte{128, 128, 128, 255}, docW*docH)
+
+	applyLayerStyleEffect(dst, source, docW, docH, DecodedLayerStyle{
+		Kind: string(LayerStyleKindColorOverlay),
+		ColorOverlay: ColorOverlayParams{
+			BlendMode: BlendModeDissolve,
+			Color:     [4]uint8{255, 255, 255, 255},
+			Opacity:   0.5,
+		},
+	})
+
+	dissolved, kept := 0, 0
+	for y := 0; y < docH; y++ {
+		for x := 0; x < docW; x++ {
+			offset := (y*docW + x) * 4
+			want := byte(0)
+			if dissolveEnabled(0.5, pixelNoiseSeed(x, y)) {
+				want = 255
+				dissolved++
+			} else {
+				kept++
+			}
+			if dst[offset] != want {
+				t.Fatalf("overlay pixel (%d,%d) = %d, want %d — effect overlays must seed dissolve by doc coordinates", x, y, dst[offset], want)
+			}
+		}
+	}
+	if dissolved == 0 || kept == 0 {
+		t.Fatalf("degenerate overlay dissolve at 50%%: dissolved=%d kept=%d, expected a mix", dissolved, kept)
 	}
 }
 

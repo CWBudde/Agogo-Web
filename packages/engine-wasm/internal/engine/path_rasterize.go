@@ -65,6 +65,9 @@ func fillPathOnDoc(doc *Document, pathIdx int, color [4]uint8) error {
 	if layer == nil {
 		return fmt.Errorf("no active pixel layer")
 	}
+	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+		return err
+	}
 
 	bounds := layer.Bounds
 	stride := bounds.W * 4
@@ -98,6 +101,9 @@ func strokePathOnDoc(doc *Document, pathIdx int, width float64, color [4]uint8) 
 	layer := findPixelLayer(doc, doc.ActiveLayerID)
 	if layer == nil {
 		return fmt.Errorf("no active pixel layer")
+	}
+	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+		return err
 	}
 
 	bounds := layer.Bounds

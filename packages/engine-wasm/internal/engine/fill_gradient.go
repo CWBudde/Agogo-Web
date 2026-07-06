@@ -54,6 +54,13 @@ func applyFillToDocument(inst *instance, doc *Document, p FillPayload) error {
 	if layer == nil {
 		return fmt.Errorf("no active pixel layer")
 	}
+	// Filling into a new layer leaves the (possibly locked) active layer
+	// untouched, so only the paint-onto-layer destination checks the lock.
+	if !p.CreateLayer {
+		if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+			return err
+		}
+	}
 
 	mode := fillDestinationPaint
 	if p.CreateLayer {
@@ -122,6 +129,13 @@ func applyGradientToDocument(inst *instance, doc *Document, p ApplyGradientPaylo
 	layer := findPixelLayer(doc, doc.ActiveLayerID)
 	if layer == nil {
 		return fmt.Errorf("no active pixel layer")
+	}
+	// A gradient rendered into a new layer leaves the (possibly locked)
+	// active layer untouched, so only the paint destination checks the lock.
+	if !p.CreateLayer {
+		if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
+			return err
+		}
 	}
 
 	mode := fillDestinationPaint

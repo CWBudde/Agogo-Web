@@ -129,6 +129,9 @@ func (inst *instance) handleApplyFilter(payload ApplyFilterPayload) (bool, error
 	if !ok {
 		return true, fmt.Errorf("apply filter: layer %q is %s — destructive filters require a pixel layer (Smart Filters planned for Phase 7+)", layerID, node.LayerType())
 	}
+	if err := ensureLayerEditable(pl, editLayerPixels); err != nil {
+		return true, fmt.Errorf("apply filter: %w", err)
+	}
 
 	// Save pre-filter snapshot for Fade.
 	preFade := &fadeSnapshot{
@@ -181,6 +184,9 @@ func (inst *instance) handleReapplyFilter() (bool, error) {
 	if !ok {
 		return true, fmt.Errorf("reapply filter: active layer %q is %s, not a pixel layer", layerID, node.LayerType())
 	}
+	if err := ensureLayerEditable(pl, editLayerPixels); err != nil {
+		return true, fmt.Errorf("reapply filter: %w", err)
+	}
 
 	preFade := &fadeSnapshot{
 		LayerID:    layerID,
@@ -225,6 +231,11 @@ func (inst *instance) handlePreviewFilter(payload PreviewFilterPayload) (bool, e
 	pl, ok := node.(*PixelLayer)
 	if !ok {
 		return true, fmt.Errorf("preview filter: layer %q is not a pixel layer", layerID)
+	}
+	// Previews mutate the stored document in place, so a locked layer must be
+	// rejected before the first preview pixel is written.
+	if err := ensureLayerEditable(pl, editLayerPixels); err != nil {
+		return true, fmt.Errorf("preview filter: %w", err)
 	}
 
 	// On first preview call, snapshot the original pixels. On subsequent
@@ -344,6 +355,14 @@ func (inst *instance) handleCommitFilterPreview() (bool, error) {
 	if !ok {
 		return true, fmt.Errorf("commit filter preview: layer %q is not a pixel layer", preview.LayerID)
 	}
+	if err := ensureLayerEditable(pl, editLayerPixels); err != nil {
+		// The layer was locked after the preview started. Restore the
+		// pre-preview pixels (exactly like cancel) so the rejected commit
+		// leaves the locked layer untouched.
+		copy(pl.Pixels, preview.OrigPixels)
+		doc.bumpContentVersionRect(DirtyRect{X: pl.Bounds.X, Y: pl.Bounds.Y, W: pl.Bounds.W, H: pl.Bounds.H})
+		return true, fmt.Errorf("commit filter preview: %w", err)
+	}
 
 	// If previewed at reduced scale, the current pixels are approximate.
 	// Re-apply at full resolution for the final commit.
@@ -406,6 +425,9 @@ func (inst *instance) handleFadeFilter(payload FadeFilterPayload) (bool, error) 
 		pl, ok := node.(*PixelLayer)
 		if !ok {
 			return fmt.Errorf("fade filter: layer %q is not a pixel layer", snap.LayerID)
+		}
+		if err := ensureLayerEditable(pl, editLayerPixels); err != nil {
+			return fmt.Errorf("fade filter: %w", err)
 		}
 
 		orig := snap.OrigPixels

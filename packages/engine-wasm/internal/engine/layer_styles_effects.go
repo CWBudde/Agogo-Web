@@ -35,27 +35,27 @@ func isSupportedLayerStyleKind(kind LayerStyleKind) bool {
 func applyLayerStyleEffect(dst, sourceSurface []byte, docW, docH int, style DecodedLayerStyle) {
 	switch LayerStyleKind(style.Kind) {
 	case LayerStyleKindColorOverlay:
-		compositeDocumentSurface(dst, buildColorOverlaySurface(sourceSurface, docW, docH, style.ColorOverlay), style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildColorOverlaySurface(sourceSurface, docW, docH, style.ColorOverlay), docW, style.ColorOverlay.BlendMode, style.ColorOverlay.Opacity, nil, nil)
 	case LayerStyleKindGradientOverlay:
-		compositeDocumentSurface(dst, buildGradientOverlaySurface(sourceSurface, docW, docH, style.GradientOverlay), style.GradientOverlay.BlendMode, style.GradientOverlay.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildGradientOverlaySurface(sourceSurface, docW, docH, style.GradientOverlay), docW, style.GradientOverlay.BlendMode, style.GradientOverlay.Opacity, nil, nil)
 	case LayerStyleKindPatternOverlay:
-		compositeDocumentSurface(dst, buildPatternOverlaySurface(sourceSurface, docW, docH, style.PatternOverlay), style.PatternOverlay.BlendMode, style.PatternOverlay.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildPatternOverlaySurface(sourceSurface, docW, docH, style.PatternOverlay), docW, style.PatternOverlay.BlendMode, style.PatternOverlay.Opacity, nil, nil)
 	case LayerStyleKindStroke:
-		compositeDocumentSurface(dst, buildStrokeSurface(sourceSurface, docW, docH, style.Stroke), style.Stroke.BlendMode, style.Stroke.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildStrokeSurface(sourceSurface, docW, docH, style.Stroke), docW, style.Stroke.BlendMode, style.Stroke.Opacity, nil, nil)
 	case LayerStyleKindInnerShadow:
-		compositeDocumentSurface(dst, buildInnerShadowSurface(sourceSurface, docW, docH, style.InnerShadow), style.InnerShadow.BlendMode, style.InnerShadow.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildInnerShadowSurface(sourceSurface, docW, docH, style.InnerShadow), docW, style.InnerShadow.BlendMode, style.InnerShadow.Opacity, nil, nil)
 	case LayerStyleKindInnerGlow:
-		compositeDocumentSurface(dst, buildInnerGlowSurface(sourceSurface, docW, docH, style.InnerGlow), style.InnerGlow.BlendMode, style.InnerGlow.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildInnerGlowSurface(sourceSurface, docW, docH, style.InnerGlow), docW, style.InnerGlow.BlendMode, style.InnerGlow.Opacity, nil, nil)
 	case LayerStyleKindBevelEmboss:
 		highlight, shadow := buildBevelEmbossSurfaces(sourceSurface, docW, docH, style.BevelEmboss)
-		compositeDocumentSurface(dst, highlight, style.BevelEmboss.Highlight, bevelEmbossOpacity(style.BevelEmboss.HighlightO, style.BevelEmboss.Depth), nil)
-		compositeDocumentSurface(dst, shadow, style.BevelEmboss.Shadow, bevelEmbossOpacity(style.BevelEmboss.ShadowO, style.BevelEmboss.Depth), nil)
+		compositeDocumentSurfaceClipped(dst, highlight, docW, style.BevelEmboss.Highlight, bevelEmbossOpacity(style.BevelEmboss.HighlightO, style.BevelEmboss.Depth), nil, nil)
+		compositeDocumentSurfaceClipped(dst, shadow, docW, style.BevelEmboss.Shadow, bevelEmbossOpacity(style.BevelEmboss.ShadowO, style.BevelEmboss.Depth), nil, nil)
 	case LayerStyleKindSatin:
-		compositeDocumentSurface(dst, buildSatinSurface(sourceSurface, docW, docH, style.Satin), style.Satin.BlendMode, style.Satin.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildSatinSurface(sourceSurface, docW, docH, style.Satin), docW, style.Satin.BlendMode, style.Satin.Opacity, nil, nil)
 	case LayerStyleKindDropShadow:
-		compositeDocumentSurface(dst, buildDropShadowSurface(sourceSurface, docW, docH, style.DropShadow), style.DropShadow.BlendMode, style.DropShadow.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildDropShadowSurface(sourceSurface, docW, docH, style.DropShadow), docW, style.DropShadow.BlendMode, style.DropShadow.Opacity, nil, nil)
 	case LayerStyleKindOuterGlow:
-		compositeDocumentSurface(dst, buildOuterGlowSurface(sourceSurface, docW, docH, style.OuterGlow), style.OuterGlow.BlendMode, style.OuterGlow.Opacity, nil)
+		compositeDocumentSurfaceClipped(dst, buildOuterGlowSurface(sourceSurface, docW, docH, style.OuterGlow), docW, style.OuterGlow.BlendMode, style.OuterGlow.Opacity, nil, nil)
 	}
 }
 
