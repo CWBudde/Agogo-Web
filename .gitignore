@@ -29,3 +29,5 @@ Thumbs.db
 
 # ── AI Agents ────────────────────────────────────────────────────────────────
 .codex
+# TypeScript incremental build metadata
+*.tsbuildinfo
