@@ -1,3 +1,5 @@
+import type { GradientStopCommand } from "@agogo/proto";
+
 export type Rgba = readonly [number, number, number, number];
 export type Rgb = readonly [number, number, number];
 export type Hsv = readonly [number, number, number];
@@ -161,4 +163,19 @@ export function formatPercent(value: number): string {
 
 export function colorEquals(left: Rgba, right: Rgba): boolean {
   return left.every((component, index) => clampByte(component) === clampByte(right[index]));
+}
+
+export function gradientStopsToCss(stops: GradientStopCommand[]) {
+  const normalized = stops
+    .map((stop) => ({
+      position: Math.max(0, Math.min(1, stop.position)),
+      color: stop.color,
+    }))
+    .sort((a, b) => a.position - b.position);
+  if (normalized.length === 0) {
+    return "linear-gradient(90deg, rgba(0, 0, 0, 1), rgba(255, 255, 255, 1))";
+  }
+  return `linear-gradient(90deg, ${normalized
+    .map((stop) => `${rgbaToCss(toRgba(stop.color))} ${Math.round(stop.position * 100)}%`)
+    .join(", ")})`;
 }

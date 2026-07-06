@@ -1,6 +1,7 @@
 import type { PathPointCommand, ShapeSubpathCommand } from "@agogo/proto";
 import {
   getShapePresetSubpaths,
+  SHAPE_PRESETS,
   type ShapePreset,
   type ShapePresetCategory,
 } from "@/lib/shape-presets";
@@ -422,4 +423,30 @@ function slug(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "shape";
+}
+
+export function mergeImportedShapePresets(existing: ShapePreset[], imported: ShapePreset[]) {
+  const merged = [...existing];
+  const usedIds = new Set([...SHAPE_PRESETS, ...existing].map((preset) => preset.id));
+  const usedNames = new Set(
+    [...SHAPE_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
+  );
+
+  for (const preset of imported) {
+    const normalizedName = preset.name.trim();
+    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
+      continue;
+    }
+    let id = preset.id;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${preset.id}-${suffix}`;
+      suffix += 1;
+    }
+    merged.push({ ...preset, id, name: normalizedName, category: "imported" });
+    usedIds.add(id);
+    usedNames.add(normalizedName.toLowerCase());
+  }
+
+  return merged;
 }

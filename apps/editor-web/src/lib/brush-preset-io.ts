@@ -1,4 +1,8 @@
-import type { BrushPreset, BrushTipShape } from "@/components/brush-color-panels";
+import {
+  BRUSH_PRESETS,
+  type BrushPreset,
+  type BrushTipShape,
+} from "@/components/brush-color-panels";
 
 type BrushPresetRecord = {
   presets: BrushPreset[];
@@ -233,4 +237,30 @@ function slug(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "brush";
+}
+
+export function mergeImportedBrushPresets(existing: BrushPreset[], imported: BrushPreset[]) {
+  const merged = [...existing];
+  const usedIds = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.id));
+  const usedNames = new Set(
+    [...BRUSH_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
+  );
+
+  for (const preset of imported) {
+    const normalizedName = preset.name.trim();
+    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
+      continue;
+    }
+    let id = preset.id;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${preset.id}-${suffix}`;
+      suffix += 1;
+    }
+    merged.push({ ...preset, id, name: normalizedName });
+    usedIds.add(id);
+    usedNames.add(normalizedName.toLowerCase());
+  }
+
+  return merged;
 }

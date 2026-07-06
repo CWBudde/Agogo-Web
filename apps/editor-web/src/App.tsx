@@ -7,7 +7,6 @@ import {
   type CropOverlayType,
   type FillCommand,
   type FillSource,
-  type FreeTransformMeta,
   type GradientStopCommand,
   type GradientType,
   type InterpolMode,
@@ -15,7 +14,6 @@ import {
   type LayerNodeMeta,
   type SampleMergedColorCommand,
   type SetColorCommand,
-  type TextEditInputCommand,
   type ThumbnailEntry,
   type UpdateCropCommand,
 } from "@agogo/proto";
@@ -42,49 +40,34 @@ import {
   type MixerBrushPreset,
   SwatchesPanel,
 } from "@/components/brush-color-panels";
+import { ChannelsPanel } from "@/components/channels-panel";
+import { CompactRange } from "@/components/compact-range";
+import { type AuxPanel, DockSection, dockTitle } from "@/components/dock-section";
 import { EditorCanvas } from "@/components/editor-canvas";
-import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import {
-  ArtboardToolIcon,
-  BrushToolIcon,
-  ClipboardIcon,
-  CopyIcon,
-  CropToolIcon,
-  DirectSelectIcon,
-  EraserToolIcon,
-  EyedropperToolIcon,
-  FillToolIcon,
   FitScreenIcon,
-  GradientToolIcon,
-  HandToolIcon,
-  InfoIcon,
-  LassoToolIcon,
-  LayersIcon,
-  MarqueeToolIcon,
-  MoveToolIcon,
   NewDocumentIcon,
   OpenFolderIcon,
-  PanelsIcon,
-  PencilToolIcon,
-  PenToolIcon,
   RedoIcon,
   SaveIcon,
-  ScissorsIcon,
-  SelectionIcon,
-  ShapeToolIcon,
-  SlidersIcon,
-  TypeToolIcon,
   UndoIcon,
-  ZoomToolIcon,
 } from "@/components/editor-icons";
+import { EngineLoadErrorScreen } from "@/components/engine-load-error";
+import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
 import { type ColorSamplerPoint, InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
+import { MenuPreviewPanel } from "@/components/menu-bar/menu-preview";
+import { type MenuActionId, type MenuPreviewItem, menuItems } from "@/components/menu-bar/model";
 import { PathsPanel } from "@/components/paths-panel";
 import { PatternPicker } from "@/components/pattern-picker";
+import { PropertyGridRow } from "@/components/property-grid-row";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { ShapesPanel } from "@/components/shapes-panel";
 import { StylesPanel } from "@/components/styles-panel";
+import { TextEditOverlay } from "@/components/text-edit-overlay";
+import { type EditorTool, toolItems } from "@/components/tool-rail-model";
+import { TransformRefGrid } from "@/components/transform-ref-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -93,9 +76,11 @@ import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
 import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
 import {
-  hexToRgba,
   formatPercent,
+  gradientStopsToCss,
+  hexToRgba,
   type Rgba,
   rgbaToCss,
   rgbaToHex,
@@ -103,367 +88,37 @@ import {
   toMutableRgba,
   toRgba,
 } from "@/lib/color";
-import { loadBrushPresetFile, parseBrushPresetJSON } from "@/lib/brush-preset-io";
-import { loadShapePresetFile, parseShapePresetJSON } from "@/lib/shape-preset-io";
+import {
+  CUSTOM_BRUSH_PRESETS_KEY,
+  CUSTOM_SHAPE_PRESETS_KEY,
+  CUSTOM_SWATCHES_KEY,
+  CUSTOM_SWATCHES_NAME_KEY,
+  GRADIENT_STOPS_KEY,
+  loadBrushPresetList,
+  loadColorList,
+  loadGradientStops,
+  loadShapePresetList,
+  loadStoredName,
+  RECENT_COLORS_KEY,
+} from "@/lib/persisted-ui";
+import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
 import { SHAPE_PRESETS, type ShapePreset } from "@/lib/shape-presets";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
+import { applyTransformFieldChange, buildWarpGrid, refPointToPivot } from "@/lib/transform-math";
+import {
+  type DocumentUnit,
+  formatDimension,
+  pixelsToUnit,
+  unitSteps,
+  unitToPixels,
+} from "@/lib/units";
 import { parseNumericInput } from "@/lib/utils";
 import { useEngine } from "@/wasm/context";
 
-type MenuPreviewTone = "default" | "accent" | "muted";
-
-type MenuActionId =
-  | "new-document"
-  | "open-project"
-  | "open-recent"
-  | "save-project"
-  | "save-psd"
-  | "save-psb"
-  | "export-project"
-  | "generate-assets"
-  | "canvas-size"
-  | "transform-free"
-  | "transform-scale"
-  | "transform-rotate"
-  | "transform-skew"
-  | "transform-distort"
-  | "transform-perspective"
-  | "transform-warp"
-  | "transform-flip-h"
-  | "transform-flip-v"
-  | "transform-rotate-cw"
-  | "transform-rotate-ccw"
-  | "transform-rotate-180"
-  | "edit-fill"
-  | "image-invert"
-  | "image-channel-mixer"
-  | "image-threshold"
-  | "image-posterize"
-  | "image-selective-color"
-  | "image-photo-filter"
-  | "image-gradient-map"
-  | "select-all"
-  | "select-deselect"
-  | "select-reselect"
-  | "select-invert"
-  | "select-feather"
-  | "select-expand"
-  | "select-contract"
-  | "select-smooth"
-  | "select-border"
-  | "select-transform"
-  | "select-color-range"
-  | "select-save-channel"
-  | "select-load-channel"
-  | "select-and-mask"
-  | "view-toggle-guides";
-
-type MenuPreviewItem = {
-  label: string;
-  shortcut?: string;
-  tone?: MenuPreviewTone;
-  actionId?: MenuActionId;
-  disabled?: boolean;
-  checked?: boolean;
-};
-
-type MenuPreviewMenu = {
-  label: string;
-  caption: string;
-  align?: "left" | "right";
-  sections: { title: string; items: MenuPreviewItem[] }[];
-};
-
-const menuItems: MenuPreviewMenu[] = [
-  {
-    label: "File",
-    caption: "Document lifecycle and export flow preview.",
-    sections: [
-      {
-        title: "Document",
-        items: [
-          {
-            label: "New Document",
-            shortcut: "Ctrl+N",
-            tone: "accent",
-            actionId: "new-document",
-          },
-          { label: "Open...", shortcut: "Ctrl+O", actionId: "open-project" },
-          { label: "Open Recent", actionId: "open-recent" },
-        ],
-      },
-      {
-        title: "Output",
-        items: [
-          { label: "Save Archive", shortcut: "Ctrl+S", actionId: "save-project" },
-          { label: "Save as PSD", actionId: "save-psd" },
-          { label: "Save as PSB", actionId: "save-psb" },
-          {
-            label: "Export As...",
-            shortcut: "Ctrl+Shift+E",
-            actionId: "export-project",
-          },
-          {
-            label: "Generate Assets",
-            tone: "muted",
-            actionId: "generate-assets",
-            disabled: true,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    label: "Edit",
-    caption: "History, clipboard, and transform placeholders.",
-    sections: [
-      {
-        title: "History",
-        items: [
-          { label: "Undo", shortcut: "Ctrl+Z", tone: "accent" },
-          { label: "Redo", shortcut: "Ctrl+Shift+Z" },
-        ],
-      },
-      {
-        title: "Clipboard",
-        items: [
-          { label: "Cut", shortcut: "Ctrl+X" },
-          { label: "Copy", shortcut: "Ctrl+C" },
-          { label: "Paste", shortcut: "Ctrl+V" },
-        ],
-      },
-      {
-        title: "Fill",
-        items: [
-          {
-            label: "Fill...",
-            shortcut: "Shift+F5",
-            actionId: "edit-fill" as const,
-            tone: "accent",
-          },
-        ],
-      },
-      {
-        title: "Transform",
-        items: [
-          {
-            label: "Free Transform",
-            shortcut: "Ctrl+T",
-            tone: "accent",
-            actionId: "transform-free" as const,
-          },
-          { label: "Scale", actionId: "transform-scale" as const },
-          { label: "Rotate", actionId: "transform-rotate" as const },
-          { label: "Skew", actionId: "transform-skew" as const },
-          { label: "Distort", actionId: "transform-distort" as const },
-          { label: "Perspective", actionId: "transform-perspective" as const },
-          { label: "Warp", actionId: "transform-warp" as const },
-          { label: "Flip Horizontal", actionId: "transform-flip-h" as const },
-          { label: "Flip Vertical", actionId: "transform-flip-v" as const },
-          { label: "Rotate 90° CW", actionId: "transform-rotate-cw" as const },
-          { label: "Rotate 90° CCW", actionId: "transform-rotate-ccw" as const },
-          { label: "Rotate 180°", actionId: "transform-rotate-180" as const },
-        ],
-      },
-    ],
-  },
-  {
-    label: "Image",
-    caption: "Canvas-wide operations and color management preview.",
-    sections: [
-      {
-        title: "Adjustments",
-        items: [
-          { label: "Levels..." },
-          { label: "Curves..." },
-          { label: "Hue/Saturation..." },
-          { label: "Invert", actionId: "image-invert" as const },
-          { label: "Channel Mixer...", actionId: "image-channel-mixer" as const },
-          { label: "Threshold...", actionId: "image-threshold" as const },
-          { label: "Posterize...", actionId: "image-posterize" as const },
-          { label: "Selective Color...", actionId: "image-selective-color" as const },
-          { label: "Photo Filter...", actionId: "image-photo-filter" as const },
-          { label: "Gradient Map...", actionId: "image-gradient-map" as const },
-        ],
-      },
-      {
-        title: "Geometry",
-        items: [
-          { label: "Image Size..." },
-          { label: "Canvas Size...", shortcut: "Ctrl+Alt+C", actionId: "canvas-size" as const },
-          { label: "Trim" },
-        ],
-      },
-    ],
-  },
-  {
-    label: "Layer",
-    caption: "Layer stack actions matching the right-side dock.",
-    sections: [
-      {
-        title: "Create",
-        items: [
-          { label: "New Layer", shortcut: "Shift+Ctrl+N", tone: "accent" },
-          { label: "New Group" },
-          { label: "Layer Mask" },
-        ],
-      },
-      {
-        title: "Arrange",
-        items: [
-          { label: "Duplicate Layer", shortcut: "Ctrl+J" },
-          { label: "Merge Down", shortcut: "Ctrl+E" },
-          { label: "Rasterize", tone: "muted" },
-        ],
-      },
-    ],
-  },
-  {
-    label: "Select",
-    caption: "Selection workflows and edge refinement.",
-    sections: [
-      {
-        title: "Global",
-        items: [
-          { label: "All", shortcut: "Ctrl+A", actionId: "select-all" as const },
-          { label: "Deselect", shortcut: "Ctrl+D", actionId: "select-deselect" as const },
-          { label: "Reselect", shortcut: "Ctrl+Shift+D", actionId: "select-reselect" as const },
-          { label: "Inverse", shortcut: "Ctrl+Shift+I", actionId: "select-invert" as const },
-        ],
-      },
-      {
-        title: "Modify",
-        items: [
-          { label: "Feather...", actionId: "select-feather" as const },
-          { label: "Expand...", actionId: "select-expand" as const },
-          { label: "Contract...", actionId: "select-contract" as const },
-          { label: "Smooth...", actionId: "select-smooth" as const },
-          { label: "Border...", actionId: "select-border" as const },
-          { label: "Transform Selection", actionId: "select-transform" as const },
-          { label: "Color Range...", actionId: "select-color-range" as const },
-          { label: "Save Selection...", actionId: "select-save-channel" as const },
-          { label: "Load Selection...", actionId: "select-load-channel" as const },
-        ],
-      },
-      {
-        title: "Refine",
-        items: [{ label: "Select and Mask", actionId: "select-and-mask" as const }],
-      },
-    ],
-  },
-  {
-    label: "Filter",
-    caption: "Effect categories and future gallery entry points.",
-    sections: [
-      {
-        title: "Recent",
-        items: [
-          { label: "Last Filter", shortcut: "Ctrl+F" },
-          { label: "Fade Last Filter", tone: "muted" },
-        ],
-      },
-      {
-        title: "Families",
-        items: [{ label: "Blur" }, { label: "Noise" }, { label: "Stylize" }],
-      },
-    ],
-  },
-  {
-    label: "View",
-    caption: "Viewport controls that mirror the current chrome.",
-    sections: [
-      {
-        title: "Zoom",
-        items: [
-          { label: "Zoom In", shortcut: "Ctrl++", tone: "accent" },
-          { label: "Zoom Out", shortcut: "Ctrl+-" },
-          { label: "Fit on Screen", shortcut: "Ctrl+0" },
-        ],
-      },
-      {
-        title: "Overlays",
-        items: [
-          { label: "Pixel Grid" },
-          { label: "Rulers" },
-          { label: "Guides", actionId: "view-toggle-guides" },
-        ],
-      },
-    ],
-  },
-  {
-    label: "Window",
-    caption: "Dock and workspace organization preview.",
-    align: "right",
-    sections: [
-      {
-        title: "Panels",
-        items: [{ label: "Layers", tone: "accent" }, { label: "Navigator" }, { label: "History" }],
-      },
-      {
-        title: "Workspace",
-        items: [{ label: "Essentials" }, { label: "Painting" }, { label: "Reset Workspace" }],
-      },
-    ],
-  },
-  {
-    label: "Help",
-    caption: "Support, onboarding, and diagnostics preview.",
-    align: "right",
-    sections: [
-      {
-        title: "Learn",
-        items: [
-          { label: "Welcome Tour" },
-          { label: "Keyboard Shortcuts" },
-          { label: "What’s New" },
-        ],
-      },
-      {
-        title: "Support",
-        items: [
-          { label: "Report Feedback" },
-          { label: "System Info" },
-          { label: "Release Notes", tone: "muted" },
-        ],
-      },
-    ],
-  },
-];
-
-type EditorTool = ShortcutTool | "mixerBrush" | "type" | "shape" | "transform" | "artboard";
 type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
 type LassoMode = "freehand" | "polygon" | "magnetic";
 type WandMode = "magic" | "quick";
-
-const toolItems: {
-  id: EditorTool;
-  label: string;
-  Icon: typeof MoveToolIcon;
-}[] = [
-  { id: "move", label: "Move", Icon: MoveToolIcon },
-  { id: "marquee", label: "Marquee", Icon: MarqueeToolIcon },
-  { id: "lasso", label: "Lasso", Icon: LassoToolIcon },
-  { id: "crop", label: "Crop", Icon: CropToolIcon },
-  { id: "wand", label: "Wand", Icon: SelectionIcon },
-  { id: "brush", label: "Brush", Icon: BrushToolIcon },
-  { id: "mixerBrush", label: "Mixer Brush", Icon: BrushToolIcon },
-  { id: "cloneStamp", label: "Clone Stamp", Icon: CopyIcon },
-  { id: "historyBrush", label: "History Brush", Icon: UndoIcon },
-  { id: "pencil", label: "Pencil", Icon: PencilToolIcon },
-  { id: "eraser", label: "Eraser", Icon: EraserToolIcon },
-  { id: "fill", label: "Fill", Icon: FillToolIcon },
-  { id: "gradient", label: "Gradient", Icon: GradientToolIcon },
-  { id: "eyedropper", label: "Eyedropper", Icon: EyedropperToolIcon },
-  { id: "pen", label: "Pen", Icon: PenToolIcon },
-  { id: "directSelect", label: "Direct Selection", Icon: DirectSelectIcon },
-  { id: "type", label: "Type", Icon: TypeToolIcon },
-  { id: "shape", label: "Shape", Icon: ShapeToolIcon },
-  { id: "artboard", label: "Artboard", Icon: ArtboardToolIcon },
-  { id: "transform", label: "Transform", Icon: SlidersIcon },
-  { id: "hand", label: "Hand", Icon: HandToolIcon },
-  { id: "zoom", label: "Zoom", Icon: ZoomToolIcon },
-];
 
 const defaultDocumentDraft: CreateDocumentCommand = {
   name: "Untitled",
@@ -496,20 +151,6 @@ const paintBlendModeOptions: { value: LayerBlendMode; label: string }[] = [
   { value: "luminosity", label: "Luminosity" },
 ];
 
-type DocumentUnit = "px" | "in" | "cm" | "mm";
-type AuxPanel =
-  | "properties"
-  | "info"
-  | "adjustments"
-  | "history"
-  | "navigator"
-  | "channels"
-  | "brush"
-  | "color"
-  | "swatches"
-  | "paths"
-  | "shapes"
-  | "styles";
 type ArtboardPreset = "custom" | "hd" | "iphone" | "ipad" | "a4";
 
 const artboardPresetMap: Record<
@@ -522,172 +163,7 @@ const artboardPresetMap: Record<
   a4: { width: 2480, height: 3508, label: "A4" },
 };
 
-const unitSteps: Record<DocumentUnit, number> = {
-  px: 1,
-  in: 0.01,
-  cm: 0.1,
-  mm: 1,
-};
-
-const RECENT_COLORS_KEY = "agogo:recent-colors";
-const CUSTOM_BRUSH_PRESETS_KEY = "agogo:custom-brush-presets";
-const CUSTOM_SHAPE_PRESETS_KEY = "agogo:custom-shape-presets";
-const CUSTOM_SWATCHES_KEY = "agogo:custom-swatches";
-const CUSTOM_SWATCHES_NAME_KEY = "agogo:custom-swatches-name";
-const GRADIENT_STOPS_KEY = "agogo:gradient-stops";
 const MAX_SWATCHES = 96;
-
-function pixelsToUnit(pixels: number, resolution: number, unit: DocumentUnit) {
-  switch (unit) {
-    case "in":
-      return pixels / resolution;
-    case "cm":
-      return (pixels / resolution) * 2.54;
-    case "mm":
-      return (pixels / resolution) * 25.4;
-    default:
-      return pixels;
-  }
-}
-
-function unitToPixels(value: number, resolution: number, unit: DocumentUnit) {
-  switch (unit) {
-    case "in":
-      return value * resolution;
-    case "cm":
-      return (value / 2.54) * resolution;
-    case "mm":
-      return (value / 25.4) * resolution;
-    default:
-      return value;
-  }
-}
-
-function formatDimension(value: number, unit: DocumentUnit) {
-  if (unit === "px" || unit === "mm") {
-    return Math.round(value).toString();
-  }
-  return value.toFixed(2);
-}
-
-function loadColorList(key: string, fallback: Rgba[]): Rgba[] {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return fallback;
-    }
-    return parsed
-      .map((entry) => {
-        if (!Array.isArray(entry) || entry.length < 4) {
-          return null;
-        }
-        return [Number(entry[0]), Number(entry[1]), Number(entry[2]), Number(entry[3])] as Rgba;
-      })
-      .filter((entry): entry is Rgba => entry !== null);
-  } catch {
-    return fallback;
-  }
-}
-
-function loadBrushPresetList(key: string, fallback: BrushPreset[] = []): BrushPreset[] {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    return parseBrushPresetJSON(raw, "Imported Brushes");
-  } catch {
-    return fallback;
-  }
-}
-
-function loadShapePresetList(key: string, fallback: ShapePreset[] = []): ShapePreset[] {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    return parseShapePresetJSON(raw, "Imported Shapes");
-  } catch {
-    return fallback;
-  }
-}
-
-function loadStoredName(key: string, fallback: string): string {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-  try {
-    return window.localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function mergeImportedBrushPresets(existing: BrushPreset[], imported: BrushPreset[]) {
-  const merged = [...existing];
-  const usedIds = new Set([...BRUSH_PRESETS, ...existing].map((preset) => preset.id));
-  const usedNames = new Set(
-    [...BRUSH_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
-  );
-
-  for (const preset of imported) {
-    const normalizedName = preset.name.trim();
-    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
-      continue;
-    }
-    let id = preset.id;
-    let suffix = 2;
-    while (usedIds.has(id)) {
-      id = `${preset.id}-${suffix}`;
-      suffix += 1;
-    }
-    merged.push({ ...preset, id, name: normalizedName });
-    usedIds.add(id);
-    usedNames.add(normalizedName.toLowerCase());
-  }
-
-  return merged;
-}
-
-function mergeImportedShapePresets(existing: ShapePreset[], imported: ShapePreset[]) {
-  const merged = [...existing];
-  const usedIds = new Set([...SHAPE_PRESETS, ...existing].map((preset) => preset.id));
-  const usedNames = new Set(
-    [...SHAPE_PRESETS, ...existing].map((preset) => preset.name.toLowerCase()),
-  );
-
-  for (const preset of imported) {
-    const normalizedName = preset.name.trim();
-    if (!normalizedName || usedNames.has(normalizedName.toLowerCase())) {
-      continue;
-    }
-    let id = preset.id;
-    let suffix = 2;
-    while (usedIds.has(id)) {
-      id = `${preset.id}-${suffix}`;
-      suffix += 1;
-    }
-    merged.push({ ...preset, id, name: normalizedName, category: "imported" });
-    usedIds.add(id);
-    usedNames.add(normalizedName.toLowerCase());
-  }
-
-  return merged;
-}
 
 function fileStem(value: string) {
   const normalized = value
@@ -696,58 +172,6 @@ function fileStem(value: string) {
     .replace(/\s+/g, " ")
     .replace(/\.+$/g, "");
   return normalized || "swatches";
-}
-
-function loadGradientStops(key: string, fallback: GradientStopCommand[]): GradientStopCommand[] {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return fallback;
-    }
-    return parsed
-      .map((entry) => {
-        if (typeof entry !== "object" || entry === null) {
-          return null;
-        }
-        const candidate = entry as { position?: unknown; color?: unknown };
-        if (
-          typeof candidate.position !== "number" ||
-          !Array.isArray(candidate.color) ||
-          candidate.color.length < 4
-        ) {
-          return null;
-        }
-        return {
-          position: candidate.position,
-          color: toMutableRgba(candidate.color),
-        } satisfies GradientStopCommand;
-      })
-      .filter((entry): entry is GradientStopCommand => entry !== null);
-  } catch {
-    return fallback;
-  }
-}
-
-function gradientStopsToCss(stops: GradientStopCommand[]) {
-  const normalized = stops
-    .map((stop) => ({
-      position: Math.max(0, Math.min(1, stop.position)),
-      color: stop.color,
-    }))
-    .sort((a, b) => a.position - b.position);
-  if (normalized.length === 0) {
-    return "linear-gradient(90deg, rgba(0, 0, 0, 1), rgba(255, 255, 255, 1))";
-  }
-  return `linear-gradient(90deg, ${normalized
-    .map((stop) => `${rgbaToCss(toRgba(stop.color))} ${Math.round(stop.position * 100)}%`)
-    .join(", ")})`;
 }
 
 export default function App() {
@@ -5717,153 +5141,6 @@ export default function App() {
   );
 }
 
-const fieldClassName =
-  "h-[var(--ui-h-md)] w-full rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2.5 text-[13px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30";
-
-// ---------------------------------------------------------------------------
-// Free-transform reference-point grid
-// ---------------------------------------------------------------------------
-
-type FreeTransformCorners = [
-  [number, number],
-  [number, number],
-  [number, number],
-  [number, number],
-];
-
-/** Recompute affine transform after editing one display field in the options bar. */
-function applyTransformFieldChange(
-  ft: {
-    a: number;
-    b: number;
-    c: number;
-    d: number;
-    tx: number;
-    ty: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-  },
-  field: "x" | "y" | "w" | "h" | "r",
-  value: number,
-): { a: number; b: number; c: number; d: number; tx: number; ty: number } {
-  let { a, b, c, d, tx, ty, scaleX, scaleY, rotation } = ft;
-  switch (field) {
-    case "x":
-      tx = value;
-      break;
-    case "y":
-      ty = value;
-      break;
-    case "w": {
-      const newScaleX = value / 100;
-      const factor = scaleX !== 0 ? newScaleX / scaleX : 1;
-      a *= factor;
-      b *= factor;
-      break;
-    }
-    case "h": {
-      const newScaleY = value / 100;
-      const factor = scaleY !== 0 ? newScaleY / scaleY : 1;
-      c *= factor;
-      d *= factor;
-      break;
-    }
-    case "r": {
-      const deltaRad = ((value - rotation) * Math.PI) / 180;
-      const cos = Math.cos(deltaRad);
-      const sin = Math.sin(deltaRad);
-      const newA = a * cos - c * sin;
-      const newC = a * sin + c * cos;
-      const newB = b * cos - d * sin;
-      const newD = b * sin + d * cos;
-      a = newA;
-      b = newB;
-      c = newC;
-      d = newD;
-      break;
-    }
-  }
-  return { a, b, c, d, tx, ty };
-}
-
-/** Build a 4×4 warp control-point grid by bilinear interpolation of the transform corners. */
-function buildWarpGrid(
-  ft: FreeTransformMeta,
-): [[number, number], [number, number], [number, number], [number, number]][] {
-  const [tl, tr, br, bl] = ft.corners;
-  const grid: [[number, number], [number, number], [number, number], [number, number]][] = [];
-  for (let row = 0; row < 4; row++) {
-    const t = row / 3;
-    const rowArr: [number, number][] = [];
-    for (let col = 0; col < 4; col++) {
-      const s = col / 3;
-      const x = (1 - t) * ((1 - s) * tl[0] + s * tr[0]) + t * ((1 - s) * bl[0] + s * br[0]);
-      const y = (1 - t) * ((1 - s) * tl[1] + s * tr[1]) + t * ((1 - s) * bl[1] + s * br[1]);
-      rowArr.push([x, y]);
-    }
-    grid.push(rowArr as [[number, number], [number, number], [number, number], [number, number]]);
-  }
-  return grid;
-}
-
-/** Compute the pivot doc-space position for a given 3×3 grid cell.
- *  corners: [TL, TR, BR, BL] in document space (from FreeTransformMeta). */
-function refPointToPivot(
-  corners: FreeTransformCorners,
-  row: number,
-  col: number,
-): [number, number] {
-  const t = col / 2; // 0 = left, 0.5 = centre, 1 = right
-  const s = row / 2; // 0 = top,  0.5 = middle, 1 = bottom
-  const [tl, tr, br, bl] = corners;
-  const topX = tl[0] + t * (tr[0] - tl[0]);
-  const topY = tl[1] + t * (tr[1] - tl[1]);
-  const botX = bl[0] + t * (br[0] - bl[0]);
-  const botY = bl[1] + t * (br[1] - bl[1]);
-  return [topX + s * (botX - topX), topY + s * (botY - topY)];
-}
-
-const REF_POINT_LABELS = [
-  ["Top Left", "Top Center", "Top Right"],
-  ["Middle Left", "Center", "Middle Right"],
-  ["Bottom Left", "Bottom Center", "Bottom Right"],
-];
-
-function TransformRefGrid({
-  active,
-  onChange,
-}: {
-  active: [number, number];
-  onChange(row: number, col: number): void;
-}) {
-  return (
-    <div
-      className="grid grid-cols-3 gap-[2px] rounded-[2px] border border-white/20 p-[3px]"
-      title="Reference point — sets the pivot for the transform"
-    >
-      {([0, 1, 2] as const).flatMap((row) =>
-        ([0, 1, 2] as const).map((col) => {
-          const isActive = active[0] === row && active[1] === col;
-          return (
-            <button
-              key={`${row}-${col}`}
-              type="button"
-              title={REF_POINT_LABELS[row][col]}
-              aria-label={REF_POINT_LABELS[row][col]}
-              className={[
-                "h-[7px] w-[7px] rounded-[1px] focus-visible:outline-none",
-                isActive ? "bg-cyan-400" : "bg-slate-500 hover:bg-slate-300",
-              ].join(" ")}
-              onClick={() => onChange(row, col)}
-            />
-          );
-        }),
-      )}
-    </div>
-  );
-}
-
 function ToolOptionGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2">
@@ -5991,423 +5268,4 @@ function findLayerPositionInTree(
   return null;
 }
 
-function MenuPreviewPanel({
-  menu,
-  isItemDisabled,
-  onAction,
-  checkedActionIds,
-}: {
-  menu: MenuPreviewMenu;
-  isItemDisabled(item: MenuPreviewItem): boolean;
-  onAction(actionId: MenuActionId): void;
-  checkedActionIds?: Set<MenuActionId>;
-}) {
-  const items = menu.sections.flatMap((section) => section.items);
-
-  return (
-    <div
-      role="menu"
-      aria-label={menu.label}
-      className={[
-        "editor-popup absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden",
-        menu.align === "right" ? "right-0" : "left-0",
-      ].join(" ")}
-    >
-      <div className="border-b border-white/8 px-2.5 py-2 text-[11px] text-slate-400">
-        {menu.caption}
-      </div>
-
-      <div className="py-1">
-        {items.map((item) => {
-          const disabled = isItemDisabled(item);
-          const checked = !!(item.actionId && checkedActionIds?.has(item.actionId));
-          return (
-            <MenuPreviewAction
-              key={`${menu.label}-${item.label}`}
-              item={item}
-              disabled={disabled}
-              checked={checked}
-              onClick={item.actionId ? () => onAction(item.actionId as MenuActionId) : undefined}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MenuPreviewAction({
-  item,
-  disabled,
-  checked,
-  onClick,
-}: {
-  item: MenuPreviewItem;
-  disabled: boolean;
-  checked: boolean;
-  onClick?: () => void;
-}) {
-  const ItemIcon = iconForMenuItem(item.label);
-
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      className={[
-        "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
-        disabled
-          ? "cursor-not-allowed opacity-60"
-          : "hover:bg-white/6 focus:bg-white/6 focus:outline-none",
-      ].join(" ")}
-      disabled={disabled}
-      aria-disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <ItemIcon
-          className={[
-            "h-3.5 w-3.5 shrink-0",
-            disabled || item.tone === "muted"
-              ? "text-slate-600"
-              : item.tone === "accent"
-                ? "text-cyan-300"
-                : "text-slate-400",
-          ].join(" ")}
-        />
-        <span
-          className={
-            disabled || item.tone === "muted"
-              ? "truncate text-slate-500"
-              : "truncate text-slate-100"
-          }
-        >
-          {item.label}
-        </span>
-      </span>
-      {checked ? (
-        <span className="ml-4 shrink-0 text-[11px] text-cyan-400">✓</span>
-      ) : item.shortcut ? (
-        <span className="ml-4 shrink-0 text-[11px] text-slate-500">{item.shortcut}</span>
-      ) : null}
-    </button>
-  );
-}
-
-function iconForMenuItem(label: string) {
-  const lower = label.toLowerCase();
-
-  if (lower.includes("new")) {
-    return NewDocumentIcon;
-  }
-  if (lower.includes("open")) {
-    return OpenFolderIcon;
-  }
-  if (lower.includes("save") || lower.includes("export") || lower.includes("assets")) {
-    return SaveIcon;
-  }
-  if (lower.includes("undo")) {
-    return UndoIcon;
-  }
-  if (lower.includes("redo")) {
-    return RedoIcon;
-  }
-  if (lower.includes("cut")) {
-    return ScissorsIcon;
-  }
-  if (lower.includes("copy")) {
-    return CopyIcon;
-  }
-  if (lower.includes("paste")) {
-    return ClipboardIcon;
-  }
-  if (lower.includes("layer") || lower.includes("rasterize") || lower.includes("merge")) {
-    return LayersIcon;
-  }
-  if (lower.includes("select") || lower.includes("feather") || lower.includes("inverse")) {
-    return SelectionIcon;
-  }
-  if (
-    lower.includes("levels") ||
-    lower.includes("curves") ||
-    lower.includes("hue") ||
-    lower.includes("invert") ||
-    lower.includes("channel mixer") ||
-    lower.includes("threshold") ||
-    lower.includes("posterize") ||
-    lower.includes("selective color") ||
-    lower.includes("photo filter") ||
-    lower.includes("gradient") ||
-    lower.includes("blur") ||
-    lower.includes("noise") ||
-    lower.includes("stylize") ||
-    lower.includes("filter")
-  ) {
-    return SlidersIcon;
-  }
-  if (
-    lower.includes("zoom") ||
-    lower.includes("rulers") ||
-    lower.includes("grid") ||
-    lower.includes("guides")
-  ) {
-    return ZoomToolIcon;
-  }
-  if (
-    lower.includes("workspace") ||
-    lower.includes("navigator") ||
-    lower.includes("history") ||
-    lower.includes("panels")
-  ) {
-    return PanelsIcon;
-  }
-  return InfoIcon;
-}
-
-function DockSection({
-  title,
-  className,
-  children,
-}: {
-  title: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className={className}>
-      <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
-        <h2 className="text-[12px] font-medium text-slate-100">{title}</h2>
-      </div>
-      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">{children}</div>
-    </section>
-  );
-}
-
-function PropertyGridRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/14 px-2 py-1.5 text-[12px]">
-      <span className="text-slate-400">{label}</span>
-      <span className="text-slate-100">{value}</span>
-    </div>
-  );
-}
-
-function CompactRange({
-  id,
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block">
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
-        <span>{label}</span>
-        <span className="text-slate-300">{Math.round(value)}</span>
-      </div>
-      <input
-        id={id}
-        className="h-2 w-full accent-accent focus-visible:outline-none"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(parseNumericInput(event.target.value, value))}
-      />
-    </label>
-  );
-}
-
-function dockTitle(panel: AuxPanel) {
-  switch (panel) {
-    case "info":
-      return "Info";
-    case "brush":
-      return "Brush Settings";
-    case "color":
-      return "Color";
-    case "swatches":
-      return "Swatches";
-    case "history":
-      return "History";
-    case "navigator":
-      return "Navigator";
-    case "channels":
-      return "Channels";
-    case "paths":
-      return "Paths";
-    case "shapes":
-      return "Shapes";
-    case "adjustments":
-      return "Adjustments";
-    case "styles":
-      return "Styles";
-    default:
-      return "Properties";
-  }
-}
-
 const PSD_MAX_DIMENSION = 30000;
-
-// Channel descriptor: short label, long name, indicator colour class.
-const CHANNELS = [
-  {
-    id: "rgb",
-    label: "RGB",
-    name: "Composite",
-    color: "bg-slate-400",
-    shortcut: "~",
-  },
-  { id: "r", label: "R", name: "Red", color: "bg-rose-400", shortcut: "1" },
-  {
-    id: "g",
-    label: "G",
-    name: "Green",
-    color: "bg-emerald-400",
-    shortcut: "2",
-  },
-  { id: "b", label: "B", name: "Blue", color: "bg-blue-400", shortcut: "3" },
-  { id: "a", label: "A", name: "Alpha", color: "bg-slate-300", shortcut: "4" },
-] as const;
-
-function ChannelsPanel({
-  savedSelections,
-}: {
-  savedSelections: Array<{ name: string; pixelCount: number }>;
-}) {
-  // Channel visibility is cosmetic for now; actual channel isolation is Phase 3+.
-  const [visible, setVisible] = useState<Record<string, boolean>>({
-    rgb: true,
-    r: true,
-    g: true,
-    b: true,
-    a: true,
-  });
-
-  return (
-    <div className="space-y-[var(--ui-gap-1)]">
-      {CHANNELS.map((ch) => (
-        <div
-          key={ch.id}
-          className={[
-            "flex items-center gap-2 rounded-[var(--ui-radius-sm)] border px-2 py-1.5 transition",
-            visible[ch.id]
-              ? "border-white/8 bg-white/[0.02]"
-              : "border-white/4 bg-transparent opacity-50",
-          ].join(" ")}
-        >
-          <button
-            type="button"
-            title={visible[ch.id] ? "Hide channel" : "Show channel"}
-            aria-label={visible[ch.id] ? "Hide channel" : "Show channel"}
-            className={[
-              "flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] text-[10px] transition",
-              visible[ch.id] ? "bg-emerald-400/12 text-emerald-100" : "bg-black/20 text-slate-500",
-            ].join(" ")}
-            onClick={() =>
-              setVisible((current) => ({
-                ...current,
-                [ch.id]: !current[ch.id],
-              }))
-            }
-          >
-            {visible[ch.id] ? "O" : "-"}
-          </button>
-          <span className={`h-2.5 w-2.5 rounded-full ${ch.color}`} />
-          <span className="flex-1 text-[12px] font-medium text-slate-100">{ch.name}</span>
-          <span className="text-[11px] text-slate-500">{ch.shortcut}</span>
-        </div>
-      ))}
-      {savedSelections.length > 0 ? (
-        <>
-          <div className="px-1 pt-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            Alpha Channels
-          </div>
-          {savedSelections.map((channel) => (
-            <div
-              key={channel.name}
-              className="flex items-center gap-2 rounded-[var(--ui-radius-sm)] border border-white/8 bg-white/[0.02] px-2 py-1.5"
-            >
-              <span className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] bg-black/20 text-[10px] text-slate-400">
-                A
-              </span>
-              <span className="flex-1 text-[12px] font-medium text-slate-100">{channel.name}</span>
-              <span className="text-[11px] text-slate-500">{channel.pixelCount}px</span>
-            </div>
-          ))}
-        </>
-      ) : null}
-      <p className="px-1 pt-1 text-[11px] text-slate-600">Channel isolation active in Phase 3+.</p>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: label wraps its control via children (implicit label pattern)
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function TextEditOverlay({
-  engine,
-  initialText,
-}: {
-  engine: { dispatchCommand: (id: number, payload: unknown) => void };
-  initialText: string;
-}) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus();
-    // Move cursor to end so the user can continue typing.
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, []);
-
-  return (
-    <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-blue-500/30 bg-blue-500/8 px-3 py-1">
-      <span className="text-[11px] text-blue-200">Editing text —</span>
-      <textarea
-        ref={inputRef}
-        defaultValue={initialText}
-        className="flex-1 resize-none rounded border border-blue-500/30 bg-slate-800/80 px-2 py-0.5 text-[12px] text-slate-200 placeholder-slate-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
-        rows={1}
-        placeholder="Type here..."
-        onInput={(e) => {
-          const target = e.target as HTMLTextAreaElement;
-          engine.dispatchCommand(CommandID.TextEditInput, {
-            text: target.value,
-          } satisfies TextEditInputCommand);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            engine.dispatchCommand(CommandID.CancelTextEdit, {});
-          }
-        }}
-      />
-      <button
-        type="button"
-        className="shrink-0 rounded border border-blue-500/40 px-2 py-0.5 text-[11px] text-blue-300 hover:bg-blue-500/15 focus-visible:outline-none"
-        onClick={() => engine.dispatchCommand(CommandID.CommitTextEdit, {})}
-      >
-        Done
-      </button>
-    </div>
-  );
-}
