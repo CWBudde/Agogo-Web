@@ -19,6 +19,7 @@ func cloneDocument(doc *Document) *Document {
 	copyDoc.SavedSelections = cloneSavedSelectionChannels(doc.SavedSelections)
 	copyDoc.Paths = cloneNamedPaths(doc.Paths)
 	copyDoc.StylePresets = cloneDocumentStylePresets(doc.StylePresets)
+	copyDoc.Patterns = model.ClonePatterns(doc.Patterns)
 	return &copyDoc
 }
 
@@ -106,6 +107,9 @@ func documentsEqual(a, b *Document) bool {
 		}
 	}
 	if !documentStylePresetsEqual(a.StylePresets, b.StylePresets) {
+		return false
+	}
+	if !model.PatternsEqual(a.Patterns, b.Patterns) {
 		return false
 	}
 	if a.ContentVersion == b.ContentVersion {

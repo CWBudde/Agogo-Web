@@ -92,6 +92,10 @@ func TestCrop_RemapsAllLayerKinds(t *testing.T) {
 	h, pixelID, textID, vectorID := setupRemapDoc(t)
 	defer Free(h)
 
+	// Point-text bounds are computed (tight around the anchor), so pin the
+	// crop remap as a delta against the pre-crop bounds.
+	textBoundsBefore := instances[h].manager.Active().findLayer(textID).(*TextLayer).Bounds
+
 	if _, err := DispatchCommand(h, commandBeginCrop, `{}`); err != nil {
 		t.Fatalf("BeginCrop: %v", err)
 	}
@@ -132,10 +136,14 @@ func TestCrop_RemapsAllLayerKinds(t *testing.T) {
 		t.Errorf("mask at (0,0) = %d, want 0 (outside active region)", got)
 	}
 
-	// Text layer: position shifted; bounds-local raster still valid & non-blank.
+	// Text layer: position shifted by (-10,-5); bounds-local raster still
+	// valid & non-blank.
 	tl := doc.findLayer(textID).(*TextLayer)
-	if tl.Bounds.X != 30 || tl.Bounds.Y != 25 {
-		t.Errorf("text bounds = (%d,%d), want (30,25)", tl.Bounds.X, tl.Bounds.Y)
+	if tl.Bounds.X != textBoundsBefore.X-10 || tl.Bounds.Y != textBoundsBefore.Y-5 {
+		t.Errorf("text bounds = (%d,%d), want (%d,%d)", tl.Bounds.X, tl.Bounds.Y, textBoundsBefore.X-10, textBoundsBefore.Y-5)
+	}
+	if tl.AnchorX != 30 || tl.AnchorY != 25 {
+		t.Errorf("text anchor = (%v,%v), want (30,25)", tl.AnchorX, tl.AnchorY)
 	}
 	if len(tl.CachedRaster) != tl.Bounds.W*tl.Bounds.H*4 {
 		t.Errorf("text raster length = %d, want %d", len(tl.CachedRaster), tl.Bounds.W*tl.Bounds.H*4)
@@ -179,6 +187,8 @@ func TestCrop_RemapUndoRestores(t *testing.T) {
 	h, pixelID, textID, vectorID := setupRemapDoc(t)
 	defer Free(h)
 
+	textBoundsBefore := instances[h].manager.Active().findLayer(textID).(*TextLayer).Bounds
+
 	if _, err := DispatchCommand(h, commandBeginCrop, `{}`); err != nil {
 		t.Fatalf("BeginCrop: %v", err)
 	}
@@ -197,8 +207,11 @@ func TestCrop_RemapUndoRestores(t *testing.T) {
 		t.Fatalf("doc size after undo = %dx%d, want 100x80", doc.Width, doc.Height)
 	}
 	tl := doc.findLayer(textID).(*TextLayer)
-	if tl.Bounds.X != 40 || tl.Bounds.Y != 30 {
-		t.Errorf("text bounds after undo = (%d,%d), want (40,30)", tl.Bounds.X, tl.Bounds.Y)
+	if tl.Bounds != textBoundsBefore {
+		t.Errorf("text bounds after undo = %+v, want %+v", tl.Bounds, textBoundsBefore)
+	}
+	if tl.AnchorX != 40 || tl.AnchorY != 30 {
+		t.Errorf("text anchor after undo = (%v,%v), want (40,30)", tl.AnchorX, tl.AnchorY)
 	}
 	vl := doc.findLayer(vectorID).(*VectorLayer)
 	if vl.Bounds != (LayerBounds{X: 0, Y: 0, W: 100, H: 80}) {
@@ -215,6 +228,8 @@ func TestCrop_RemapUndoRestores(t *testing.T) {
 func TestCanvasSize_RemapGrow(t *testing.T) {
 	h, pixelID, textID, vectorID := setupRemapDoc(t)
 	defer Free(h)
+
+	textBoundsBefore := instances[h].manager.Active().findLayer(textID).(*TextLayer).Bounds
 
 	// 100x80 → 140x120, center anchor: dx=20, dy=20.
 	if _, err := DispatchCommand(h, commandResizeCanvas, mustJSON(t, ResizeCanvasPayload{
@@ -242,8 +257,11 @@ func TestCanvasSize_RemapGrow(t *testing.T) {
 	}
 
 	tl := doc.findLayer(textID).(*TextLayer)
-	if tl.Bounds.X != 60 || tl.Bounds.Y != 50 {
-		t.Errorf("text bounds = (%d,%d), want (60,50)", tl.Bounds.X, tl.Bounds.Y)
+	if tl.Bounds.X != textBoundsBefore.X+20 || tl.Bounds.Y != textBoundsBefore.Y+20 {
+		t.Errorf("text bounds = (%d,%d), want (%d,%d)", tl.Bounds.X, tl.Bounds.Y, textBoundsBefore.X+20, textBoundsBefore.Y+20)
+	}
+	if tl.AnchorX != 60 || tl.AnchorY != 50 {
+		t.Errorf("text anchor = (%v,%v), want (60,50)", tl.AnchorX, tl.AnchorY)
 	}
 	if !rasterHasContent(tl.CachedRaster) {
 		t.Error("text raster blank after grow")

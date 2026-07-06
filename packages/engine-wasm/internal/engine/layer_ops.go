@@ -874,6 +874,10 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 		return NewAdjustmentLayer(payload.Name, payload.AdjustmentKind, payload.Params), nil
 	case LayerTypeText:
 		layer := NewTextLayer(payload.Name, payload.Bounds, payload.Text, payload.CachedRaster)
+		// Payloads carry no anchor; the payload bounds origin is the pen origin.
+		layer.AnchorX = float64(payload.Bounds.X)
+		layer.AnchorY = float64(payload.Bounds.Y)
+		layer.AnchorSet = true
 		if payload.FontFamily != "" {
 			layer.FontFamily = payload.FontFamily
 		}
@@ -885,11 +889,9 @@ func (doc *Document) newLayerFromPayload(payload AddLayerPayload) (LayerNode, er
 		}
 		// Auto-rasterize when created via payload with text but no pre-baked raster.
 		if len(layer.CachedRaster) == 0 {
-			raster, err := rasterizeTextLayer(layer)
-			if err != nil {
+			if err := rasterizeTextLayer(layer); err != nil {
 				return nil, err
 			}
-			layer.CachedRaster = raster
 		}
 		return layer, nil
 	case LayerTypeVector:

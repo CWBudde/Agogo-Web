@@ -93,7 +93,7 @@ func applyFillToDocument(inst *instance, doc *Document, p FillPayload) error {
 		}
 		fillRasterWithMask(raster, doc.Width, doc.Height, mask, doc.Selection, maskOriginX, maskOriginY, 0, 0, func(docX, docY int) [4]uint8 {
 			if p.Source == "pattern" {
-				return patternFillColor(inst, docX, docY, p)
+				return patternFillColor(inst, doc, docX, docY, p)
 			}
 			return fillColor
 		})
@@ -116,7 +116,7 @@ func applyFillToDocument(inst *instance, doc *Document, p FillPayload) error {
 		}
 		fillRasterWithMask(layer.Pixels, layer.Bounds.W, layer.Bounds.H, mask, doc.Selection, maskOriginX, maskOriginY, layer.Bounds.X, layer.Bounds.Y, func(docX, docY int) [4]uint8 {
 			if p.Source == "pattern" {
-				return patternFillColor(inst, docX, docY, p)
+				return patternFillColor(inst, doc, docX, docY, p)
 			}
 			return fillColor
 		})
@@ -304,7 +304,13 @@ func applySelectionMaskToDocBuffer(buffer []byte, doc *Document, selection *Sele
 	}
 }
 
-func patternFillColor(inst *instance, docX, docY int, p FillPayload) [4]uint8 {
+// patternFillColor returns the pattern-source fill color at a document
+// coordinate. A resolvable PatternID samples the pattern tile; an empty or
+// unknown ID keeps the legacy foreground/background 8px checker byte-identical.
+func patternFillColor(inst *instance, doc *Document, docX, docY int, p FillPayload) [4]uint8 {
+	if pattern := resolvePattern(doc, p.PatternID); pattern != nil {
+		return samplePatternColor(pattern, docX, docY, p.PatternScale)
+	}
 	size := 8
 	if (docX/size+docY/size)%2 == 0 {
 		return inst.foregroundColor

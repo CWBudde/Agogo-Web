@@ -440,6 +440,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		TextCursorX:            inst.textCursorX(doc),
 		TextCursorY:            inst.textCursorY(doc),
 		StylePresets:           cloneDocumentStylePresets(doc.StylePresets),
+		Patterns:               buildPatternsMeta(doc),
 	}
 }
 
@@ -457,8 +458,8 @@ func (inst *instance) textCursorX(doc *Document) float64 {
 	if !ok {
 		return 0
 	}
-	textWidth := measureTextWidth(inst.textEdit.workingText, tl.FontSize)
-	return float64(tl.Bounds.X) + textWidth
+	x, _ := textLayerCursor(tl, inst.textEdit.workingText)
+	return x
 }
 
 // textCursorY returns the doc-space Y coordinate of the text insertion cursor baseline.
@@ -474,7 +475,8 @@ func (inst *instance) textCursorY(doc *Document) float64 {
 	if !ok {
 		return 0
 	}
-	return float64(tl.Bounds.Y) + tl.FontSize
+	_, y := textLayerCursor(tl, inst.textEdit.workingText)
+	return y
 }
 
 func (inst *instance) renderViewportWithCache(doc *Document, documentSurface []byte) []byte {

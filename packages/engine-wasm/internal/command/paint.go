@@ -10,6 +10,8 @@ const (
 	commandFill                 int32 = 0x0414
 	commandApplyGradient        int32 = 0x0415
 	commandResetMixerBrushState int32 = 0x0416
+	commandDefinePattern        int32 = 0x0417
+	commandDeletePattern        int32 = 0x0418
 )
 
 type PaintBrushParams struct {
@@ -101,6 +103,22 @@ type PaintFillPayload struct {
 	Source       string   `json:"source,omitempty"`
 	Color        [4]uint8 `json:"color,omitempty"`
 	CreateLayer  bool     `json:"createLayer,omitempty"`
+	// PatternID selects a pattern when Source is "pattern"; empty or unknown
+	// IDs fall back to the legacy foreground/background checker.
+	PatternID string `json:"patternId,omitempty"`
+	// PatternScale scales the pattern tile; 0 (or negative) means 1.
+	PatternScale float64 `json:"patternScale,omitempty"`
+}
+
+// PaintDefinePatternPayload captures a new pattern from the active layer
+// (intersected with the selection bounding rect when a selection exists).
+type PaintDefinePatternPayload struct {
+	Name string `json:"name,omitempty"`
+}
+
+// PaintDeletePatternPayload removes a document-defined pattern by ID.
+type PaintDeletePatternPayload struct {
+	PatternID string `json:"patternId"`
 }
 
 type PaintGradientStopPayload struct {
@@ -131,6 +149,8 @@ type PaintDeps struct {
 	Fill                 func(PaintFillPayload) error
 	ApplyGradient        func(PaintApplyGradientPayload) error
 	ResetMixerBrushState func() error
+	DefinePattern        func(PaintDefinePatternPayload) error
+	DeletePattern        func(PaintDeletePatternPayload) error
 }
 
 func DispatchPaint(commandID int32, payloadJSON string, deps PaintDeps) (bool, error) {
@@ -189,6 +209,20 @@ func DispatchPaint(commandID int32, payloadJSON string, deps PaintDeps) (bool, e
 
 	case commandResetMixerBrushState:
 		return true, deps.ResetMixerBrushState()
+
+	case commandDefinePattern:
+		var payload PaintDefinePatternPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.DefinePattern(payload)
+
+	case commandDeletePattern:
+		var payload PaintDeletePatternPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.DeletePattern(payload)
 	}
 
 	return false, nil

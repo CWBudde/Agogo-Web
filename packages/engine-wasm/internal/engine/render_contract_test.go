@@ -24,14 +24,14 @@ func newTextContractDoc(t *testing.T, bounds LayerBounds) *Document {
 	tl := NewTextLayer("T", bounds, "H", nil)
 	tl.FontSize = 16
 	tl.Color = [4]uint8{255, 0, 0, 255}
-	raster, err := rasterizeTextLayer(tl)
-	if err != nil {
+	if err := rasterizeTextLayer(tl); err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
-	if got, want := len(raster), bounds.W*bounds.H*4; got != want {
-		t.Fatalf("raster length = %d, want bounds-local %d (%dx%d)", got, want, bounds.W, bounds.H)
+	// Point text computes tight bounds anchored at the legacy bounds origin;
+	// the raster must satisfy the bounds-local contract against them.
+	if got, want := len(tl.CachedRaster), tl.Bounds.W*tl.Bounds.H*4; got != want {
+		t.Fatalf("raster length = %d, want bounds-local %d (%dx%d)", got, want, tl.Bounds.W, tl.Bounds.H)
 	}
-	tl.CachedRaster = raster
 	doc.LayerRoot.SetChildren([]LayerNode{tl})
 	return doc
 }
@@ -163,8 +163,8 @@ func TestRenderSurfacesCompositeErrorAndDoesNotCacheBlankFrame(t *testing.T) {
 		t.Fatal("active layer is not a text layer")
 	}
 	goodRaster := append([]byte(nil), tl.CachedRaster...)
-	if len(goodRaster) != 16*16*4 {
-		t.Fatalf("expected bounds-local raster of %d bytes, got %d", 16*16*4, len(goodRaster))
+	if want := tl.Bounds.W * tl.Bounds.H * 4; len(goodRaster) != want {
+		t.Fatalf("expected bounds-local raster of %d bytes (%dx%d), got %d", want, tl.Bounds.W, tl.Bounds.H, len(goodRaster))
 	}
 
 	// Corrupt the raster (length no longer matches bounds) and invalidate the

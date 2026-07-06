@@ -73,6 +73,7 @@ import { GradientEditorDialog } from "@/components/gradient-editor";
 import { type ColorSamplerPoint, InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { PathsPanel } from "@/components/paths-panel";
+import { PatternPicker } from "@/components/pattern-picker";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { ShapesPanel } from "@/components/shapes-panel";
 import { StylesPanel } from "@/components/styles-panel";
@@ -905,6 +906,7 @@ export default function App() {
   const [eraserTolerance, setEraserTolerance] = useState(30);
   const [brushFlow, setBrushFlow] = useState(1.0);
   const [fillSource, setFillSource] = useState<FillSource>("foreground");
+  const [fillPatternId, setFillPatternId] = useState("builtin/checker");
   const [fillTolerance, setFillTolerance] = useState(24);
   const [fillContiguous, setFillContiguous] = useState(true);
   const [fillSampleMerged, setFillSampleMerged] = useState(false);
@@ -3084,6 +3086,14 @@ export default function App() {
             Pattern
           </ToolChoiceButton>
         </ToolOptionGroup>
+        {fillSource === "pattern" ? (
+          <PatternPicker
+            engine={engine}
+            patterns={render?.uiMeta.patterns ?? []}
+            value={fillPatternId}
+            onChange={setFillPatternId}
+          />
+        ) : null}
         <ToolNumberField
           label="Tolerance"
           min={0}
@@ -3755,6 +3765,7 @@ export default function App() {
                     onForegroundColorChange={setForegroundColor}
                     onBackgroundColorChange={setBackgroundColor}
                     fillSource={fillSource}
+                    fillPatternId={fillPatternId}
                     fillTolerance={fillTolerance}
                     fillContiguous={fillContiguous}
                     fillSampleMerged={fillSampleMerged}
@@ -4995,6 +5006,8 @@ export default function App() {
                       fillSource === "background" ? backgroundColor : foregroundColor,
                     ),
                     createLayer: fillCreateLayer,
+                    patternId: fillPatternId,
+                    patternScale: 1,
                   } satisfies FillCommand);
                 }
                 setFillDialogOpen(false);

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	projectio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/project"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
 // SaveProjectZip serializes a document to a ZIP archive containing:
@@ -32,6 +33,7 @@ func SaveProjectZip(doc *Document, history []HistoryEntry) ([]byte, error) {
 		ActivePathIdx:   doc.ActivePathIdx,
 		SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
 		StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
+		Patterns:        model.ClonePatterns(doc.Patterns),
 	}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()

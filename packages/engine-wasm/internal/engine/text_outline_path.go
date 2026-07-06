@@ -1,6 +1,10 @@
 package engine
 
-import agglib "github.com/cwbudde/agg_go"
+import (
+	"strings"
+
+	agglib "github.com/cwbudde/agg_go"
+)
 
 func buildTextOutlinePath(layer *TextLayer) *Path {
 	if layer == nil || layer.Text == "" {
@@ -186,4 +190,108 @@ func alignedTrackedX(x, totalWidth float64, alignment string, availWidth float64
 	default:
 		return x
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Legacy GSV measuring helpers.
+//
+// These support the GSV-based outline conversion above and are the LAST GSV
+// users in the engine: the raster text pipeline now shapes and measures via
+// internal/text (see text_layout.go / text_render.go). They are scheduled for
+// deletion when Create Outlines is rewritten on the shared layout pass (S.6
+// batch F3).
+// ---------------------------------------------------------------------------
+
+// applyCapsTransform transforms text based on AllCaps/SmallCaps settings.
+// GSV has no small-caps rendering, so SmallCaps degrades to plain uppercase
+// here (the raster pipeline handles SmallCaps in the shaper instead).
+func applyCapsTransform(text string, allCaps, smallCaps bool) string {
+	if allCaps || smallCaps {
+		return strings.ToUpper(text)
+	}
+	return text
+}
+
+// textWidthWithTracking computes the GSV width of text with tracking applied.
+func textWidthWithTracking(r *agglib.Agg2D, text string, tracking float64) float64 {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, ch := range runes {
+		total += r.TextWidth(string(ch))
+	}
+	// Tracking is added between characters, not after the last one.
+	total += tracking * float64(len(runes)-1)
+	return total
+}
+
+// alignedX returns the starting X position for a text string given alignment.
+func alignedX(r *agglib.Agg2D, text string, x float64, alignment string) float64 {
+	switch alignment {
+	case "center":
+		return x - r.TextWidth(text)/2
+	case "right":
+		return x - r.TextWidth(text)
+	default: // "left" or "justify"
+		return x
+	}
+}
+
+// alignedXWidth returns the starting X for text within an available width region.
+func alignedXWidth(r *agglib.Agg2D, text string, x float64, alignment string, availWidth float64) float64 {
+	switch alignment {
+	case "center":
+		return x + (availWidth-r.TextWidth(text))/2
+	case "right":
+		return x + availWidth - r.TextWidth(text)
+	default: // "left" or "justify"
+		return x
+	}
+}
+
+// wrapWordsVariable breaks words into lines with potentially different widths
+// for the first line vs subsequent lines (to support first-line indent),
+// measuring through the GSV font.
+func wrapWordsVariable(r *agglib.Agg2D, words []string, firstLineWidth, otherLineWidth float64) []string {
+	var lines []string
+	current := ""
+	lineIdx := 0
+	for _, word := range words {
+		maxW := otherLineWidth
+		if lineIdx == 0 {
+			maxW = firstLineWidth
+		}
+
+		// Handle explicit line breaks within a paragraph.
+		parts := strings.Split(word, "\n")
+		for pi, part := range parts {
+			if pi > 0 {
+				// Newline encountered — flush current line.
+				lines = append(lines, current)
+				current = ""
+				lineIdx++
+				maxW = otherLineWidth
+			}
+			if part == "" {
+				continue
+			}
+			candidate := part
+			if current != "" {
+				candidate = current + " " + part
+			}
+			if current != "" && r.TextWidth(candidate) > maxW {
+				lines = append(lines, current)
+				current = part
+				lineIdx++
+			} else {
+				current = candidate
+			}
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }

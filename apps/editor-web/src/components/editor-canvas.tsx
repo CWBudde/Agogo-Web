@@ -115,6 +115,7 @@ type EditorCanvasProps = {
   onForegroundColorChange(color: Rgba): void;
   onBackgroundColorChange(color: Rgba): void;
   fillSource: "foreground" | "background" | "color" | "pattern";
+  fillPatternId: string;
   fillTolerance: number;
   fillContiguous: boolean;
   fillSampleMerged: boolean;
@@ -756,6 +757,7 @@ export function EditorCanvas({
   onForegroundColorChange,
   onBackgroundColorChange,
   fillSource,
+  fillPatternId,
   fillTolerance,
   fillContiguous,
   fillSampleMerged,
@@ -2279,6 +2281,8 @@ export function EditorCanvas({
             sampleMerged: fillSampleMerged,
             source: fillSource,
             createLayer: fillCreateLayer,
+            patternId: fillPatternId,
+            patternScale: 1,
           } satisfies FillCommand);
           return;
         }

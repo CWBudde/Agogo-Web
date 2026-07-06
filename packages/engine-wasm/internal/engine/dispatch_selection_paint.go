@@ -276,6 +276,8 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 				Source:       payload.Source,
 				Color:        payload.Color,
 				CreateLayer:  payload.CreateLayer,
+				PatternID:    payload.PatternID,
+				PatternScale: payload.PatternScale,
 			})
 		},
 		ApplyGradient: func(payload cmdpkg.PaintApplyGradientPayload) error {
@@ -305,6 +307,12 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 		ResetMixerBrushState: func() error {
 			inst.resetMixerBrushState()
 			return nil
+		},
+		DefinePattern: func(payload cmdpkg.PaintDefinePatternPayload) error {
+			return inst.handleDefinePattern(payload.Name)
+		},
+		DeletePattern: func(payload cmdpkg.PaintDeletePatternPayload) error {
+			return inst.handleDeletePattern(payload.PatternID)
 		},
 	}); handled || err != nil {
 		return handled, nil, suggestedPath, err

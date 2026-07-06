@@ -64,6 +64,7 @@ type ProjectDocumentArchive struct {
 	ActivePathIdx   int                     `json:"activePathIdx,omitempty"`
 	SavedSelections []SavedSelectionChannel `json:"savedSelections,omitempty"`
 	StylePresets    []DocumentStylePreset   `json:"stylePresets,omitempty"`
+	Patterns        []model.PatternResource `json:"patterns,omitempty"`
 }
 
 type ProjectLayerArchive struct {
@@ -90,6 +91,9 @@ type ProjectLayerArchive struct {
 	AdjustmentKind    string                `json:"adjustmentKind,omitempty"`
 	Params            json.RawMessage       `json:"params,omitempty"`
 	Text              string                `json:"text,omitempty"`
+	TextAnchorX       float64               `json:"textAnchorX,omitempty"`
+	TextAnchorY       float64               `json:"textAnchorY,omitempty"`
+	TextAnchorSet     bool                  `json:"textAnchorSet,omitempty"`
 	FontFamily        string                `json:"fontFamily,omitempty"`
 	FontStyle         string                `json:"fontStyle,omitempty"`
 	FontSize          float64               `json:"fontSize,omitempty"`

@@ -5,6 +5,7 @@ import (
 
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 	projectio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/project"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
 type projectDocumentArchive = ProjectDocumentArchive
@@ -34,6 +35,7 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 		ActivePathIdx:   doc.ActivePathIdx,
 		SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
 		StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
+		Patterns:        model.ClonePatterns(doc.Patterns),
 	}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()
@@ -105,6 +107,9 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 		bounds := typed.Bounds
 		archive.Bounds = &bounds
 		archive.Text = typed.Text
+		archive.TextAnchorX = typed.AnchorX
+		archive.TextAnchorY = typed.AnchorY
+		archive.TextAnchorSet = typed.AnchorSet
 		archive.FontFamily = typed.FontFamily
 		archive.FontStyle = typed.FontStyle
 		archive.FontSize = typed.FontSize
@@ -163,6 +168,7 @@ func projectDocumentArchiveToDocument(archive projectDocumentArchive) (*Document
 	doc.ActivePathIdx = archive.ActivePathIdx
 	doc.SavedSelections = cloneSavedSelectionChannels(archive.SavedSelections)
 	doc.StylePresets = cloneDocumentStylePresets(archive.StylePresets)
+	doc.Patterns = model.ClonePatterns(archive.Patterns)
 	children := make([]LayerNode, 0, len(archive.Layers))
 	for _, childArchive := range archive.Layers {
 		child, err := projectLayerArchiveToLayerNode(childArchive)
@@ -208,6 +214,12 @@ func projectLayerArchiveToLayerNode(archive projectLayerArchive) (LayerNode, err
 			return nil, fmt.Errorf("text layer %q missing bounds", archive.Name)
 		}
 		textLayer := NewTextLayer(archive.Name, *archive.Bounds, archive.Text, archive.CachedRaster)
+		// Archives written before the anchor model carry no anchor fields;
+		// AnchorSet stays false and the first rasterization derives the
+		// anchor from the legacy bounds origin (see rasterizeTextLayer).
+		textLayer.AnchorX = archive.TextAnchorX
+		textLayer.AnchorY = archive.TextAnchorY
+		textLayer.AnchorSet = archive.TextAnchorSet
 		textLayer.FontFamily = archive.FontFamily
 		if archive.FontStyle != "" {
 			textLayer.FontStyle = archive.FontStyle

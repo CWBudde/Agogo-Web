@@ -5,28 +5,29 @@ import (
 	"testing"
 )
 
+// hasInk reports whether an RGBA buffer contains any non-transparent pixel.
+func hasInk(buf []byte) bool {
+	for i := 3; i < len(buf); i += 4 {
+		if buf[i] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRasterizeTextLayer_PointTextProducesPixels(t *testing.T) {
 	layer := NewTextLayer("Test", LayerBounds{X: 0, Y: 0, W: 200, H: 50}, "Hello", nil)
 	layer.FontSize = 24
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.TextType = "point"
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
-	if len(buf) != 200*50*4 {
-		t.Errorf("buf len = %d, want %d", len(buf), 200*50*4)
+	if got, want := len(layer.CachedRaster), layer.Bounds.W*layer.Bounds.H*4; got != want {
+		t.Errorf("raster len = %d, want bounds-local %d (%dx%d)", got, want, layer.Bounds.W, layer.Bounds.H)
 	}
-	// At least some pixels must be non-transparent for visible text.
-	hasInk := false
-	for i := 3; i < len(buf); i += 4 {
-		if buf[i] > 0 {
-			hasInk = true
-			break
-		}
-	}
-	if !hasInk {
+	if !hasInk(layer.CachedRaster) {
 		t.Error("expected ink pixels in rasterized text, got fully transparent buffer")
 	}
 }
@@ -35,19 +36,15 @@ func TestRasterizeTextLayer_EmptyTextReturnsTransparent(t *testing.T) {
 	layer := NewTextLayer("Empty", LayerBounds{X: 0, Y: 0, W: 100, H: 50}, "", nil)
 	layer.FontSize = 16
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
-	if len(buf) != 100*50*4 {
-		t.Errorf("buf len = %d, want %d", len(buf), 100*50*4)
+	if got, want := len(layer.CachedRaster), layer.Bounds.W*layer.Bounds.H*4; got != want {
+		t.Errorf("raster len = %d, want %d", got, want)
 	}
 	// Empty text → fully transparent buffer.
-	for i := 3; i < len(buf); i += 4 {
-		if buf[i] != 0 {
-			t.Errorf("expected alpha=0 at index %d, got %d", i, buf[i])
-			return
-		}
+	if hasInk(layer.CachedRaster) {
+		t.Error("expected fully transparent buffer for empty text")
 	}
 }
 
@@ -57,18 +54,13 @@ func TestRasterizeTextLayer_AreaTextProducesPixels(t *testing.T) {
 	layer.TextType = "area"
 	layer.Color = [4]uint8{0, 0, 0, 255}
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterizeTextLayer: %v", err)
 	}
-	hasInk := false
-	for i := 3; i < len(buf); i += 4 {
-		if buf[i] > 0 {
-			hasInk = true
-			break
-		}
+	if layer.Bounds != (LayerBounds{X: 0, Y: 0, W: 100, H: 100}) {
+		t.Errorf("area bounds = %+v, want user frame preserved", layer.Bounds)
 	}
-	if !hasInk {
+	if !hasInk(layer.CachedRaster) {
 		t.Error("expected ink pixels in area text, got fully transparent buffer")
 	}
 }
@@ -82,10 +74,14 @@ func TestRasterizeTextLayer_DifferentTextsProduceDifferentBuffers(t *testing.T) 
 	layerB.FontSize = 24
 	layerB.Color = [4]uint8{0, 0, 0, 255}
 
-	bufA, _ := rasterizeTextLayer(layerA)
-	bufB, _ := rasterizeTextLayer(layerB)
+	if err := rasterizeTextLayer(layerA); err != nil {
+		t.Fatalf("rasterize A: %v", err)
+	}
+	if err := rasterizeTextLayer(layerB); err != nil {
+		t.Fatalf("rasterize B: %v", err)
+	}
 
-	if bytes.Equal(bufA, bufB) {
+	if layerA.Bounds == layerB.Bounds && bytes.Equal(layerA.CachedRaster, layerB.CachedRaster) {
 		t.Error("expected different rasters for different text strings")
 	}
 }
@@ -115,41 +111,26 @@ func TestSplitWords(t *testing.T) {
 	}
 }
 
-func TestMeasureTextWidth(t *testing.T) {
-	w := measureTextWidth("Hello", 16)
-	if w <= 0 {
-		t.Errorf("measureTextWidth returned %v, want > 0", w)
-	}
-	w0 := measureTextWidth("", 16)
-	if w0 != 0 {
-		t.Errorf("measureTextWidth empty string = %v, want 0", w0)
-	}
-}
-
-func TestRasterizeTextLayer_TrackingProducesDifferentWidth(t *testing.T) {
-	// Without tracking.
+func TestRasterizeTextLayer_TrackingWidensPointText(t *testing.T) {
 	layerA := NewTextLayer("A", LayerBounds{X: 10, Y: 0, W: 400, H: 60}, "Hello", nil)
 	layerA.FontSize = 24
 	layerA.Color = [4]uint8{0, 0, 0, 255}
 	layerA.TextType = "point"
 
-	// With tracking.
 	layerB := NewTextLayer("B", LayerBounds{X: 10, Y: 0, W: 400, H: 60}, "Hello", nil)
 	layerB.FontSize = 24
 	layerB.Color = [4]uint8{0, 0, 0, 255}
 	layerB.TextType = "point"
 	layerB.Tracking = 10
 
-	bufA, err := rasterizeTextLayer(layerA)
-	if err != nil {
+	if err := rasterizeTextLayer(layerA); err != nil {
 		t.Fatalf("rasterize without tracking: %v", err)
 	}
-	bufB, err := rasterizeTextLayer(layerB)
-	if err != nil {
+	if err := rasterizeTextLayer(layerB); err != nil {
 		t.Fatalf("rasterize with tracking: %v", err)
 	}
-	if bytes.Equal(bufA, bufB) {
-		t.Error("expected tracking to produce different raster output")
+	if layerB.Bounds.W <= layerA.Bounds.W {
+		t.Errorf("tracked bounds width = %d, want > untracked %d", layerB.Bounds.W, layerA.Bounds.W)
 	}
 }
 
@@ -159,18 +140,10 @@ func TestRasterizeTextLayer_UnderlineProducesPixels(t *testing.T) {
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.Underline = true
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterize underline: %v", err)
 	}
-	hasInk := false
-	for i := 3; i < len(buf); i += 4 {
-		if buf[i] > 0 {
-			hasInk = true
-			break
-		}
-	}
-	if !hasInk {
+	if !hasInk(layer.CachedRaster) {
 		t.Error("expected ink pixels with underline text")
 	}
 
@@ -178,9 +151,11 @@ func TestRasterizeTextLayer_UnderlineProducesPixels(t *testing.T) {
 	layerNoU := NewTextLayer("NU", LayerBounds{X: 10, Y: 0, W: 300, H: 60}, "Hello", nil)
 	layerNoU.FontSize = 24
 	layerNoU.Color = [4]uint8{0, 0, 0, 255}
-	bufNoU, _ := rasterizeTextLayer(layerNoU)
+	if err := rasterizeTextLayer(layerNoU); err != nil {
+		t.Fatalf("rasterize plain: %v", err)
+	}
 
-	if bytes.Equal(buf, bufNoU) {
+	if layer.Bounds == layerNoU.Bounds && bytes.Equal(layer.CachedRaster, layerNoU.CachedRaster) {
 		t.Error("underline text should differ from non-underlined text")
 	}
 }
@@ -191,18 +166,18 @@ func TestRasterizeTextLayer_StrikethroughProducesPixels(t *testing.T) {
 	layer.Color = [4]uint8{0, 0, 0, 255}
 	layer.Strikethrough = true
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterize strikethrough: %v", err)
 	}
 
-	// Compare with non-strikethrough version.
 	layerNoS := NewTextLayer("NS", LayerBounds{X: 10, Y: 0, W: 300, H: 60}, "Hello", nil)
 	layerNoS.FontSize = 24
 	layerNoS.Color = [4]uint8{0, 0, 0, 255}
-	bufNoS, _ := rasterizeTextLayer(layerNoS)
+	if err := rasterizeTextLayer(layerNoS); err != nil {
+		t.Fatalf("rasterize plain: %v", err)
+	}
 
-	if bytes.Equal(buf, bufNoS) {
+	if layer.Bounds == layerNoS.Bounds && bytes.Equal(layer.CachedRaster, layerNoS.CachedRaster) {
 		t.Error("strikethrough text should differ from plain text")
 	}
 }
@@ -218,15 +193,13 @@ func TestRasterizeTextLayer_AllCapsTransformsText(t *testing.T) {
 	layerUpper.FontSize = 24
 	layerUpper.Color = [4]uint8{0, 0, 0, 255}
 
-	bufCaps, err := rasterizeTextLayer(layerCaps)
-	if err != nil {
+	if err := rasterizeTextLayer(layerCaps); err != nil {
 		t.Fatalf("rasterize allCaps: %v", err)
 	}
-	bufUpper, err := rasterizeTextLayer(layerUpper)
-	if err != nil {
+	if err := rasterizeTextLayer(layerUpper); err != nil {
 		t.Fatalf("rasterize upper: %v", err)
 	}
-	if !bytes.Equal(bufCaps, bufUpper) {
+	if layerCaps.Bounds != layerUpper.Bounds || !bytes.Equal(layerCaps.CachedRaster, layerUpper.CachedRaster) {
 		t.Error("AllCaps should produce same output as manually uppercased text")
 	}
 }
@@ -238,18 +211,10 @@ func TestRasterizeTextLayer_JustifyAlignment(t *testing.T) {
 	layer.TextType = "area"
 	layer.Alignment = "justify"
 
-	buf, err := rasterizeTextLayer(layer)
-	if err != nil {
+	if err := rasterizeTextLayer(layer); err != nil {
 		t.Fatalf("rasterize justify: %v", err)
 	}
-	hasInk := false
-	for i := 3; i < len(buf); i += 4 {
-		if buf[i] > 0 {
-			hasInk = true
-			break
-		}
-	}
-	if !hasInk {
+	if !hasInk(layer.CachedRaster) {
 		t.Error("expected ink pixels with justified text")
 	}
 
@@ -259,10 +224,43 @@ func TestRasterizeTextLayer_JustifyAlignment(t *testing.T) {
 	layerLeft.Color = [4]uint8{0, 0, 0, 255}
 	layerLeft.TextType = "area"
 	layerLeft.Alignment = "left"
-	bufLeft, _ := rasterizeTextLayer(layerLeft)
+	if err := rasterizeTextLayer(layerLeft); err != nil {
+		t.Fatalf("rasterize left: %v", err)
+	}
 
-	if bytes.Equal(buf, bufLeft) {
+	if bytes.Equal(layer.CachedRaster, layerLeft.CachedRaster) {
 		t.Error("justified text should differ from left-aligned text")
+	}
+}
+
+func TestRasterizeTextLayer_IndentsShiftAreaText(t *testing.T) {
+	plain := NewTextLayer("P", LayerBounds{X: 0, Y: 0, W: 200, H: 200}, "indented words wrap here nicely", nil)
+	plain.FontSize = 16
+	plain.Color = [4]uint8{0, 0, 0, 255}
+	plain.TextType = "area"
+	if err := rasterizeTextLayer(plain); err != nil {
+		t.Fatalf("rasterize plain: %v", err)
+	}
+	pMinX, _, _, _, _, ok := inkBBox(plain.CachedRaster, plain.Bounds.W, plain.Bounds.H)
+	if !ok {
+		t.Fatal("plain area text has no ink")
+	}
+
+	indented := NewTextLayer("I", LayerBounds{X: 0, Y: 0, W: 200, H: 200}, "indented words wrap here nicely", nil)
+	indented.FontSize = 16
+	indented.Color = [4]uint8{0, 0, 0, 255}
+	indented.TextType = "area"
+	indented.IndentLeft = 25
+	if err := rasterizeTextLayer(indented); err != nil {
+		t.Fatalf("rasterize indented: %v", err)
+	}
+	iMinX, _, _, _, _, ok := inkBBox(indented.CachedRaster, indented.Bounds.W, indented.Bounds.H)
+	if !ok {
+		t.Fatal("indented area text has no ink")
+	}
+
+	if iMinX < pMinX+20 {
+		t.Errorf("indented leftmost ink = %d, want >= %d (plain %d + ~25 indent)", iMinX, pMinX+20, pMinX)
 	}
 }
 
@@ -281,15 +279,13 @@ func TestRasterizeTextLayer_ParagraphSpacing(t *testing.T) {
 	layerPara.SpaceBefore = 10
 	layerPara.SpaceAfter = 10
 
-	bufSingle, err := rasterizeTextLayer(layerSingle)
-	if err != nil {
+	if err := rasterizeTextLayer(layerSingle); err != nil {
 		t.Fatalf("rasterize single: %v", err)
 	}
-	bufPara, err := rasterizeTextLayer(layerPara)
-	if err != nil {
+	if err := rasterizeTextLayer(layerPara); err != nil {
 		t.Fatalf("rasterize para: %v", err)
 	}
-	if bytes.Equal(bufSingle, bufPara) {
+	if bytes.Equal(layerSingle.CachedRaster, layerPara.CachedRaster) {
 		t.Error("paragraph spacing should produce different output than single-paragraph text")
 	}
 }

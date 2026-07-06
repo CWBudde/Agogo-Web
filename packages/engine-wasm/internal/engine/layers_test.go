@@ -112,6 +112,9 @@ func TestTextAndVectorLayerCloneDeepCopiesRasterState(t *testing.T) {
 	text.FontFamily = "Recursive"
 	text.FontSize = 42
 	text.Color = [4]uint8{10, 20, 30, 255}
+	text.AnchorX = 3.5
+	text.AnchorY = 4.5
+	text.AnchorSet = true
 	textClone, ok := text.Clone().(*TextLayer)
 	if !ok {
 		t.Fatalf("text clone type = %T, want *TextLayer", text.Clone())
@@ -122,6 +125,9 @@ func TestTextAndVectorLayerCloneDeepCopiesRasterState(t *testing.T) {
 	}
 	if textClone.Text != "Agogo" || textClone.FontFamily != "Recursive" || textClone.FontSize != 42 {
 		t.Fatal("text clone lost textual properties")
+	}
+	if textClone.AnchorX != 3.5 || textClone.AnchorY != 4.5 || !textClone.AnchorSet {
+		t.Fatal("text clone lost anchor state")
 	}
 
 	vector := NewVectorLayer("Shape", LayerBounds{X: 0, Y: 0, W: 2, H: 2}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 0, Y: 0}, {X: 2, Y: 2}}}}}, []byte{7, 8, 9, 255})

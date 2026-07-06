@@ -245,13 +245,14 @@ func remapLayerIntoDocumentSpace(n LayerNode, newW, newH, dx, dy int) {
 
 	switch layer := n.(type) {
 	case *TextLayer:
-		// Text rasters are bounds-local (size follows Bounds.W×Bounds.H, which the
-		// resize does not change): translate the position and re-rasterize.
+		// Text rasters are bounds-local: translate the position — the anchor
+		// (pen origin) must shift with the bounds or the next rasterization
+		// would snap the text back — and re-rasterize.
 		layer.Bounds.X += dx
 		layer.Bounds.Y += dy
-		if raster, err := rasterizeTextLayer(layer); err == nil && raster != nil {
-			layer.CachedRaster = raster
-		}
+		layer.AnchorX += float64(dx)
+		layer.AnchorY += float64(dy)
+		_ = rasterizeTextLayer(layer)
 	case *VectorLayer:
 		// Vector rasters are document-local (doc-sized, Bounds == full document,
 		// Shape points in absolute document space): translate the geometry, resize

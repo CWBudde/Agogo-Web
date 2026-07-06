@@ -94,6 +94,8 @@ export interface UIMeta {
   /** Doc-space Y coordinate of the text insertion cursor baseline. */
   textCursorY?: number;
   stylePresets?: DocumentStylePresetEntry[];
+  /** Fill patterns available in the active document (builtins followed by document-defined patterns). */
+  patterns?: Array<{ id: string; name: string; width: number; height: number }>;
 }
 
 /**

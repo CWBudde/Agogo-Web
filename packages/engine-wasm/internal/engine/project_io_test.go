@@ -273,6 +273,9 @@ func newRenderableProjectFixture() *Document {
 	})
 	text.FontFamily = "Recursive"
 	text.FontSize = 24
+	text.AnchorX = 1
+	text.AnchorY = 1
+	text.AnchorSet = true
 	text.SetBlendMode(BlendModeScreen)
 
 	vector := NewVectorLayer("Shape", LayerBounds{X: 1, Y: 1, W: 2, H: 1}, &Path{Subpaths: []Subpath{{Closed: true, Points: []PathPoint{{X: 1, Y: 1}, {X: 3, Y: 1}, {X: 3, Y: 2}}}}}, []byte{

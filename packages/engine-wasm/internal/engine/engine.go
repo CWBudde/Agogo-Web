@@ -10,6 +10,7 @@ import (
 
 	agglib "github.com/cwbudde/agg_go"
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 	runtimepkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/runtime"
 )
 
@@ -195,10 +196,11 @@ type Document struct {
 	// equals this base — snapshot restores clone documents together with their
 	// dirty state, and without this check a restored stale rect could be
 	// mistaken for the delta against an unrelated cached surface.
-	dirtyCompositeBase int64                 `json:"-"`
-	Paths              []NamedPath           `json:"-"`
-	ActivePathIdx      int                   `json:"-"`
-	StylePresets       []DocumentStylePreset `json:"-"`
+	dirtyCompositeBase int64                   `json:"-"`
+	Paths              []NamedPath             `json:"-"`
+	ActivePathIdx      int                     `json:"-"`
+	StylePresets       []DocumentStylePreset   `json:"-"`
+	Patterns           []model.PatternResource `json:"-"`
 }
 
 type UIMeta struct {
@@ -245,6 +247,9 @@ type UIMeta struct {
 	TextCursorX  float64               `json:"textCursorX,omitempty"`
 	TextCursorY  float64               `json:"textCursorY,omitempty"`
 	StylePresets []DocumentStylePreset `json:"stylePresets,omitempty"`
+	// Patterns lists the fill patterns available in the active document
+	// (builtins followed by document-defined patterns).
+	Patterns []PatternMeta `json:"patterns,omitempty"`
 }
 
 type RenderResult struct {
@@ -367,6 +372,11 @@ type FillPayload struct {
 	Source       string   `json:"source,omitempty"`
 	Color        [4]uint8 `json:"color,omitempty"`
 	CreateLayer  bool     `json:"createLayer,omitempty"`
+	// PatternID selects a pattern when Source is "pattern"; empty or unknown
+	// IDs fall back to the legacy foreground/background 8px checker.
+	PatternID string `json:"patternId,omitempty"`
+	// PatternScale scales the pattern tile; 0 (or negative) means 1.
+	PatternScale float64 `json:"patternScale,omitempty"`
 }
 
 type GradientType string

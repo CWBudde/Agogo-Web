@@ -115,6 +115,10 @@ func translateLayerNode(layer LayerNode, dx, dy int) error {
 	case *TextLayer:
 		typed.Bounds.X += dx
 		typed.Bounds.Y += dy
+		// The anchor (pen origin) moves with the bounds; a stale anchor would
+		// snap the text back to its old position on the next rasterization.
+		typed.AnchorX += float64(dx)
+		typed.AnchorY += float64(dy)
 		return nil
 	case *VectorLayer:
 		typed.Bounds.X += dx

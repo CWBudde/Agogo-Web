@@ -441,34 +441,52 @@ func (l *AdjustmentLayer) Clone() LayerNode {
 
 type TextLayer struct {
 	layerBase
-	Bounds        LayerBounds `json:"bounds"`
-	Text          string      `json:"text"`
-	FontFamily    string      `json:"fontFamily"`
-	FontStyle     string      `json:"fontStyle,omitempty"`
-	FontSize      float64     `json:"fontSize"`
-	Bold          bool        `json:"bold,omitempty"`
-	Italic        bool        `json:"italic,omitempty"`
-	AntiAlias     string      `json:"antiAlias,omitempty"`
-	Color         [4]uint8    `json:"color"`
-	TextType      string      `json:"textType,omitempty"`
-	Alignment     string      `json:"alignment,omitempty"`
-	BaselineShift float64     `json:"baselineShift,omitempty"`
-	Leading       float64     `json:"leading,omitempty"`
-	Tracking      float64     `json:"tracking,omitempty"`
-	Kerning       float64     `json:"kerning,omitempty"`
-	Language      string      `json:"language,omitempty"`
-	Orientation   string      `json:"orientation,omitempty"`
-	Superscript   bool        `json:"superscript,omitempty"`
-	Subscript     bool        `json:"subscript,omitempty"`
-	Underline     bool        `json:"underline,omitempty"`
-	Strikethrough bool        `json:"strikethrough,omitempty"`
-	AllCaps       bool        `json:"allCaps,omitempty"`
-	SmallCaps     bool        `json:"smallCaps,omitempty"`
-	IndentLeft    float64     `json:"indentLeft,omitempty"`
-	IndentRight   float64     `json:"indentRight,omitempty"`
-	IndentFirst   float64     `json:"indentFirst,omitempty"`
-	SpaceBefore   float64     `json:"spaceBefore,omitempty"`
-	SpaceAfter    float64     `json:"spaceAfter,omitempty"`
+	Bounds LayerBounds `json:"bounds"`
+	// AnchorX/AnchorY are the doc-space pen origin of the text: AnchorX is
+	// the alignment reference X (left-aligned text starts there, centered
+	// text is centered on it, right-aligned text ends there) and AnchorY is
+	// the top of the first line (first baseline = AnchorY + ascent).
+	//
+	// For point text ("point") the anchor is authoritative and Bounds is a
+	// COMPUTED tight ink box refreshed on every rasterization. For area text
+	// ("area") Bounds remains the user frame (wrapping width authority) and
+	// the anchor is kept in sync with Bounds.X/Y.
+	AnchorX float64 `json:"anchorX,omitempty"`
+	AnchorY float64 `json:"anchorY,omitempty"`
+	// AnchorSet marks AnchorX/AnchorY as authoritative. It is false only for
+	// layers created before the anchor model existed (legacy archives, raw
+	// payloads without anchors); the first rasterization then derives the
+	// anchor from Bounds.X/Y once (the legacy bounds origin WAS the pen
+	// origin) and sets this flag. The flag prevents re-deriving an anchor of
+	// exactly (0,0) from the tight bounds it itself produced.
+	AnchorSet     bool     `json:"anchorSet,omitempty"`
+	Text          string   `json:"text"`
+	FontFamily    string   `json:"fontFamily"`
+	FontStyle     string   `json:"fontStyle,omitempty"`
+	FontSize      float64  `json:"fontSize"`
+	Bold          bool     `json:"bold,omitempty"`
+	Italic        bool     `json:"italic,omitempty"`
+	AntiAlias     string   `json:"antiAlias,omitempty"`
+	Color         [4]uint8 `json:"color"`
+	TextType      string   `json:"textType,omitempty"`
+	Alignment     string   `json:"alignment,omitempty"`
+	BaselineShift float64  `json:"baselineShift,omitempty"`
+	Leading       float64  `json:"leading,omitempty"`
+	Tracking      float64  `json:"tracking,omitempty"`
+	Kerning       float64  `json:"kerning,omitempty"`
+	Language      string   `json:"language,omitempty"`
+	Orientation   string   `json:"orientation,omitempty"`
+	Superscript   bool     `json:"superscript,omitempty"`
+	Subscript     bool     `json:"subscript,omitempty"`
+	Underline     bool     `json:"underline,omitempty"`
+	Strikethrough bool     `json:"strikethrough,omitempty"`
+	AllCaps       bool     `json:"allCaps,omitempty"`
+	SmallCaps     bool     `json:"smallCaps,omitempty"`
+	IndentLeft    float64  `json:"indentLeft,omitempty"`
+	IndentRight   float64  `json:"indentRight,omitempty"`
+	IndentFirst   float64  `json:"indentFirst,omitempty"`
+	SpaceBefore   float64  `json:"spaceBefore,omitempty"`
+	SpaceAfter    float64  `json:"spaceAfter,omitempty"`
 	// CachedRaster is the rasterized text content and is BOUNDS-LOCAL:
 	// an RGBA buffer of exactly Bounds.W × Bounds.H × 4 bytes whose pixel
 	// (0,0) corresponds to document pixel (Bounds.X, Bounds.Y). The layer
@@ -504,6 +522,9 @@ func (l *TextLayer) Clone() LayerNode {
 	return &TextLayer{
 		layerBase:     l.cloneBase(),
 		Bounds:        l.Bounds,
+		AnchorX:       l.AnchorX,
+		AnchorY:       l.AnchorY,
+		AnchorSet:     l.AnchorSet,
 		Text:          l.Text,
 		FontFamily:    l.FontFamily,
 		FontStyle:     l.FontStyle,
@@ -758,6 +779,9 @@ func LayerTreeEqual(a, b LayerNode) bool {
 	case *TextLayer:
 		right, ok := b.(*TextLayer)
 		if !ok || left.Bounds != right.Bounds || left.Text != right.Text || left.FontFamily != right.FontFamily {
+			return false
+		}
+		if left.AnchorX != right.AnchorX || left.AnchorY != right.AnchorY || left.AnchorSet != right.AnchorSet {
 			return false
 		}
 		if left.FontStyle != right.FontStyle || left.FontSize != right.FontSize || left.Bold != right.Bold || left.Italic != right.Italic {

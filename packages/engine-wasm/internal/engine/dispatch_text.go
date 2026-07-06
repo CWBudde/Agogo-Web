@@ -133,6 +133,9 @@ func (inst *instance) addTextLayer(p AddTextLayerPayload) error {
 
 	var newLayerID string
 	if err := inst.executeDocCommand("Add text layer", func(doc *Document) error {
+		// The click point is the pen origin (anchor). Area text keeps a
+		// document-sized default frame (the wrapping width authority); point
+		// text gets its tight bounds computed by rasterization below.
 		bounds := LayerBounds{
 			X: int(p.X),
 			Y: int(p.Y),
@@ -140,9 +143,15 @@ func (inst *instance) addTextLayer(p AddTextLayerPayload) error {
 			H: doc.Height,
 		}
 		layer := NewTextLayer("Text", bounds, "", nil)
+		layer.AnchorX = p.X
+		layer.AnchorY = p.Y
+		layer.AnchorSet = true
 		layer.FontSize = fontSize
 		layer.Color = color
 		layer.TextType = textType
+		if err := rasterizeTextLayer(layer); err != nil {
+			return err
+		}
 
 		// Insert above active layer.
 		parentID := ""
@@ -185,12 +194,7 @@ func (inst *instance) setTextContent(p SetTextContentPayload) error {
 			return fmt.Errorf("layer %q is not a text layer", p.LayerID)
 		}
 		tl.Text = p.Text
-		raster, err := rasterizeTextLayer(tl)
-		if err != nil {
-			return err
-		}
-		tl.CachedRaster = raster
-		return nil
+		return rasterizeTextLayer(tl)
 	})
 }
 
@@ -283,12 +287,7 @@ func (inst *instance) setTextStyle(p SetTextStylePayload) error {
 		if p.SpaceAfter != nil {
 			tl.SpaceAfter = *p.SpaceAfter
 		}
-		raster, err := rasterizeTextLayer(tl)
-		if err != nil {
-			return err
-		}
-		tl.CachedRaster = raster
-		return nil
+		return rasterizeTextLayer(tl)
 	})
 }
 
@@ -347,11 +346,9 @@ func (inst *instance) textEditInput(p TextEditInputPayload) error {
 	// Direct mutation — intentionally bypasses executeDocCommand so that
 	// mid-edit keystrokes are not individual undo entries.
 	tl.Text = p.Text
-	raster, err := rasterizeTextLayer(tl)
-	if err != nil {
+	if err := rasterizeTextLayer(tl); err != nil {
 		return err
 	}
-	tl.CachedRaster = raster
 	doc.ContentVersion++
 	return nil
 }
@@ -394,12 +391,11 @@ func (inst *instance) commitTextEdit() error {
 	// executeDocCommand captures its "before" history snapshot from the live
 	// document at the moment it runs. Because textEditInput already mutated
 	// the live document to newText on the last keystroke, revert it back to
-	// the pre-edit text/raster here so history records the correct
+	// the pre-edit text/raster (and bounds — rasterization recomputes the
+	// tight point-text box) here so history records the correct
 	// original -> newText transition (and undo restores the original text).
 	tl.Text = originalText
-	if raster, err := rasterizeTextLayer(tl); err == nil {
-		tl.CachedRaster = raster
-	}
+	_ = rasterizeTextLayer(tl)
 	return inst.executeDocCommand("Edit text", func(doc *Document) error {
 		l, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
 		if !ok {
@@ -410,12 +406,7 @@ func (inst *instance) commitTextEdit() error {
 			return nil
 		}
 		textLayer.Text = newText
-		raster, err := rasterizeTextLayer(textLayer)
-		if err != nil {
-			return err
-		}
-		textLayer.CachedRaster = raster
-		return nil
+		return rasterizeTextLayer(textLayer)
 	})
 }
 
@@ -451,9 +442,7 @@ func (inst *instance) revertLiveTextEdit() {
 		return
 	}
 	tl.Text = originalText
-	if raster, err := rasterizeTextLayer(tl); err == nil {
-		tl.CachedRaster = raster
-	}
+	_ = rasterizeTextLayer(tl)
 	doc.ContentVersion++
 }
 

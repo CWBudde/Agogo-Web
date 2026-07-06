@@ -116,6 +116,8 @@ export enum CommandID {
   Fill = 0x0414,
   ApplyGradient = 0x0415,
   ResetMixerBrushState = 0x0416,
+  DefinePattern = 0x0417,
+  DeletePattern = 0x0418,
 
   // Phase 5.4: Filters
   ApplyFilter = 0x0500,
@@ -1013,6 +1015,20 @@ export interface FillCommand {
   source?: FillSource;
   color?: [number, number, number, number];
   createLayer?: boolean;
+  /** Pattern to use when source is "pattern"; empty/unknown falls back to the legacy fg/bg checker. */
+  patternId?: string;
+  /** Pattern tile scale; 0 or omitted means 1. */
+  patternScale?: number;
+}
+
+/** Capture a new pattern from the active layer (intersected with the selection bounding rect if any). */
+export interface DefinePatternCommand {
+  name?: string;
+}
+
+/** Delete a document-defined pattern by ID. Builtins cannot be deleted. */
+export interface DeletePatternCommand {
+  patternId: string;
 }
 
 export type GradientType = "linear" | "radial" | "angle" | "reflected" | "diamond";
