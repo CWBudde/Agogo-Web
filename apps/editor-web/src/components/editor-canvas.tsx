@@ -792,6 +792,12 @@ export function EditorCanvas({
   const pendingPanRef = useRef<{ centerX: number; centerY: number } | null>(null);
   const panRafRef = useRef<number | null>(null);
   const brushActiveRef = useRef(false);
+  // Pointer id whose gesture already finished via pointerup or a cancel.
+  // Guards against double-cancel: releasing capture (in pointerup or after a
+  // pointercancel) fires lostpointercapture before React has re-rendered, so
+  // the draft state a cancel checks would still look active. Cleared when the
+  // same pointer starts a new gesture.
+  const lastEndedGesturePointerRef = useRef<number | null>(null);
   const airbrushRafRef = useRef<number | null>(null);
   const airbrushSampleRef = useRef<{
     x: number;
@@ -1438,6 +1444,118 @@ export function EditorCanvas({
     finalizePolygonDraft(polygonDraft);
   }, [finalizePolygonDraft, polygonDraft]);
 
+  // Aborts whatever pointer gesture is in flight for the given pointer. Fired
+  // from pointercancel (pen palm rejection, alt-tab, browser gesture steal)
+  // and from lostpointercapture when capture vanishes without a pointerup.
+  // Mirrors the cleanup branches of onPointerUp but never commits results:
+  // open drag transactions end with commit=false, which reverts the document
+  // to its pre-gesture state in the engine.
+  const cancelActiveGesture = (pointerId: number, target: HTMLDivElement) => {
+    flushPendingInput();
+    lastEndedGesturePointerRef.current = pointerId;
+    const releaseCapture = () => {
+      if (target.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+    };
+    if (transformDraft && transformDraft.pointerId === pointerId) {
+      setTransformDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (selTransformDraft && selTransformDraft.pointerId === pointerId) {
+      setSelTransformDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (cropDraft && cropDraft.pointerId === pointerId) {
+      setCropDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (shapeDraft) {
+      // Abort: the shape is only drawn on pointerup, so dropping the draft
+      // discards it.
+      setShapeDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (artboardCreateDraft && artboardCreateDraft.pointerId === pointerId) {
+      setArtboardCreateDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (artboardEditDraft && artboardEditDraft.pointerId === pointerId) {
+      setArtboardEditDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (gradientDragStart) {
+      setGradientDragStart(null);
+      setGradientDragCurrent(null);
+      releaseCapture();
+      return;
+    }
+    if (brushActiveRef.current) {
+      // Commit the partial stroke as one undoable entry. Reverting the
+      // already-painted pixels instead would need paint-pipeline machinery
+      // (the stroke deltas live engine-side) — deferred.
+      brushActiveRef.current = false;
+      stopAirbrushLoop();
+      engine.dispatchCommand(CommandID.EndPaintStroke, {});
+      releaseCapture();
+      return;
+    }
+    if (quickSelectDraft && quickSelectDraft.pointerId === pointerId) {
+      engine.endTransaction(false);
+      setQuickSelectDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (moveDraft && moveDraft.pointerId === pointerId) {
+      engine.endTransaction(false);
+      setMoveDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (marqueeDraft && marqueeDraft.pointerId === pointerId) {
+      setMarqueeDraft(null);
+      releaseCapture();
+      return;
+    }
+    if (cropStraightenDraft && cropStraightenDraft.pointerId === pointerId) {
+      setCropStraightenDraft(null);
+      onCropStraightenActiveChange(false);
+      releaseCapture();
+      return;
+    }
+    if (freehandDraft && freehandDraft.pointerId === pointerId) {
+      setFreehandDraft(null);
+      releaseCapture();
+      return;
+    }
+    const zoomDrag = zoomDragRef.current;
+    if (zoomDrag && zoomDrag.pointerId === pointerId) {
+      engine.endTransaction(false);
+      zoomDragRef.current = null;
+      releaseCapture();
+      return;
+    }
+    // No JS-side draft matched: release any engine-side pointer drag (pan).
+    // The engine's "up" handler only clears drag state for a matching pointer
+    // id, so the coordinates are irrelevant here.
+    engine.dispatchPointerEvent({
+      phase: "up",
+      pointerId,
+      x: 0,
+      y: 0,
+      button: 0,
+      buttons: 0,
+      panMode: isPanMode,
+    });
+    releaseCapture();
+  };
+
   useEffect(() => {
     if (activeTool !== "lasso" || selectionOptions.lassoMode !== "polygon" || !polygonDraft) {
       return;
@@ -1767,6 +1885,9 @@ export function EditorCanvas({
         // Preserve command order: any batched pointer input must reach the engine
         // before this pointerdown's commands (BeginPaintStroke, transactions, …).
         flushPendingInput();
+        if (lastEndedGesturePointerRef.current === event.pointerId) {
+          lastEndedGesturePointerRef.current = null;
+        }
         if (!render) {
           return;
         }
@@ -3250,9 +3371,15 @@ export function EditorCanvas({
         scheduleInputFlush();
       }}
       onPointerUp={(event) => {
+        // Every gesture branch here needs a matching abort branch in
+        // cancelActiveGesture (the pointercancel/lostpointercapture path).
         // Flush batched input before any pointerup command (EndPaintStroke,
         // endTransaction, createSelection, …) so engine order is preserved.
         flushPendingInput();
+        // Whatever gesture this pointer drove is finished now; the capture
+        // release below fires lostpointercapture before React re-renders, so
+        // mark the pointer as ended to keep that from cancelling stale drafts.
+        lastEndedGesturePointerRef.current = event.pointerId;
         if (transformDraft && transformDraft.pointerId === event.pointerId) {
           setTransformDraft(null);
           event.currentTarget.releasePointerCapture(event.pointerId);
@@ -3495,6 +3622,21 @@ export function EditorCanvas({
           });
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
+      }}
+      onPointerCancel={(event) => {
+        if (lastEndedGesturePointerRef.current === event.pointerId) {
+          return;
+        }
+        cancelActiveGesture(event.pointerId, event.currentTarget);
+      }}
+      onLostPointerCapture={(event) => {
+        // Normally capture is released by pointerup / cancelActiveGesture and
+        // the ref guard makes this a no-op; a genuine mid-gesture capture loss
+        // (element swap, programmatic capture steal) aborts the gesture here.
+        if (lastEndedGesturePointerRef.current === event.pointerId) {
+          return;
+        }
+        cancelActiveGesture(event.pointerId, event.currentTarget);
       }}
       onPointerLeave={() => {
         flushPendingInput();

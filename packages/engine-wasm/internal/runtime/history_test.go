@@ -160,6 +160,108 @@ func TestJumpToStopsAtFirstFailure(t *testing.T) {
 	}
 }
 
+func TestCancelTransactionRevertsToPreTransactionState(t *testing.T) {
+	ctx := &testCtx{}
+	h := newTestStack()
+
+	// Build one committed entry, then undo it so a redo entry exists.
+	if err := h.Execute(ctx, &stubCommand{desc: "edit"}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if err := h.Undo(ctx); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if ctx.value != 0 || h.CanUndo() || !h.CanRedo() {
+		t.Fatalf("precondition wrong: value=%d canUndo=%v canRedo=%v", ctx.value, h.CanUndo(), h.CanRedo())
+	}
+
+	h.BeginTransaction(ctx, "gesture")
+	if err := h.Execute(ctx, &stubCommand{desc: "in-txn"}); err != nil {
+		t.Fatalf("Execute in transaction: %v", err)
+	}
+	if ctx.value != 1 {
+		t.Fatalf("value during transaction = %d, want 1", ctx.value)
+	}
+
+	if err := h.CancelTransaction(ctx); err != nil {
+		t.Fatalf("CancelTransaction: %v", err)
+	}
+	if ctx.value != 0 {
+		t.Fatalf("value after cancel = %d, want 0 (restored to pre-transaction state)", ctx.value)
+	}
+	// Undo/redo stacks must be untouched: cancel restored the exact head state
+	// the redo entry was recorded against, so it stays valid.
+	if h.CanUndo() {
+		t.Fatal("cancel must not add undo entries")
+	}
+	if !h.CanRedo() {
+		t.Fatal("cancel must not clear the redo stack")
+	}
+
+	// A later EndTransaction must be a no-op: the transaction is gone.
+	h.EndTransaction(true)
+	if h.CanUndo() {
+		t.Fatal("EndTransaction after cancel must not push an entry")
+	}
+
+	// The surviving redo entry still replays correctly.
+	if err := h.Redo(ctx); err != nil {
+		t.Fatalf("Redo after cancel: %v", err)
+	}
+	if ctx.value != 1 {
+		t.Fatalf("value after redo = %d, want 1", ctx.value)
+	}
+}
+
+func TestCancelTransactionWithoutActiveIsNoOp(t *testing.T) {
+	ctx := &testCtx{value: 5}
+	h := newTestStack()
+	h.Push(&stubCommand{desc: "existing"})
+
+	if err := h.CancelTransaction(ctx); err != nil {
+		t.Fatalf("CancelTransaction without active transaction: %v", err)
+	}
+	if ctx.value != 5 {
+		t.Fatalf("value = %d after no-op cancel, want 5 (untouched)", ctx.value)
+	}
+	if !h.CanUndo() || h.CanRedo() {
+		t.Fatalf("stacks changed by no-op cancel: canUndo=%v canRedo=%v", h.CanUndo(), h.CanRedo())
+	}
+}
+
+func TestCancelTransactionKeepsTransactionOnRestoreFailure(t *testing.T) {
+	restoreErr := errors.New("restore boom")
+	fail := true
+	ctx := &testCtx{}
+	h := NewHistoryStack[*testCtx, int](
+		100,
+		func(ctx *testCtx) int { return ctx.value },
+		func(ctx *testCtx, s int) error {
+			if fail {
+				return restoreErr
+			}
+			ctx.value = s
+			return nil
+		},
+		func(a, b int) bool { return a == b },
+	)
+
+	h.BeginTransaction(ctx, "gesture")
+	ctx.value = 3
+
+	if err := h.CancelTransaction(ctx); !errors.Is(err, restoreErr) {
+		t.Fatalf("CancelTransaction error = %v, want %v", err, restoreErr)
+	}
+	// The transaction must survive a failed restore so the caller can retry.
+	fail = false
+	if err := h.CancelTransaction(ctx); err != nil {
+		t.Fatalf("retried CancelTransaction: %v", err)
+	}
+	if ctx.value != 0 {
+		t.Fatalf("value after retried cancel = %d, want 0", ctx.value)
+	}
+}
+
 func TestExecuteSuppressesNoOpCommands(t *testing.T) {
 	tests := []struct {
 		name       string

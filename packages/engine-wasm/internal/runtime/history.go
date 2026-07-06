@@ -176,6 +176,9 @@ func (h *HistoryStack[C, S]) BeginTransaction(ctx C, description string) {
 	}
 }
 
+// EndTransaction closes the active transaction. With commit=false it only
+// discards the grouped history entry — mutations made during the transaction
+// REMAIN in the live state. To revert them, use CancelTransaction instead.
 func (h *HistoryStack[C, S]) EndTransaction(commit bool) {
 	if h.active == nil {
 		return
@@ -186,6 +189,27 @@ func (h *HistoryStack[C, S]) EndTransaction(commit bool) {
 		return
 	}
 	h.push(active)
+}
+
+// CancelTransaction aborts the active transaction and reverts the live state
+// to the snapshot recorded by BeginTransaction. Unlike EndTransaction(false) —
+// which only discards the grouped history entry and keeps whatever mutations
+// happened during the transaction — this undoes those mutations. The undo and
+// redo stacks are deliberately left untouched: the restored state is exactly
+// the head state they were recorded against, so existing redo entries still
+// replay onto the correct base. Calling it with no active transaction is a
+// no-op.
+func (h *HistoryStack[C, S]) CancelTransaction(ctx C) error {
+	if h.active == nil {
+		return nil
+	}
+	if err := h.restore(ctx, h.active.before); err != nil {
+		// Leave the transaction active on failure so the caller can retry;
+		// discarding it here would silently orphan the live mutations.
+		return err
+	}
+	h.active = nil
+	return nil
 }
 
 func (h *HistoryStack[C, S]) push(command Command[C]) {

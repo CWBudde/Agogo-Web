@@ -88,8 +88,14 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			return nil
 		},
 		EndTxn: func(commit bool) error {
-			inst.history.EndTransaction(commit)
-			return nil
+			if commit {
+				inst.history.EndTransaction(true)
+				return nil
+			}
+			// commit=false means the gesture was aborted (Escape, pointer
+			// cancel): revert the document to its pre-transaction state
+			// instead of merely discarding the grouped history entry.
+			return inst.history.CancelTransaction(inst)
 		},
 		JumpHistory: func(historyIndex int) error {
 			return inst.history.JumpTo(inst, historyIndex)

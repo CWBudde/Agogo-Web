@@ -987,12 +987,17 @@ func TestHistoryStackHandlesDiscardedTransactionsAndNoopNavigation(t *testing.T)
 	if err := inst.history.Execute(inst, command); err != nil {
 		t.Fatalf("Execute in active transaction: %v", err)
 	}
-	inst.history.EndTransaction(false)
-	if inst.history.CurrentIndex() != 0 || len(inst.history.Entries()) != 0 {
-		t.Fatalf("discarded transaction should not add history entries, got index=%d entries=%+v", inst.history.CurrentIndex(), inst.history.Entries())
+	if err := inst.history.CancelTransaction(inst); err != nil {
+		t.Fatalf("CancelTransaction: %v", err)
 	}
+	if inst.history.CurrentIndex() != 0 || len(inst.history.Entries()) != 0 {
+		t.Fatalf("cancelled transaction should not add history entries, got index=%d entries=%+v", inst.history.CurrentIndex(), inst.history.Entries())
+	}
+	// CancelTransaction restores the document snapshot, but restoreSnapshot
+	// deliberately never writes back the viewport (navigation is not history),
+	// so the zoom performed inside the transaction survives the cancel.
 	if inst.viewport.Zoom != 2 {
-		t.Fatalf("discarded transaction should keep the current state change, zoom=%.2f", inst.viewport.Zoom)
+		t.Fatalf("cancelled transaction must not restore the viewport, zoom=%.2f", inst.viewport.Zoom)
 	}
 
 	inst.history.BeginTransaction(inst, "noop")
