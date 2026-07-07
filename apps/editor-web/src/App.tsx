@@ -31,13 +31,11 @@ import { Dialog } from "@/components/ui/dialog";
 import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
-import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
+import { useAutosave } from "@/hooks/use-autosave";
+import { useDocumentIo } from "@/hooks/use-document-io";
 import type { MenuActionIO } from "@/hooks/use-menu-actions";
-import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
 import { hexToRgba, type Rgba, rgbaToCss, rgbaToHex, toMutableRgba } from "@/lib/color";
 import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
-import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
-import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import {
   type DocumentUnit,
   formatDimension,
@@ -72,24 +70,9 @@ const presets = [
   { id: "square", label: "Custom", width: 2048, height: 2048, resolution: 144 },
 ];
 
-const MAX_SWATCHES = 96;
-
-function fileStem(value: string) {
-  const normalized = value
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/\.+$/g, "");
-  return normalized || "swatches";
-}
-
 export default function App() {
   const engine = useEngine();
   const render = engine.render;
-  const projectInputRef = useRef<HTMLInputElement | null>(null);
-  const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
-  const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
-  const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
   const {
     foregroundColor,
     backgroundColor,
@@ -101,11 +84,6 @@ export default function App() {
     onlyWebColors,
     setOnlyWebColors,
     recentColors,
-    swatches,
-    setSwatches,
-    swatchSetName,
-    setSwatchSetName,
-    setSwatchStatus,
     setColorSamplerPoints,
     pushRecentColor,
     applyColorToTarget,
@@ -120,10 +98,6 @@ export default function App() {
     cloneStampSource,
     historyBrushSourceIndex,
     setHistoryBrushSourceIndex,
-    customBrushPresets,
-    setCustomBrushPresets,
-    setBrushPresetStatus,
-    applyBrushPreset,
   } = useBrushState();
   const {
     fillSource,
@@ -146,16 +120,7 @@ export default function App() {
     gradientEditorOpen,
     setGradientEditorOpen,
   } = useFillGradientState();
-  const {
-    shapeSubTool,
-    setShapeSubTool,
-    setShapePresetId,
-    customShapePresets,
-    setCustomShapePresets,
-    setShapePresetStatus,
-    artboardPreset,
-    setArtboardBackground,
-  } = useShapeState();
+  const { shapeSubTool, artboardPreset, setArtboardBackground } = useShapeState();
   const { panelCollapsed, panelWidth, documentUnit, setDocumentUnit, setActiveAuxPanel } =
     useViewState();
   const { cursor } = useCursorState();
@@ -207,6 +172,7 @@ export default function App() {
   const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
   const [loadSelectionName, setLoadSelectionName] = useState("");
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
+  const documentIo = useDocumentIo({ draft, setDraft });
   const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
     width: number;
     height: number;
@@ -225,7 +191,6 @@ export default function App() {
     height: 0,
     anchor: "center",
   });
-  const [isDragOver, setIsDragOver] = useState(false);
   const [thresholdValue, setThresholdValue] = useState(128);
   const [posterizeLevels, setPosterizeLevels] = useState(6);
   const [channelMixerMonochrome, setChannelMixerMonochrome] = useState(false);
@@ -255,10 +220,6 @@ export default function App() {
   ]);
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
-  const [hasAutosave, setHasAutosave] = useState(() => {
-    return localStorage.getItem(AUTOSAVE_KEY) !== null;
-  });
-
   const savedSelectionChannels = render?.uiMeta.savedSelectionChannels ?? [];
   const nextSavedSelectionName = () => {
     const existing = new Set(savedSelectionChannels.map((channel) => channel.name.toLowerCase()));
@@ -281,15 +242,6 @@ export default function App() {
     }
     wasCustomShapeActiveRef.current = customShapeActive;
   }, [activeTool, shapeSubTool, setActiveAuxPanel]);
-
-  const downloadBlob = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
 
   const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
   const editingTextLayerID = render?.uiMeta.editingTextLayerId ?? "";
@@ -324,29 +276,6 @@ export default function App() {
     { key: "blacks", label: "Blacks" },
   ] as const;
 
-  const openBrushPresetImport = () => {
-    brushPresetInputRef.current?.click();
-  };
-
-  const openShapePresetImport = () => {
-    shapePresetInputRef.current?.click();
-  };
-
-  const openSwatchImport = () => {
-    swatchSetInputRef.current?.click();
-  };
-
-  const exportSwatchSet = () => {
-    if (swatches.length === 0) {
-      setSwatchStatus("No swatches to export.");
-      return;
-    }
-    const exportName = fileStem(swatchSetName || activeDocumentName);
-    const bytes = exportSwatchesAsAco(swatches);
-    downloadBlob(new Blob([bytes], { type: "application/octet-stream" }), `${exportName}.aco`);
-    setSwatchStatus(`Saved ${swatches.length} swatches to ${exportName}.aco.`);
-  };
-
   useEffect(() => {
     if (activeArtboard?.isArtboard && activeArtboard.artboardBackground) {
       const background = activeArtboard.artboardBackground;
@@ -362,10 +291,6 @@ export default function App() {
     { key: "yellowBlue", label: "Yellow / Blue" },
     { key: "black", label: "Black" },
   ] as const;
-
-  const openProjectPicker = () => {
-    projectInputRef.current?.click();
-  };
 
   const createAdjustmentLayer = <K extends AdjustmentKind>(
     name: string,
@@ -387,152 +312,6 @@ export default function App() {
       parentLayerId: position.parentId,
       index: position.index + 1,
     } satisfies AddLayerCommand);
-  };
-
-  const saveDocument = (format: "archive" | "psd" | "psb") => {
-    const documentWidth = render?.uiMeta.documentWidth ?? 0;
-    const documentHeight = render?.uiMeta.documentHeight ?? 0;
-    const normalizedFormat =
-      format === "psd" && (documentWidth > PSD_MAX_DIMENSION || documentHeight > PSD_MAX_DIMENSION)
-        ? "psb"
-        : format;
-    const base64Data =
-      normalizedFormat === "archive"
-        ? engine.exportProject()
-        : engine.exportDocument(normalizedFormat);
-    if (!base64Data) {
-      return;
-    }
-    const binary = atob(base64Data);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const extension = normalizedFormat === "archive" ? "agp" : normalizedFormat;
-    const mimeType =
-      normalizedFormat === "archive" ? "application/zip" : "image/vnd.adobe.photoshop";
-    const fileName = `${activeDocumentName}.${extension}`;
-    const blob = new Blob([bytes], { type: mimeType });
-    downloadBlob(blob, fileName);
-  };
-
-  const openProject = async (file: File) => {
-    const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let payload: string;
-    const isLikelyJSON = (() => {
-      for (const value of bytes) {
-        if (value === 0x20 || value === 0x09 || value === 0x0a || value === 0x0d) {
-          continue;
-        }
-        return value === 0x7b;
-      }
-      return false;
-    })();
-    if (!isLikelyJSON) {
-      const chunkSize = 0x8000;
-      let binary = "";
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-      }
-      payload = btoa(binary);
-    } else {
-      payload = new TextDecoder().decode(bytes);
-    }
-    setColorSamplerPoints([]);
-    const imported = engine.importProject(payload);
-    if (imported) {
-      setDraft((current) => ({
-        ...current,
-        name: imported.uiMeta.activeDocumentName || current.name,
-        width: imported.uiMeta.documentWidth || current.width,
-        height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
-      }));
-    }
-  };
-
-  const openImageFile = async (file: File) => {
-    const bitmap = await createImageBitmap(file);
-    const { width, height } = bitmap;
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    const chunkSize = 0x8000;
-    let binary = "";
-    for (let i = 0; i < data.length; i += chunkSize) {
-      binary += String.fromCharCode(...data.subarray(i, i + chunkSize));
-    }
-    setColorSamplerPoints([]);
-    const result = engine.dispatchCommand(CommandID.OpenImageFile, {
-      name: file.name,
-      width,
-      height,
-      pixels: btoa(binary),
-    });
-    if (result) {
-      setDraft((current) => ({
-        ...current,
-        name: result.uiMeta.activeDocumentName || file.name,
-        width,
-        height,
-      }));
-    }
-  };
-
-  const recoverAutosave = () => {
-    const saved = localStorage.getItem(AUTOSAVE_KEY);
-    if (!saved) {
-      setHasAutosave(false);
-      return;
-    }
-    setColorSamplerPoints([]);
-    const imported = engine.importProject(saved);
-    if (imported) {
-      setDraft((current) => ({
-        ...current,
-        name: imported.uiMeta.activeDocumentName || current.name,
-        width: imported.uiMeta.documentWidth || current.width,
-        height: imported.uiMeta.documentHeight || current.height,
-        background: imported.uiMeta.documentBackground as CreateDocumentCommand["background"],
-      }));
-    }
-    localStorage.removeItem(AUTOSAVE_KEY);
-    setHasAutosave(false);
-  };
-
-  const dismissAutosave = () => {
-    localStorage.removeItem(AUTOSAVE_KEY);
-    setHasAutosave(false);
-  };
-
-  const handleDragOver = (event: React.DragEvent) => {
-    event.preventDefault();
-    if (event.dataTransfer.types.includes("Files")) {
-      setIsDragOver(true);
-    }
-  };
-
-  const handleDragLeave = (event: React.DragEvent) => {
-    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-      setIsDragOver(false);
-    }
-  };
-
-  const handleDrop = async (event: React.DragEvent) => {
-    event.preventDefault();
-    setIsDragOver(false);
-    const file = event.dataTransfer.files[0];
-    if (!file) return;
-    if (file.name.endsWith(".agp") || file.type === "application/json") {
-      await openProject(file);
-    } else if (file.type.startsWith("image/")) {
-      await openImageFile(file);
-    }
   };
 
   const commitFeather = () => {
@@ -600,8 +379,8 @@ export default function App() {
   // that still live in App (use-document-io and the dialog extraction will
   // take these over).
   const menuIO: MenuActionIO = {
-    openProjectPicker,
-    saveDocument,
+    openProjectPicker: documentIo.openProjectPicker,
+    saveDocument: documentIo.saveDocument,
     openCanvasSizeDialog,
     openModifyDialog,
     setSaveSelectionName,
@@ -691,147 +470,59 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
       <input
-        ref={brushPresetInputRef}
+        ref={documentIo.brushPresetInputRef}
         type="file"
         accept=".abr,.json,application/json"
         className="hidden"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (!file) {
-            return;
-          }
-
-          try {
-            const { presets, sourceName } = await loadBrushPresetFile(file);
-            const mergedPresets = mergeImportedBrushPresets(customBrushPresets, presets);
-            const addedCount = mergedPresets.length - customBrushPresets.length;
-            if (addedCount === 0) {
-              setBrushPresetStatus(`No new presets were added from ${sourceName}.`);
-              return;
-            }
-            const firstNewPreset = mergedPresets[mergedPresets.length - addedCount];
-            setCustomBrushPresets(mergedPresets);
-            applyBrushPreset(firstNewPreset);
-            setBrushPresetStatus(
-              `Imported ${addedCount} brush preset${addedCount === 1 ? "" : "s"} from ${sourceName}.`,
-            );
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Brush preset import failed.";
-            setBrushPresetStatus(message);
-          }
-        }}
+        onChange={documentIo.handleBrushPresetInputChange}
       />
       <input
-        ref={shapePresetInputRef}
+        ref={documentIo.shapePresetInputRef}
         type="file"
         accept=".csh,.json,application/json"
         className="hidden"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (!file) {
-            return;
-          }
-
-          try {
-            const { presets, sourceName } = await loadShapePresetFile(file);
-            const mergedPresets = mergeImportedShapePresets(customShapePresets, presets);
-            const addedCount = mergedPresets.length - customShapePresets.length;
-            if (addedCount === 0) {
-              setShapePresetStatus(`No new shapes were added from ${sourceName}.`);
-              return;
-            }
-            const firstNewPreset = mergedPresets[mergedPresets.length - addedCount];
-            setCustomShapePresets(mergedPresets);
-            setShapePresetId(firstNewPreset.id);
-            setShapePresetStatus(
-              `Imported ${addedCount} custom shape${addedCount === 1 ? "" : "s"} from ${sourceName}.`,
-            );
-            setActiveAuxPanel("shapes");
-            setShapeSubTool("custom-shape");
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Shape import failed.";
-            setShapePresetStatus(message);
-          }
-        }}
+        onChange={documentIo.handleShapePresetInputChange}
       />
       <input
-        ref={swatchSetInputRef}
+        ref={documentIo.swatchSetInputRef}
         type="file"
         accept=".aco,.json,application/json"
         className="hidden"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (!file) {
-            return;
-          }
-
-          try {
-            const { name, swatches: importedSwatches } = await loadSwatchSetFile(file);
-            setSwatches(importedSwatches.slice(0, MAX_SWATCHES));
-            setSwatchSetName(name);
-            setSwatchStatus(
-              `Loaded ${Math.min(importedSwatches.length, MAX_SWATCHES)} swatches from ${name}.`,
-            );
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Swatch import failed.";
-            setSwatchStatus(message);
-          }
-        }}
+        onChange={documentIo.handleSwatchInputChange}
       />
       <input
-        ref={projectInputRef}
+        ref={documentIo.projectInputRef}
         type="file"
         accept=".agp,.psd,.psb,application/json,image/png,image/jpeg,image/gif,image/webp,image/bmp"
         className="hidden"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) {
-            return;
-          }
-
-          const lowerName = file.name.toLowerCase();
-          if (
-            lowerName.endsWith(".agp") ||
-            lowerName.endsWith(".psd") ||
-            lowerName.endsWith(".psb") ||
-            file.type === "application/json"
-          ) {
-            await openProject(file);
-          } else if (file.type.startsWith("image/")) {
-            await openImageFile(file);
-          }
-          event.target.value = "";
-        }}
+        onChange={documentIo.handleProjectInputChange}
       />
 
       <div className="mx-auto min-h-screen max-w-[1920px] px-0">
         <div className="flex min-h-screen flex-col bg-[#1d2026]">
           <MenuBar io={menuIO} />
 
-          {hasAutosave && engine.status === "ready" ? (
+          {documentIo.hasAutosave && engine.status === "ready" ? (
             <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
               <span>Unsaved session detected.</span>
               <button
                 type="button"
                 className="rounded bg-warning px-2 py-0.5 text-background hover:bg-warning/80 focus-visible:outline-none"
-                onClick={recoverAutosave}
+                onClick={documentIo.recoverAutosave}
               >
                 Restore
               </button>
               <button
                 type="button"
                 className="rounded px-2 py-0.5 text-warning hover:text-warning/80 focus-visible:outline-none"
-                onClick={dismissAutosave}
+                onClick={documentIo.dismissAutosave}
               >
                 Discard
               </button>
             </div>
           ) : null}
 
-          <ToolOptions openBrushPresetImport={openBrushPresetImport} />
+          <ToolOptions openBrushPresetImport={documentIo.openBrushPresetImport} />
 
           {editingVectorLayerID ? (
             <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-warning/30 bg-warning/8 px-3 py-1">
@@ -867,11 +558,11 @@ export default function App() {
 
             <main className="editor-stage flex min-w-0 min-h-[36rem] flex-col p-[var(--ui-gap-2)]">
               <section
-                className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${isDragOver && hasDocument ? " ring-2 ring-inset ring-blue-500" : ""}`}
+                className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${documentIo.isDragOver && hasDocument ? " ring-2 ring-inset ring-blue-500" : ""}`}
                 aria-label="Canvas drop zone"
-                onDragOver={hasDocument ? handleDragOver : undefined}
-                onDragLeave={hasDocument ? handleDragLeave : undefined}
-                onDrop={hasDocument ? handleDrop : undefined}
+                onDragOver={hasDocument ? documentIo.handleDragOver : undefined}
+                onDragLeave={hasDocument ? documentIo.handleDragLeave : undefined}
+                onDrop={hasDocument ? documentIo.handleDrop : undefined}
               >
                 {hasDocument ? (
                   <CanvasHost />
@@ -881,14 +572,14 @@ export default function App() {
                   />
                 ) : (
                   <WelcomeScreen
-                    isDragOver={isDragOver}
-                    hasAutosave={hasAutosave}
+                    isDragOver={documentIo.isDragOver}
+                    hasAutosave={documentIo.hasAutosave}
                     onNew={() => setNewDocumentOpen(true)}
-                    onOpen={() => projectInputRef.current?.click()}
-                    onResume={recoverAutosave}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
+                    onOpen={documentIo.openProjectPicker}
+                    onResume={documentIo.recoverAutosave}
+                    onDragOver={documentIo.handleDragOver}
+                    onDragLeave={documentIo.handleDragLeave}
+                    onDrop={documentIo.handleDrop}
                   />
                 )}
               </section>
@@ -896,10 +587,10 @@ export default function App() {
 
             <RightDock
               draft={draft}
-              openBrushPresetImport={openBrushPresetImport}
-              openShapePresetImport={openShapePresetImport}
-              openSwatchImport={openSwatchImport}
-              exportSwatchSet={exportSwatchSet}
+              openBrushPresetImport={documentIo.openBrushPresetImport}
+              openShapePresetImport={documentIo.openShapePresetImport}
+              openSwatchImport={documentIo.openSwatchImport}
+              exportSwatchSet={documentIo.exportSwatchSet}
             />
           </section>
 
@@ -1125,7 +816,7 @@ export default function App() {
             size="sm"
             onClick={() => {
               setOpenRecentOpen(false);
-              openProjectPicker();
+              documentIo.openProjectPicker();
             }}
           >
             Open...
@@ -1173,7 +864,7 @@ export default function App() {
             variant="secondary"
             size="sm"
             onClick={() => {
-              saveDocument("archive");
+              documentIo.saveDocument("archive");
               setExportDialogOpen(false);
             }}
           >
@@ -1183,7 +874,7 @@ export default function App() {
             variant="secondary"
             size="sm"
             onClick={() => {
-              saveDocument("psd");
+              documentIo.saveDocument("psd");
               setExportDialogOpen(false);
             }}
           >
@@ -1192,7 +883,7 @@ export default function App() {
           <Button
             size="sm"
             onClick={() => {
-              saveDocument("psb");
+              documentIo.saveDocument("psb");
               setExportDialogOpen(false);
             }}
           >
@@ -2020,5 +1711,3 @@ export default function App() {
     </div>
   );
 }
-
-const PSD_MAX_DIMENSION = 30000;
