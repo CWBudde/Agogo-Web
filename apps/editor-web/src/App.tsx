@@ -8,8 +8,8 @@ import {
 } from "@agogo/proto";
 import { useEffect, useRef, useState } from "react";
 import { ColorPickerDialog } from "@/components/brush-color-panels";
+import { CanvasHost } from "@/components/canvas-host";
 import { CompactRange } from "@/components/compact-range";
-import { EditorCanvas } from "@/components/editor-canvas";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
@@ -50,7 +50,6 @@ import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
 import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
-import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
@@ -93,9 +92,7 @@ export default function App() {
   const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
   const {
     foregroundColor,
-    setForegroundColor,
     backgroundColor,
-    setBackgroundColor,
     colorPickerOpen,
     setColorPickerOpen,
     colorPickerTarget,
@@ -109,49 +106,20 @@ export default function App() {
     swatchSetName,
     setSwatchSetName,
     setSwatchStatus,
-    eyedropperSampleSize,
-    eyedropperSampleMerged,
-    eyedropperSampleAllLayersNoAdj,
-    colorSamplerPoints,
     setColorSamplerPoints,
     pushRecentColor,
     applyColorToTarget,
-    addColorSamplerPoint,
   } = useColorState();
   const {
-    brushSize,
-    brushHardness,
-    brushBlendMode,
-    brushOpacity,
-    brushAirbrush,
-    brushSmoothing,
-    pressureAffectsSize,
-    pressureAffectsOpacity,
-    pressureAffectsFlow,
-    brushFlow,
-    mixerBrushWetness,
-    mixerBrushLoad,
-    mixerBrushSampleMerged,
     cloneStampAligned,
     cloneStampAlignedOffset,
-    setCloneStampAlignedOffset,
-    cloneStampSampleMerged,
-    cloneStampOpacity,
-    cloneStampLoad,
     cloneStampUseHistorySource,
     setCloneStampUseHistorySource,
     cloneStampHistorySourceIndex,
     setCloneStampHistorySourceIndex,
     cloneStampSource,
-    setCloneStampSource,
     historyBrushSourceIndex,
     setHistoryBrushSourceIndex,
-    historyBrushOpacity,
-    historyBrushLoad,
-    historyBrushSampleMerged,
-    pencilAutoErase,
-    eraserMode,
-    eraserTolerance,
     customBrushPresets,
     setCustomBrushPresets,
     setBrushPresetStatus,
@@ -171,11 +139,8 @@ export default function App() {
     setFillCreateLayer,
     fillDialogOpen,
     setFillDialogOpen,
-    gradientType,
     gradientReverse,
     setGradientReverse,
-    gradientDither,
-    gradientCreateLayer,
     gradientStops,
     setGradientStops,
     gradientEditorOpen,
@@ -184,57 +149,16 @@ export default function App() {
   const {
     shapeSubTool,
     setShapeSubTool,
-    shapeMode,
-    shapeCornerRadius,
-    shapePolygonSides,
-    shapePolygonInnerRadiusPct,
-    shapeStarMode,
     setShapePresetId,
-    shapeFillColor,
-    shapeStrokeColor,
-    shapeStrokeWidth,
     customShapePresets,
     setCustomShapePresets,
     setShapePresetStatus,
-    selectedShapePreset,
     artboardPreset,
-    artboardBackground,
     setArtboardBackground,
   } = useShapeState();
-  const {
-    marqueeShape,
-    marqueeStyle,
-    marqueeRatioW,
-    marqueeRatioH,
-    marqueeSizeW,
-    marqueeSizeH,
-    lassoMode,
-    selectionAntiAlias,
-    selectionFeatherRadius,
-    wandMode,
-    wandTolerance,
-    wandContiguous,
-    wandSampleMerged,
-    moveAutoSelectGroup,
-    cropDeletePixels,
-    cropContentAwareFill,
-    cropResolution,
-    cropOverlayType,
-    cropStraightenActive,
-    setCropStraightenActive,
-    transformSelectionActive,
-    setTransformSelectionActive,
-  } = useSelectionToolState();
-  const {
-    isPanMode,
-    panelCollapsed,
-    panelWidth,
-    documentUnit,
-    setDocumentUnit,
-    setActiveAuxPanel,
-    selectedLayerIds,
-  } = useViewState();
-  const { cursor, setCursor } = useCursorState();
+  const { panelCollapsed, panelWidth, documentUnit, setDocumentUnit, setActiveAuxPanel } =
+    useViewState();
+  const { cursor } = useCursorState();
   const { activeTool } = useToolState();
   const {
     newDocumentOpen,
@@ -376,7 +300,8 @@ export default function App() {
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
-  const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
+  const _artboardPresetSize =
+    artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
     { key: "green", label: "Green Output" },
@@ -694,7 +619,7 @@ export default function App() {
     cloneStampHistorySourceIndex === null
       ? null
       : (historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null);
-  const selectedHistoryBrushEntry =
+  const _selectedHistoryBrushEntry =
     historyBrushSourceIndex === null
       ? null
       : (historyEntries.find((entry) => entry.id === historyBrushSourceIndex) ?? null);
@@ -949,116 +874,7 @@ export default function App() {
                 onDrop={hasDocument ? handleDrop : undefined}
               >
                 {hasDocument ? (
-                  <EditorCanvas
-                    activeTool={activeTool}
-                    isPanMode={isPanMode || activeTool === "hand"}
-                    isZoomTool={activeTool === "zoom"}
-                    selectionOptions={{
-                      marqueeShape,
-                      marqueeStyle,
-                      marqueeRatioW,
-                      marqueeRatioH,
-                      marqueeSizeW,
-                      marqueeSizeH,
-                      lassoMode,
-                      antiAlias: selectionAntiAlias,
-                      featherRadius: selectionFeatherRadius,
-                      wandMode,
-                      wandTolerance,
-                      wandContiguous,
-                      wandSampleMerged,
-                    }}
-                    moveAutoSelectGroup={moveAutoSelectGroup}
-                    selectedLayerIds={selectedLayerIds}
-                    onCursorChange={setCursor}
-                    brushSize={brushSize}
-                    brushHardness={brushHardness}
-                    brushFlow={brushFlow}
-                    brushOpacity={brushOpacity}
-                    brushBlendMode={brushBlendMode}
-                    brushAirbrush={brushAirbrush}
-                    brushSmoothing={brushSmoothing}
-                    pressureAffectsSize={pressureAffectsSize}
-                    pressureAffectsOpacity={pressureAffectsOpacity}
-                    pressureAffectsFlow={pressureAffectsFlow}
-                    mixerBrushWetness={mixerBrushWetness}
-                    mixerBrushLoad={mixerBrushLoad}
-                    mixerBrushSampleMerged={mixerBrushSampleMerged}
-                    cloneStampOpacity={cloneStampOpacity}
-                    cloneStampLoad={cloneStampLoad}
-                    cloneStampAligned={cloneStampAligned}
-                    cloneStampAlignedOffset={cloneStampAlignedOffset}
-                    cloneStampSampleMerged={cloneStampSampleMerged}
-                    cloneStampSource={cloneStampSource}
-                    onCloneStampSourceChange={(source) => {
-                      setCloneStampSource(source);
-                      setCloneStampAlignedOffset(null);
-                    }}
-                    onCloneStampAlignedOffsetChange={setCloneStampAlignedOffset}
-                    cloneStampUseHistorySource={cloneStampUseHistorySource}
-                    cloneStampHistorySourceIndex={cloneStampHistorySourceIndex}
-                    historyBrushOpacity={historyBrushOpacity}
-                    historyBrushLoad={historyBrushLoad}
-                    historyBrushSourceIndex={historyBrushSourceIndex}
-                    historyBrushSourceLabel={selectedHistoryBrushEntry?.description ?? null}
-                    historyBrushSampleMerged={historyBrushSampleMerged}
-                    pencilAutoErase={pencilAutoErase}
-                    eraserMode={eraserMode}
-                    eraserTolerance={eraserTolerance}
-                    foregroundColor={foregroundColor}
-                    onForegroundColorChange={setForegroundColor}
-                    onBackgroundColorChange={setBackgroundColor}
-                    fillSource={fillSource}
-                    fillPatternId={fillPatternId}
-                    fillTolerance={fillTolerance}
-                    fillContiguous={fillContiguous}
-                    fillSampleMerged={fillSampleMerged}
-                    fillCreateLayer={fillCreateLayer}
-                    gradientType={gradientType}
-                    gradientReverse={gradientReverse}
-                    gradientDither={gradientDither}
-                    gradientCreateLayer={gradientCreateLayer}
-                    gradientStops={gradientStops}
-                    eyedropperSampleSize={eyedropperSampleSize}
-                    eyedropperSampleMerged={eyedropperSampleMerged}
-                    eyedropperSampleAllLayersNoAdj={eyedropperSampleAllLayersNoAdj}
-                    colorSamplerPoints={colorSamplerPoints.map((point, index) => ({
-                      id: point.id,
-                      label: String(index + 1),
-                      x: point.x,
-                      y: point.y,
-                      color: point.color,
-                    }))}
-                    onColorSamplerAdd={addColorSamplerPoint}
-                    shapeOptions={{
-                      subTool: shapeSubTool,
-                      mode: shapeMode,
-                      cornerRadius: shapeCornerRadius,
-                      polygonSides: shapePolygonSides,
-                      polygonInnerRadiusPct: shapePolygonInnerRadiusPct,
-                      starMode: shapeStarMode,
-                      customPreset: selectedShapePreset,
-                      fillColor: shapeFillColor,
-                      strokeColor: shapeStrokeColor,
-                      strokeWidth: shapeStrokeWidth,
-                    }}
-                    artboardOptions={{
-                      presetSize: artboardPresetSize,
-                      background: artboardBackground,
-                    }}
-                    cropDeletePixels={cropDeletePixels}
-                    cropContentAwareFill={cropContentAwareFill}
-                    cropResolution={cropResolution}
-                    cropOverlayType={cropOverlayType}
-                    cropStraightenActive={cropStraightenActive}
-                    onCropStraightenActiveChange={setCropStraightenActive}
-                    transformSelectionActive={transformSelectionActive}
-                    onTransformSelectionCommit={(a, b, c, d, tx, ty) => {
-                      engine.dispatchCommand(CommandID.TransformSelection, { a, b, c, d, tx, ty });
-                      setTransformSelectionActive(false);
-                    }}
-                    onTransformSelectionCancel={() => setTransformSelectionActive(false)}
-                  />
+                  <CanvasHost />
                 ) : engine.status === "error" ? (
                   <EngineLoadErrorScreen
                     message={engine.error?.message ?? "The Wasm engine could not be initialized."}
