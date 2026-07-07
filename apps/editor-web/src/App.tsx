@@ -8,17 +8,10 @@ import {
   type GradientType,
   type InterpolMode,
   type LayerBlendMode,
-  type LayerNodeMeta,
   type ThumbnailEntry,
   type UpdateCropCommand,
 } from "@agogo/proto";
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
   BrushPresetPicker,
@@ -32,21 +25,12 @@ import { ChannelsPanel } from "@/components/channels-panel";
 import { CompactRange } from "@/components/compact-range";
 import { type AuxPanel, DockSection, dockTitle } from "@/components/dock-section";
 import { EditorCanvas } from "@/components/editor-canvas";
-import {
-  FitScreenIcon,
-  NewDocumentIcon,
-  OpenFolderIcon,
-  RedoIcon,
-  SaveIcon,
-  UndoIcon,
-} from "@/components/editor-icons";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
 import { InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
-import { MenuPreviewPanel } from "@/components/menu-bar/menu-preview";
-import { type MenuActionId, type MenuPreviewItem, menuItems } from "@/components/menu-bar/model";
+import { MenuBar } from "@/components/menu-bar/menu-bar";
 import { PathsPanel } from "@/components/paths-panel";
 import { PatternPicker } from "@/components/pattern-picker";
 import { PropertyGridRow } from "@/components/property-grid-row";
@@ -61,9 +45,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
-import { useActivateTool } from "@/hooks/use-activate-tool";
+import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
 import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
-import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import type { MenuActionIO } from "@/hooks/use-menu-actions";
 import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
 import {
   formatPercent,
@@ -74,6 +58,7 @@ import {
   rgbaToHex,
   toMutableRgba,
 } from "@/lib/color";
+import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
 import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
 import { applyTransformFieldChange, buildWarpGrid, refPointToPivot } from "@/lib/transform-math";
@@ -155,7 +140,6 @@ function fileStem(value: string) {
 export default function App() {
   const engine = useEngine();
   const render = engine.render;
-  const menuBarRef = useRef<HTMLDivElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
   const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
@@ -382,9 +366,6 @@ export default function App() {
   } = useSelectionToolState();
   const {
     isPanMode,
-    setIsPanMode,
-    showGuides,
-    setShowGuides,
     panelCollapsed,
     setPanelCollapsed,
     panelWidth,
@@ -397,7 +378,7 @@ export default function App() {
     setSelectedLayerIds,
   } = useViewState();
   const { cursor, setCursor } = useCursorState();
-  const { activeTool, setActiveTool } = useToolState();
+  const { activeTool } = useToolState();
   const {
     newDocumentOpen,
     setNewDocumentOpen,
@@ -444,9 +425,6 @@ export default function App() {
   const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
   const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
   const [loadSelectionName, setLoadSelectionName] = useState("");
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [menubarFocusIndex, setMenubarFocusIndex] = useState(0);
-  const menuOpenedByKeyboard = useRef(false);
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
     width: number;
@@ -641,12 +619,6 @@ export default function App() {
     } satisfies UpdateCropCommand);
   };
 
-  const activateTool = useActivateTool();
-
-  const openNewDocumentDialog = () => {
-    setNewDocumentOpen(true);
-  };
-
   const createAdjustmentLayer = <K extends AdjustmentKind>(
     name: string,
     adjustmentKind: K,
@@ -694,10 +666,6 @@ export default function App() {
     const fileName = `${activeDocumentName}.${extension}`;
     const blob = new Blob([bytes], { type: mimeType });
     downloadBlob(blob, fileName);
-  };
-
-  const saveProject = () => {
-    saveDocument("archive");
   };
 
   const openProject = async (file: File) => {
@@ -819,75 +787,6 @@ export default function App() {
     }
   };
 
-  const checkedMenuActionIds = new Set<MenuActionId>(
-    showGuides ? (["view-toggle-guides"] as MenuActionId[]) : [],
-  );
-
-  const isMenuActionDisabled = (actionId: MenuActionId) => {
-    switch (actionId) {
-      case "save-project":
-      case "save-psd":
-      case "save-psb":
-      case "export-project":
-      case "generate-assets":
-      case "canvas-size":
-        return !render || actionId === "generate-assets";
-      case "image-invert":
-      case "image-channel-mixer":
-      case "image-threshold":
-      case "image-posterize":
-      case "image-selective-color":
-      case "image-photo-filter":
-      case "image-gradient-map":
-        return !render?.uiMeta.activeLayerId;
-      case "transform-free":
-      case "transform-scale":
-      case "transform-rotate":
-      case "transform-skew":
-      case "transform-distort":
-      case "transform-perspective":
-      case "transform-warp":
-        return !render?.uiMeta.activeLayerId;
-      case "transform-flip-h":
-      case "transform-flip-v":
-      case "transform-rotate-cw":
-      case "transform-rotate-ccw":
-      case "transform-rotate-180":
-        return !render?.uiMeta.activeLayerId;
-      case "select-all":
-      case "select-deselect":
-      case "select-reselect":
-      case "select-invert":
-      case "select-feather":
-      case "select-expand":
-      case "select-contract":
-      case "select-smooth":
-      case "select-border":
-      case "select-transform":
-      case "select-color-range":
-      case "select-and-mask":
-        return !render;
-      case "select-save-channel":
-        return !render?.uiMeta.selection.active;
-      case "select-load-channel":
-        return !render || savedSelectionChannels.length === 0;
-      case "edit-fill":
-        return !render?.uiMeta.activeLayerId;
-      default:
-        return false;
-    }
-  };
-
-  const isMenuItemDisabled = (item: MenuPreviewItem) => {
-    if (item.disabled) {
-      return true;
-    }
-    if (!item.actionId) {
-      return true;
-    }
-    return isMenuActionDisabled(item.actionId);
-  };
-
   const commitFeather = () => {
     engine.dispatchCommand(CommandID.FeatherSelection, { radius: featherDialogValue });
     setFeatherDialogOpen(false);
@@ -940,337 +839,29 @@ export default function App() {
     setLoadSelectionOpen(false);
   };
 
-  const handleMenuAction = (actionId: MenuActionId) => {
-    if (isMenuActionDisabled(actionId)) {
-      return;
-    }
-
-    setOpenMenu(null);
-
-    switch (actionId) {
-      case "new-document":
-        openNewDocumentDialog();
-        break;
-      case "open-project":
-        openProjectPicker();
-        break;
-      case "open-recent":
-        setOpenRecentOpen(true);
-        break;
-      case "save-project":
-        saveProject();
-        break;
-      case "save-psd":
-        saveDocument("psd");
-        break;
-      case "save-psb":
-        saveDocument("psb");
-        break;
-      case "export-project":
-        setExportDialogOpen(true);
-        break;
-      case "canvas-size":
-        setCanvasSizeDraft({
-          width: render?.uiMeta.documentWidth ?? draft.width,
-          height: render?.uiMeta.documentHeight ?? draft.height,
-          anchor: "center",
-        });
-        setCanvasSizeOpen(true);
-        break;
-      case "transform-free":
-      case "transform-scale":
-      case "transform-rotate":
-      case "transform-skew":
-      case "transform-distort":
-      case "transform-perspective":
-        setActiveTool("transform");
-        setTransformRefPoint([1, 1]);
-        engine.dispatchCommand(CommandID.BeginFreeTransform, {});
-        break;
-      case "transform-warp":
-        setActiveTool("transform");
-        setTransformRefPoint([1, 1]);
-        engine.dispatchCommand(CommandID.BeginFreeTransform, { mode: "warp" });
-        break;
-      case "transform-flip-h":
-        engine.dispatchCommand(CommandID.FlipLayerH, {});
-        break;
-      case "transform-flip-v":
-        engine.dispatchCommand(CommandID.FlipLayerV, {});
-        break;
-      case "transform-rotate-cw":
-        engine.dispatchCommand(CommandID.RotateLayer90CW, {});
-        break;
-      case "transform-rotate-ccw":
-        engine.dispatchCommand(CommandID.RotateLayer90CCW, {});
-        break;
-      case "transform-rotate-180":
-        engine.dispatchCommand(CommandID.RotateLayer180, {});
-        break;
-      case "select-all":
-        engine.selectAll();
-        break;
-      case "select-deselect":
-        engine.deselect();
-        break;
-      case "select-reselect":
-        engine.reselect();
-        break;
-      case "select-invert":
-        engine.invertSelection();
-        break;
-      case "select-feather":
-        setFeatherDialogOpen(true);
-        break;
-      case "select-expand":
-        openModifyDialog("expand");
-        break;
-      case "select-contract":
-        openModifyDialog("contract");
-        break;
-      case "select-smooth":
-        openModifyDialog("smooth");
-        break;
-      case "select-border":
-        openModifyDialog("border");
-        break;
-      case "select-transform":
-        setTransformSelectionActive(true);
-        break;
-      case "select-color-range":
-        setColorRangeOpen(true);
-        break;
-      case "select-save-channel":
-        setSaveSelectionName(nextSavedSelectionName());
-        setSaveSelectionOpen(true);
-        break;
-      case "select-load-channel":
-        setLoadSelectionName(savedSelectionChannels[0]?.name ?? "");
-        setLoadSelectionOpen(true);
-        break;
-      case "select-and-mask":
-        setSelectAndMaskOpen(true);
-        break;
-      case "edit-fill":
-        setFillDialogOpen(true);
-        break;
-      case "image-invert":
-        createAdjustmentLayer("Invert", "invert");
-        break;
-      case "image-channel-mixer":
-        setChannelMixerDialogOpen(true);
-        break;
-      case "image-threshold":
-        setThresholdDialogOpen(true);
-        break;
-      case "image-posterize":
-        setPosterizeDialogOpen(true);
-        break;
-      case "image-selective-color":
-        setSelectiveColorDialogOpen(true);
-        break;
-      case "image-photo-filter":
-        setPhotoFilterDialogOpen(true);
-        break;
-      case "image-gradient-map":
-        setGradientMapDialogOpen(true);
-        break;
-      case "view-toggle-guides": {
-        const next = !showGuides;
-        setShowGuides(next);
-        engine.setShowGuides(next);
-        break;
-      }
-      default:
-        break;
-    }
+  const openCanvasSizeDialog = () => {
+    setCanvasSizeDraft({
+      width: render?.uiMeta.documentWidth ?? draft.width,
+      height: render?.uiMeta.documentHeight ?? draft.height,
+      anchor: "center",
+    });
+    setCanvasSizeOpen(true);
   };
 
-  useKeyboardShortcuts({
-    onPanModeChange: setIsPanMode,
-    onNewDocument() {
-      openNewDocumentDialog();
-    },
-    onOpenDocument() {
-      openProjectPicker();
-    },
-    onSaveDocument() {
-      if (!isMenuActionDisabled("save-project")) {
-        saveDocument("archive");
-      }
-    },
-    onExportDocument() {
-      if (!isMenuActionDisabled("export-project")) {
-        setExportDialogOpen(true);
-      }
-    },
-    onZoomIn() {
-      if (!render) {
-        return;
-      }
-      engine.setZoom(render.viewport.zoom * 1.1);
-    },
-    onZoomOut() {
-      if (!render) {
-        return;
-      }
-      engine.setZoom(render.viewport.zoom / 1.1);
-    },
-    onFitToView() {
-      engine.fitToView();
-    },
-    onUndo() {
-      engine.undo();
-    },
-    onRedo() {
-      engine.redo();
-    },
-    onSelectAll() {
-      engine.selectAll();
-    },
-    onDeselect() {
-      engine.deselect();
-    },
-    onInvertSelection() {
-      engine.invertSelection();
-    },
-    onToolSelect(tool: ShortcutTool) {
-      activateTool(tool);
-    },
-    onBeginTransform() {
-      setActiveTool("transform");
-      setTransformRefPoint([1, 1]);
-      engine.dispatchCommand(CommandID.BeginFreeTransform, {});
-    },
-    onNudgeLayer(dx: number, dy: number) {
-      if (!render?.uiMeta.activeLayerId) {
-        return;
-      }
-      const activeLayer = findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId);
-      if (!activeLayer || activeLayer.lockMode === "position" || activeLayer.lockMode === "all") {
-        return;
-      }
-      engine.translateLayer({ dx, dy });
-    },
-    onBrushSizeChange(delta: number) {
-      setBrushSize((prev) => {
-        const step = prev < 10 ? 1 : prev < 100 ? 5 : 10;
-        return Math.max(1, Math.min(2500, prev + delta * step));
-      });
-    },
-    onBrushHardnessChange(delta: number) {
-      setBrushHardness((prev) => Math.max(0, Math.min(1, Math.round((prev + delta) * 100) / 100)));
-    },
-    onSwapColors() {
-      setForegroundColor(backgroundColor);
-      setBackgroundColor(foregroundColor);
-    },
-    onResetColors() {
-      setForegroundColor([0, 0, 0, 255]);
-      setBackgroundColor([255, 255, 255, 255]);
-    },
-  });
-
-  useEffect(() => {
-    if (!openMenu) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!menuBarRef.current?.contains(event.target as Node)) {
-        setOpenMenu(null);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpenMenu(null);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [openMenu]);
-
-  // When a menu is opened via the keyboard (ArrowDown), move focus to its first item.
-  useEffect(() => {
-    if (openMenu && menuOpenedByKeyboard.current) {
-      menuOpenedByKeyboard.current = false;
-      menuBarRef.current
-        ?.querySelector<HTMLElement>('[role="menu"] [role="menuitem"]:not([disabled])')
-        ?.focus();
-    }
-  }, [openMenu]);
-
-  const handleMenubarKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement;
-    const nav = event.currentTarget;
-    const dropdown = target.closest<HTMLElement>('[role="menu"]');
-
-    if (!dropdown) {
-      // Top-level menubar items: roving focus + ArrowDown opens the menu.
-      const topItems = Array.from(
-        nav.querySelectorAll<HTMLButtonElement>(':scope > div > button[role="menuitem"]'),
-      );
-      const index = topItems.indexOf(target as HTMLButtonElement);
-      if (index === -1) {
-        return;
-      }
-      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-        event.preventDefault();
-        event.stopPropagation();
-        const next =
-          event.key === "ArrowRight"
-            ? (index + 1) % topItems.length
-            : (index - 1 + topItems.length) % topItems.length;
-        setMenubarFocusIndex(next);
-        topItems[next]?.focus();
-        if (openMenu) {
-          setOpenMenu(menuItems[next]?.label ?? null);
-        }
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        event.stopPropagation();
-        const label = menuItems[index]?.label ?? null;
-        if (openMenu === label) {
-          // Already open (e.g. via click): the state update below would be a
-          // no-op and the [openMenu] effect would never re-fire, so move
-          // focus into the menu directly.
-          target.parentElement
-            ?.querySelector<HTMLElement>('[role="menu"] [role="menuitem"]:not([disabled])')
-            ?.focus();
-        } else {
-          menuOpenedByKeyboard.current = true;
-          setOpenMenu(label);
-        }
-      }
-      return;
-    }
-
-    // Inside an open dropdown: ArrowUp/ArrowDown cycle, Escape closes and returns focus.
-    const items = Array.from(
-      dropdown.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])'),
-    );
-    const itemIndex = items.indexOf(target as HTMLButtonElement);
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      event.stopPropagation();
-      items[(itemIndex + 1) % items.length]?.focus();
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      event.stopPropagation();
-      items[(itemIndex - 1 + items.length) % items.length]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpenMenu(null);
-      dropdown.parentElement?.querySelector<HTMLElement>('button[role="menuitem"]')?.focus();
-    }
+  // Seam for the menu/shortcut hooks: document I/O and dialog-draft callbacks
+  // that still live in App (use-document-io and the dialog extraction will
+  // take these over).
+  const menuIO: MenuActionIO = {
+    openProjectPicker,
+    saveDocument,
+    openCanvasSizeDialog,
+    openModifyDialog,
+    setSaveSelectionName,
+    setLoadSelectionName,
+    createAdjustmentLayer,
   };
+
+  useAppShortcuts(menuIO);
 
   const hasDocument = (render?.uiMeta.documentWidth ?? 0) > 0;
   const documentSize = render
@@ -2745,99 +2336,7 @@ export default function App() {
 
       <div className="mx-auto min-h-screen max-w-[1920px] px-0">
         <div className="flex min-h-screen flex-col bg-[#1d2026]">
-          <header className="editor-titlebar flex h-[34px] items-center justify-between gap-3 border-b border-border px-2">
-            <div
-              ref={menuBarRef}
-              className="flex min-w-0 flex-nowrap items-center gap-3 overflow-visible"
-            >
-              <div className="flex shrink-0 items-center gap-2 pr-3">
-                <div className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] bg-cyan-400/95 text-[11px] font-black text-slate-950">
-                  A
-                </div>
-                <span className="font-serif text-[12px] font-semibold italic tracking-[0.01em] text-white">
-                  Agogo Studio
-                </span>
-              </div>
-
-              <div
-                role="menubar"
-                aria-label="Application menu"
-                className="flex min-w-0 flex-nowrap items-center gap-1 border-l border-white/8 pl-3"
-                onKeyDown={handleMenubarKeyDown}
-              >
-                {menuItems.map((menu, menuIndex) => {
-                  const isOpen = openMenu === menu.label;
-                  return (
-                    <div key={menu.label} className="relative shrink-0">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        tabIndex={menuIndex === menubarFocusIndex ? 0 : -1}
-                        className={[
-                          "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
-                          isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
-                        ].join(" ")}
-                        aria-expanded={isOpen}
-                        aria-haspopup="menu"
-                        onClick={() =>
-                          setOpenMenu((current) => (current === menu.label ? null : menu.label))
-                        }
-                        onFocus={() => setMenubarFocusIndex(menuIndex)}
-                        onPointerEnter={() => {
-                          if (openMenu) {
-                            setOpenMenu(menu.label);
-                          }
-                        }}
-                      >
-                        {menu.label}
-                      </button>
-
-                      {isOpen ? (
-                        <MenuPreviewPanel
-                          menu={menu}
-                          isItemDisabled={isMenuItemDisabled}
-                          onAction={handleMenuAction}
-                          checkedActionIds={checkedMenuActionIds}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="sm" onClick={openProjectPicker}>
-                <OpenFolderIcon className="mr-1.5 h-3.5 w-3.5" />
-                Open
-              </Button>
-              <Button variant="ghost" size="sm" onClick={saveProject}>
-                <SaveIcon className="mr-1.5 h-3.5 w-3.5" />
-                Save
-              </Button>
-              <Button variant="ghost" size="sm" onClick={openNewDocumentDialog}>
-                <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
-                New
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => engine.fitToView()}>
-                <FitScreenIcon className="mr-1.5 h-3.5 w-3.5" />
-                Fit
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => engine.undo()}
-                disabled={!render?.uiMeta.canUndo}
-              >
-                <UndoIcon className="mr-1.5 h-3.5 w-3.5" />
-                Undo
-              </Button>
-              <Button size="sm" onClick={() => engine.redo()} disabled={!render?.uiMeta.canRedo}>
-                <RedoIcon className="mr-1.5 h-3.5 w-3.5" />
-                Redo
-              </Button>
-            </div>
-          </header>
+          <MenuBar io={menuIO} />
 
           {hasAutosave && engine.status === "ready" ? (
             <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
@@ -4877,37 +4376,6 @@ function ToolSelectField({
       </select>
     </label>
   );
-}
-
-function findLayerMetaInTree(layers: LayerNodeMeta[], targetID: string): LayerNodeMeta | null {
-  for (const layer of layers) {
-    if (layer.id === targetID) {
-      return layer;
-    }
-    const child = findLayerMetaInTree(layer.children ?? [], targetID);
-    if (child) {
-      return child;
-    }
-  }
-  return null;
-}
-
-function findLayerPositionInTree(
-  layers: LayerNodeMeta[],
-  targetID: string,
-  parentId?: string,
-): { parentId?: string; index: number } | null {
-  for (let index = 0; index < layers.length; index++) {
-    const layer = layers[index];
-    if (layer.id === targetID) {
-      return { parentId, index };
-    }
-    const child = findLayerPositionInTree(layer.children ?? [], targetID, layer.id);
-    if (child) {
-      return child;
-    }
-  }
-  return null;
 }
 
 const PSD_MAX_DIMENSION = 30000;
