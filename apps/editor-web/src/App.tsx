@@ -5,16 +5,11 @@ import {
   CommandID,
   type CreateDocumentCommand,
   type FillCommand,
-  type GradientType,
-  type InterpolMode,
-  type LayerBlendMode,
   type ThumbnailEntry,
-  type UpdateCropCommand,
 } from "@agogo/proto";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdjPropertiesPanel, AdjustmentsPanel } from "@/components/adjustments-panel";
 import {
-  BrushPresetPicker,
   BrushSettingsPanel,
   ColorPanel,
   ColorPickerDialog,
@@ -32,15 +27,21 @@ import { InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { MenuBar } from "@/components/menu-bar/menu-bar";
 import { PathsPanel } from "@/components/paths-panel";
-import { PatternPicker } from "@/components/pattern-picker";
 import { PropertyGridRow } from "@/components/property-grid-row";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { ShapesPanel } from "@/components/shapes-panel";
 import { StatusBar } from "@/components/status-bar";
 import { StylesPanel } from "@/components/styles-panel";
 import { TextEditOverlay } from "@/components/text-edit-overlay";
+import { ToolOptions } from "@/components/tool-options";
+import { artboardPresetMap } from "@/components/tool-options/artboard-options";
+import {
+  ToolChoiceButton,
+  ToolNumberField,
+  ToolOptionGroup,
+  ToolSelectField,
+} from "@/components/tool-options/controls";
 import { ToolRail } from "@/components/tool-rail";
-import { TransformRefGrid } from "@/components/transform-ref-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ToastViewport } from "@/components/ui/toast";
@@ -51,7 +52,6 @@ import type { MenuActionIO } from "@/hooks/use-menu-actions";
 import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
 import {
   formatPercent,
-  gradientStopsToCss,
   hexToRgba,
   type Rgba,
   rgbaToCss,
@@ -61,7 +61,6 @@ import {
 import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
 import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
-import { applyTransformFieldChange, buildWarpGrid, refPointToPivot } from "@/lib/transform-math";
 import {
   type DocumentUnit,
   formatDimension,
@@ -75,12 +74,7 @@ import { useColorState } from "@/state/color-state";
 import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
 import { useSelectionToolState } from "@/state/selection-tool-state";
-import {
-  type ArtboardPreset,
-  type ShapeMode,
-  type ShapeSubTool,
-  useShapeState,
-} from "@/state/shape-state";
+import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
@@ -101,30 +95,6 @@ const presets = [
   { id: "print", label: "Print", width: 2480, height: 3508, resolution: 300 },
   { id: "square", label: "Custom", width: 2048, height: 2048, resolution: 144 },
 ];
-
-const paintBlendModeOptions: { value: LayerBlendMode; label: string }[] = [
-  { value: "normal", label: "Normal" },
-  { value: "multiply", label: "Multiply" },
-  { value: "screen", label: "Screen" },
-  { value: "overlay", label: "Overlay" },
-  { value: "soft-light", label: "Soft Light" },
-  { value: "hard-light", label: "Hard Light" },
-  { value: "color-dodge", label: "Color Dodge" },
-  { value: "color-burn", label: "Color Burn" },
-  { value: "difference", label: "Difference" },
-  { value: "color", label: "Color" },
-  { value: "luminosity", label: "Luminosity" },
-];
-
-const artboardPresetMap: Record<
-  Exclude<ArtboardPreset, "custom">,
-  { width: number; height: number; label: string }
-> = {
-  hd: { width: 1920, height: 1080, label: "HD" },
-  iphone: { width: 1179, height: 2556, label: "iPhone" },
-  ipad: { width: 1668, height: 2388, label: "iPad" },
-  a4: { width: 2480, height: 3508, label: "A4" },
-};
 
 const MAX_SWATCHES = 96;
 
@@ -165,11 +135,8 @@ export default function App() {
     swatchStatus,
     setSwatchStatus,
     eyedropperSampleSize,
-    setEyedropperSampleSize,
     eyedropperSampleMerged,
-    setEyedropperSampleMerged,
     eyedropperSampleAllLayersNoAdj,
-    setEyedropperSampleAllLayersNoAdj,
     colorSamplerPoints,
     setColorSamplerPoints,
     pushRecentColor,
@@ -191,19 +158,12 @@ export default function App() {
     setBrushTipShape,
     brushPresetId,
     brushBlendMode,
-    setBrushBlendMode,
     brushOpacity,
-    setBrushOpacity,
     brushAirbrush,
-    setBrushAirbrush,
     brushSmoothing,
-    setBrushSmoothing,
     pressureAffectsSize,
-    setPressureAffectsSize,
     pressureAffectsOpacity,
-    setPressureAffectsOpacity,
     pressureAffectsFlow,
-    setPressureAffectsFlow,
     brushSizeJitter,
     setBrushSizeJitter,
     brushOpacityJitter,
@@ -213,7 +173,6 @@ export default function App() {
     brushControlSource,
     setBrushControlSource,
     brushFlow,
-    setBrushFlow,
     mixerBrushWetness,
     setMixerBrushWetness,
     mixerBrushLoad,
@@ -245,11 +204,8 @@ export default function App() {
     historyBrushSampleMerged,
     setHistoryBrushSampleMerged,
     pencilAutoErase,
-    setPencilAutoErase,
     eraserMode,
-    setEraserMode,
     eraserTolerance,
-    setEraserTolerance,
     customBrushPresets,
     setCustomBrushPresets,
     brushPresetStatus,
@@ -264,7 +220,6 @@ export default function App() {
     fillSource,
     setFillSource,
     fillPatternId,
-    setFillPatternId,
     fillTolerance,
     setFillTolerance,
     fillContiguous,
@@ -276,13 +231,10 @@ export default function App() {
     fillDialogOpen,
     setFillDialogOpen,
     gradientType,
-    setGradientType,
     gradientReverse,
     setGradientReverse,
     gradientDither,
-    setGradientDither,
     gradientCreateLayer,
-    setGradientCreateLayer,
     gradientStops,
     setGradientStops,
     gradientEditorOpen,
@@ -292,22 +244,14 @@ export default function App() {
     shapeSubTool,
     setShapeSubTool,
     shapeMode,
-    setShapeMode,
     shapeCornerRadius,
-    setShapeCornerRadius,
     shapePolygonSides,
-    setShapePolygonSides,
     shapePolygonInnerRadiusPct,
-    setShapePolygonInnerRadiusPct,
     shapeStarMode,
-    setShapeStarMode,
     setShapePresetId,
     shapeFillColor,
-    setShapeFillColor,
     shapeStrokeColor,
-    setShapeStrokeColor,
     shapeStrokeWidth,
-    setShapeStrokeWidth,
     customShapePresets,
     setCustomShapePresets,
     shapePresetStatus,
@@ -316,49 +260,28 @@ export default function App() {
     customShapePresetIds,
     selectedShapePreset,
     artboardPreset,
-    setArtboardPreset,
     artboardBackground,
     setArtboardBackground,
   } = useShapeState();
   const {
     marqueeShape,
-    setMarqueeShape,
     marqueeStyle,
-    setMarqueeStyle,
     marqueeRatioW,
-    setMarqueeRatioW,
     marqueeRatioH,
-    setMarqueeRatioH,
     marqueeSizeW,
-    setMarqueeSizeW,
     marqueeSizeH,
-    setMarqueeSizeH,
     lassoMode,
-    setLassoMode,
     selectionAntiAlias,
-    setSelectionAntiAlias,
     selectionFeatherRadius,
-    setSelectionFeatherRadius,
     wandMode,
-    setWandMode,
     wandTolerance,
-    setWandTolerance,
     wandContiguous,
-    setWandContiguous,
     wandSampleMerged,
-    setWandSampleMerged,
     moveAutoSelectGroup,
-    setMoveAutoSelectGroup,
-    transformRefPoint,
-    setTransformRefPoint,
     cropDeletePixels,
-    setCropDeletePixels,
     cropContentAwareFill,
-    setCropContentAwareFill,
     cropResolution,
-    setCropResolution,
     cropOverlayType,
-    setCropOverlayType,
     cropStraightenActive,
     setCropStraightenActive,
     transformSelectionActive,
@@ -526,15 +449,9 @@ export default function App() {
   const activeArtboard = render?.uiMeta.activeLayerId
     ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
     : null;
-  const activeCrop = render?.uiMeta.crop;
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
-  const gradientModeSummary = `${gradientType.charAt(0).toUpperCase() + gradientType.slice(1)} · ${gradientStops.length} stops · ${gradientReverse ? "reversed" : "forward"} · ${gradientDither ? "dither" : "no dither"} · ${gradientCreateLayer ? "new layer" : "paint in place"}`;
-  const eyedropperModeSummary = `${eyedropperSampleSize === 1 ? "Point sample" : `${eyedropperSampleSize}x${eyedropperSampleSize} average`} · ${eyedropperSampleMerged ? "sample merged" : "active layer"} · ${eyedropperSampleAllLayersNoAdj ? "no adjustments" : "with adjustments"}`;
-  const gradientPreviewStyle = {
-    backgroundImage: gradientStopsToCss(gradientStops),
-  };
   const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
   const channelMixerRows = [
     { key: "red", label: "Red Output" },
@@ -599,24 +516,6 @@ export default function App() {
 
   const openProjectPicker = () => {
     projectInputRef.current?.click();
-  };
-
-  const dispatchCropUpdate = (overrides: Partial<UpdateCropCommand>) => {
-    if (!activeCrop?.active) {
-      return;
-    }
-    engine.dispatchCommand(CommandID.UpdateCrop, {
-      x: activeCrop.x,
-      y: activeCrop.y,
-      w: activeCrop.w,
-      h: activeCrop.h,
-      rotation: activeCrop.rotation ?? 0,
-      deletePixels: cropDeletePixels,
-      contentAwareFill: cropContentAwareFill,
-      resolution: cropResolution,
-      overlayType: cropOverlayType,
-      ...overrides,
-    } satisfies UpdateCropCommand);
   };
 
   const createAdjustmentLayer = <K extends AdjustmentKind>(
@@ -944,1276 +843,6 @@ export default function App() {
   );
   const activeColor = colorPickerTarget === "foreground" ? foregroundColor : backgroundColor;
   const setActiveColor = (next: Rgba) => applyColorToTarget(colorPickerTarget, next);
-  const selectionToolOptions =
-    activeTool === "move" ? (
-      <ToolChoiceButton
-        active={moveAutoSelectGroup}
-        onClick={() => setMoveAutoSelectGroup((v) => !v)}
-      >
-        Groups
-      </ToolChoiceButton>
-    ) : activeTool === "marquee" ? (
-      <>
-        <ToolOptionGroup label="Shape">
-          <ToolChoiceButton
-            active={marqueeShape === "rect"}
-            onClick={() => setMarqueeShape("rect")}
-          >
-            Rect
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={marqueeShape === "ellipse"}
-            onClick={() => setMarqueeShape("ellipse")}
-          >
-            Ellipse
-          </ToolChoiceButton>
-          <ToolChoiceButton active={marqueeShape === "row"} onClick={() => setMarqueeShape("row")}>
-            Row
-          </ToolChoiceButton>
-          <ToolChoiceButton active={marqueeShape === "col"} onClick={() => setMarqueeShape("col")}>
-            Col
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        {marqueeShape === "rect" || marqueeShape === "ellipse" ? (
-          <ToolOptionGroup label="Style">
-            <ToolChoiceButton
-              active={marqueeStyle === "normal"}
-              onClick={() => setMarqueeStyle("normal")}
-            >
-              Normal
-            </ToolChoiceButton>
-            <ToolChoiceButton
-              active={marqueeStyle === "fixed-ratio"}
-              onClick={() => setMarqueeStyle("fixed-ratio")}
-            >
-              Fixed Ratio
-            </ToolChoiceButton>
-            <ToolChoiceButton
-              active={marqueeStyle === "fixed-size"}
-              onClick={() => setMarqueeStyle("fixed-size")}
-            >
-              Fixed Size
-            </ToolChoiceButton>
-          </ToolOptionGroup>
-        ) : null}
-        {marqueeStyle === "fixed-ratio" &&
-        (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
-          <>
-            <ToolNumberField
-              label="W"
-              min={0.01}
-              max={9999}
-              step={1}
-              value={marqueeRatioW}
-              onChange={setMarqueeRatioW}
-            />
-            <ToolNumberField
-              label="H"
-              min={0.01}
-              max={9999}
-              step={1}
-              value={marqueeRatioH}
-              onChange={setMarqueeRatioH}
-            />
-          </>
-        ) : null}
-        {marqueeStyle === "fixed-size" &&
-        (marqueeShape === "rect" || marqueeShape === "ellipse") ? (
-          <>
-            <ToolNumberField
-              label="W px"
-              min={1}
-              max={99999}
-              step={1}
-              value={marqueeSizeW}
-              onChange={setMarqueeSizeW}
-            />
-            <ToolNumberField
-              label="H px"
-              min={1}
-              max={99999}
-              step={1}
-              value={marqueeSizeH}
-              onChange={setMarqueeSizeH}
-            />
-          </>
-        ) : null}
-        <ToolNumberField
-          label="Feather"
-          min={0}
-          max={128}
-          step={1}
-          value={selectionFeatherRadius}
-          onChange={setSelectionFeatherRadius}
-        />
-        <ToolChoiceButton
-          active={selectionAntiAlias}
-          onClick={() => setSelectionAntiAlias((current) => !current)}
-        >
-          Anti-alias
-        </ToolChoiceButton>
-      </>
-    ) : activeTool === "crop" ? (
-      <>
-        <ToolNumberField
-          label="W"
-          min={1}
-          max={99999}
-          step={1}
-          value={Math.round(activeCrop?.w ?? 0)}
-          onChange={(v) => {
-            dispatchCropUpdate({ w: v });
-          }}
-        />
-        <ToolNumberField
-          label="H"
-          min={1}
-          max={99999}
-          step={1}
-          value={Math.round(activeCrop?.h ?? 0)}
-          onChange={(v) => {
-            dispatchCropUpdate({ h: v });
-          }}
-        />
-        <ToolNumberField
-          label="DPI"
-          min={1}
-          max={99999}
-          step={1}
-          value={Math.round(cropResolution)}
-          onChange={(v) => {
-            const next = Math.max(1, v);
-            setCropResolution(next);
-            dispatchCropUpdate({ resolution: next });
-          }}
-        />
-        <ToolChoiceButton
-          active={cropStraightenActive}
-          onClick={() => setCropStraightenActive((current) => !current)}
-        >
-          Straighten
-        </ToolChoiceButton>
-        <ToolOptionGroup label="Overlay">
-          <ToolChoiceButton
-            active={cropOverlayType === "thirds"}
-            onClick={() => {
-              setCropOverlayType("thirds");
-              dispatchCropUpdate({ overlayType: "thirds" });
-            }}
-          >
-            Thirds
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={cropOverlayType === "grid"}
-            onClick={() => {
-              setCropOverlayType("grid");
-              dispatchCropUpdate({ overlayType: "grid" });
-            }}
-          >
-            Grid
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={cropOverlayType === "diagonal"}
-            onClick={() => {
-              setCropOverlayType("diagonal");
-              dispatchCropUpdate({ overlayType: "diagonal" });
-            }}
-          >
-            Diagonal
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={cropOverlayType === "none"}
-            onClick={() => {
-              setCropOverlayType("none");
-              dispatchCropUpdate({ overlayType: "none" });
-            }}
-          >
-            None
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        <label className="ml-3 flex items-center gap-1 text-[10px]">
-          <input
-            type="checkbox"
-            checked={cropDeletePixels}
-            onChange={(e) => {
-              setCropDeletePixels(e.target.checked);
-              dispatchCropUpdate({ deletePixels: e.target.checked });
-            }}
-          />
-          Delete
-        </label>
-        <label className="ml-2 flex items-center gap-1 text-[10px]">
-          <input
-            type="checkbox"
-            checked={cropContentAwareFill}
-            onChange={(e) => {
-              setCropContentAwareFill(e.target.checked);
-              dispatchCropUpdate({ contentAwareFill: e.target.checked });
-            }}
-          />
-          Content-Aware
-        </label>
-        <Button
-          size="sm"
-          className="ml-2 h-6 px-3 text-[10px]"
-          onClick={() => {
-            setCropStraightenActive(false);
-            engine.dispatchCommand(CommandID.CommitCrop);
-          }}
-        >
-          Apply
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="ml-1 h-6 px-3 text-[10px]"
-          onClick={() => {
-            setCropStraightenActive(false);
-            engine.dispatchCommand(CommandID.CancelCrop);
-          }}
-        >
-          Cancel
-        </Button>
-      </>
-    ) : activeTool === "artboard" ? (
-      <>
-        <ToolOptionGroup label="Preset">
-          <ToolChoiceButton
-            active={artboardPreset === "custom"}
-            onClick={() => setArtboardPreset("custom")}
-          >
-            Custom
-          </ToolChoiceButton>
-          {(
-            Object.entries(artboardPresetMap) as Array<
-              [Exclude<ArtboardPreset, "custom">, { width: number; height: number; label: string }]
-            >
-          ).map(([presetId, preset]) => (
-            <ToolChoiceButton
-              key={presetId}
-              active={artboardPreset === presetId}
-              onClick={() => setArtboardPreset(presetId)}
-            >
-              {preset.label}
-            </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        {artboardPresetSize ? (
-          <span className="text-[11px] text-slate-400">
-            {artboardPresetSize.width} × {artboardPresetSize.height}
-          </span>
-        ) : (
-          <span className="text-[11px] text-slate-400">Drag freely to size the artboard.</span>
-        )}
-        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">BG</span>
-          <input
-            type="color"
-            className="h-6 w-8 rounded border border-white/10 bg-transparent"
-            value={rgbaToHex(artboardBackground)}
-            onChange={(event) => {
-              const next = hexToRgba(event.target.value);
-              if (!next) {
-                return;
-              }
-              setArtboardBackground([...next]);
-              if (activeArtboard?.isArtboard && activeArtboard.artboardBounds) {
-                engine.dispatchCommand(CommandID.SetArtboard, {
-                  layerId: activeArtboard.id,
-                  bounds: activeArtboard.artboardBounds,
-                  background: next,
-                });
-              }
-            }}
-          />
-          <span>{rgbaToHex(artboardBackground).toUpperCase()}</span>
-        </div>
-      </>
-    ) : activeTool === "lasso" ? (
-      <>
-        <ToolOptionGroup label="Mode">
-          <ToolChoiceButton
-            active={lassoMode === "freehand"}
-            onClick={() => setLassoMode("freehand")}
-          >
-            Freehand
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={lassoMode === "polygon"}
-            onClick={() => setLassoMode("polygon")}
-          >
-            Polygon
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={lassoMode === "magnetic"}
-            onClick={() => setLassoMode("magnetic")}
-          >
-            Magnetic
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        <ToolNumberField
-          label="Feather"
-          min={0}
-          max={128}
-          step={1}
-          value={selectionFeatherRadius}
-          onChange={setSelectionFeatherRadius}
-        />
-        <ToolChoiceButton
-          active={selectionAntiAlias}
-          onClick={() => setSelectionAntiAlias((current) => !current)}
-        >
-          Anti-alias
-        </ToolChoiceButton>
-      </>
-    ) : activeTool === "wand" ? (
-      <>
-        <ToolOptionGroup label="Mode">
-          <ToolChoiceButton active={wandMode === "magic"} onClick={() => setWandMode("magic")}>
-            Magic
-          </ToolChoiceButton>
-          <ToolChoiceButton active={wandMode === "quick"} onClick={() => setWandMode("quick")}>
-            Quick
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        <ToolNumberField
-          label="Tolerance"
-          min={0}
-          max={255}
-          step={1}
-          value={wandTolerance}
-          onChange={setWandTolerance}
-        />
-        {wandMode === "magic" ? (
-          <ToolChoiceButton
-            active={wandContiguous}
-            onClick={() => setWandContiguous((current) => !current)}
-          >
-            Contiguous
-          </ToolChoiceButton>
-        ) : null}
-        <ToolChoiceButton
-          active={selectionAntiAlias}
-          onClick={() => setSelectionAntiAlias((current) => !current)}
-        >
-          Anti-alias
-        </ToolChoiceButton>
-        <ToolChoiceButton
-          active={wandSampleMerged}
-          onClick={() => setWandSampleMerged((current) => !current)}
-        >
-          Sample all layers
-        </ToolChoiceButton>
-      </>
-    ) : activeTool === "transform" ? (
-      render?.uiMeta.freeTransform?.active ? (
-        <>
-          <TransformRefGrid
-            active={transformRefPoint}
-            onChange={(row, col) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const [px, py] = refPointToPivot(ft.corners, row, col);
-              setTransformRefPoint([row, col]);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                a: ft.a,
-                b: ft.b,
-                c: ft.c,
-                d: ft.d,
-                tx: ft.tx,
-                ty: ft.ty,
-                pivotX: px,
-                pivotY: py,
-                interpolation: ft.interpolation as InterpolMode,
-              });
-            }}
-          />
-          <ToolNumberField
-            label="X"
-            min={-99999}
-            max={99999}
-            step={1}
-            value={Math.round(render.uiMeta.freeTransform.tx)}
-            onChange={(value) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const updated = applyTransformFieldChange(ft, "x", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                ...updated,
-                pivotX: ft.pivotX,
-                pivotY: ft.pivotY,
-                interpolation: ft.interpolation as InterpolMode,
-                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
-              });
-            }}
-          />
-          <ToolNumberField
-            label="Y"
-            min={-99999}
-            max={99999}
-            step={1}
-            value={Math.round(render.uiMeta.freeTransform.ty)}
-            onChange={(value) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const updated = applyTransformFieldChange(ft, "y", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                ...updated,
-                pivotX: ft.pivotX,
-                pivotY: ft.pivotY,
-                interpolation: ft.interpolation as InterpolMode,
-                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
-              });
-            }}
-          />
-          <ToolNumberField
-            label="W%"
-            min={-99999}
-            max={99999}
-            step={1}
-            value={Math.round(render.uiMeta.freeTransform.scaleX * 100)}
-            onChange={(value) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const updated = applyTransformFieldChange(ft, "w", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                ...updated,
-                pivotX: ft.pivotX,
-                pivotY: ft.pivotY,
-                interpolation: ft.interpolation as InterpolMode,
-                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
-              });
-            }}
-          />
-          <ToolNumberField
-            label="H%"
-            min={-99999}
-            max={99999}
-            step={1}
-            value={Math.round(render.uiMeta.freeTransform.scaleY * 100)}
-            onChange={(value) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const updated = applyTransformFieldChange(ft, "h", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                ...updated,
-                pivotX: ft.pivotX,
-                pivotY: ft.pivotY,
-                interpolation: ft.interpolation as InterpolMode,
-                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
-              });
-            }}
-          />
-          <ToolNumberField
-            label="°"
-            min={-360}
-            max={360}
-            step={0.1}
-            value={Math.round(render.uiMeta.freeTransform.rotation * 10) / 10}
-            onChange={(value) => {
-              const ft = render.uiMeta.freeTransform;
-              if (!ft) return;
-              const updated = applyTransformFieldChange(ft, "r", value);
-              engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                ...updated,
-                pivotX: ft.pivotX,
-                pivotY: ft.pivotY,
-                interpolation: ft.interpolation as InterpolMode,
-                ...(ft.warpGrid ? { warpGrid: ft.warpGrid } : {}),
-              });
-            }}
-          />
-          <ToolOptionGroup label="Interp">
-            {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
-              <ToolChoiceButton
-                key={mode}
-                active={render.uiMeta.freeTransform?.interpolation === mode}
-                onClick={() => {
-                  const ft = render.uiMeta.freeTransform;
-                  if (!ft) return;
-                  engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                    a: ft.a,
-                    b: ft.b,
-                    c: ft.c,
-                    d: ft.d,
-                    tx: ft.tx,
-                    ty: ft.ty,
-                    pivotX: ft.pivotX,
-                    pivotY: ft.pivotY,
-                    interpolation: mode,
-                  });
-                }}
-              >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </ToolChoiceButton>
-            ))}
-          </ToolOptionGroup>
-          <ToolChoiceButton
-            active={!!render?.uiMeta.freeTransform?.warpGrid}
-            onClick={() => {
-              const ft = render?.uiMeta.freeTransform;
-              if (!ft) return;
-              if (ft.warpGrid) {
-                // Exit warp mode → back to affine.
-                engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                  a: ft.a,
-                  b: ft.b,
-                  c: ft.c,
-                  d: ft.d,
-                  tx: ft.tx,
-                  ty: ft.ty,
-                  pivotX: ft.pivotX,
-                  pivotY: ft.pivotY,
-                  interpolation: ft.interpolation as InterpolMode,
-                });
-              } else {
-                // Enter warp mode: initialize grid from corners.
-                engine.dispatchCommand(CommandID.UpdateFreeTransform, {
-                  a: ft.a,
-                  b: ft.b,
-                  c: ft.c,
-                  d: ft.d,
-                  tx: ft.tx,
-                  ty: ft.ty,
-                  pivotX: ft.pivotX,
-                  pivotY: ft.pivotY,
-                  interpolation: ft.interpolation as InterpolMode,
-                  warpGrid: buildWarpGrid(ft),
-                });
-              }
-            }}
-          >
-            Warp
-          </ToolChoiceButton>
-          <button
-            type="button"
-            className="rounded border border-green-600/50 bg-green-600/20 px-2 py-0.5 text-[11px] text-green-300 hover:bg-green-600/30 focus-visible:outline-none"
-            onClick={() => engine.dispatchCommand(CommandID.CommitFreeTransform, {})}
-          >
-            ✓ Commit
-          </button>
-          <button
-            type="button"
-            className="rounded border border-red-600/50 bg-red-600/20 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-600/30 focus-visible:outline-none"
-            onClick={() => engine.dispatchCommand(CommandID.CancelFreeTransform, {})}
-          >
-            ✗ Cancel
-          </button>
-        </>
-      ) : (
-        <span className="text-[11px] text-slate-400">
-          Click a layer to begin free transform · Enter to commit · Esc to cancel
-        </span>
-      )
-    ) : activeTool === "brush" ||
-      activeTool === "pencil" ||
-      activeTool === "mixerBrush" ||
-      activeTool === "cloneStamp" ||
-      activeTool === "historyBrush" ? (
-      <>
-        {activeTool === "mixerBrush" ? (
-          <>
-            <ToolOptionGroup label="Preset">
-              {MIXER_BRUSH_PRESETS.map((preset) => (
-                <ToolChoiceButton
-                  key={preset.id}
-                  active={currentMixerPreset?.id === preset.id}
-                  onClick={() => applyMixerBrushPreset(preset)}
-                >
-                  {preset.name}
-                </ToolChoiceButton>
-              ))}
-            </ToolOptionGroup>
-            <span className="text-[11px] text-slate-400">
-              {currentMixerPreset?.description ??
-                "Custom mix. Tip or paint settings no longer match a saved preset."}
-            </span>
-          </>
-        ) : (
-          <BrushPresetPicker
-            selectedPresetId={brushPresetId}
-            onSelectPreset={applyBrushPreset}
-            presets={brushPresets}
-            customPresetIds={customBrushPresetIds}
-            onImportPresets={openBrushPresetImport}
-            importStatus={brushPresetStatus}
-          />
-        )}
-        <ToolSelectField
-          label="Blend"
-          value={brushBlendMode}
-          onChange={(value) => setBrushBlendMode(value as LayerBlendMode)}
-          options={paintBlendModeOptions}
-        />
-        {activeTool !== "cloneStamp" && activeTool !== "historyBrush" ? (
-          <ToolNumberField
-            label="Opacity"
-            min={0}
-            max={1}
-            step={0.05}
-            value={brushOpacity}
-            onChange={setBrushOpacity}
-          />
-        ) : null}
-        <ToolNumberField
-          label="Flow"
-          min={0}
-          max={1}
-          step={0.05}
-          value={brushFlow}
-          onChange={setBrushFlow}
-        />
-        <ToolChoiceButton
-          active={brushAirbrush}
-          onClick={() => setBrushAirbrush((value) => !value)}
-        >
-          Airbrush
-        </ToolChoiceButton>
-        <ToolNumberField
-          label="Smooth"
-          min={0}
-          max={20}
-          step={1}
-          value={brushSmoothing}
-          onChange={(value) => setBrushSmoothing(Math.max(0, Math.round(value)))}
-        />
-        <ToolOptionGroup label="Pressure">
-          <ToolChoiceButton
-            active={pressureAffectsSize}
-            onClick={() => setPressureAffectsSize((value) => !value)}
-          >
-            Size
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={pressureAffectsOpacity}
-            onClick={() => setPressureAffectsOpacity((value) => !value)}
-          >
-            Opacity
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={pressureAffectsFlow}
-            onClick={() => setPressureAffectsFlow((value) => !value)}
-          >
-            Flow
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        <ToolNumberField
-          label="Size"
-          min={1}
-          max={2500}
-          step={1}
-          value={brushSize}
-          onChange={setBrushSize}
-        />
-        {activeTool === "mixerBrush" ? (
-          <>
-            <ToolNumberField
-              label="Wetness"
-              min={0}
-              max={1}
-              step={0.05}
-              value={mixerBrushWetness}
-              onChange={setMixerBrushWetness}
-            />
-            <ToolNumberField
-              label="Load"
-              min={0}
-              max={1}
-              step={0.05}
-              value={mixerBrushLoad}
-              onChange={setMixerBrushLoad}
-            />
-            <ToolChoiceButton
-              active={mixerBrushSampleMerged}
-              onClick={() => setMixerBrushSampleMerged((value) => !value)}
-            >
-              Sample Merged
-            </ToolChoiceButton>
-            <ToolChoiceButton
-              active={false}
-              onClick={() => engine.dispatchCommand(CommandID.ResetMixerBrushState, {})}
-            >
-              Clean Brush
-            </ToolChoiceButton>
-            <span className="text-[11px] text-slate-500">
-              {currentMixerPreset?.name ?? "Custom Mix"} · {Math.round(mixerBrushWetness * 100)}%
-              wet · {Math.round(mixerBrushLoad * 100)}% loaded
-            </span>
-          </>
-        ) : activeTool === "cloneStamp" ? (
-          <>
-            <ToolNumberField
-              label="Opacity"
-              min={0}
-              max={1}
-              step={0.05}
-              value={cloneStampOpacity}
-              onChange={setCloneStampOpacity}
-            />
-            <ToolNumberField
-              label="Load"
-              min={0}
-              max={1}
-              step={0.05}
-              value={cloneStampLoad}
-              onChange={setCloneStampLoad}
-            />
-            <ToolChoiceButton
-              active={cloneStampAligned}
-              onClick={() => setCloneStampAligned((value) => !value)}
-            >
-              Aligned
-            </ToolChoiceButton>
-            <ToolChoiceButton
-              active={cloneStampSampleMerged}
-              onClick={() => setCloneStampSampleMerged((value) => !value)}
-            >
-              Sample Merged
-            </ToolChoiceButton>
-            <ToolChoiceButton
-              active={cloneStampUseHistorySource}
-              onClick={() => {
-                setCloneStampUseHistorySource((value) => !value);
-                if (!cloneStampUseHistorySource && cloneStampHistorySourceIndex === null) {
-                  setCloneStampHistorySourceIndex(
-                    historyEntries.find((entry) => entry.id === currentHistoryIndex)?.id ??
-                      historyEntries[historyEntries.length - 1]?.id ??
-                      null,
-                  );
-                }
-              }}
-            >
-              History Source
-            </ToolChoiceButton>
-            {cloneStampUseHistorySource && historyEntries.length > 0 ? (
-              <ToolSelectField
-                label="State"
-                value={String(cloneStampHistorySourceIndex ?? currentHistoryIndex)}
-                onChange={(value) => setCloneStampHistorySourceIndex(Number(value))}
-                options={historyEntries.map((entry) => ({
-                  value: String(entry.id),
-                  label:
-                    entry.state === "undone" ? `${entry.description} (Undone)` : entry.description,
-                }))}
-              />
-            ) : null}
-            <div className="text-[11px] text-slate-400">
-              {cloneStampSource
-                ? `${cloneStampAligned ? "Aligned" : "Non-aligned"} source at ${Math.round(cloneStampSource.x)}, ${Math.round(cloneStampSource.y)}`
-                : "Alt-click the canvas to set a clone source."}
-            </div>
-            {cloneStampOffsetDisplay ? (
-              <div className="text-[11px] text-slate-500">
-                Offset {Math.round(cloneStampOffsetDisplay.x)},{" "}
-                {Math.round(cloneStampOffsetDisplay.y)}
-                {selectedCloneHistoryEntry ? ` · ${selectedCloneHistoryEntry.description}` : ""}
-              </div>
-            ) : selectedCloneHistoryEntry ? (
-              <div className="text-[11px] text-slate-500">
-                Source state: {selectedCloneHistoryEntry.description}
-              </div>
-            ) : null}
-          </>
-        ) : activeTool === "historyBrush" ? (
-          <>
-            <ToolNumberField
-              label="Opacity"
-              min={0}
-              max={1}
-              step={0.05}
-              value={historyBrushOpacity}
-              onChange={setHistoryBrushOpacity}
-            />
-            <ToolNumberField
-              label="Load"
-              min={0}
-              max={1}
-              step={0.05}
-              value={historyBrushLoad}
-              onChange={setHistoryBrushLoad}
-            />
-            <ToolChoiceButton
-              active={historyBrushSampleMerged}
-              onClick={() => setHistoryBrushSampleMerged((value) => !value)}
-            >
-              Sample Merged
-            </ToolChoiceButton>
-            {historyEntries.length > 0 ? (
-              <ToolSelectField
-                label="State"
-                value={String(historyBrushSourceIndex ?? currentHistoryIndex)}
-                onChange={(value) => setHistoryBrushSourceIndex(Number(value))}
-                options={historyEntries.map((entry) => ({
-                  value: String(entry.id),
-                  label:
-                    entry.state === "undone" ? `${entry.description} (Undone)` : entry.description,
-                }))}
-              />
-            ) : null}
-            <div className="text-[11px] text-slate-400">
-              Paints from the selected history state at the current cursor position.
-            </div>
-            {selectedHistoryBrushEntry ? (
-              <div className="text-[11px] text-slate-500">
-                Source state: {selectedHistoryBrushEntry.description}
-              </div>
-            ) : null}
-          </>
-        ) : null}
-        {activeTool === "pencil" ? (
-          <label className="flex items-center gap-1 text-[10px]">
-            <input
-              type="checkbox"
-              checked={pencilAutoErase}
-              onChange={(e) => setPencilAutoErase(e.target.checked)}
-            />
-            Auto-erase
-          </label>
-        ) : null}
-      </>
-    ) : activeTool === "eraser" ? (
-      <>
-        <BrushPresetPicker
-          selectedPresetId={brushPresetId}
-          onSelectPreset={applyBrushPreset}
-          presets={brushPresets}
-          customPresetIds={customBrushPresetIds}
-          onImportPresets={openBrushPresetImport}
-          importStatus={brushPresetStatus}
-        />
-        <ToolOptionGroup label="Mode">
-          <ToolChoiceButton
-            active={eraserMode === "normal"}
-            onClick={() => setEraserMode("normal")}
-          >
-            Normal
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={eraserMode === "background"}
-            onClick={() => setEraserMode("background")}
-          >
-            Background
-          </ToolChoiceButton>
-          <ToolChoiceButton active={eraserMode === "magic"} onClick={() => setEraserMode("magic")}>
-            Magic
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        <ToolNumberField
-          label="Opacity"
-          min={0}
-          max={1}
-          step={0.05}
-          value={brushOpacity}
-          onChange={setBrushOpacity}
-        />
-        <ToolNumberField
-          label="Flow"
-          min={0}
-          max={1}
-          step={0.05}
-          value={brushFlow}
-          onChange={setBrushFlow}
-        />
-        <ToolChoiceButton
-          active={brushAirbrush}
-          onClick={() => setBrushAirbrush((value) => !value)}
-        >
-          Airbrush
-        </ToolChoiceButton>
-        <ToolNumberField
-          label="Smooth"
-          min={0}
-          max={20}
-          step={1}
-          value={brushSmoothing}
-          onChange={(value) => setBrushSmoothing(Math.max(0, Math.round(value)))}
-        />
-        <ToolOptionGroup label="Pressure">
-          <ToolChoiceButton
-            active={pressureAffectsSize}
-            onClick={() => setPressureAffectsSize((value) => !value)}
-          >
-            Size
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={pressureAffectsOpacity}
-            onClick={() => setPressureAffectsOpacity((value) => !value)}
-          >
-            Opacity
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={pressureAffectsFlow}
-            onClick={() => setPressureAffectsFlow((value) => !value)}
-          >
-            Flow
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        {eraserMode !== "magic" ? (
-          <>
-            <ToolNumberField
-              label="Size"
-              min={1}
-              max={2500}
-              step={1}
-              value={brushSize}
-              onChange={setBrushSize}
-            />
-            <ToolNumberField
-              label="Hardness"
-              min={0}
-              max={1}
-              step={0.05}
-              value={brushHardness}
-              onChange={setBrushHardness}
-            />
-          </>
-        ) : null}
-        {eraserMode !== "normal" ? (
-          <ToolNumberField
-            label="Tolerance"
-            min={0}
-            max={255}
-            step={1}
-            value={eraserTolerance}
-            onChange={setEraserTolerance}
-          />
-        ) : null}
-      </>
-    ) : activeTool === "fill" ? (
-      <>
-        <ToolOptionGroup label="Source">
-          <ToolChoiceButton
-            active={fillSource === "foreground"}
-            onClick={() => setFillSource("foreground")}
-          >
-            Color
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={fillSource === "background"}
-            onClick={() => setFillSource("background")}
-          >
-            Background
-          </ToolChoiceButton>
-          <ToolChoiceButton
-            active={fillSource === "pattern"}
-            onClick={() => setFillSource("pattern")}
-          >
-            Pattern
-          </ToolChoiceButton>
-        </ToolOptionGroup>
-        {fillSource === "pattern" ? (
-          <PatternPicker
-            engine={engine}
-            patterns={render?.uiMeta.patterns ?? []}
-            value={fillPatternId}
-            onChange={setFillPatternId}
-          />
-        ) : null}
-        <ToolNumberField
-          label="Tolerance"
-          min={0}
-          max={255}
-          step={1}
-          value={fillTolerance}
-          onChange={setFillTolerance}
-        />
-        <ToolChoiceButton active={fillContiguous} onClick={() => setFillContiguous((v) => !v)}>
-          Contiguous
-        </ToolChoiceButton>
-        <ToolChoiceButton active={fillSampleMerged} onClick={() => setFillSampleMerged((v) => !v)}>
-          Sample Merged
-        </ToolChoiceButton>
-        <ToolChoiceButton active={fillCreateLayer} onClick={() => setFillCreateLayer((v) => !v)}>
-          New Layer
-        </ToolChoiceButton>
-        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
-          <span
-            className="h-4 w-12 rounded border border-white/10"
-            style={
-              fillSource === "pattern"
-                ? {
-                    backgroundColor: "rgba(15, 23, 42, 1)",
-                    backgroundImage:
-                      "linear-gradient(45deg, rgba(148, 163, 184, 0.35) 25%, transparent 25%, transparent 50%, rgba(148, 163, 184, 0.35) 50%, rgba(148, 163, 184, 0.35) 75%, transparent 75%, transparent)",
-                    backgroundSize: "10px 10px",
-                  }
-                : {
-                    backgroundColor:
-                      fillSource === "background"
-                        ? rgbaToCss(backgroundColor)
-                        : rgbaToCss(foregroundColor),
-                  }
-            }
-          />
-          <span>{fillModeSummary}</span>
-        </div>
-        <button
-          type="button"
-          className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
-          onClick={() => setFillDialogOpen(true)}
-        >
-          Fill Dialog
-        </button>
-      </>
-    ) : activeTool === "gradient" ? (
-      <>
-        <ToolOptionGroup label="Type">
-          {(["linear", "radial", "angle", "reflected", "diamond"] as GradientType[]).map((type) => (
-            <ToolChoiceButton
-              key={type}
-              active={gradientType === type}
-              onClick={() => setGradientType(type)}
-            >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-            </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        <ToolChoiceButton active={gradientReverse} onClick={() => setGradientReverse((v) => !v)}>
-          Reverse
-        </ToolChoiceButton>
-        <ToolChoiceButton active={gradientDither} onClick={() => setGradientDither((v) => !v)}>
-          Dither
-        </ToolChoiceButton>
-        <ToolChoiceButton
-          active={gradientCreateLayer}
-          onClick={() => setGradientCreateLayer((v) => !v)}
-        >
-          New Layer
-        </ToolChoiceButton>
-        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-          <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preview</span>
-          <span className="h-4 w-24 rounded border border-white/10" style={gradientPreviewStyle} />
-          <span>{gradientModeSummary}</span>
-        </div>
-        <button
-          type="button"
-          className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
-          onClick={() => setGradientEditorOpen(true)}
-        >
-          Edit Gradient
-        </button>
-        <span className="text-[11px] text-slate-400">Drag on the canvas to set the gradient.</span>
-      </>
-    ) : activeTool === "eyedropper" ? (
-      <>
-        <ToolOptionGroup label="Sample">
-          {[1, 3, 5, 11, 31, 51, 101].map((size) => (
-            <ToolChoiceButton
-              key={size}
-              active={eyedropperSampleSize === size}
-              onClick={() => setEyedropperSampleSize(size)}
-            >
-              {size === 1 ? "Point" : `${size}x${size}`}
-            </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        <ToolChoiceButton
-          active={eyedropperSampleMerged}
-          onClick={() => setEyedropperSampleMerged((v) => !v)}
-        >
-          Sample Merged
-        </ToolChoiceButton>
-        <ToolChoiceButton
-          active={eyedropperSampleAllLayersNoAdj}
-          onClick={() => setEyedropperSampleAllLayersNoAdj((v) => !v)}
-        >
-          No Adj
-        </ToolChoiceButton>
-        <span className="text-[11px] text-slate-400">{eyedropperModeSummary}</span>
-        <span className="text-[11px] text-slate-400">
-          Click sets foreground; Alt+click sets background.
-        </span>
-        <span className="text-[11px] text-slate-400">
-          Shift+click adds a sampler point; remove them from the Info panel.
-        </span>
-      </>
-    ) : activeTool === "shape" ? (
-      <>
-        <ToolOptionGroup label="Shape">
-          {(
-            ["rect", "rounded-rect", "ellipse", "polygon", "line", "custom-shape"] as ShapeSubTool[]
-          ).map((s) => (
-            <ToolChoiceButton
-              key={s}
-              active={shapeSubTool === s}
-              onClick={() => {
-                setShapeSubTool(s);
-                if (s === "custom-shape") {
-                  setActiveAuxPanel("shapes");
-                }
-              }}
-            >
-              {s === "rect"
-                ? "Rect"
-                : s === "rounded-rect"
-                  ? "Round"
-                  : s === "ellipse"
-                    ? "Ellipse"
-                    : s === "polygon"
-                      ? "Polygon"
-                      : s === "line"
-                        ? "Line"
-                        : "Custom Shape"}
-            </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        <ToolOptionGroup label="Mode">
-          {(["shape", "path", "pixels"] as ShapeMode[]).map((m) => (
-            <ToolChoiceButton key={m} active={shapeMode === m} onClick={() => setShapeMode(m)}>
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </ToolChoiceButton>
-          ))}
-        </ToolOptionGroup>
-        {shapeMode !== "path" && (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Fill</span>
-            <button
-              type="button"
-              title="Fill color"
-              aria-label="Fill color"
-              style={{
-                background: `rgba(${shapeFillColor[0]},${shapeFillColor[1]},${shapeFillColor[2]},${shapeFillColor[3] / 255})`,
-              }}
-              className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
-              onClick={() => {
-                setShapeFillColor([...foregroundColor] as [number, number, number, number]);
-              }}
-            />
-            <button
-              type="button"
-              title="Use foreground color"
-              className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
-              onClick={() =>
-                setShapeFillColor([...foregroundColor] as [number, number, number, number])
-              }
-            >
-              FG
-            </button>
-            <button
-              type="button"
-              title="No fill"
-              className="rounded border border-white/10 px-1 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
-              onClick={() => setShapeFillColor([0, 0, 0, 0])}
-            >
-              None
-            </button>
-          </div>
-        )}
-        {shapeMode !== "path" && (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Stroke</span>
-            <button
-              type="button"
-              title="Stroke color"
-              aria-label="Stroke color"
-              style={{
-                background: `rgba(${shapeStrokeColor[0]},${shapeStrokeColor[1]},${shapeStrokeColor[2]},${shapeStrokeColor[3] / 255})`,
-              }}
-              className="h-5 w-5 rounded border border-white/20 focus-visible:outline-none"
-              onClick={() =>
-                setShapeStrokeColor([...foregroundColor] as [number, number, number, number])
-              }
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={shapeStrokeWidth}
-              onChange={(e) =>
-                setShapeStrokeWidth(
-                  Math.max(0, parseNumericInput(e.target.value, shapeStrokeWidth)),
-                )
-              }
-              className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-            />
-            <span className="text-[10px] text-slate-500">px</span>
-          </div>
-        )}
-        {shapeSubTool === "rounded-rect" && (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Radius</span>
-            <input
-              type="number"
-              min={0}
-              max={500}
-              step={1}
-              value={shapeCornerRadius}
-              onChange={(e) =>
-                setShapeCornerRadius(
-                  Math.max(0, parseNumericInput(e.target.value, shapeCornerRadius)),
-                )
-              }
-              className="w-14 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-            />
-            <span className="text-[10px] text-slate-500">px</span>
-          </div>
-        )}
-        {shapeSubTool === "polygon" && (
-          <>
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Sides</span>
-              <input
-                type="number"
-                min={3}
-                max={100}
-                step={1}
-                value={shapePolygonSides}
-                onChange={(e) =>
-                  setShapePolygonSides(
-                    Math.max(3, parseNumericInput(e.target.value, shapePolygonSides)),
-                  )
-                }
-                className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-              />
-            </div>
-            <ToolChoiceButton active={shapeStarMode} onClick={() => setShapeStarMode((v) => !v)}>
-              Star
-            </ToolChoiceButton>
-            {shapeStarMode ? (
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                  Inner
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  step={1}
-                  value={shapePolygonInnerRadiusPct}
-                  onChange={(e) =>
-                    setShapePolygonInnerRadiusPct(
-                      Math.min(99, Math.max(1, Number(e.target.value) || 1)),
-                    )
-                  }
-                  className="w-12 rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200 focus-visible:outline-none"
-                />
-                <span className="text-[10px] text-slate-500">%</span>
-              </div>
-            ) : null}
-          </>
-        )}
-        {shapeSubTool === "custom-shape" && selectedShapePreset ? (
-          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <span className="shrink-0 uppercase tracking-[0.18em] text-slate-500">Preset</span>
-            <span className="rounded border border-white/10 bg-black/20 px-2 py-0.5 text-slate-200">
-              {selectedShapePreset.name}
-            </span>
-            <button
-              type="button"
-              className="rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-cyan-200 hover:bg-cyan-500/25 focus-visible:outline-none"
-              onClick={() => setActiveAuxPanel("shapes")}
-            >
-              Library
-            </button>
-          </div>
-        ) : null}
-        <span className="text-[11px] text-slate-400">
-          Drag to draw. Shift = constrain aspect ratio.
-        </span>
-      </>
-    ) : null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
@@ -2358,16 +987,7 @@ export default function App() {
             </div>
           ) : null}
 
-          {selectionToolOptions ? (
-            <div className="editor-chrome flex min-h-[38px] items-center justify-between gap-3 border-b border-border px-2 py-1.5">
-              <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5">
-                {selectionToolOptions}
-              </div>
-              <div className="hidden shrink-0 text-[11px] text-slate-400 xl:block">
-                Shift add, Alt subtract, Shift+Alt intersect
-              </div>
-            </div>
-          ) : null}
+          <ToolOptions openBrushPresetImport={openBrushPresetImport} />
 
           {editingVectorLayerID ? (
             <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-warning/30 bg-warning/8 px-3 py-1">
@@ -4279,102 +2899,6 @@ export default function App() {
 
       <ToastViewport />
     </div>
-  );
-}
-
-function ToolOptionGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </span>
-      <div className="flex items-center gap-1">{children}</div>
-    </div>
-  );
-}
-
-function ToolChoiceButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={[
-        "h-7 rounded-[var(--ui-radius-sm)] border px-2.5 text-[12px] transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/30",
-        active
-          ? "border-cyan-400/35 bg-cyan-400/14 text-slate-50"
-          : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20 hover:bg-black/30",
-      ].join(" ")}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ToolNumberField({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 text-[12px] text-slate-300">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <input
-        className="h-7 w-20 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-right text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(parseNumericInput(event.target.value, value))}
-      />
-    </label>
-  );
-}
-
-function ToolSelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="flex items-center gap-2 text-[12px] text-slate-300">
-      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <select
-        className="h-7 max-w-56 rounded-[var(--ui-radius-sm)] border border-white/10 bg-black/20 px-2 text-[12px] text-slate-100 outline-none transition focus:border-cyan-400/40 focus-visible:ring-1 focus-visible:ring-cyan-400/30"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
