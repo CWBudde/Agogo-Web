@@ -30,3 +30,8 @@ Thumbs.db
 
 # ── AI Agents ────────────────────────────────────────────────────────────────
 .codex
+
+# Go workspace file — local dev only (points at sibling ../agg_go);
+# deploy resolves agg_go from the published module in go.mod/go.sum.
+go.work
+go.work.sum
