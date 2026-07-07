@@ -52,16 +52,16 @@ import { PatternPicker } from "@/components/pattern-picker";
 import { PropertyGridRow } from "@/components/property-grid-row";
 import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { ShapesPanel } from "@/components/shapes-panel";
+import { StatusBar } from "@/components/status-bar";
 import { StylesPanel } from "@/components/styles-panel";
 import { TextEditOverlay } from "@/components/text-edit-overlay";
-import { type EditorTool, toolItems } from "@/components/tool-rail-model";
+import { ToolRail } from "@/components/tool-rail";
 import { TransformRefGrid } from "@/components/transform-ref-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
 import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
+import { useActivateTool } from "@/hooks/use-activate-tool";
 import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
 import { type ShortcutTool, useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
@@ -190,7 +190,6 @@ export default function App() {
     setColorSamplerPoints,
     pushRecentColor,
     applyColorToTarget,
-    openColorPicker,
     addColorSamplerPoint,
   } = useColorState();
   const {
@@ -467,8 +466,6 @@ export default function App() {
     height: 0,
     anchor: "center",
   });
-  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
-  const zoomClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [thresholdValue, setThresholdValue] = useState(128);
@@ -644,65 +641,7 @@ export default function App() {
     } satisfies UpdateCropCommand);
   };
 
-  const activateTool = (tool: EditorTool) => {
-    if (tool === "fill" && activeTool === "fill") {
-      tool = "gradient";
-    } else if (tool === "gradient" && activeTool === "gradient") {
-      tool = "fill";
-    }
-    if (tool === activeTool) {
-      return;
-    }
-
-    // Cancel active special modes when switching away
-    if (activeTool === "crop" && tool !== "hand" && tool !== "zoom") {
-      engine.dispatchCommand(CommandID.CancelCrop, {});
-      setCropDeletePixels(false);
-      setCropContentAwareFill(false);
-      setCropResolution(72);
-      setCropOverlayType("thirds");
-      setCropStraightenActive(false);
-    }
-    if (activeTool === "transform" && tool !== "hand" && tool !== "zoom") {
-      engine.dispatchCommand(CommandID.CancelFreeTransform, {});
-    }
-    if (
-      (activeTool === "pen" || activeTool === "directSelect") &&
-      tool !== "pen" &&
-      tool !== "directSelect" &&
-      tool !== "hand" &&
-      tool !== "zoom"
-    ) {
-      engine.dispatchCommand(CommandID.SetActiveTool, { tool: "" });
-      if (editingVectorLayerID) {
-        engine.dispatchCommand(CommandID.CommitVectorEdit, {});
-      }
-    }
-    if (activeTool === "type" && tool !== "type" && tool !== "hand" && tool !== "zoom") {
-      if (editingTextLayerID) {
-        engine.dispatchCommand(CommandID.CommitTextEdit, {});
-      }
-    }
-
-    setActiveTool(tool);
-    if (tool !== "hand") {
-      setIsPanMode(false);
-    }
-
-    // Begin special modes
-    if (tool === "crop") {
-      setCropStraightenActive(false);
-      engine.dispatchCommand(CommandID.BeginCrop, {});
-    }
-    if (tool === "pen") {
-      engine.dispatchCommand(CommandID.SetActiveTool, { tool: "pen" });
-    }
-    if (tool === "directSelect") {
-      engine.dispatchCommand(CommandID.SetActiveTool, {
-        tool: "direct-select",
-      });
-    }
-  };
+  const activateTool = useActivateTool();
 
   const openNewDocumentDialog = () => {
     setNewDocumentOpen(true);
@@ -1340,22 +1279,6 @@ export default function App() {
   const zoomPercent = render ? `${Math.round(render.viewport.zoom * 100)}%` : "0%";
   const cursorText = cursor ? `${cursor.x}, ${cursor.y}` : "—";
 
-  function handleZoomClick() {
-    if (zoomClickTimerRef.current) return;
-    zoomClickTimerRef.current = setTimeout(() => {
-      zoomClickTimerRef.current = null;
-      setZoomMenuOpen((prev) => !prev);
-    }, 200);
-  }
-
-  function handleZoomDoubleClick() {
-    if (zoomClickTimerRef.current) {
-      clearTimeout(zoomClickTimerRef.current);
-      zoomClickTimerRef.current = null;
-    }
-    engine.setZoom(1);
-    setZoomMenuOpen(false);
-  }
   const historyEntries = render?.uiMeta.history ?? [];
   const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
   const selectedCloneHistoryEntry =
@@ -2977,51 +2900,7 @@ export default function App() {
               gridTemplateColumns: `46px minmax(0,1fr) ${panelCollapsed ? "34px" : `${panelWidth}px`}`,
             }}
           >
-            <aside className="editor-chrome editor-toolrail flex min-h-[36rem] flex-col items-center gap-[var(--ui-gap-1)] border-r border-border px-[var(--ui-gap-1)] py-[var(--ui-gap-2)]">
-              {toolItems.map((tool) => {
-                const active = (isPanMode && tool.id === "hand") || activeTool === tool.id;
-                const ToolIcon = tool.Icon;
-                return (
-                  <button
-                    key={tool.id}
-                    type="button"
-                    className={[
-                      "flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] font-semibold transition focus-visible:outline-none",
-                      active
-                        ? "bg-cyan-400/14 text-cyan-100"
-                        : "bg-transparent text-slate-400 hover:bg-white/6 hover:text-slate-100",
-                    ].join(" ")}
-                    title={tool.label}
-                    aria-label={tool.label}
-                    aria-pressed={active}
-                    onClick={() => activateTool(tool.id)}
-                  >
-                    <ToolIcon className="h-4 w-4" />
-                  </button>
-                );
-              })}
-              {/* Foreground / background color swatches */}
-              <div className="relative mt-auto mb-1 flex h-10 w-10 flex-shrink-0 items-end justify-end">
-                {/* Background swatch (behind) */}
-                <button
-                  type="button"
-                  className="absolute bottom-0 right-0 h-6 w-6 rounded-sm border border-border"
-                  style={{ backgroundColor: rgbaToCss(backgroundColor) }}
-                  title="Background color"
-                  aria-label="Background color"
-                  onClick={() => openColorPicker("background")}
-                />
-                {/* Foreground swatch (front) */}
-                <button
-                  type="button"
-                  className="absolute left-0 top-0 h-6 w-6 rounded-sm border border-border"
-                  style={{ backgroundColor: rgbaToCss(foregroundColor) }}
-                  title="Foreground color"
-                  aria-label="Foreground color"
-                  onClick={() => openColorPicker("foreground")}
-                />
-              </div>
-            </aside>
+            <ToolRail />
 
             <main className="editor-stage flex min-w-0 min-h-[36rem] flex-col p-[var(--ui-gap-2)]">
               <section
@@ -3786,50 +3665,7 @@ export default function App() {
             </aside>
           </section>
 
-          <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-border px-2 text-[11px] text-muted-foreground/70">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate text-muted-foreground">{draft.name}.agp</span>
-              <Separator orientation="vertical" className="h-3 bg-border" />
-              <span>{documentSize}</span>
-              <Separator orientation="vertical" className="h-3 bg-border" />
-              <span>{cursorText}</span>
-            </div>
-            <div className="relative flex items-center gap-2">
-              {zoomMenuOpen && (
-                <>
-                  <button
-                    type="button"
-                    className="fixed inset-0 z-40"
-                    aria-label="Close zoom menu"
-                    onClick={() => setZoomMenuOpen(false)}
-                  />
-                  <DropdownMenuContent className="absolute bottom-full right-0 z-50 mb-1 min-w-[100px] rounded-xl p-1">
-                    {[25, 50, 75, 100, 150, 200, 300, 400].map((level) => (
-                      <DropdownMenuItem
-                        key={level}
-                        className={`text-[11px] py-1 px-3 rounded-lg ${Math.round((render?.viewport.zoom ?? 1) * 100) === level ? "text-accent" : ""}`}
-                        onClick={() => {
-                          engine.setZoom(level / 100);
-                          setZoomMenuOpen(false);
-                        }}
-                      >
-                        {level}%
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </>
-              )}
-              <button
-                type="button"
-                className="cursor-pointer select-none tabular-nums text-foreground hover:text-white"
-                onClick={handleZoomClick}
-                onDoubleClick={handleZoomDoubleClick}
-                title="Click for zoom options · Double-click to reset to 100%"
-              >
-                {zoomPercent}
-              </button>
-            </div>
-          </footer>
+          <StatusBar documentName={draft.name} />
         </div>
       </div>
 
