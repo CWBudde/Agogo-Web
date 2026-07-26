@@ -489,22 +489,24 @@
 
 > Deferred within S.6 (documented in code): GSUB ligatures + GPOS-only kerning; bilinear pattern sampling; underline/strikethrough bars not converted by Create Outlines (glyph ink only); frontend does not yet dispatch LoadFontData for browser/system fonts (→ S.8 candidate).
 
-### Phase S.7: Frontend Architecture & UX Repair
+### Phase S.7: Frontend Architecture & UX Repair — ✅ DONE (2026-07-07)
 
-- [ ] **Decompose `App.tsx`** (6,229 lines, 149 `useState` hooks, ~70 props to `EditorCanvas` with fresh inline objects per render) — split state by domain, memoize `EditorCanvas` and `LayerTreeRow`, stop app-wide re-renders per engine frame
-- [ ] **Engine loading/error UI**: `engine.status`/`engine.error` are rendered nowhere — a failed wasm load shows a WelcomeScreen with silently dead buttons; add toast/notification system and try/catch in `context.run()` (engine errors currently throw uncaught mid-gesture and leave transactions open)
-- [ ] **`onPointerCancel`/`lostpointercapture` handling**: pen palm rejection / alt-tab currently leaves paint strokes and move/quick-select/zoom transactions dangling → corrupted history
-- [ ] **Layers context menu is dead with a real pointer**: closes on window `pointerdown` without a `contains()` check, unmounting before `click` fires (`layers-panel.tsx:151–169`) — `fireEvent.click` tests mask it
-- [ ] **Paths panel "activate" is a no-op** dispatching `RenamePath` with the unchanged name (`paths-panel.tsx:18–25`) — polluting undo and making footer actions hit the wrong path; add a real `SetActivePath` command
-- [ ] **Gradient editor regenerates stop IDs per edit** → drags die after one move (`gradient-editor.tsx:341–350`); **Curves drag corrupts on re-sort** (`adjustments-panel.tsx:603–609`)
-- [ ] **Zoom-out shortcut zooms in**: `+`/`=`/`-` all map to `CommandID.ZoomSet` and the switch compares by value, so `case get("-")` is unreachable (`keymap.ts:18–20`, `use-keyboard-shortcuts.ts:196–207`)
-- [ ] Keyboard hygiene: single-key tool shortcuts fire inside modals; `HTMLSelectElement` missing from the editable-target check; Space-pan sticks on window blur; `useKeyboardShortcuts` re-registers window listeners every render (fresh `actions` object)
-- [ ] Throttle slider/number-input dispatches inside a history transaction (opacity, adjustment params, curves emit one synchronous engine command + likely one undo entry per tick); fix `Number("") === 0` dispatching 0 on cleared fields
-- [ ] Move autosave off the main thread (synchronous base64-zip export every 10 content versions freezes large docs; quota errors silently swallowed while the restore banner implies autosave works)
-- [ ] StrictMode double-init: `loadEngine()` runs twice with no dispose — two Go runtimes, leaked handle, possible double `wasm_exec.js` injection (`context.tsx:69–96`, `loader.ts:40–66`)
-- [ ] Accessibility floor: Dialog focus trap + Escape + aria; menu roles/keyboard nav; labeled icon buttons; `TextEditOverlay` Escape currently *commits* instead of canceling
-- [ ] Unify styling on design tokens (character/vector panels use raw blue/slate/zinc palettes; hard-coded hexes in welcome-screen, layers-panel)
-- [ ] Fix ABI payload hazards: `PointerEventCommand.button` typed in TS but silently dropped by Go; `AddLayer.pixels`/`cachedRaster` typed `number[]` in TS but `[]byte` (base64) in Go
+> Executed via TDD implementer subagents + two-stage review (spec then quality), as in S.6. Part A = 9 targeted fixes; Part B = the App.tsx decomposition (**6,413 → 547 lines**) in 8 steps (B1 helpers, B2 engine subscription layer, B3 8 domain providers [127 state hooks], B4 render sections + `memo(EditorCanvas)`, B5 dialog extraction, B6 context flip [ends per-frame fan-out], B7 `memo(LayerTreeRow)`, B8 verification). Also: untracked `go.work` so the Pages deploy resolves `agg_go` from the published module; fixed a vacuous `typecheck` gate (`tsc --noEmit` on a solution tsconfig checked zero files → now `tsc -b`).
+
+- [x] **Decompose `App.tsx`** — split state into 8 domain providers under `src/state/`; render sections into components/hooks; `EditorCanvas` and `LayerTreeRow` memoized; `render` removed from the engine context so committed frames no longer re-render `useEngine()` consumers (subscription layer + selector hooks `useUiMeta`/`useViewport`/`useEngineRender`, tripwire + render-count tests prove isolation)
+- [x] **Engine loading/error UI**: module-level toast bus + `ToastViewport`; `context.run()` and export/import wrappers catch and toast; `EngineLoadErrorScreen` replaces the dead WelcomeScreen on load failure
+- [x] **`onPointerCancel`/`lostpointercapture` handling**: `cancelActiveGesture` reverts open drag transactions (engine `CancelTransaction` restores the pre-txn snapshot) and commits partial brush strokes; double-fire guard
+- [x] **Layers context menu is dead with a real pointer**: close ownership moved into `LayerContextMenu` with a `contains()` bail; regression test uses the real pointerdown-then-click sequence
+- [x] **Paths panel "activate" is a no-op** — new `SetActivePath` (0x0627) command; panel dispatches it (non-undoable, clone+ReplaceActive)
+- [x] **Gradient editor regenerates stop IDs** → seed stop state only on closed→open transition (stable ids); **Curves drag** → clamp dragged x between neighbors (no re-sort)
+- [x] **Zoom-out shortcut zooms in** — keymap values became distinct action strings (kills the duplicate-case-label class)
+- [x] Keyboard hygiene — modal guard, `HTMLSelectElement` in the editable-target check, blur/visibilitychange unstick Space-pan, `actions` in an effect-updated ref (single listener registration)
+- [x] Throttle slider dispatches — `useTransactionalSlider` (lazy begin, rAF throttle, one history entry per drag); `parseNumericInput` fixes `Number("")===0` at ~20 sites
+- [x] Autosave off the critical path — `use-autosave` idle-schedules + burst-coalesces the export; quota errors toast once (export stays main-thread WASM — documented)
+- [x] StrictMode double-init — module-level promise-cached Go runtime; one `go.run`, per-call `EngineInit` handle, failure/ crash resets the cache
+- [x] Accessibility floor — Dialog focus trap + Escape + focus restore + aria; menubar roles + arrow-key nav; icon-button aria-labels; `TextEditOverlay` Escape cancels via new `CancelTextEdit` (0x0648)
+- [x] Design-token migration — raw slate/blue/cyan/zinc/amber/emerald classes → `@theme` tokens across the panels + App stragglers (color-identity usages kept raw)
+- [x] ABI payload hazards — `Button` threaded into the Go pointer payload; `AddLayer.pixels`/`cachedRaster` retyped to base64 `string` in TS
 
 ### Phase S.8: Wire Implemented Backend Features into the UI
 

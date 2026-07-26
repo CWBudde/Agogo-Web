@@ -28,7 +28,6 @@ import { SelectAndMaskWorkspace } from "@/components/select-and-mask";
 import { StatusBar } from "@/components/status-bar";
 import { TextEditOverlay } from "@/components/text-edit-overlay";
 import { ToolOptions } from "@/components/tool-options";
-import { artboardPresetMap } from "@/components/tool-options/artboard-options";
 import {
   ToolChoiceButton,
   ToolNumberField,
@@ -51,7 +50,7 @@ import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
 import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
-import { useCursorState, useViewState } from "@/state/view-state";
+import { useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
 import { useUiMeta } from "@/wasm/use-engine-render";
 
@@ -86,13 +85,10 @@ export default function App() {
     applyColorToTarget,
   } = useColorState();
   const {
-    cloneStampAligned,
-    cloneStampAlignedOffset,
     cloneStampUseHistorySource,
     setCloneStampUseHistorySource,
     cloneStampHistorySourceIndex,
     setCloneStampHistorySourceIndex,
-    cloneStampSource,
     historyBrushSourceIndex,
     setHistoryBrushSourceIndex,
   } = useBrushState();
@@ -115,9 +111,8 @@ export default function App() {
     gradientEditorOpen,
     setGradientEditorOpen,
   } = useFillGradientState();
-  const { shapeSubTool, artboardPreset, setArtboardBackground } = useShapeState();
+  const { shapeSubTool, setArtboardBackground } = useShapeState();
   const { panelCollapsed, panelWidth, setActiveAuxPanel } = useViewState();
-  const { cursor } = useCursorState();
   const { activeTool } = useToolState();
   const { setNewDocumentOpen, setCanvasSizeOpen, selectAndMaskOpen, setSelectAndMaskOpen } =
     useDialogState();
@@ -151,8 +146,6 @@ export default function App() {
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
   const fillModeSummary = `${fillSourceName} fill · ${fillContiguous ? "contiguous" : "all matching"} · ${fillSampleMerged ? "sample merged" : "active layer"} · ${fillCreateLayer ? "new layer" : "paint in place"}`;
-  const _artboardPresetSize =
-    artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
 
   useEffect(() => {
     if (activeArtboard?.isArtboard && activeArtboard.artboardBackground) {
@@ -184,23 +177,6 @@ export default function App() {
 
   const historyEntries = uiMeta?.history ?? [];
   const currentHistoryIndex = uiMeta?.currentHistoryIndex ?? 0;
-  const _selectedCloneHistoryEntry =
-    cloneStampHistorySourceIndex === null
-      ? null
-      : (historyEntries.find((entry) => entry.id === cloneStampHistorySourceIndex) ?? null);
-  const _selectedHistoryBrushEntry =
-    historyBrushSourceIndex === null
-      ? null
-      : (historyEntries.find((entry) => entry.id === historyBrushSourceIndex) ?? null);
-  const _cloneStampOffsetDisplay =
-    cloneStampSource && cursor
-      ? cloneStampAligned && cloneStampAlignedOffset
-        ? cloneStampAlignedOffset
-        : {
-            x: cloneStampSource.x - cursor.x,
-            y: cloneStampSource.y - cursor.y,
-          }
-      : cloneStampAlignedOffset;
   useEffect(() => {
     if (!cloneStampUseHistorySource) {
       return;
