@@ -25,10 +25,6 @@ export interface MenuActionIO {
   openCanvasSizeDialog: () => void;
   /** Open the selection Modify dialog for the given operation (dialog draft). */
   openModifyDialog: (kind: SelectionModifyKind) => void;
-  /** Seed the Save Selection dialog's channel name (dialog draft). */
-  setSaveSelectionName: (name: string) => void;
-  /** Seed the Load Selection dialog's channel choice (dialog draft). */
-  setLoadSelectionName: (name: string) => void;
   /** Insert an adjustment layer above the active layer (App-owned helper). */
   createAdjustmentLayer: <K extends AdjustmentKind>(
     name: string,
@@ -67,14 +63,6 @@ export function useMenuActions(io: MenuActionIO) {
   } = useDialogState();
 
   const savedSelectionChannels = render?.uiMeta.savedSelectionChannels ?? [];
-  const nextSavedSelectionName = () => {
-    const existing = new Set(savedSelectionChannels.map((channel) => channel.name.toLowerCase()));
-    let index = 1;
-    while (existing.has(`alpha ${index}`)) {
-      index += 1;
-    }
-    return `Alpha ${index}`;
-  };
 
   const checkedMenuActionIds = new Set<MenuActionId>(
     showGuides ? (["view-toggle-guides"] as MenuActionId[]) : [],
@@ -239,11 +227,9 @@ export function useMenuActions(io: MenuActionIO) {
         setColorRangeOpen(true);
         break;
       case "select-save-channel":
-        io.setSaveSelectionName(nextSavedSelectionName());
         setSaveSelectionOpen(true);
         break;
       case "select-load-channel":
-        io.setLoadSelectionName(savedSelectionChannels[0]?.name ?? "");
         setLoadSelectionOpen(true);
         break;
       case "select-and-mask":

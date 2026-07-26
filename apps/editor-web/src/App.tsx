@@ -11,11 +11,15 @@ import { ColorPickerDialog } from "@/components/brush-color-panels";
 import { CanvasHost } from "@/components/canvas-host";
 import { CompactRange } from "@/components/compact-range";
 import { CanvasSizeDialog } from "@/components/dialogs/canvas-size-dialog";
+import { ColorRangeDialog } from "@/components/dialogs/color-range-dialog";
 import { ExportDialog } from "@/components/dialogs/export-dialog";
+import { FeatherDialog } from "@/components/dialogs/feather-dialog";
+import { LoadSelectionDialog } from "@/components/dialogs/load-selection-dialog";
+import { ModifyDialog, type ModifyKind } from "@/components/dialogs/modify-dialog";
 import { NewDocumentDialog } from "@/components/dialogs/new-document-dialog";
 import { OpenRecentDialog } from "@/components/dialogs/open-recent-dialog";
+import { SaveSelectionDialog } from "@/components/dialogs/save-selection-dialog";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
-import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
 import { MenuBar } from "@/components/menu-bar/menu-bar";
 import { RightDock } from "@/components/right-dock";
@@ -116,14 +120,6 @@ export default function App() {
   const {
     setNewDocumentOpen,
     setCanvasSizeOpen,
-    featherDialogOpen,
-    setFeatherDialogOpen,
-    colorRangeOpen,
-    setColorRangeOpen,
-    saveSelectionOpen,
-    setSaveSelectionOpen,
-    loadSelectionOpen,
-    setLoadSelectionOpen,
     selectAndMaskOpen,
     setSelectAndMaskOpen,
     thresholdDialogOpen,
@@ -139,20 +135,11 @@ export default function App() {
     gradientMapDialogOpen,
     setGradientMapDialogOpen,
   } = useDialogState();
-  const [featherDialogValue, setFeatherDialogValue] = useState(5);
-  type ModifyKind = "expand" | "contract" | "smooth" | "border";
-  const [modifyDialog, setModifyDialog] = useState<{
-    open: boolean;
-    kind: ModifyKind;
-    value: number;
-  }>({ open: false, kind: "expand", value: 4 });
-  const openModifyDialog = (kind: ModifyKind) =>
-    setModifyDialog({ open: true, kind, value: kind === "smooth" ? 2 : 4 });
-  const [colorRangeColor, setColorRangeColor] = useState<Rgba>([128, 128, 128, 255]);
-  const [colorRangeFuzziness, setColorRangeFuzziness] = useState(40);
-  const [colorRangeSampleMerged, setColorRangeSampleMerged] = useState(false);
-  const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
-  const [loadSelectionName, setLoadSelectionName] = useState("");
+  const [modifyDialog, setModifyDialog] = useState<{ open: boolean; kind: ModifyKind }>({
+    open: false,
+    kind: "expand",
+  });
+  const openModifyDialog = (kind: ModifyKind) => setModifyDialog({ open: true, kind });
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const documentIo = useDocumentIo({ draft, setDraft });
   const [thresholdValue, setThresholdValue] = useState(128);
@@ -184,15 +171,6 @@ export default function App() {
   ]);
   const [photoFilterDensity, setPhotoFilterDensity] = useState(40);
   const [photoFilterPreserveLuminosity, setPhotoFilterPreserveLuminosity] = useState(true);
-  const savedSelectionChannels = render?.uiMeta.savedSelectionChannels ?? [];
-  const nextSavedSelectionName = () => {
-    const existing = new Set(savedSelectionChannels.map((channel) => channel.name.toLowerCase()));
-    let index = 1;
-    while (existing.has(`alpha ${index}`)) {
-      index += 1;
-    }
-    return `Alpha ${index}`;
-  };
 
   const contentVersion = render?.uiMeta.contentVersion;
 
@@ -277,58 +255,6 @@ export default function App() {
     } satisfies AddLayerCommand);
   };
 
-  const commitFeather = () => {
-    engine.dispatchCommand(CommandID.FeatherSelection, { radius: featherDialogValue });
-    setFeatherDialogOpen(false);
-  };
-
-  const commitModify = () => {
-    const { kind, value } = modifyDialog;
-    switch (kind) {
-      case "expand":
-        engine.dispatchCommand(CommandID.ExpandSelection, { pixels: value });
-        break;
-      case "contract":
-        engine.dispatchCommand(CommandID.ContractSelection, { pixels: value });
-        break;
-      case "smooth":
-        engine.dispatchCommand(CommandID.SmoothSelection, { radius: value });
-        break;
-      case "border":
-        engine.dispatchCommand(CommandID.BorderSelection, { width: value });
-        break;
-    }
-    setModifyDialog((d) => ({ ...d, open: false }));
-  };
-
-  const commitColorRange = () => {
-    engine.dispatchCommand(CommandID.SelectColorRange, {
-      targetColor: toMutableRgba(colorRangeColor),
-      fuzziness: colorRangeFuzziness,
-      sampleMerged: colorRangeSampleMerged,
-      mode: "replace",
-    });
-    setColorRangeOpen(false);
-  };
-
-  const commitSaveSelection = () => {
-    engine.dispatchCommand(CommandID.SaveSelectionToChannel, {
-      name: saveSelectionName.trim() || nextSavedSelectionName(),
-    });
-    setSaveSelectionOpen(false);
-  };
-
-  const commitLoadSelection = () => {
-    if (!loadSelectionName) {
-      return;
-    }
-    engine.dispatchCommand(CommandID.LoadSelectionFromChannel, {
-      name: loadSelectionName,
-      mode: "replace",
-    });
-    setLoadSelectionOpen(false);
-  };
-
   // The canvas-size draft is seeded from the document inside <CanvasSizeDialog/>
   // on open, so opening the dialog only needs to flip the flag.
   const openCanvasSizeDialog = () => setCanvasSizeOpen(true);
@@ -341,8 +267,6 @@ export default function App() {
     saveDocument: documentIo.saveDocument,
     openCanvasSizeDialog,
     openModifyDialog,
-    setSaveSelectionName,
-    setLoadSelectionName,
     createAdjustmentLayer,
   };
 
@@ -556,99 +480,13 @@ export default function App() {
 
       <CanvasSizeDialog draft={draft} />
 
-      <Dialog
-        open={featherDialogOpen}
-        onClose={() => setFeatherDialogOpen(false)}
-        title="Feather Selection"
-        description="Softens the selection edges by blurring."
-        className="max-w-xs"
-      >
-        <div className="space-y-3">
-          <Field label="Feather Radius (px)">
-            <input
-              type="number"
-              className={fieldClassName}
-              min={0}
-              max={250}
-              step={0.5}
-              value={featherDialogValue}
-              onChange={(e) =>
-                setFeatherDialogValue(parseNumericInput(e.target.value, featherDialogValue))
-              }
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setFeatherDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={commitFeather}>
-              OK
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <FeatherDialog />
 
-      <Dialog
+      <ModifyDialog
         open={modifyDialog.open}
+        kind={modifyDialog.kind}
         onClose={() => setModifyDialog((d) => ({ ...d, open: false }))}
-        title={
-          {
-            expand: "Expand Selection",
-            contract: "Contract Selection",
-            smooth: "Smooth Selection",
-            border: "Border Selection",
-          }[modifyDialog.kind]
-        }
-        description={
-          {
-            expand: "Grow the selection outward.",
-            contract: "Shrink the selection inward.",
-            smooth: "Smooth the selection edges.",
-            border: "Create a border of the specified width.",
-          }[modifyDialog.kind]
-        }
-        className="max-w-xs"
-      >
-        <div className="space-y-3">
-          <Field
-            label={
-              {
-                expand: "Expand By (px)",
-                contract: "Contract By (px)",
-                smooth: "Radius (px)",
-                border: "Width (px)",
-              }[modifyDialog.kind]
-            }
-          >
-            <input
-              type="number"
-              className={fieldClassName}
-              min={1}
-              max={500}
-              step={1}
-              value={modifyDialog.value}
-              onChange={(e) =>
-                setModifyDialog((d) => ({
-                  ...d,
-                  value: parseNumericInput(e.target.value, d.value),
-                }))
-              }
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setModifyDialog((d) => ({ ...d, open: false }))}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" onClick={commitModify}>
-              OK
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      />
 
       <Dialog
         open={fillDialogOpen}
@@ -1161,117 +999,11 @@ export default function App() {
         activeLayerId={render?.uiMeta.activeLayerId ?? null}
       />
 
-      <Dialog
-        open={colorRangeOpen}
-        onClose={() => setColorRangeOpen(false)}
-        title="Color Range"
-        description="Select pixels by color similarity."
-        className="max-w-sm"
-      >
-        <div className="space-y-4">
-          <Field label="Sample Color">
-            <input
-              type="color"
-              className="h-8 w-full cursor-pointer rounded border border-white/10 bg-transparent"
-              value={rgbaToHex(colorRangeColor)}
-              onChange={(e) => {
-                const next = hexToRgba(e.target.value);
-                if (next) {
-                  setColorRangeColor(next);
-                }
-              }}
-            />
-          </Field>
-          <Field label={`Fuzziness: ${colorRangeFuzziness}`}>
-            <input
-              type="range"
-              className="w-full accent-accent"
-              min={0}
-              max={200}
-              step={1}
-              value={colorRangeFuzziness}
-              onChange={(e) =>
-                setColorRangeFuzziness(parseNumericInput(e.target.value, colorRangeFuzziness))
-              }
-            />
-          </Field>
-          <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              checked={colorRangeSampleMerged}
-              onChange={(e) => setColorRangeSampleMerged(e.target.checked)}
-            />
-            Sample all layers
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setColorRangeOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={commitColorRange}>
-              OK
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <ColorRangeDialog />
 
-      <Dialog
-        open={saveSelectionOpen}
-        onClose={() => setSaveSelectionOpen(false)}
-        title="Save Selection"
-        description="Store the current selection as an alpha channel."
-        className="max-w-sm"
-      >
-        <div className="space-y-4">
-          <Field label="Channel Name">
-            <input
-              type="text"
-              className={fieldClassName}
-              value={saveSelectionName}
-              onChange={(e) => setSaveSelectionName(e.target.value)}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setSaveSelectionOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={commitSaveSelection}>
-              Save
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <SaveSelectionDialog />
 
-      <Dialog
-        open={loadSelectionOpen}
-        onClose={() => setLoadSelectionOpen(false)}
-        title="Load Selection"
-        description="Restore a saved alpha channel as the current selection."
-        className="max-w-sm"
-      >
-        <div className="space-y-4">
-          <Field label="Saved Channel">
-            <select
-              className={fieldClassName}
-              value={loadSelectionName}
-              onChange={(e) => setLoadSelectionName(e.target.value)}
-            >
-              {savedSelectionChannels.map((channel) => (
-                <option key={channel.name} value={channel.name}>
-                  {channel.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setLoadSelectionOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" disabled={!loadSelectionName} onClick={commitLoadSelection}>
-              Load
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <LoadSelectionDialog />
 
       <ColorPickerDialog
         open={colorPickerOpen}
