@@ -10,6 +10,10 @@ import { useEffect, useRef, useState } from "react";
 import { ColorPickerDialog } from "@/components/brush-color-panels";
 import { CanvasHost } from "@/components/canvas-host";
 import { CompactRange } from "@/components/compact-range";
+import { CanvasSizeDialog } from "@/components/dialogs/canvas-size-dialog";
+import { ExportDialog } from "@/components/dialogs/export-dialog";
+import { NewDocumentDialog } from "@/components/dialogs/new-document-dialog";
+import { OpenRecentDialog } from "@/components/dialogs/open-recent-dialog";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import { Field, fieldClassName } from "@/components/field";
 import { GradientEditorDialog } from "@/components/gradient-editor";
@@ -36,13 +40,6 @@ import { useDocumentIo } from "@/hooks/use-document-io";
 import type { MenuActionIO } from "@/hooks/use-menu-actions";
 import { hexToRgba, type Rgba, rgbaToCss, rgbaToHex, toMutableRgba } from "@/lib/color";
 import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
-import {
-  type DocumentUnit,
-  formatDimension,
-  pixelsToUnit,
-  unitSteps,
-  unitToPixels,
-} from "@/lib/units";
 import { parseNumericInput } from "@/lib/utils";
 import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
@@ -63,13 +60,6 @@ const defaultDocumentDraft: CreateDocumentCommand = {
   background: "transparent",
 };
 
-const presets = [
-  { id: "web", label: "Web", width: 1920, height: 1080, resolution: 72 },
-  { id: "photo", label: "Photo", width: 4032, height: 3024, resolution: 300 },
-  { id: "print", label: "Print", width: 2480, height: 3508, resolution: 300 },
-  { id: "square", label: "Custom", width: 2048, height: 2048, resolution: 144 },
-];
-
 export default function App() {
   const engine = useEngine();
   const render = engine.render;
@@ -84,7 +74,6 @@ export default function App() {
     onlyWebColors,
     setOnlyWebColors,
     recentColors,
-    setColorSamplerPoints,
     pushRecentColor,
     applyColorToTarget,
   } = useColorState();
@@ -121,19 +110,12 @@ export default function App() {
     setGradientEditorOpen,
   } = useFillGradientState();
   const { shapeSubTool, artboardPreset, setArtboardBackground } = useShapeState();
-  const { panelCollapsed, panelWidth, documentUnit, setDocumentUnit, setActiveAuxPanel } =
-    useViewState();
+  const { panelCollapsed, panelWidth, setActiveAuxPanel } = useViewState();
   const { cursor } = useCursorState();
   const { activeTool } = useToolState();
   const {
-    newDocumentOpen,
     setNewDocumentOpen,
-    canvasSizeOpen,
     setCanvasSizeOpen,
-    openRecentOpen,
-    setOpenRecentOpen,
-    exportDialogOpen,
-    setExportDialogOpen,
     featherDialogOpen,
     setFeatherDialogOpen,
     colorRangeOpen,
@@ -173,24 +155,6 @@ export default function App() {
   const [loadSelectionName, setLoadSelectionName] = useState("");
   const [draft, setDraft] = useState<CreateDocumentCommand>(defaultDocumentDraft);
   const documentIo = useDocumentIo({ draft, setDraft });
-  const [canvasSizeDraft, setCanvasSizeDraft] = useState<{
-    width: number;
-    height: number;
-    anchor:
-      | "top-left"
-      | "top-center"
-      | "top-right"
-      | "middle-left"
-      | "center"
-      | "middle-right"
-      | "bottom-left"
-      | "bottom-center"
-      | "bottom-right";
-  }>({
-    width: 0,
-    height: 0,
-    anchor: "center",
-  });
   const [thresholdValue, setThresholdValue] = useState(128);
   const [posterizeLevels, setPosterizeLevels] = useState(6);
   const [channelMixerMonochrome, setChannelMixerMonochrome] = useState(false);
@@ -245,7 +209,6 @@ export default function App() {
 
   const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
   const editingTextLayerID = render?.uiMeta.editingTextLayerId ?? "";
-  const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
   const activeArtboard = render?.uiMeta.activeLayerId
     ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
     : null;
@@ -366,14 +329,9 @@ export default function App() {
     setLoadSelectionOpen(false);
   };
 
-  const openCanvasSizeDialog = () => {
-    setCanvasSizeDraft({
-      width: render?.uiMeta.documentWidth ?? draft.width,
-      height: render?.uiMeta.documentHeight ?? draft.height,
-      anchor: "center",
-    });
-    setCanvasSizeOpen(true);
-  };
+  // The canvas-size draft is seeded from the document inside <CanvasSizeDialog/>
+  // on open, so opening the dialog only needs to flip the flag.
+  const openCanvasSizeDialog = () => setCanvasSizeOpen(true);
 
   // Seam for the menu/shortcut hooks: document I/O and dialog-draft callbacks
   // that still live in App (use-document-io and the dialog extraction will
@@ -456,14 +414,6 @@ export default function App() {
       null;
     setHistoryBrushSourceIndex(fallback);
   }, [currentHistoryIndex, historyBrushSourceIndex, historyEntries, setHistoryBrushSourceIndex]);
-  const widthValue = formatDimension(
-    pixelsToUnit(draft.width, draft.resolution, documentUnit),
-    documentUnit,
-  );
-  const heightValue = formatDimension(
-    pixelsToUnit(draft.height, draft.resolution, documentUnit),
-    documentUnit,
-  );
   const activeColor = colorPickerTarget === "foreground" ? foregroundColor : backgroundColor;
   const setActiveColor = (next: Rgba) => applyColorToTarget(colorPickerTarget, next);
 
@@ -598,381 +548,13 @@ export default function App() {
         </div>
       </div>
 
-      <Dialog
-        open={newDocumentOpen}
-        onClose={() => setNewDocumentOpen(false)}
-        title="Create Document"
-        description="Presets, dimensions, resolution, color mode, bit depth, and background feed the Go engine document manager."
-      >
-        <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
-          <div className="space-y-[var(--ui-gap-2)]">
-            {presets.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className="w-full rounded-[var(--ui-radius-sm)] border border-white/8 bg-panel-soft px-3 py-2 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/8"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    width: preset.width,
-                    height: preset.height,
-                    resolution: preset.resolution,
-                  }))
-                }
-              >
-                <div className="text-[12px] font-medium text-slate-100">{preset.label}</div>
-                <div className="mt-1 text-[11px] text-slate-400">
-                  {preset.width} x {preset.height} · {preset.resolution} DPI
-                </div>
-              </button>
-            ))}
-          </div>
+      <NewDocumentDialog draft={draft} setDraft={setDraft} />
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Name">
-              <input
-                className={fieldClassName}
-                value={draft.name}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Background">
-              <select
-                className={fieldClassName}
-                value={draft.background}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    background: event.target.value as CreateDocumentCommand["background"],
-                  }))
-                }
-              >
-                <option value="transparent">Transparent</option>
-                <option value="white">White</option>
-                <option value="color">Color</option>
-              </select>
-            </Field>
-            <Field label="Units">
-              <select
-                className={fieldClassName}
-                value={documentUnit}
-                onChange={(event) => setDocumentUnit(event.target.value as DocumentUnit)}
-              >
-                <option value="px">Pixels</option>
-                <option value="in">Inches</option>
-                <option value="cm">Centimeters</option>
-                <option value="mm">Millimeters</option>
-              </select>
-            </Field>
-            <Field label={`Width (${documentUnit})`}>
-              <input
-                className={fieldClassName}
-                type="number"
-                min={documentUnit === "px" ? 1 : 0.01}
-                step={unitSteps[documentUnit]}
-                value={widthValue}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    width: Math.max(
-                      1,
-                      Math.round(
-                        unitToPixels(
-                          parseNumericInput(
-                            event.target.value,
-                            pixelsToUnit(current.width, current.resolution, documentUnit),
-                          ),
-                          current.resolution,
-                          documentUnit,
-                        ),
-                      ),
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <Field label={`Height (${documentUnit})`}>
-              <input
-                className={fieldClassName}
-                type="number"
-                min={documentUnit === "px" ? 1 : 0.01}
-                step={unitSteps[documentUnit]}
-                value={heightValue}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    height: Math.max(
-                      1,
-                      Math.round(
-                        unitToPixels(
-                          parseNumericInput(
-                            event.target.value,
-                            pixelsToUnit(current.height, current.resolution, documentUnit),
-                          ),
-                          current.resolution,
-                          documentUnit,
-                        ),
-                      ),
-                    ),
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Resolution (DPI)">
-              <input
-                className={fieldClassName}
-                type="number"
-                min={1}
-                value={draft.resolution}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    resolution: parseNumericInput(event.target.value, current.resolution),
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Bit Depth">
-              <select
-                className={fieldClassName}
-                value={draft.bitDepth}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    bitDepth: parseNumericInput(event.target.value, current.bitDepth) as
-                      | 8
-                      | 16
-                      | 32,
-                  }))
-                }
-              >
-                <option value={8}>8-bit</option>
-                <option value={16}>16-bit</option>
-                <option value={32}>32-bit</option>
-              </select>
-            </Field>
-            <Field label="Color Mode">
-              <select
-                className={fieldClassName}
-                value={draft.colorMode}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    colorMode: event.target.value as CreateDocumentCommand["colorMode"],
-                  }))
-                }
-              >
-                <option value="rgb">RGB</option>
-                <option value="gray">Grayscale</option>
-              </select>
-            </Field>
-          </div>
-        </div>
+      <OpenRecentDialog onOpenProject={documentIo.openProjectPicker} />
 
-        <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setNewDocumentOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              engine.createDocument(draft);
-              setColorSamplerPoints([]);
-              setNewDocumentOpen(false);
-            }}
-          >
-            Create Document
-          </Button>
-        </div>
-      </Dialog>
+      <ExportDialog draftName={draft.name} onSave={documentIo.saveDocument} />
 
-      <Dialog
-        open={openRecentOpen}
-        onClose={() => setOpenRecentOpen(false)}
-        title="Open Recent"
-        description="The browser build cannot reopen local files automatically yet, so recent documents are informational only for now."
-        className="max-w-lg"
-      >
-        <div className="space-y-3 text-[13px] text-slate-300">
-          <p>
-            Recent document tracking needs a persistent file-access layer. That is not wired into
-            the web shell yet.
-          </p>
-          <p className="text-slate-400">
-            Use Open to pick an `.agp`, `.psd`, `.psb`, or legacy JSON project from disk.
-          </p>
-        </div>
-
-        <div className="mt-4 flex justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setOpenRecentOpen(false)}>
-            Close
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setOpenRecentOpen(false);
-              documentIo.openProjectPicker();
-            }}
-          >
-            Open...
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={exportDialogOpen}
-        onClose={() => setExportDialogOpen(false)}
-        title="Export As"
-        description="Choose a layered archive, PSD, or PSB export."
-        className="max-w-lg"
-      >
-        <div className="space-y-3 text-[13px] text-slate-300">
-          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">Project Archive (.agp)</div>
-            <div className="mt-1 text-[12px] text-slate-400">
-              Saves the current document state, layer tree, and history as {activeDocumentName}.agp.
-            </div>
-          </div>
-          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">Photoshop Document (.psd)</div>
-            <div className="mt-1 text-[12px] text-slate-400">
-              Writes a layered PSD with merged image data and embedded Agogo metadata for lossless
-              reopen.
-            </div>
-          </div>
-          <div className="rounded-[var(--ui-radius-sm)] border border-white/8 bg-black/20 p-3">
-            <div className="text-[12px] font-medium text-slate-100">
-              Large Document Format (.psb)
-            </div>
-            <div className="mt-1 text-[12px] text-slate-400">
-              Use PSB explicitly for large canvases. PSD exports automatically switch to PSB above
-              30,000 px.
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap justify-end gap-[var(--ui-gap-2)] border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              documentIo.saveDocument("archive");
-              setExportDialogOpen(false);
-            }}
-          >
-            Export Archive
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              documentIo.saveDocument("psd");
-              setExportDialogOpen(false);
-            }}
-          >
-            Export PSD
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              documentIo.saveDocument("psb");
-              setExportDialogOpen(false);
-            }}
-          >
-            Export PSB
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={canvasSizeOpen}
-        onClose={() => setCanvasSizeOpen(false)}
-        title="Canvas Size"
-        description="Resizing the canvas shifts layers relative to the selected anchor."
-        className="max-w-md"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Width">
-            <input
-              type="number"
-              className={fieldClassName}
-              value={canvasSizeDraft.width}
-              onChange={(e) =>
-                setCanvasSizeDraft((c) => ({
-                  ...c,
-                  width: parseNumericInput(e.target.value, c.width),
-                }))
-              }
-            />
-          </Field>
-          <Field label="Height">
-            <input
-              type="number"
-              className={fieldClassName}
-              value={canvasSizeDraft.height}
-              onChange={(e) =>
-                setCanvasSizeDraft((c) => ({
-                  ...c,
-                  height: parseNumericInput(e.target.value, c.height),
-                }))
-              }
-            />
-          </Field>
-        </div>
-        <div className="mt-4">
-          <Field label="Anchor">
-            <div className="grid grid-cols-3 gap-1 w-24 h-24 mt-1">
-              {(
-                [
-                  "top-left",
-                  "top-center",
-                  "top-right",
-                  "middle-left",
-                  "center",
-                  "middle-right",
-                  "bottom-left",
-                  "bottom-center",
-                  "bottom-right",
-                ] as const
-              ).map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  className={[
-                    "w-full h-full border transition",
-                    canvasSizeDraft.anchor === a
-                      ? "border-cyan-400 bg-cyan-400/20"
-                      : "border-white/10 bg-black/20 hover:border-white/20",
-                  ].join(" ")}
-                  onClick={() => setCanvasSizeDraft((c) => ({ ...c, anchor: a }))}
-                />
-              ))}
-            </div>
-          </Field>
-        </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setCanvasSizeOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              engine.dispatchCommand(CommandID.ResizeCanvas, canvasSizeDraft);
-              setCanvasSizeOpen(false);
-            }}
-          >
-            Resize
-          </Button>
-        </div>
-      </Dialog>
+      <CanvasSizeDialog draft={draft} />
 
       <Dialog
         open={featherDialogOpen}
