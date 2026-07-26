@@ -1,5 +1,5 @@
 import { CommandID, type CreateDocumentCommand } from "@agogo/proto";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Field, fieldClassName } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -42,7 +42,10 @@ export function CanvasSizeDialog({ draft }: { draft: CreateDocumentCommand }) {
   });
 
   const wasOpenRef = useRef(false);
-  useEffect(() => {
+  // Seed before paint (useLayoutEffect) so the first frame shows the real
+  // document dimensions, not the {0,0} initial state — matches the old
+  // seed-then-open ordering.
+  useLayoutEffect(() => {
     if (!canvasSizeOpen) {
       wasOpenRef.current = false;
       return;

@@ -1,5 +1,5 @@
 import { CommandID } from "@agogo/proto";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Field, fieldClassName } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -32,7 +32,7 @@ export function SaveSelectionDialog() {
   // closed -> open transition (nextSavedSelectionName is read fresh at that
   // point); it must not re-run as channels change while the dialog is open.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally seeds only on open transition
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!saveSelectionOpen) {
       wasOpenRef.current = false;
       return;

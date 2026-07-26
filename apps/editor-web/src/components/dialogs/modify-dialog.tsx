@@ -1,5 +1,5 @@
 import { CommandID } from "@agogo/proto";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Field, fieldClassName } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -26,16 +26,19 @@ export function ModifyDialog({
   const engine = useEngine();
   const [value, setValue] = useState(4);
 
-  const wasOpenRef = useRef(false);
-  useEffect(() => {
+  // Seed (before paint) on open and whenever the operation kind changes while
+  // the dialog is already open — the old openModifyDialog(kind) reset value on
+  // every call. Tracking the seeded kind covers a menu re-trigger over the modal.
+  const seededKindRef = useRef<ModifyKind | null>(null);
+  useLayoutEffect(() => {
     if (!open) {
-      wasOpenRef.current = false;
+      seededKindRef.current = null;
       return;
     }
-    if (wasOpenRef.current) {
+    if (seededKindRef.current === kind) {
       return;
     }
-    wasOpenRef.current = true;
+    seededKindRef.current = kind;
     setValue(kind === "smooth" ? 2 : 4);
   }, [open, kind]);
 
