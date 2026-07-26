@@ -4,6 +4,7 @@ import type { EditorTool } from "@/components/tool-rail-model";
 import { useBrushState } from "@/state/brush-state";
 import { useCursorState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 import { ToolChoiceButton, ToolNumberField, ToolOptionGroup, ToolSelectField } from "./controls";
 
 const paintBlendModeOptions: { value: LayerBlendMode; label: string }[] = [
@@ -28,7 +29,8 @@ export function BrushOptions({
   openBrushPresetImport: () => void;
 }) {
   const engine = useEngine();
-  const render = engine.render;
+  const history = useUiMeta((meta) => meta?.history);
+  const historyIndex = useUiMeta((meta) => meta?.currentHistoryIndex);
   const { cursor } = useCursorState();
   const {
     brushPresetId,
@@ -94,8 +96,8 @@ export function BrushOptions({
     applyMixerBrushPreset,
   } = useBrushState();
 
-  const historyEntries = render?.uiMeta.history ?? [];
-  const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
+  const historyEntries = history ?? [];
+  const currentHistoryIndex = historyIndex ?? 0;
   const selectedCloneHistoryEntry =
     cloneStampHistorySourceIndex === null
       ? null

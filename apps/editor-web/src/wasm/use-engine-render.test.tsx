@@ -200,9 +200,10 @@ describe("engine render subscription", () => {
 
     expect(typeof engineValue?.subscribe).toBe("function");
     expect(typeof engineValue?.getSnapshot).toBe("function");
-    expect(engineValue?.getSnapshot?.()).toBe(engineValue?.render);
-    expect(rawSnapshotValue).toBe(engineValue?.render);
-    expect(layersValue).toBe(engineValue?.render?.uiMeta.layers);
+    // The raw-snapshot probe and the store's getSnapshot expose the same
+    // committed render state (render no longer rides on the context value).
+    expect(rawSnapshotValue).toBe(engineValue?.getSnapshot());
+    expect(layersValue).toBe(engineValue?.getSnapshot()?.uiMeta.layers);
     expect(viewportValue).toEqual(makeViewport());
   });
 
@@ -251,7 +252,7 @@ describe("engine render subscription", () => {
     await mountAll();
     const layersBefore = layersRenderCount;
     const viewportBefore = viewportRenderCount;
-    const uiMetaBefore = engineValue?.render?.uiMeta;
+    const uiMetaBefore = engineValue?.getSnapshot()?.uiMeta;
 
     dispatchResults = [makeAck({ viewport: makeViewport({ centerX: 42 }) })];
     dispatchQueued(CommandID.PointerEvent, { phase: "move" });
@@ -260,7 +261,7 @@ describe("engine render subscription", () => {
     expect(viewportValue?.centerX).toBe(42);
     expect(layersRenderCount).toBe(layersBefore);
     // The ack merge preserved the uiMeta reference.
-    expect(engineValue?.render?.uiMeta).toBe(uiMetaBefore);
+    expect(engineValue?.getSnapshot()?.uiMeta).toBe(uiMetaBefore);
   });
 
   it("leaves layers and viewport probes untouched on a cursor/status-only ack", async () => {

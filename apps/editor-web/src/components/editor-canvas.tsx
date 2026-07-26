@@ -29,6 +29,7 @@ import {
   type ShapePreset,
 } from "@/lib/shape-presets";
 import { useEngine } from "@/wasm/context";
+import { useEngineRender } from "@/wasm/use-engine-render";
 import { PathOverlayRenderer } from "./path-overlay";
 
 type CursorPosition = {
@@ -855,7 +856,10 @@ export function EditorCanvas({
   const [artboardEditDraft, setArtboardEditDraft] = useState<ArtboardEditDraft | null>(null);
   const [magneticLassoDraft, setMagneticLassoDraft] = useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
-  const render = engine.render;
+  // The canvas is the display surface: it needs the full render state every
+  // committed frame (its rAF pixel loop reads renderRef.current, kept fresh
+  // here). Subscribing via the store replaces the old per-frame context read.
+  const render = useEngineRender((state) => state);
   const engineHandle = engine.handle;
   const setZoom = engine.setZoom;
   const setPan = engine.setPan;
@@ -897,9 +901,9 @@ export function EditorCanvas({
     });
   };
 
-  // Keep a stable ref so the resize effect doesn't re-run whenever
-  // engine.resizeViewport gets a new identity (it changes on every render
-  // because the context useMemo depends on state.render).
+  // Keep a stable ref for the resize effect so it never re-subscribes on an
+  // engine value change. (Post-B6 the context value is identity-stable across
+  // frames, but the ref keeps the effect robust regardless.)
   const resizeViewportRef = useRef(engine.resizeViewport);
   resizeViewportRef.current = engine.resizeViewport;
 

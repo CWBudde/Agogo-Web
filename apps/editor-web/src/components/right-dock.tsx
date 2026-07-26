@@ -29,6 +29,7 @@ import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
+import { useEngineRender } from "@/wasm/use-engine-render";
 
 const MAX_SWATCHES = 96;
 
@@ -48,7 +49,10 @@ export function RightDock({
   exportSwatchSet,
 }: RightDockProps) {
   const engine = useEngine();
-  const render = engine.render;
+  // The right dock displays viewport (zoom/rotation) and most of uiMeta, so it
+  // genuinely tracks the whole render snapshot; it re-renders on committed
+  // frames but no longer via the engine context value.
+  const render = useEngineRender((state) => state);
   const { activeTool } = useToolState();
   const { cursor } = useCursorState();
   const {
@@ -779,6 +783,7 @@ export function RightDock({
                 maskEditLayerId={render?.uiMeta.maskEditLayerId ?? null}
                 documentWidth={render?.uiMeta.documentWidth ?? draft.width}
                 documentHeight={render?.uiMeta.documentHeight ?? draft.height}
+                stylePresets={render?.uiMeta.stylePresets ?? []}
                 thumbnails={layerThumbnails}
                 selectedLayerIds={selectedLayerIds}
                 onSelectedLayerIdsChange={setSelectedLayerIds}

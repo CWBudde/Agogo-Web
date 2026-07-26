@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { AuxPanel } from "@/components/dock-section";
 import type { DocumentUnit } from "@/lib/units";
-import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 export type CursorPosition = { x: number; y: number } | null;
 
@@ -42,8 +42,7 @@ const CursorStateContext = createContext<CursorStateValue | null>(null);
 const ViewStateContext = createContext<ViewStateValue | null>(null);
 
 export function ViewStateProvider({ children }: PropsWithChildren) {
-  const engine = useEngine();
-  const activeLayerId = engine.render?.uiMeta.activeLayerId ?? null;
+  const activeLayerId = useUiMeta((meta) => meta?.activeLayerId ?? null);
 
   const [cursor, setCursor] = useState<CursorPosition>(null);
   const [isPanMode, setIsPanMode] = useState(false);

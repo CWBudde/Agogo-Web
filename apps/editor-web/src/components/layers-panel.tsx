@@ -1,6 +1,7 @@
 import {
   type AddLayerMaskMode,
   CommandID,
+  type DocumentStylePresetEntry,
   type LayerBlendMode,
   type LayerLockMode,
   type LayerNodeMeta,
@@ -114,6 +115,7 @@ type LayersPanelProps = {
   maskEditLayerId: string | null;
   documentWidth: number;
   documentHeight: number;
+  stylePresets?: DocumentStylePresetEntry[];
   thumbnails: Record<string, ThumbnailEntry>;
   selectedLayerIds: string[];
   onSelectedLayerIdsChange: (ids: string[]) => void;
@@ -126,6 +128,7 @@ export function LayersPanel({
   maskEditLayerId,
   documentWidth,
   documentHeight,
+  stylePresets = [],
   thumbnails,
   selectedLayerIds,
   onSelectedLayerIdsChange,
@@ -830,7 +833,7 @@ export function LayersPanel({
         open={layerStyleLayerId !== null}
         engine={engine}
         layer={layerStyleLayerId ? findLayerById(layers, layerStyleLayerId) : null}
-        presets={engine.render?.uiMeta.stylePresets ?? []}
+        presets={stylePresets}
         onClose={() => setLayerStyleLayerId(null)}
       />
     </div>

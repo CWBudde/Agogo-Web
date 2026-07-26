@@ -5,7 +5,7 @@ import {
   CommandID,
 } from "@agogo/proto";
 import { findLayerPositionInTree } from "@/lib/layer-tree";
-import { useEngine } from "@/wasm/context";
+import { useEngine, useEngineStore } from "@/wasm/context";
 
 /**
  * Returns a helper that inserts an adjustment layer directly above the active
@@ -14,13 +14,14 @@ import { useEngine } from "@/wasm/context";
  */
 export function useCreateAdjustmentLayer() {
   const engine = useEngine();
-  const render = engine.render;
+  const { getSnapshot } = useEngineStore();
 
   return <K extends AdjustmentKind>(
     name: string,
     adjustmentKind: K,
     params: AdjustmentLayerParams<K> = {} as AdjustmentLayerParams<K>,
   ) => {
+    const render = getSnapshot();
     if (!render?.uiMeta.activeLayerId) {
       return;
     }

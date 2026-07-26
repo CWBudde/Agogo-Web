@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useDialogState } from "@/state/dialog-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 /**
  * Save Selection dialog. Owns the channel-name draft locally and seeds it with
@@ -16,7 +17,7 @@ export function SaveSelectionDialog() {
   const { saveSelectionOpen, setSaveSelectionOpen } = useDialogState();
   const [saveSelectionName, setSaveSelectionName] = useState("Alpha 1");
 
-  const savedSelectionChannels = engine.render?.uiMeta.savedSelectionChannels ?? [];
+  const savedSelectionChannels = useUiMeta((meta) => meta?.savedSelectionChannels) ?? [];
   const nextSavedSelectionName = () => {
     const existing = new Set(savedSelectionChannels.map((channel) => channel.name.toLowerCase()));
     let index = 1;

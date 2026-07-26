@@ -5,11 +5,12 @@ import { gradientStopsToCss, rgbaToCss } from "@/lib/color";
 import { useColorState } from "@/state/color-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 import { ToolChoiceButton, ToolNumberField, ToolOptionGroup } from "./controls";
 
 export function FillGradientOptions({ activeTool }: { activeTool: EditorTool }) {
   const engine = useEngine();
-  const render = engine.render;
+  const patterns = useUiMeta((meta) => meta?.patterns);
   const { foregroundColor, backgroundColor } = useColorState();
   const {
     fillSource,
@@ -71,7 +72,7 @@ export function FillGradientOptions({ activeTool }: { activeTool: EditorTool }) 
         {fillSource === "pattern" ? (
           <PatternPicker
             engine={engine}
-            patterns={render?.uiMeta.patterns ?? []}
+            patterns={patterns ?? []}
             value={fillPatternId}
             onChange={setFillPatternId}
           />

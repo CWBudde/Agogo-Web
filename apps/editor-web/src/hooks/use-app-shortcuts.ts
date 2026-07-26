@@ -9,7 +9,7 @@ import { useDialogState } from "@/state/dialog-state";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useToolState } from "@/state/tool-state";
 import { useViewState } from "@/state/view-state";
-import { useEngine } from "@/wasm/context";
+import { useEngine, useEngineStore } from "@/wasm/context";
 
 /**
  * Headless wiring of the app-wide keyboard shortcuts to their cross-domain
@@ -18,7 +18,10 @@ import { useEngine } from "@/wasm/context";
  */
 export function useAppShortcuts(io: MenuActionIO) {
   const engine = useEngine();
-  const render = engine.render;
+  // Shortcut callbacks read the freshest render snapshot at key-press time via
+  // getSnapshot (identity-stable), so this hook never subscribes/re-renders on
+  // engine commits.
+  const { getSnapshot } = useEngineStore();
   const { isMenuActionDisabled } = useMenuActions(io);
   const activateTool = useActivateTool();
   const { setActiveTool } = useToolState();
@@ -48,12 +51,14 @@ export function useAppShortcuts(io: MenuActionIO) {
       }
     },
     onZoomIn() {
+      const render = getSnapshot();
       if (!render) {
         return;
       }
       engine.setZoom(render.viewport.zoom * 1.1);
     },
     onZoomOut() {
+      const render = getSnapshot();
       if (!render) {
         return;
       }
@@ -86,6 +91,7 @@ export function useAppShortcuts(io: MenuActionIO) {
       engine.dispatchCommand(CommandID.BeginFreeTransform, {});
     },
     onNudgeLayer(dx: number, dy: number) {
+      const render = getSnapshot();
       if (!render?.uiMeta.activeLayerId) {
         return;
       }

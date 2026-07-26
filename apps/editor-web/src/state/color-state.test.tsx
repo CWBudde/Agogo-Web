@@ -12,9 +12,12 @@ import { ColorStateProvider, useColorState } from "@/state/color-state";
 vi.mock("@/wasm/context", () => ({
   useEngine: () => ({
     handle: null,
-    render: null,
     dispatchCommand: vi.fn(() => null),
   }),
+}));
+
+vi.mock("@/wasm/use-engine-render", () => ({
+  useUiMeta: (selector: (m: unknown) => unknown) => selector(null),
 }));
 
 function wrapper({ children }: PropsWithChildren) {

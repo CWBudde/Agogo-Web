@@ -6,6 +6,7 @@ import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useToolState } from "@/state/tool-state";
 import { useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 export type DocumentSaveFormat = "archive" | "psd" | "psb";
 export type SelectionModifyKind = "expand" | "contract" | "smooth" | "border";
@@ -40,7 +41,9 @@ export interface MenuActionIO {
  */
 export function useMenuActions(io: MenuActionIO) {
   const engine = useEngine();
-  const render = engine.render;
+  // Menu disabled/checked state derives from uiMeta; subscribing to the whole
+  // uiMeta slice keeps it reactive without re-rendering on viewport-only frames.
+  const uiMeta = useUiMeta((meta) => meta);
   const { setActiveTool } = useToolState();
   const { setTransformRefPoint, setTransformSelectionActive } = useSelectionToolState();
   const { showGuides, setShowGuides } = useViewState();
@@ -62,7 +65,7 @@ export function useMenuActions(io: MenuActionIO) {
     setGradientMapDialogOpen,
   } = useDialogState();
 
-  const savedSelectionChannels = render?.uiMeta.savedSelectionChannels ?? [];
+  const savedSelectionChannels = uiMeta?.savedSelectionChannels ?? [];
 
   const checkedMenuActionIds = new Set<MenuActionId>(
     showGuides ? (["view-toggle-guides"] as MenuActionId[]) : [],
@@ -76,7 +79,7 @@ export function useMenuActions(io: MenuActionIO) {
       case "export-project":
       case "generate-assets":
       case "canvas-size":
-        return !render || actionId === "generate-assets";
+        return !uiMeta || actionId === "generate-assets";
       case "image-invert":
       case "image-channel-mixer":
       case "image-threshold":
@@ -84,7 +87,7 @@ export function useMenuActions(io: MenuActionIO) {
       case "image-selective-color":
       case "image-photo-filter":
       case "image-gradient-map":
-        return !render?.uiMeta.activeLayerId;
+        return !uiMeta?.activeLayerId;
       case "transform-free":
       case "transform-scale":
       case "transform-rotate":
@@ -92,13 +95,13 @@ export function useMenuActions(io: MenuActionIO) {
       case "transform-distort":
       case "transform-perspective":
       case "transform-warp":
-        return !render?.uiMeta.activeLayerId;
+        return !uiMeta?.activeLayerId;
       case "transform-flip-h":
       case "transform-flip-v":
       case "transform-rotate-cw":
       case "transform-rotate-ccw":
       case "transform-rotate-180":
-        return !render?.uiMeta.activeLayerId;
+        return !uiMeta?.activeLayerId;
       case "select-all":
       case "select-deselect":
       case "select-reselect":
@@ -111,13 +114,13 @@ export function useMenuActions(io: MenuActionIO) {
       case "select-transform":
       case "select-color-range":
       case "select-and-mask":
-        return !render;
+        return !uiMeta;
       case "select-save-channel":
-        return !render?.uiMeta.selection.active;
+        return !uiMeta?.selection.active;
       case "select-load-channel":
-        return !render || savedSelectionChannels.length === 0;
+        return !uiMeta || savedSelectionChannels.length === 0;
       case "edit-fill":
-        return !render?.uiMeta.activeLayerId;
+        return !uiMeta?.activeLayerId;
       default:
         return false;
     }

@@ -16,6 +16,15 @@ vi.mock("@/wasm/context", () => ({
   useEngine: () => engineRef.current,
 }));
 
+// CanvasHost and the domain providers (color/view/selection) select uiMeta
+// slices via the store hooks; with no document the selectors resolve against
+// null, matching a freshly-loaded engine.
+vi.mock("@/wasm/use-engine-render", () => ({
+  useUiMeta: (selector: (m: unknown) => unknown) => selector(null),
+  useViewport: () => null,
+  useEngineRender: (selector: (s: unknown) => unknown) => selector(null),
+}));
+
 // Replace EditorCanvas with a render-counting stub that captures its props.
 vi.mock("@/components/editor-canvas", () => ({
   EditorCanvas: (props: Record<string, unknown>) => {

@@ -9,7 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 export type MarqueeShape = "rect" | "ellipse" | "row" | "col";
 export type MarqueeStyle = "normal" | "fixed-ratio" | "fixed-size";
@@ -64,8 +64,7 @@ export interface SelectionToolStateValue {
 const SelectionToolStateContext = createContext<SelectionToolStateValue | null>(null);
 
 export function SelectionToolStateProvider({ children }: PropsWithChildren) {
-  const engine = useEngine();
-  const activeCrop = engine.render?.uiMeta.crop;
+  const activeCrop = useUiMeta((meta) => meta?.crop);
 
   const [marqueeShape, setMarqueeShape] = useState<MarqueeShape>("rect");
   const [marqueeStyle, setMarqueeStyle] = useState<MarqueeStyle>("normal");

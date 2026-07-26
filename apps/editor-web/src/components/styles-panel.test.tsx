@@ -48,9 +48,10 @@ function createEngine(): EngineContextValue & {
   return {
     status: "ready",
     handle: null,
-    render: null,
     error: null,
     ready: null,
+    subscribe: () => () => {},
+    getSnapshot: () => null,
     dispatchCommand: dispatchCommand as unknown as EngineContextValue["dispatchCommand"] &
       ReturnType<typeof vi.fn>,
     createDocument: vi.fn(() => null),

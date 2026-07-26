@@ -3,6 +3,7 @@ import { hexToRgba, rgbaToHex } from "@/lib/color";
 import { findLayerMetaInTree } from "@/lib/layer-tree";
 import { type ArtboardPreset, useShapeState } from "@/state/shape-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 import { ToolChoiceButton, ToolOptionGroup } from "./controls";
 
 export const artboardPresetMap: Record<
@@ -17,13 +18,13 @@ export const artboardPresetMap: Record<
 
 export function ArtboardOptions() {
   const engine = useEngine();
-  const render = engine.render;
+  const layers = useUiMeta((meta) => meta?.layers);
+  const activeLayerId = useUiMeta((meta) => meta?.activeLayerId);
   const { artboardPreset, setArtboardPreset, artboardBackground, setArtboardBackground } =
     useShapeState();
 
-  const activeArtboard = render?.uiMeta.activeLayerId
-    ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
-    : null;
+  const activeArtboard =
+    activeLayerId && layers ? findLayerMetaInTree(layers, activeLayerId) : null;
   const artboardPresetSize = artboardPreset === "custom" ? null : artboardPresetMap[artboardPreset];
 
   return (

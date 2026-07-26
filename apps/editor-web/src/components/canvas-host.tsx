@@ -10,6 +10,7 @@ import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 const MemoEditorCanvas = memo(EditorCanvas);
 
@@ -22,7 +23,9 @@ const MemoEditorCanvas = memo(EditorCanvas);
  */
 export function CanvasHost() {
   const engine = useEngine();
-  const render = engine.render;
+  // Only the history list is read here (for the history-brush source label);
+  // subscribe to just that slice instead of the whole render state.
+  const history = useUiMeta((meta) => meta?.history);
   const { activeTool } = useToolState();
   const { isPanMode, selectedLayerIds } = useViewState();
   const { setCursor } = useCursorState();
@@ -120,7 +123,7 @@ export function CanvasHost() {
     setTransformSelectionActive,
   } = useSelectionToolState();
 
-  const historyEntries = render?.uiMeta.history ?? [];
+  const historyEntries = history ?? [];
   const selectedHistoryBrushEntry =
     historyBrushSourceIndex === null
       ? null

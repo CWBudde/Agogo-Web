@@ -4,55 +4,64 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorCanvas } from "@/components/editor-canvas";
 import type { EngineContextValue } from "@/wasm/types";
 
-// EditorCanvas pulls the engine from React context; route useEngine() to a
-// per-test mock instead of standing up the whole Wasm provider.
-const { engineRef } = vi.hoisted(() => ({
-  engineRef: { current: null as unknown as EngineContextValue },
-}));
+// EditorCanvas pulls the engine from React context and the render snapshot from
+// the engine store; route both to per-test stubs instead of standing up the
+// whole Wasm provider. renderState lives in vi.hoisted so the use-engine-render
+// mock (also hoisted) can read it.
+const { engineRef, renderState } = vi.hoisted(() => {
+  const layerMeta = {
+    id: "layer-1",
+    name: "Layer 1",
+    layerType: "pixel",
+    visible: true,
+    lockMode: "none",
+    opacity: 1,
+    fillOpacity: 1,
+    blendMode: "normal",
+    clipToBelow: false,
+    clippingBase: false,
+    hasMask: false,
+    maskEnabled: false,
+    hasVectorMask: false,
+  };
+  const renderState = {
+    frameId: 1,
+    bufferPtr: 0,
+    bufferLen: 0,
+    viewport: {
+      zoom: 1,
+      centerX: 50,
+      centerY: 50,
+      rotation: 0,
+      canvasW: 100,
+      canvasH: 100,
+      devicePixelRatio: 1,
+      showGuides: false,
+    },
+    uiMeta: {
+      documentWidth: 100,
+      documentHeight: 100,
+      activeLayerId: "layer-1",
+      layers: [layerMeta],
+      history: [],
+      currentHistoryIndex: 0,
+    },
+  };
+  return {
+    engineRef: { current: null as unknown as EngineContextValue },
+    renderState,
+  };
+});
 
 vi.mock("@/wasm/context", () => ({
   useEngine: () => engineRef.current,
 }));
 
-const layerMeta = {
-  id: "layer-1",
-  name: "Layer 1",
-  layerType: "pixel",
-  visible: true,
-  lockMode: "none",
-  opacity: 1,
-  fillOpacity: 1,
-  blendMode: "normal",
-  clipToBelow: false,
-  clippingBase: false,
-  hasMask: false,
-  maskEnabled: false,
-  hasVectorMask: false,
-};
-
-const renderState = {
-  frameId: 1,
-  bufferPtr: 0,
-  bufferLen: 0,
-  viewport: {
-    zoom: 1,
-    centerX: 50,
-    centerY: 50,
-    rotation: 0,
-    canvasW: 100,
-    canvasH: 100,
-    devicePixelRatio: 1,
-    showGuides: false,
-  },
-  uiMeta: {
-    documentWidth: 100,
-    documentHeight: 100,
-    activeLayerId: "layer-1",
-    layers: [layerMeta],
-    history: [],
-    currentHistoryIndex: 0,
-  },
-} as unknown as EngineContextValue["render"];
+vi.mock("@/wasm/use-engine-render", () => ({
+  useEngineRender: (selector: (s: unknown) => unknown) => selector(renderState),
+  useUiMeta: (selector: (m: unknown) => unknown) => selector(renderState.uiMeta),
+  useViewport: () => renderState.viewport,
+}));
 
 function createEngine(): EngineContextValue & {
   beginTransaction: ReturnType<typeof vi.fn>;

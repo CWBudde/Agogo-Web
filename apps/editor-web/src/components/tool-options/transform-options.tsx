@@ -3,14 +3,15 @@ import { TransformRefGrid } from "@/components/transform-ref-grid";
 import { applyTransformFieldChange, buildWarpGrid, refPointToPivot } from "@/lib/transform-math";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 import { ToolChoiceButton, ToolNumberField, ToolOptionGroup } from "./controls";
 
 export function TransformOptions() {
   const engine = useEngine();
-  const render = engine.render;
+  const freeTransform = useUiMeta((meta) => meta?.freeTransform);
   const { transformRefPoint, setTransformRefPoint } = useSelectionToolState();
 
-  if (!render?.uiMeta.freeTransform?.active) {
+  if (!freeTransform?.active) {
     return (
       <span className="text-[11px] text-slate-400">
         Click a layer to begin free transform · Enter to commit · Esc to cancel
@@ -23,7 +24,7 @@ export function TransformOptions() {
       <TransformRefGrid
         active={transformRefPoint}
         onChange={(row, col) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const [px, py] = refPointToPivot(ft.corners, row, col);
           setTransformRefPoint([row, col]);
@@ -45,9 +46,9 @@ export function TransformOptions() {
         min={-99999}
         max={99999}
         step={1}
-        value={Math.round(render.uiMeta.freeTransform.tx)}
+        value={Math.round(freeTransform.tx)}
         onChange={(value) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const updated = applyTransformFieldChange(ft, "x", value);
           engine.dispatchCommand(CommandID.UpdateFreeTransform, {
@@ -64,9 +65,9 @@ export function TransformOptions() {
         min={-99999}
         max={99999}
         step={1}
-        value={Math.round(render.uiMeta.freeTransform.ty)}
+        value={Math.round(freeTransform.ty)}
         onChange={(value) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const updated = applyTransformFieldChange(ft, "y", value);
           engine.dispatchCommand(CommandID.UpdateFreeTransform, {
@@ -83,9 +84,9 @@ export function TransformOptions() {
         min={-99999}
         max={99999}
         step={1}
-        value={Math.round(render.uiMeta.freeTransform.scaleX * 100)}
+        value={Math.round(freeTransform.scaleX * 100)}
         onChange={(value) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const updated = applyTransformFieldChange(ft, "w", value);
           engine.dispatchCommand(CommandID.UpdateFreeTransform, {
@@ -102,9 +103,9 @@ export function TransformOptions() {
         min={-99999}
         max={99999}
         step={1}
-        value={Math.round(render.uiMeta.freeTransform.scaleY * 100)}
+        value={Math.round(freeTransform.scaleY * 100)}
         onChange={(value) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const updated = applyTransformFieldChange(ft, "h", value);
           engine.dispatchCommand(CommandID.UpdateFreeTransform, {
@@ -121,9 +122,9 @@ export function TransformOptions() {
         min={-360}
         max={360}
         step={0.1}
-        value={Math.round(render.uiMeta.freeTransform.rotation * 10) / 10}
+        value={Math.round(freeTransform.rotation * 10) / 10}
         onChange={(value) => {
-          const ft = render.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           const updated = applyTransformFieldChange(ft, "r", value);
           engine.dispatchCommand(CommandID.UpdateFreeTransform, {
@@ -139,9 +140,9 @@ export function TransformOptions() {
         {(["nearest", "bilinear", "bicubic"] as InterpolMode[]).map((mode) => (
           <ToolChoiceButton
             key={mode}
-            active={render.uiMeta.freeTransform?.interpolation === mode}
+            active={freeTransform?.interpolation === mode}
             onClick={() => {
-              const ft = render.uiMeta.freeTransform;
+              const ft = freeTransform;
               if (!ft) return;
               engine.dispatchCommand(CommandID.UpdateFreeTransform, {
                 a: ft.a,
@@ -161,9 +162,9 @@ export function TransformOptions() {
         ))}
       </ToolOptionGroup>
       <ToolChoiceButton
-        active={!!render?.uiMeta.freeTransform?.warpGrid}
+        active={!!freeTransform?.warpGrid}
         onClick={() => {
-          const ft = render?.uiMeta.freeTransform;
+          const ft = freeTransform;
           if (!ft) return;
           if (ft.warpGrid) {
             // Exit warp mode → back to affine.

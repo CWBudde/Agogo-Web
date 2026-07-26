@@ -22,6 +22,7 @@ import {
   RECENT_COLORS_KEY,
 } from "@/lib/persisted-ui";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 export type ColorPickerTarget = "foreground" | "background";
 
@@ -78,8 +79,10 @@ const ColorStateContext = createContext<ColorStateValue | null>(null);
 export function ColorStateProvider({ children }: PropsWithChildren) {
   const engine = useEngine();
   const engineHandle = engine.handle;
-  const contentVersion = engine.render?.uiMeta.contentVersion;
-  const documentWidth = engine.render?.uiMeta.documentWidth;
+  // Subscribe only to the two uiMeta slices the color effects depend on; the
+  // provider no longer re-renders per committed frame.
+  const contentVersion = useUiMeta((meta) => meta?.contentVersion);
+  const documentWidth = useUiMeta((meta) => meta?.documentWidth);
 
   const [foregroundColor, setForegroundColor] = useState<Rgba>([0, 0, 0, 255]);
   const [backgroundColor, setBackgroundColor] = useState<Rgba>([255, 255, 255, 255]);

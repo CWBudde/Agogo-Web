@@ -127,7 +127,7 @@ describe("EngineProvider ack merging", () => {
 
   it("keeps the full uiMeta and skips the React update for a no-change ack", async () => {
     await mountProvider();
-    const before = engineValue?.render;
+    const before = engineValue?.getSnapshot();
     expect(before?.uiMeta).toBeDefined();
     const rendersBefore = consumerRenderCount;
 
@@ -140,13 +140,13 @@ describe("EngineProvider ack merging", () => {
     // The merged result still carries the previous full uiMeta (same object)
     // and no re-render happened because nothing visible changed.
     expect(returned.value?.uiMeta).toBe(before?.uiMeta);
-    expect(engineValue?.render).toBe(before);
+    expect(engineValue?.getSnapshot()).toBe(before);
     expect(consumerRenderCount).toBe(rendersBefore);
   });
 
   it("applies viewport changes from an ack while keeping the uiMeta reference", async () => {
     await mountProvider();
-    const before = engineValue?.render;
+    const before = engineValue?.getSnapshot();
 
     dispatchResults = [
       makeAck({
@@ -157,20 +157,20 @@ describe("EngineProvider ack merging", () => {
       engineValue?.dispatchCommand(0x0015, { phase: "move" });
     });
 
-    expect(engineValue?.render?.viewport.centerX).toBe(42);
-    expect(engineValue?.render?.uiMeta).toBe(before?.uiMeta);
+    expect(engineValue?.getSnapshot()?.viewport.centerX).toBe(42);
+    expect(engineValue?.getSnapshot()?.uiMeta).toBe(before?.uiMeta);
   });
 
   it("updates cursor/status from an ack without discarding the rest of the uiMeta", async () => {
     await mountProvider();
-    const beforeMeta = engineValue?.render?.uiMeta;
+    const beforeMeta = engineValue?.getSnapshot()?.uiMeta;
 
     dispatchResults = [makeAck({ cursorType: "grabbing" })];
     act(() => {
       engineValue?.dispatchCommand(0x0015, { phase: "move" });
     });
 
-    const meta = engineValue?.render?.uiMeta;
+    const meta = engineValue?.getSnapshot()?.uiMeta;
     expect(meta?.cursorType).toBe("grabbing");
     expect(meta).not.toBe(beforeMeta);
     expect(meta?.layers).toBe(beforeMeta?.layers);
@@ -199,8 +199,8 @@ describe("EngineProvider ack merging", () => {
       flushRaf();
     });
     expect(renderFrameCalls).toBe(1);
-    expect(engineValue?.render?.uiMeta.version).toBe(2);
-    expect(engineValue?.render?.uiMeta.statusText).toBe("refreshed");
+    expect(engineValue?.getSnapshot()?.uiMeta.version).toBe(2);
+    expect(engineValue?.getSnapshot()?.uiMeta.statusText).toBe("refreshed");
   });
 
   it("dispatches full results directly", async () => {
@@ -215,7 +215,37 @@ describe("EngineProvider ack merging", () => {
       engineValue?.dispatchCommand(0x0112, { name: "x" });
     });
 
-    expect(engineValue?.render).toBe(full);
+    expect(engineValue?.getSnapshot()).toBe(full);
+  });
+
+  // B6 tripwire: the whole point of the flip is that a committed frame must not
+  // re-create the useEngine() context value nor re-render pure-context consumers.
+  it("keeps the useEngine() context value stable across a full-render commit", async () => {
+    await mountProvider();
+    const stableValue = engineValue;
+    const rendersBefore = consumerRenderCount;
+
+    const full = makeFullRender({
+      frameId: 9,
+      uiMetaVersion: 9,
+      uiMeta: {
+        ...makeFullRender().uiMeta,
+        version: 9,
+        layers: [{ id: "l9" }] as unknown as EngineRenderState["uiMeta"]["layers"],
+        statusText: "committed",
+      },
+    });
+    dispatchResults = [full];
+    act(() => {
+      engineValue?.dispatchCommand(0x0112, { name: "x" });
+    });
+
+    // The commit landed (the store advanced)…
+    expect(engineValue?.getSnapshot()).toBe(full);
+    // …but the context value identity is unchanged and the Consumer, which reads
+    // only useEngine(), did NOT re-render. Per-frame fan-out is gone.
+    expect(engineValue).toBe(stableValue);
+    expect(consumerRenderCount).toBe(rendersBefore);
   });
 });
 
@@ -236,7 +266,7 @@ describe("EngineProvider error surfacing", () => {
 
   it("returns null and emits an error toast when dispatchCommand throws", async () => {
     await mountProvider();
-    const before = engineValue?.render;
+    const before = engineValue?.getSnapshot();
     const toasts: ToastOptions[] = [];
     const unsubscribe = subscribeToasts((toast) => toasts.push(toast));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -257,7 +287,7 @@ describe("EngineProvider error surfacing", () => {
     expect(toasts[0]?.message).toContain("no queued dispatch result");
     expect(consoleError).toHaveBeenCalled();
     // The render state stays untouched by the failed command.
-    expect(engineValue?.render).toBe(before);
+    expect(engineValue?.getSnapshot()).toBe(before);
 
     unsubscribe();
     consoleError.mockRestore();

@@ -3,11 +3,12 @@ import type { EditorTool } from "@/components/tool-rail-model";
 import { Button } from "@/components/ui/button";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 import { ToolChoiceButton, ToolNumberField, ToolOptionGroup } from "./controls";
 
 export function CropMoveOptions({ activeTool }: { activeTool: EditorTool }) {
   const engine = useEngine();
-  const render = engine.render;
+  const activeCrop = useUiMeta((meta) => meta?.crop);
   const {
     moveAutoSelectGroup,
     setMoveAutoSelectGroup,
@@ -22,8 +23,6 @@ export function CropMoveOptions({ activeTool }: { activeTool: EditorTool }) {
     cropStraightenActive,
     setCropStraightenActive,
   } = useSelectionToolState();
-
-  const activeCrop = render?.uiMeta.crop;
 
   const dispatchCropUpdate = (overrides: Partial<UpdateCropCommand>) => {
     if (!activeCrop?.active) {

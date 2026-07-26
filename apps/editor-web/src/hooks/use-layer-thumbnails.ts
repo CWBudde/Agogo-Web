@@ -1,6 +1,7 @@
 import { CommandID, type ThumbnailEntry } from "@agogo/proto";
 import { useEffect, useState } from "react";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 /**
  * Fetches per-layer thumbnails from the engine whenever the document content
@@ -8,7 +9,7 @@ import { useEngine } from "@/wasm/context";
  */
 export function useLayerThumbnails(): Record<string, ThumbnailEntry> {
   const engine = useEngine();
-  const contentVersion = engine.render?.uiMeta.contentVersion;
+  const contentVersion = useUiMeta((meta) => meta?.contentVersion);
   const [layerThumbnails, setLayerThumbnails] = useState<Record<string, ThumbnailEntry>>({});
 
   useEffect(() => {

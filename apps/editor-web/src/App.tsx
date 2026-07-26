@@ -53,6 +53,7 @@ import { useShapeState } from "@/state/shape-state";
 import { useToolState } from "@/state/tool-state";
 import { useCursorState, useViewState } from "@/state/view-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 const defaultDocumentDraft: CreateDocumentCommand = {
   name: "Untitled",
@@ -66,7 +67,10 @@ const defaultDocumentDraft: CreateDocumentCommand = {
 
 export default function App() {
   const engine = useEngine();
-  const render = engine.render;
+  // App reads only uiMeta slices (never the viewport), so subscribing to the
+  // whole uiMeta keeps it reactive to document/layer/history changes while
+  // staying quiet during pan/zoom (viewport-only) frames.
+  const uiMeta = useUiMeta((meta) => meta);
   const {
     foregroundColor,
     backgroundColor,
@@ -126,7 +130,7 @@ export default function App() {
   const documentIo = useDocumentIo({ draft, setDraft });
   const createAdjustmentLayer = useCreateAdjustmentLayer();
 
-  const contentVersion = render?.uiMeta.contentVersion;
+  const contentVersion = uiMeta?.contentVersion;
 
   useAutosave({ engine, contentVersion, enabled: engine.handle !== null });
 
@@ -139,10 +143,10 @@ export default function App() {
     wasCustomShapeActiveRef.current = customShapeActive;
   }, [activeTool, shapeSubTool, setActiveAuxPanel]);
 
-  const editingVectorLayerID = render?.uiMeta.editingVectorLayerId ?? "";
-  const editingTextLayerID = render?.uiMeta.editingTextLayerId ?? "";
-  const activeArtboard = render?.uiMeta.activeLayerId
-    ? findLayerMetaInTree(render.uiMeta.layers, render.uiMeta.activeLayerId)
+  const editingVectorLayerID = uiMeta?.editingVectorLayerId ?? "";
+  const editingTextLayerID = uiMeta?.editingTextLayerId ?? "";
+  const activeArtboard = uiMeta?.activeLayerId
+    ? findLayerMetaInTree(uiMeta.layers, uiMeta.activeLayerId)
     : null;
   const fillSourceName =
     fillSource === "foreground" ? "Color" : fillSource === "background" ? "Background" : "Pattern";
@@ -176,10 +180,10 @@ export default function App() {
 
   useAppShortcuts(menuIO);
 
-  const hasDocument = (render?.uiMeta.documentWidth ?? 0) > 0;
+  const hasDocument = (uiMeta?.documentWidth ?? 0) > 0;
 
-  const historyEntries = render?.uiMeta.history ?? [];
-  const currentHistoryIndex = render?.uiMeta.currentHistoryIndex ?? 0;
+  const historyEntries = uiMeta?.history ?? [];
+  const currentHistoryIndex = uiMeta?.currentHistoryIndex ?? 0;
   const _selectedCloneHistoryEntry =
     cloneStampHistorySourceIndex === null
       ? null
@@ -321,7 +325,7 @@ export default function App() {
             <TextEditOverlay
               engine={engine}
               initialText={
-                findLayerMetaInTree(render?.uiMeta.layers ?? [], editingTextLayerID)?.text ?? ""
+                findLayerMetaInTree(uiMeta?.layers ?? [], editingTextLayerID)?.text ?? ""
               }
             />
           ) : null}
@@ -461,7 +465,7 @@ export default function App() {
             <Button
               size="sm"
               onClick={() => {
-                const activeLayer = render?.uiMeta.activeLayerId;
+                const activeLayer = uiMeta?.activeLayerId;
                 if (activeLayer) {
                   engine.dispatchCommand(CommandID.Fill, {
                     hasPoint: false,
@@ -516,7 +520,7 @@ export default function App() {
         open={selectAndMaskOpen}
         onClose={() => setSelectAndMaskOpen(false)}
         engine={engine}
-        activeLayerId={render?.uiMeta.activeLayerId ?? null}
+        activeLayerId={uiMeta?.activeLayerId ?? null}
       />
 
       <ColorRangeDialog />

@@ -15,7 +15,7 @@ import { useBrushState } from "@/state/brush-state";
 import { useColorState } from "@/state/color-state";
 import { useShapeState } from "@/state/shape-state";
 import { useViewState } from "@/state/view-state";
-import { useEngine } from "@/wasm/context";
+import { useEngine, useEngineStore } from "@/wasm/context";
 
 const MAX_SWATCHES = 96;
 const PSD_MAX_DIMENSION = 30000;
@@ -47,7 +47,9 @@ interface UseDocumentIoParams {
  */
 export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
   const engine = useEngine();
-  const render = engine.render;
+  // Document I/O reads render state only inside its save/export callbacks, so
+  // it pulls the freshest snapshot on demand and never subscribes/re-renders.
+  const { getSnapshot } = useEngineStore();
   const {
     setColorSamplerPoints,
     swatches,
@@ -76,8 +78,6 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
-
-  const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
 
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -109,6 +109,7 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
       setSwatchStatus("No swatches to export.");
       return;
     }
+    const activeDocumentName = getSnapshot()?.uiMeta.activeDocumentName ?? draft.name;
     const exportName = fileStem(swatchSetName || activeDocumentName);
     const bytes = exportSwatchesAsAco(swatches);
     downloadBlob(new Blob([bytes], { type: "application/octet-stream" }), `${exportName}.aco`);
@@ -116,6 +117,8 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
   };
 
   const saveDocument = (format: "archive" | "psd" | "psb") => {
+    const render = getSnapshot();
+    const activeDocumentName = render?.uiMeta.activeDocumentName ?? draft.name;
     const documentWidth = render?.uiMeta.documentWidth ?? 0;
     const documentHeight = render?.uiMeta.documentHeight ?? 0;
     const normalizedFormat =

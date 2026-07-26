@@ -54,14 +54,15 @@ export interface EngineStore {
 }
 
 /**
- * The store methods are optional on the context value only so existing test
- * fakes stay valid during the S.7-B migration; EngineProvider always supplies
- * them. Prefer the selector hooks in use-engine-render.ts over reading these.
+ * The engine command surface plus the identity-stable store methods
+ * (subscribe/getSnapshot). The context value no longer carries the per-frame
+ * `render` state: the value is rebuilt only on status/handle/error changes, so
+ * reading it via useEngine() never re-renders per frame. Read render state
+ * through the selector hooks in use-engine-render.ts instead.
  */
-export interface EngineContextValue extends Partial<EngineStore> {
+export interface EngineContextValue extends EngineStore {
   status: "idle" | "loading" | "ready" | "error";
   handle: EngineHandle | null;
-  render: EngineRenderState | null;
   error: Error | null;
   ready: Promise<EngineHandle> | null;
   dispatchCommand(commandId: number, payload?: unknown): EngineRenderState | null;

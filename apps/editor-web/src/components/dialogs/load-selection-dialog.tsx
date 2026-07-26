@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useDialogState } from "@/state/dialog-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 /**
  * Load Selection dialog. Owns the selected channel-name draft locally and seeds
@@ -16,7 +17,7 @@ export function LoadSelectionDialog() {
   const { loadSelectionOpen, setLoadSelectionOpen } = useDialogState();
   const [loadSelectionName, setLoadSelectionName] = useState("");
 
-  const savedSelectionChannels = engine.render?.uiMeta.savedSelectionChannels ?? [];
+  const savedSelectionChannels = useUiMeta((meta) => meta?.savedSelectionChannels) ?? [];
 
   const wasOpenRef = useRef(false);
   // Seed the selected channel from the engine's saved channels only on the

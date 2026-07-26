@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import type { DocumentSaveFormat } from "@/hooks/use-menu-actions";
 import { useDialogState } from "@/state/dialog-state";
-import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 /**
  * Export As dialog. Save/export is App-owned (document I/O), passed in as
@@ -16,9 +16,8 @@ export function ExportDialog({
   draftName: string;
   onSave: (format: DocumentSaveFormat) => void;
 }) {
-  const engine = useEngine();
   const { exportDialogOpen, setExportDialogOpen } = useDialogState();
-  const activeDocumentName = engine.render?.uiMeta.activeDocumentName ?? draftName;
+  const activeDocumentName = useUiMeta((meta) => meta?.activeDocumentName) ?? draftName;
 
   return (
     <Dialog

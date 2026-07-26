@@ -62,9 +62,10 @@ function createEngine(
   return {
     status: "ready",
     handle: null,
-    render: null,
     error: null,
     ready: null,
+    subscribe: () => () => {},
+    getSnapshot: () => null,
     createDocument: vi.fn(() => null),
     createSelection: vi.fn(() => null),
     selectAll: vi.fn(() => null),
@@ -334,13 +335,7 @@ describe("LayersPanel", () => {
         styles: [],
       },
     ];
-    const engine = createEngine({
-      render: {
-        uiMeta: {
-          stylePresets: presets,
-        },
-      } as EngineContextValue["render"],
-    });
+    const engine = createEngine();
     const layer = makeLayer("layer-1", "Levels 1", {
       styleStack: [
         {
@@ -359,6 +354,7 @@ describe("LayersPanel", () => {
         maskEditLayerId={null}
         documentWidth={640}
         documentHeight={480}
+        stylePresets={presets}
         thumbnails={{}}
         selectedLayerIds={[layer.id]}
         onSelectedLayerIdsChange={vi.fn()}

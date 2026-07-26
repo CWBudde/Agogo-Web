@@ -3,12 +3,8 @@ import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useCursorState, useViewState, ViewStateProvider } from "@/state/view-state";
 
-vi.mock("@/wasm/context", () => ({
-  useEngine: () => ({
-    handle: null,
-    render: null,
-    dispatchCommand: vi.fn(() => null),
-  }),
+vi.mock("@/wasm/use-engine-render", () => ({
+  useUiMeta: (selector: (m: unknown) => unknown) => selector(null),
 }));
 
 function wrapper({ children }: PropsWithChildren) {

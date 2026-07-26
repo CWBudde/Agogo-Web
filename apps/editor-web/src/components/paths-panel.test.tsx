@@ -11,9 +11,10 @@ function createEngine(): EngineContextValue & {
   return {
     status: "ready",
     handle: null,
-    render: null,
     error: null,
     ready: null,
+    subscribe: () => () => {},
+    getSnapshot: () => null,
     dispatchCommand,
     createDocument: vi.fn(() => null),
     createSelection: vi.fn(() => null),

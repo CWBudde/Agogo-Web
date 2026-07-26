@@ -6,6 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { parseNumericInput } from "@/lib/utils";
 import { useDialogState } from "@/state/dialog-state";
 import { useEngine } from "@/wasm/context";
+import { useUiMeta } from "@/wasm/use-engine-render";
 
 type CanvasSizeAnchor =
   | "top-left"
@@ -31,7 +32,8 @@ interface CanvasSizeDraft {
  */
 export function CanvasSizeDialog({ draft }: { draft: CreateDocumentCommand }) {
   const engine = useEngine();
-  const render = engine.render;
+  const documentWidth = useUiMeta((meta) => meta?.documentWidth);
+  const documentHeight = useUiMeta((meta) => meta?.documentHeight);
   const { canvasSizeOpen, setCanvasSizeOpen } = useDialogState();
   const [canvasSizeDraft, setCanvasSizeDraft] = useState<CanvasSizeDraft>({
     width: 0,
@@ -50,11 +52,11 @@ export function CanvasSizeDialog({ draft }: { draft: CreateDocumentCommand }) {
     }
     wasOpenRef.current = true;
     setCanvasSizeDraft({
-      width: render?.uiMeta.documentWidth ?? draft.width,
-      height: render?.uiMeta.documentHeight ?? draft.height,
+      width: documentWidth ?? draft.width,
+      height: documentHeight ?? draft.height,
       anchor: "center",
     });
-  }, [canvasSizeOpen, render, draft.width, draft.height]);
+  }, [canvasSizeOpen, documentWidth, documentHeight, draft.width, draft.height]);
 
   return (
     <Dialog

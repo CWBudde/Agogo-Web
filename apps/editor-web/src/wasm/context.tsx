@@ -37,14 +37,12 @@ const EngineStoreContext = createContext<EngineStore | null>(null);
 type EngineState = {
   status: EngineContextValue["status"];
   handle: EngineHandle | null;
-  render: EngineRenderState | null;
   error: Error | null;
 };
 
 type EngineAction =
   | { type: "load" }
-  | { type: "ready"; handle: EngineHandle; render: EngineRenderState }
-  | { type: "render"; render: EngineRenderState }
+  | { type: "ready"; handle: EngineHandle }
   | { type: "error"; error: Error };
 
 function isFullRender(result: RenderResult): result is EngineRenderState {
@@ -69,11 +67,8 @@ function reducer(state: EngineState, action: EngineAction): EngineState {
       return {
         status: "ready",
         handle: action.handle,
-        render: action.render,
         error: null,
       };
-    case "render":
-      return { ...state, render: action.render, error: null };
     case "error":
       return { ...state, status: "error", handle: null, error: action.error };
     default:
@@ -85,13 +80,12 @@ export function EngineProvider({ children }: PropsWithChildren) {
   const [state, dispatch] = useReducer(reducer, {
     status: "idle",
     handle: null,
-    render: null,
     error: null,
   });
 
   // Mutable mirror of the most recent merged render state. run() may fire
   // several times between React commits (rAF-batched pointer input), so the
-  // ack merge/change-detection below reads this ref instead of `state.render`.
+  // ack merge/change-detection below reads this ref (never a reducer field).
   const latestRenderRef = useRef<EngineRenderState | null>(null);
 
   // Subscribers notified whenever latestRenderRef.current is replaced —
@@ -121,7 +115,7 @@ export function EngineProvider({ children }: PropsWithChildren) {
         const render = handle.renderFrame() as EngineRenderState;
         latestRenderRef.current = render;
         notifyRenderListeners();
-        dispatch({ type: "ready", handle, render });
+        dispatch({ type: "ready", handle });
       })
       .catch((error: unknown) => {
         if (!active) {
@@ -165,9 +159,12 @@ export function EngineProvider({ children }: PropsWithChildren) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handlers = useMemo(() => {
     const commit = (render: EngineRenderState) => {
+      // A committed frame updates the mutable ref and notifies external-store
+      // subscribers, but must NOT dispatch a reducer action: re-rendering
+      // EngineProvider on every frame is exactly the fan-out B6 removes. The
+      // reducer now fires only on status/handle/error transitions.
       latestRenderRef.current = render;
       notifyRenderListeners();
-      dispatch({ type: "render", render });
       return render;
     };
 
@@ -372,21 +369,22 @@ export function EngineProvider({ children }: PropsWithChildren) {
     [],
   );
 
+  // The context value is rebuilt only when status/handle/error change — never
+  // on a committed frame. handlers and store are identity-stable, so a full
+  // render (which no longer touches the reducer) leaves this value untouched,
+  // and useEngine() consumers do not re-render per frame. subscribe/getSnapshot
+  // ride along (EngineContextValue extends EngineStore) so existing callers and
+  // the selector hooks share one identity-stable store.
   const value = useMemo<EngineContextValue>(
     () => ({
       ...handlers,
-      // TODO(B6): drop this spread and the Partial<EngineStore> extends in
-      // types.ts — EngineStoreContext (useEngineStore/useEngineRender) becomes
-      // the only path to subscribe/getSnapshot. Reaching them via useEngine()
-      // still re-renders per frame, defeating the subscription layer.
       ...store,
       status: state.status,
       handle: state.handle,
-      render: state.render,
       error: state.error,
       ready: state.handle ? Promise.resolve(state.handle) : null,
     }),
-    [handlers, store, state.error, state.handle, state.render, state.status],
+    [handlers, store, state.error, state.handle, state.status],
   );
 
   return (
