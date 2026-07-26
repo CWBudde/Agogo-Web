@@ -41,6 +41,8 @@ type KeyboardActions = {
   onBrushHardnessChange(delta: number): void;
   onSwapColors(): void;
   onResetColors(): void;
+  onReapplyFilter(): void;
+  onFadeFilter(): void;
 };
 
 function isEditableTarget(target: EventTarget | null) {
@@ -174,6 +176,14 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+t":
           event.preventDefault();
           currentActions.onBeginTransform();
+          return;
+        case "Mod+f":
+          event.preventDefault();
+          currentActions.onReapplyFilter();
+          return;
+        case "Mod+Shift+f":
+          event.preventDefault();
+          currentActions.onFadeFilter();
           return;
         case "ArrowLeft":
           event.preventDefault();

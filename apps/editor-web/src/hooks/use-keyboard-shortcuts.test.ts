@@ -24,6 +24,8 @@ function makeActions() {
     onBrushHardnessChange: vi.fn(),
     onSwapColors: vi.fn(),
     onResetColors: vi.fn(),
+    onReapplyFilter: vi.fn(),
+    onFadeFilter: vi.fn(),
   };
 }
 
@@ -52,6 +54,19 @@ describe("useKeyboardShortcuts", () => {
     fireKeyDown("=");
     expect(actions.onZoomIn).toHaveBeenCalledTimes(2);
     expect(actions.onZoomOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("reapplies the last filter on Mod+f and fades on Mod+Shift+f", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("f", { ctrlKey: true });
+    expect(actions.onReapplyFilter).toHaveBeenCalledTimes(1);
+    expect(actions.onFadeFilter).not.toHaveBeenCalled();
+
+    fireKeyDown("F", { ctrlKey: true, shiftKey: true });
+    expect(actions.onFadeFilter).toHaveBeenCalledTimes(1);
+    expect(actions.onReapplyFilter).toHaveBeenCalledTimes(1);
   });
 
   it("invokes redo on Mod+Shift+z and undo on Mod+Alt+z", () => {

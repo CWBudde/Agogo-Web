@@ -24,8 +24,13 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
   const { setNewDocumentOpen } = useDialogState();
   const canUndo = useUiMeta((meta) => meta?.canUndo ?? false);
   const canRedo = useUiMeta((meta) => meta?.canRedo ?? false);
-  const { handleMenuAction, isMenuActionDisabled, isMenuItemDisabled, checkedMenuActionIds } =
-    useMenuActions(io);
+  const {
+    handleMenuAction,
+    handleFilter,
+    isMenuActionDisabled,
+    isMenuItemDisabled,
+    checkedMenuActionIds,
+  } = useMenuActions(io);
 
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -42,6 +47,11 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
     }
     setOpenMenu(null);
     handleMenuAction(actionId);
+  };
+
+  const onFilter = (filterId: string) => {
+    setOpenMenu(null);
+    handleFilter(filterId);
   };
 
   useEffect(() => {
@@ -198,6 +208,7 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
                     menu={menu}
                     isItemDisabled={isMenuItemDisabled}
                     onAction={onMenuAction}
+                    onFilter={onFilter}
                     checkedActionIds={checkedMenuActionIds}
                   />
                 ) : null}

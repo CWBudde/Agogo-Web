@@ -21,6 +21,7 @@ import { NewDocumentDialog } from "@/components/dialogs/new-document-dialog";
 import { OpenRecentDialog } from "@/components/dialogs/open-recent-dialog";
 import { SaveSelectionDialog } from "@/components/dialogs/save-selection-dialog";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
+import { FilterDialogHost } from "@/components/filters/filter-dialog-host";
 import { GradientEditorDialog } from "@/components/gradient-editor";
 import { MenuBar } from "@/components/menu-bar/menu-bar";
 import { RightDock } from "@/components/right-dock";
@@ -491,6 +492,8 @@ export default function App() {
       <SelectiveColorDialog />
 
       <GradientMapDialog />
+
+      <FilterDialogHost />
 
       <SelectAndMaskWorkspace
         open={selectAndMaskOpen}

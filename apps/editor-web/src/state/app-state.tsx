@@ -3,6 +3,7 @@ import { BrushStateProvider } from "./brush-state";
 import { ColorStateProvider } from "./color-state";
 import { DialogStateProvider } from "./dialog-state";
 import { FillGradientStateProvider } from "./fill-gradient-state";
+import { FilterStateProvider } from "./filter-state";
 import { SelectionToolStateProvider } from "./selection-tool-state";
 import { ShapeStateProvider } from "./shape-state";
 import { ToolStateProvider } from "./tool-state";
@@ -28,7 +29,9 @@ export function AppStateProvider({ children }: PropsWithChildren) {
             <SelectionToolStateProvider>
               <ViewStateProvider>
                 <ToolStateProvider>
-                  <DialogStateProvider>{children}</DialogStateProvider>
+                  <DialogStateProvider>
+                    <FilterStateProvider>{children}</FilterStateProvider>
+                  </DialogStateProvider>
                 </ToolStateProvider>
               </ViewStateProvider>
             </SelectionToolStateProvider>

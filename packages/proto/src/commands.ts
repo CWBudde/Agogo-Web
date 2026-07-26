@@ -1297,3 +1297,51 @@ export interface LoadFontDataCommand {
  * Creates no history entry; a no-op when nothing is being edited.
  */
 export interface CancelTextEditCommand {}
+
+// ---------------------------------------------------------------------------
+// Phase 5.4: Filters
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter parameter payloads are filter-specific JSON objects keyed by the
+ * snake_case field names the engine's filter functions decode (see
+ * packages/engine-wasm/internal/engine/filters_builtin_*.go). The frontend
+ * filter catalog owns the concrete per-filter shapes; the ABI carries them
+ * opaquely.
+ */
+export type FilterParams = Record<string, number | string | boolean>;
+
+/** Apply a registered filter destructively to a pixel layer (undoable). */
+export interface ApplyFilterCommand {
+  /** Target pixel layer; defaults to the active layer when omitted. */
+  layerId?: string;
+  /** Registered filter id, e.g. "gaussian-blur" (case-insensitive). */
+  filterId: string;
+  params?: FilterParams;
+}
+
+/**
+ * Render a live, non-undoable preview of a filter. The engine snapshots the
+ * layer's original pixels on the first call of a preview session and restores
+ * them before re-applying on each parameter tweak.
+ */
+export interface PreviewFilterCommand {
+  layerId?: string;
+  filterId: string;
+  params?: FilterParams;
+  /** Resolution divisor: 1 = full, 2 = half, 4 = quarter. Defaults to 1. */
+  scale?: number;
+}
+
+/** Cancel an active filter preview, restoring the original pixels. No-op if none. */
+export interface CancelFilterPreviewCommand {}
+
+/** Commit the active filter preview, re-applying at full resolution (undoable). */
+export interface CommitFilterPreviewCommand {}
+
+/** Blend the most recently applied filter with the pre-filter pixels. */
+export interface FadeFilterCommand {
+  /** 0-100. */
+  opacity: number;
+  blendMode?: LayerBlendMode;
+}

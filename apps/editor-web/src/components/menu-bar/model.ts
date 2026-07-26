@@ -1,3 +1,5 @@
+import { filtersByCategory } from "@/components/filters/filter-catalog";
+
 export type MenuPreviewTone = "default" | "accent" | "muted";
 
 export type MenuActionId =
@@ -44,13 +46,17 @@ export type MenuActionId =
   | "select-save-channel"
   | "select-load-channel"
   | "select-and-mask"
-  | "view-toggle-guides";
+  | "view-toggle-guides"
+  | "filter-last"
+  | "filter-fade";
 
 export type MenuPreviewItem = {
   label: string;
   shortcut?: string;
   tone?: MenuPreviewTone;
   actionId?: MenuActionId;
+  /** Registered filter id — filter items are routed to the filter runner. */
+  filterId?: string;
   disabled?: boolean;
   checked?: boolean;
 };
@@ -61,6 +67,36 @@ export type MenuPreviewMenu = {
   align?: "left" | "right";
   sections: { title: string; items: MenuPreviewItem[] }[];
 };
+
+/**
+ * The Filter menu is generated from the shared filter catalog: a Recent section
+ * (Last Filter / Fade) followed by one section per non-empty filter category.
+ * Dialog filters get a "..." suffix; parameterless filters apply on click.
+ */
+function buildFilterMenu(): MenuPreviewMenu {
+  const categorySections = filtersByCategory().map((group) => ({
+    title: group.label,
+    items: group.filters.map((filter) => ({
+      label: filter.hasDialog ? `${filter.name}...` : filter.name,
+      filterId: filter.id,
+    })),
+  }));
+
+  return {
+    label: "Filter",
+    caption: "Destructive filters with live preview, reapply, and fade.",
+    sections: [
+      {
+        title: "Recent",
+        items: [
+          { label: "Last Filter", shortcut: "Ctrl+F", actionId: "filter-last" as const },
+          { label: "Fade...", tone: "muted", actionId: "filter-fade" as const },
+        ],
+      },
+      ...categorySections,
+    ],
+  };
+}
 
 export const menuItems: MenuPreviewMenu[] = [
   {
@@ -239,23 +275,7 @@ export const menuItems: MenuPreviewMenu[] = [
       },
     ],
   },
-  {
-    label: "Filter",
-    caption: "Effect categories and future gallery entry points.",
-    sections: [
-      {
-        title: "Recent",
-        items: [
-          { label: "Last Filter", shortcut: "Ctrl+F" },
-          { label: "Fade Last Filter", tone: "muted" },
-        ],
-      },
-      {
-        title: "Families",
-        items: [{ label: "Blur" }, { label: "Noise" }, { label: "Stylize" }],
-      },
-    ],
-  },
+  buildFilterMenu(),
   {
     label: "View",
     caption: "Viewport controls that mirror the current chrome.",

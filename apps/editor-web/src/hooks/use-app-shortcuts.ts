@@ -22,7 +22,7 @@ export function useAppShortcuts(io: MenuActionIO) {
   // getSnapshot (identity-stable), so this hook never subscribes/re-renders on
   // engine commits.
   const { getSnapshot } = useEngineStore();
-  const { isMenuActionDisabled } = useMenuActions(io);
+  const { isMenuActionDisabled, handleMenuAction } = useMenuActions(io);
   const activateTool = useActivateTool();
   const { setActiveTool } = useToolState();
   const { setTransformRefPoint } = useSelectionToolState();
@@ -117,6 +117,14 @@ export function useAppShortcuts(io: MenuActionIO) {
     onResetColors() {
       setForegroundColor([0, 0, 0, 255]);
       setBackgroundColor([255, 255, 255, 255]);
+    },
+    onReapplyFilter() {
+      // handleMenuAction gates on isMenuActionDisabled internally (no last
+      // filter / no active layer → no-op).
+      handleMenuAction("filter-last");
+    },
+    onFadeFilter() {
+      handleMenuAction("filter-fade");
     },
   });
 }

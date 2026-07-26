@@ -1,7 +1,9 @@
 import { type AdjustmentKind, type AdjustmentLayerParams, CommandID } from "@agogo/proto";
+import { defaultFilterParams, getFilterDefinition } from "@/components/filters/filter-catalog";
 import type { MenuActionId, MenuPreviewItem } from "@/components/menu-bar/model";
 import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
+import { useFilterState } from "@/state/filter-state";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useToolState } from "@/state/tool-state";
 import { useViewState } from "@/state/view-state";
@@ -48,6 +50,7 @@ export function useMenuActions(io: MenuActionIO) {
   const { setTransformRefPoint, setTransformSelectionActive } = useSelectionToolState();
   const { showGuides, setShowGuides } = useViewState();
   const { setFillDialogOpen } = useFillGradientState();
+  const { lastFilter, canFade, openFilter, openFade, noteFilterApplied } = useFilterState();
   const {
     setNewDocumentOpen,
     setOpenRecentOpen,
@@ -121,6 +124,10 @@ export function useMenuActions(io: MenuActionIO) {
         return !uiMeta || savedSelectionChannels.length === 0;
       case "edit-fill":
         return !uiMeta?.activeLayerId;
+      case "filter-last":
+        return !uiMeta?.activeLayerId || !lastFilter;
+      case "filter-fade":
+        return !uiMeta?.activeLayerId || !canFade;
       default:
         return false;
     }
@@ -130,10 +137,34 @@ export function useMenuActions(io: MenuActionIO) {
     if (item.disabled) {
       return true;
     }
+    if (item.filterId) {
+      // Filters run destructively on the active pixel layer.
+      return !uiMeta?.activeLayerId;
+    }
     if (!item.actionId) {
       return true;
     }
     return isMenuActionDisabled(item.actionId);
+  };
+
+  /** Open a filter dialog, or apply a parameterless filter immediately. */
+  const handleFilter = (filterId: string) => {
+    if (!uiMeta?.activeLayerId) {
+      return;
+    }
+    const def = getFilterDefinition(filterId);
+    if (!def) {
+      return;
+    }
+    if (def.hasDialog) {
+      openFilter(def.id);
+      return;
+    }
+    engine.dispatchCommand(CommandID.ApplyFilter, {
+      filterId: def.id,
+      params: defaultFilterParams(def),
+    });
+    noteFilterApplied(def.id, def.name);
   };
 
   const handleMenuAction = (actionId: MenuActionId) => {
@@ -268,6 +299,16 @@ export function useMenuActions(io: MenuActionIO) {
         engine.setShowGuides(next);
         break;
       }
+      case "filter-last":
+        if (lastFilter) {
+          engine.dispatchCommand(CommandID.ReapplyFilter, {});
+          // Reapply re-arms the pre-filter snapshot, so Fade stays available.
+          noteFilterApplied(lastFilter.id, lastFilter.name);
+        }
+        break;
+      case "filter-fade":
+        openFade();
+        break;
       default:
         break;
     }
@@ -275,6 +316,7 @@ export function useMenuActions(io: MenuActionIO) {
 
   return {
     handleMenuAction,
+    handleFilter,
     isMenuActionDisabled,
     isMenuItemDisabled,
     checkedMenuActionIds,

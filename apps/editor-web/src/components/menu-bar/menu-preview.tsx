@@ -20,21 +20,23 @@ export function MenuPreviewPanel({
   menu,
   isItemDisabled,
   onAction,
+  onFilter,
   checkedActionIds,
 }: {
   menu: MenuPreviewMenu;
   isItemDisabled(item: MenuPreviewItem): boolean;
   onAction(actionId: MenuActionId): void;
+  onFilter?(filterId: string): void;
   checkedActionIds?: Set<MenuActionId>;
 }) {
-  const items = menu.sections.flatMap((section) => section.items);
+  const showHeaders = menu.sections.length > 1;
 
   return (
     <div
       role="menu"
       aria-label={menu.label}
       className={[
-        "editor-popup absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-hidden",
+        "editor-popup absolute top-[calc(100%+4px)] z-40 w-[18.5rem] max-w-[calc(100vw-1rem)] overflow-auto max-h-[80vh]",
         menu.align === "right" ? "right-0" : "left-0",
       ].join(" ")}
     >
@@ -43,19 +45,35 @@ export function MenuPreviewPanel({
       </div>
 
       <div className="py-1">
-        {items.map((item) => {
-          const disabled = isItemDisabled(item);
-          const checked = !!(item.actionId && checkedActionIds?.has(item.actionId));
-          return (
-            <MenuPreviewAction
-              key={`${menu.label}-${item.label}`}
-              item={item}
-              disabled={disabled}
-              checked={checked}
-              onClick={item.actionId ? () => onAction(item.actionId as MenuActionId) : undefined}
-            />
-          );
-        })}
+        {menu.sections.map((section) => (
+          <div key={`${menu.label}-${section.title}`}>
+            {showHeaders ? (
+              <div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {section.title}
+              </div>
+            ) : null}
+            {section.items.map((item) => {
+              const disabled = isItemDisabled(item);
+              const checked = !!(item.actionId && checkedActionIds?.has(item.actionId));
+              let onClick: (() => void) | undefined;
+              if (item.actionId) {
+                onClick = () => onAction(item.actionId as MenuActionId);
+              } else if (item.filterId) {
+                const filterId = item.filterId;
+                onClick = onFilter ? () => onFilter(filterId) : undefined;
+              }
+              return (
+                <MenuPreviewAction
+                  key={`${menu.label}-${item.label}`}
+                  item={item}
+                  disabled={disabled}
+                  checked={checked}
+                  onClick={onClick}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
