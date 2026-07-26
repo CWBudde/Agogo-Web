@@ -10,6 +10,7 @@ import {
 import {
   type DragEvent,
   type KeyboardEvent,
+  memo,
   type MouseEvent,
   useCallback,
   useEffect,
@@ -181,30 +182,73 @@ export function LayersPanel({
     () => collectLayerOrder(layers, collapsedGroups),
     [collapsedGroups, layers],
   );
-  const selectedIds =
-    selectedLayerIds.length > 0 ? selectedLayerIds : activeLayer ? [activeLayer.id] : [];
+  const selectedIds = useMemo(
+    () => (selectedLayerIds.length > 0 ? selectedLayerIds : activeLayer ? [activeLayer.id] : []),
+    [selectedLayerIds, activeLayer],
+  );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
-  const selectLayer = (
-    layerId: string,
-    event?: Pick<MouseEvent<HTMLElement>, "shiftKey" | "ctrlKey" | "metaKey">,
-  ) => {
-    const additiveSelection = Boolean(event?.ctrlKey || event?.metaKey);
-    if (event?.shiftKey && lastSelectedLayerId) {
-      const rangeSelection = getLayerSelectionRange(displayOrder, lastSelectedLayerId, layerId);
-      onSelectedLayerIdsChange(rangeSelection.length > 0 ? rangeSelection : [layerId]);
-    } else if (additiveSelection) {
-      onSelectedLayerIdsChange(
-        selectedLayerIds.includes(layerId)
-          ? selectedLayerIds.filter((candidate) => candidate !== layerId)
-          : [...selectedLayerIds, layerId],
-      );
-    } else {
-      onSelectedLayerIdsChange([layerId]);
-    }
-    setLastSelectedLayerId(layerId);
-    engine.dispatchCommand(CommandID.SetActiveLayer, { layerId });
+  // Row-facing handlers below are stabilized with useCallback so a memoized
+  // LayerTreeRow bails out of re-rendering on viewport-only commits (where the
+  // engine emits a new uiMeta but preserves layer-node identity). To keep those
+  // callbacks stable while still reading fresh state, they pull the values that
+  // change per render from this ref instead of closing over them directly.
+  const latestRef = useRef({
+    layers,
+    displayOrder,
+    selectedLayerIds,
+    selectedIdSet,
+    lastSelectedLayerId,
+    maskEditLayerId,
+    draggedLayerId,
+    dropTarget,
+    editingLayerId,
+    editingName,
+    onSelectedLayerIdsChange,
+  });
+  latestRef.current = {
+    layers,
+    displayOrder,
+    selectedLayerIds,
+    selectedIdSet,
+    lastSelectedLayerId,
+    maskEditLayerId,
+    draggedLayerId,
+    dropTarget,
+    editingLayerId,
+    editingName,
+    onSelectedLayerIdsChange,
   };
+
+  const selectLayer = useCallback(
+    (
+      layerId: string,
+      event?: Pick<MouseEvent<HTMLElement>, "shiftKey" | "ctrlKey" | "metaKey">,
+    ) => {
+      const {
+        lastSelectedLayerId: lastSelected,
+        displayOrder: order,
+        selectedLayerIds: currentSelection,
+        onSelectedLayerIdsChange: onChange,
+      } = latestRef.current;
+      const additiveSelection = Boolean(event?.ctrlKey || event?.metaKey);
+      if (event?.shiftKey && lastSelected) {
+        const rangeSelection = getLayerSelectionRange(order, lastSelected, layerId);
+        onChange(rangeSelection.length > 0 ? rangeSelection : [layerId]);
+      } else if (additiveSelection) {
+        onChange(
+          currentSelection.includes(layerId)
+            ? currentSelection.filter((candidate) => candidate !== layerId)
+            : [...currentSelection, layerId],
+        );
+      } else {
+        onChange([layerId]);
+      }
+      setLastSelectedLayerId(layerId);
+      engine.dispatchCommand(CommandID.SetActiveLayer, { layerId });
+    },
+    [engine],
+  );
 
   const getCurrentSelection = () =>
     selectedIds.length > 0 ? selectedIds : activeLayer ? [activeLayer.id] : [];
@@ -249,13 +293,16 @@ export function LayersPanel({
     }
   };
 
-  const toggleMaskEdit = (layerId: string) => {
-    const isCurrentlyEditing = maskEditLayerId === layerId;
-    engine.dispatchCommand(CommandID.SetMaskEditMode, {
-      layerId,
-      editing: !isCurrentlyEditing,
-    });
-  };
+  const toggleMaskEdit = useCallback(
+    (layerId: string) => {
+      const isCurrentlyEditing = latestRef.current.maskEditLayerId === layerId;
+      engine.dispatchCommand(CommandID.SetMaskEditMode, {
+        layerId,
+        editing: !isCurrentlyEditing,
+      });
+    },
+    [engine],
+  );
 
   const toggleMaskEnabledForSelection = () => {
     for (const layer of getSelectedLayers()) {
@@ -344,14 +391,19 @@ export function LayersPanel({
     setLastSelectedLayerId(childIds.at(-1) ?? null);
   };
 
-  const openContextMenu = (layer: LayerNodeMeta, x: number, y: number) => {
-    if (!selectedIdSet.has(layer.id)) {
-      onSelectedLayerIdsChange([layer.id]);
-      setLastSelectedLayerId(layer.id);
-      engine.dispatchCommand(CommandID.SetActiveLayer, { layerId: layer.id });
-    }
-    setContextMenu({ layerId: layer.id, x, y });
-  };
+  const openContextMenu = useCallback(
+    (layer: LayerNodeMeta, x: number, y: number) => {
+      const { selectedIdSet: currentSelectedIdSet, onSelectedLayerIdsChange: onChange } =
+        latestRef.current;
+      if (!currentSelectedIdSet.has(layer.id)) {
+        onChange([layer.id]);
+        setLastSelectedLayerId(layer.id);
+        engine.dispatchCommand(CommandID.SetActiveLayer, { layerId: layer.id });
+      }
+      setContextMenu({ layerId: layer.id, x, y });
+    },
+    [engine],
+  );
 
   const openLayerProperties = (layer: LayerNodeMeta) => {
     setPropertiesLayerId(layer.id);
@@ -396,75 +448,84 @@ export function LayersPanel({
     });
   };
 
-  const startRename = (layer: LayerNodeMeta) => {
-    selectLayer(layer.id);
-    setEditingLayerId(layer.id);
-    setEditingName(layer.name);
-  };
+  const startRename = useCallback(
+    (layer: LayerNodeMeta) => {
+      selectLayer(layer.id);
+      setEditingLayerId(layer.id);
+      setEditingName(layer.name);
+    },
+    [selectLayer],
+  );
 
-  const cancelRename = () => {
+  const cancelRename = useCallback(() => {
     setEditingLayerId(null);
     setEditingName("");
-  };
+  }, []);
 
-  const commitRename = () => {
-    if (!editingLayerId) {
+  const commitRename = useCallback(() => {
+    const { editingLayerId: currentEditingId, editingName: currentName } = latestRef.current;
+    if (!currentEditingId) {
       return;
     }
     engine.dispatchCommand(CommandID.SetLayerName, {
-      layerId: editingLayerId,
-      name: editingName.trim(),
+      layerId: currentEditingId,
+      name: currentName.trim(),
     });
     setEditingLayerId(null);
     setEditingName("");
-  };
+  }, [engine]);
 
-  const moveLayer = (layerId: string, targetLayerId: string, position: DropPosition) => {
-    if (layerId === targetLayerId) {
-      return;
-    }
-
-    const targetLayer = findLayerById(layers, targetLayerId);
-    if (!targetLayer) {
-      return;
-    }
-    const draggedLayer = findLayerById(layers, layerId);
-    const draggedIsArtboard = Boolean(draggedLayer?.isArtboard);
-
-    if (position === "inside") {
-      if (
-        draggedIsArtboard ||
-        targetLayer.layerType !== "group" ||
-        isDescendantLayer(layers, layerId, targetLayer.id)
-      ) {
+  const moveLayer = useCallback(
+    (layerId: string, targetLayerId: string, position: DropPosition) => {
+      if (layerId === targetLayerId) {
         return;
       }
+
+      const { layers: currentLayers } = latestRef.current;
+      const targetLayer = findLayerById(currentLayers, targetLayerId);
+      if (!targetLayer) {
+        return;
+      }
+      const draggedLayer = findLayerById(currentLayers, layerId);
+      const draggedIsArtboard = Boolean(draggedLayer?.isArtboard);
+
+      if (position === "inside") {
+        if (
+          draggedIsArtboard ||
+          targetLayer.layerType !== "group" ||
+          isDescendantLayer(currentLayers, layerId, targetLayer.id)
+        ) {
+          return;
+        }
+        engine.dispatchCommand(CommandID.MoveLayer, {
+          layerId,
+          parentLayerId: targetLayer.id,
+          index: targetLayer.children?.length ?? 0,
+        });
+        return;
+      }
+
+      const siblings = getChildrenForParent(currentLayers, targetLayer.parentId);
+      const targetIndex = siblings.findIndex((candidate) => candidate.id === targetLayer.id);
+      if (targetIndex < 0) {
+        return;
+      }
+      if (draggedIsArtboard && targetLayer.parentId) {
+        return;
+      }
+
       engine.dispatchCommand(CommandID.MoveLayer, {
         layerId,
-        parentLayerId: targetLayer.id,
-        index: targetLayer.children?.length ?? 0,
+        parentLayerId: draggedIsArtboard ? undefined : targetLayer.parentId || undefined,
+        index: position === "before" ? targetIndex + 1 : targetIndex,
       });
-      return;
-    }
+    },
+    [engine],
+  );
 
-    const siblings = getChildrenForParent(layers, targetLayer.parentId);
-    const targetIndex = siblings.findIndex((candidate) => candidate.id === targetLayer.id);
-    if (targetIndex < 0) {
-      return;
-    }
-    if (draggedIsArtboard && targetLayer.parentId) {
-      return;
-    }
-
-    engine.dispatchCommand(CommandID.MoveLayer, {
-      layerId,
-      parentLayerId: draggedIsArtboard ? undefined : targetLayer.parentId || undefined,
-      index: position === "before" ? targetIndex + 1 : targetIndex,
-    });
-  };
-
-  const handleDragOver = (event: DragEvent<HTMLDivElement>, layer: LayerNodeMeta) => {
-    if (!draggedLayerId || draggedLayerId === layer.id) {
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>, layer: LayerNodeMeta) => {
+    const { draggedLayerId: currentDragged, layers: currentLayers } = latestRef.current;
+    if (!currentDragged || currentDragged === layer.id) {
       return;
     }
 
@@ -478,22 +539,84 @@ export function LayersPanel({
       layer.layerType === "group" &&
       offsetY > rect.height * 0.28 &&
       offsetY < rect.height * 0.72 &&
-      !isDescendantLayer(layers, draggedLayerId, layer.id)
+      !isDescendantLayer(currentLayers, currentDragged, layer.id)
     ) {
       position = "inside";
     }
 
     setDropTarget({ layerId: layer.id, position });
-  };
+  }, []);
 
-  const handleDrop = (layer: LayerNodeMeta) => {
-    if (!draggedLayerId || !dropTarget || dropTarget.layerId !== layer.id) {
-      return;
-    }
-    moveLayer(draggedLayerId, layer.id, dropTarget.position);
+  const handleDrop = useCallback(
+    (layer: LayerNodeMeta) => {
+      const { draggedLayerId: currentDragged, dropTarget: currentDropTarget } = latestRef.current;
+      if (!currentDragged || !currentDropTarget || currentDropTarget.layerId !== layer.id) {
+        return;
+      }
+      moveLayer(currentDragged, layer.id, currentDropTarget.position);
+      setDraggedLayerId(null);
+      setDropTarget(null);
+    },
+    [moveLayer],
+  );
+
+  const handleToggleGroup = useCallback((layerId: string) => {
+    setCollapsedGroups((current) => ({
+      ...current,
+      [layerId]: !current[layerId],
+    }));
+  }, []);
+
+  const handleToggleVisibility = useCallback(
+    (layerId: string, visible: boolean) => {
+      engine.dispatchCommand(CommandID.SetLayerVisibility, { layerId, visible });
+    },
+    [engine],
+  );
+
+  const handleCycleLock = useCallback(
+    (layerId: string, lockMode: LayerLockMode) => {
+      engine.dispatchCommand(CommandID.SetLayerLock, {
+        layerId,
+        lockMode: nextLockMode(lockMode),
+      });
+    },
+    [engine],
+  );
+
+  const handleDuplicateLayer = useCallback(
+    (layerId: string) => {
+      engine.dispatchCommand(CommandID.DuplicateLayer, { layerId });
+    },
+    [engine],
+  );
+
+  const handleDragStart = useCallback(
+    (layerId: string) => {
+      setDraggedLayerId(layerId);
+      selectLayer(layerId);
+    },
+    [selectLayer],
+  );
+
+  const handleDragEnd = useCallback(() => {
     setDraggedLayerId(null);
     setDropTarget(null);
-  };
+  }, []);
+
+  const handleEnterVectorEdit = useCallback(
+    (layerId: string) => {
+      engine.dispatchCommand(CommandID.EnterVectorEditMode, { layerId });
+    },
+    [engine],
+  );
+
+  const handleEnterTextEdit = useCallback(
+    (layerId: string) => {
+      engine.dispatchCommand(CommandID.EnterTextEditMode, { layerId });
+    },
+    [engine],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-[var(--ui-gap-2)]">
@@ -589,44 +712,19 @@ export function LayersPanel({
                   onStartRename={startRename}
                   onCommitRename={commitRename}
                   onCancelRename={cancelRename}
-                  onToggleGroup={(layerId) =>
-                    setCollapsedGroups((current) => ({
-                      ...current,
-                      [layerId]: !current[layerId],
-                    }))
-                  }
+                  onToggleGroup={handleToggleGroup}
                   onSelect={selectLayer}
-                  onToggleVisibility={(layerId, visible) =>
-                    engine.dispatchCommand(CommandID.SetLayerVisibility, {
-                      layerId,
-                      visible,
-                    })
-                  }
-                  onCycleLock={(layerId, lockMode) =>
-                    engine.dispatchCommand(CommandID.SetLayerLock, {
-                      layerId,
-                      lockMode: nextLockMode(lockMode),
-                    })
-                  }
+                  onToggleVisibility={handleToggleVisibility}
+                  onCycleLock={handleCycleLock}
                   onToggleMaskEdit={toggleMaskEdit}
-                  onDuplicate={(layerId) => duplicateLayers([layerId])}
-                  onDragStart={(layerId) => {
-                    setDraggedLayerId(layerId);
-                    selectLayer(layerId);
-                  }}
-                  onDragEnd={() => {
-                    setDraggedLayerId(null);
-                    setDropTarget(null);
-                  }}
+                  onDuplicate={handleDuplicateLayer}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
                   onDragOver={handleDragOver}
                   onDropLayer={handleDrop}
                   onOpenContextMenu={openContextMenu}
-                  onEnterVectorEdit={(layerId) =>
-                    engine.dispatchCommand(CommandID.EnterVectorEditMode, { layerId })
-                  }
-                  onEnterTextEdit={(layerId) =>
-                    engine.dispatchCommand(CommandID.EnterTextEditMode, { layerId })
-                  }
+                  onEnterVectorEdit={handleEnterVectorEdit}
+                  onEnterTextEdit={handleEnterTextEdit}
                 />
               ))}
             </div>
@@ -923,7 +1021,7 @@ type LayerTreeRowProps = {
   onEnterTextEdit: (layerId: string) => void;
 };
 
-function LayerTreeRow({
+const LayerTreeRow = memo(function LayerTreeRowInner({
   layer,
   depth,
   activeLayerId,
@@ -1191,7 +1289,7 @@ function LayerTreeRow({
       ) : null}
     </div>
   );
-}
+});
 
 function MiniBadge({
   label,

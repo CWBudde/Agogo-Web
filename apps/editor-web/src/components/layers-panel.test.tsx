@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CommandID, type DocumentStylePresetEntry, type LayerNodeMeta } from "@agogo/proto";
+import {
+  CommandID,
+  type DocumentStylePresetEntry,
+  type LayerNodeMeta,
+  type ThumbnailEntry,
+} from "@agogo/proto";
 import { LayerPropertiesDialog, LayersPanel } from "@/components/layers-panel";
 import type { EngineContextValue } from "@/wasm/types";
 
@@ -323,6 +328,57 @@ describe("LayersPanel", () => {
       layerId: layer.id,
       opacity: 0.4,
     });
+  });
+
+  it("does not re-render layer rows when unrelated props change and layer node identities are preserved", () => {
+    const engine = createEngine();
+    const layerOne = makeLayer("layer-1", "Levels 1");
+    const layerTwo = makeLayer("layer-2", "Curves 1");
+    const selectedLayerIds = [layerOne.id];
+    const onSelectedLayerIdsChange = vi.fn();
+
+    // Each layer row resolves `thumbnails[layer.id]` exactly once while it
+    // renders. A getter-backed thumbnails object (kept at a stable reference)
+    // therefore counts how often each row actually re-runs.
+    const rowRenderCounts: Record<string, number> = { "layer-1": 0, "layer-2": 0 };
+    const thumbnails = {} as Record<string, ThumbnailEntry>;
+    for (const id of Object.keys(rowRenderCounts)) {
+      Object.defineProperty(thumbnails, id, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          rowRenderCounts[id] += 1;
+          return undefined;
+        },
+      });
+    }
+
+    const renderPanel = (layers: LayerNodeMeta[], documentWidth: number) => (
+      <LayersPanel
+        engine={engine}
+        layers={layers}
+        activeLayerId={layerOne.id}
+        maskEditLayerId={null}
+        documentWidth={documentWidth}
+        documentHeight={480}
+        thumbnails={thumbnails}
+        selectedLayerIds={selectedLayerIds}
+        onSelectedLayerIdsChange={onSelectedLayerIdsChange}
+      />
+    );
+
+    const { rerender } = render(renderPanel([layerOne, layerTwo], 640));
+
+    const countsAfterInitial = { ...rowRenderCounts };
+    expect(countsAfterInitial["layer-1"]).toBeGreaterThan(0);
+    expect(countsAfterInitial["layer-2"]).toBeGreaterThan(0);
+
+    // Simulate an engine viewport-only commit: a brand-new top-level layers
+    // array plus a changed unrelated prop (documentWidth), but the same layer
+    // node object identities. Memoized rows must bail out.
+    rerender(renderPanel([layerOne, layerTwo], 800));
+
+    expect(rowRenderCounts).toEqual(countsAfterInitial);
   });
 
   it("opens the layer style dialog from layer properties and passes the selected layer metadata and presets", () => {
