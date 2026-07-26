@@ -24,11 +24,12 @@ type SelectorCache<T> = {
  * The selector runs against `null` until the engine has produced its first
  * render state.
  *
- * Caveat (until B6): the cached value is keyed on the snapshot only — a
- * selector that closes over changing props/state returns the PREVIOUS value
- * until the next engine commit. Do not parameterize selectors with props
+ * Caveat (standing rule — inherent to this cache design): the cached value is
+ * keyed on the snapshot only, so a selector that closes over changing
+ * props/state returns the PREVIOUS value until the next engine commit. Never
+ * parameterize a selector with a prop/state value
  * (e.g. `useUiMeta(m => m?.layers.find(l => l.id === selectedId))`); select
- * the full slice and derive from it in the component instead.
+ * the full slice and derive from it in the component body instead.
  */
 export function useEngineRender<T>(
   selector: (state: EngineRenderState | null) => T,
