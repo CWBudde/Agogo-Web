@@ -65,6 +65,20 @@ func TestParseCompositeImageDataAcceptsSpecCompressionIDs(t *testing.T) {
 	}
 }
 
+func TestParseChannelImageDataDecodesZip(t *testing.T) {
+	pixels := []byte{10, 20, 30, 40}
+	channel := specZipCompositeData(CompressionZip, pixels)
+	reader := bytes.NewReader(channel)
+
+	decoded, err := parseChannelImageData(reader, false, uint64(len(channel)), len(pixels), 1)
+	if err != nil {
+		t.Fatalf("parseChannelImageData: %v", err)
+	}
+	if !bytes.Equal(decoded, pixels) {
+		t.Fatalf("decoded = %v, want %v", decoded, pixels)
+	}
+}
+
 func TestEncodeImageDataWritesSpecRLECompressionID(t *testing.T) {
 	channel, err := EncodeChannelData([]byte{10}, 1, 1, false)
 	if err != nil {

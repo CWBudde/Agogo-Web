@@ -127,7 +127,7 @@ func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64
 		}
 		return decoded, nil
 	case CompressionZip, CompressionZipPrediction:
-		compressed, err := readBytesFrom(channelReader, int(declaredLength))
+		compressed, err := readBytesFrom(channelReader, channelReader.Len())
 		if err != nil {
 			return nil, err
 		}
