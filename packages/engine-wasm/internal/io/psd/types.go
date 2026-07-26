@@ -10,11 +10,13 @@ import (
 const (
 	ColorModeGrayscale = 1
 	ColorModeRGB       = 3
+)
 
-	CompressionRaw = iota
-	CompressionRLE
-	CompressionZip
-	CompressionZipPrediction
+const (
+	CompressionRaw           = 0
+	CompressionRLE           = 1
+	CompressionZip           = 2
+	CompressionZipPrediction = 3
 )
 
 const (
