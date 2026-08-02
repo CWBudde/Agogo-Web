@@ -44,6 +44,8 @@ func SaveZip(document docpkg.ProjectDocumentArchive, history []docpkg.HistoryEnt
 
 	blobs := map[string][]byte{}
 	stripLayerBlobs(archive.Document.Layers, blobs)
+	brushBlobs := map[string][]byte{}
+	stripBrushTipBlobs(archive.Document.BrushTips, brushBlobs)
 
 	manifestJSON, err := json.Marshal(archive)
 	if err != nil {
@@ -70,6 +72,15 @@ func SaveZip(document docpkg.ProjectDocumentArchive, history []docpkg.HistoryEnt
 			return nil, fmt.Errorf("write layer entry %s: %w", name, err)
 		}
 	}
+	for name, data := range brushBlobs {
+		bw, err := zw.Create("brushes/" + name)
+		if err != nil {
+			return nil, fmt.Errorf("create brush entry %s: %w", name, err)
+		}
+		if _, err := bw.Write(data); err != nil {
+			return nil, fmt.Errorf("write brush entry %s: %w", name, err)
+		}
+	}
 
 	if err := zw.Close(); err != nil {
 		return nil, fmt.Errorf("close zip: %w", err)
@@ -84,6 +95,7 @@ func LoadZip(data []byte) (docpkg.ProjectDocumentArchive, []docpkg.HistoryEntry,
 	}
 
 	blobs := map[string][]byte{}
+	brushBlobs := map[string][]byte{}
 	var manifestData []byte
 
 	for _, f := range zr.File {
@@ -103,6 +115,9 @@ func LoadZip(data []byte) (docpkg.ProjectDocumentArchive, []docpkg.HistoryEntry,
 		case strings.HasPrefix(f.Name, "layers/"):
 			name := strings.TrimPrefix(f.Name, "layers/")
 			blobs[name] = entry.Bytes()
+		case strings.HasPrefix(f.Name, "brushes/"):
+			name := strings.TrimPrefix(f.Name, "brushes/")
+			brushBlobs[name] = entry.Bytes()
 		}
 	}
 
@@ -116,6 +131,7 @@ func LoadZip(data []byte) (docpkg.ProjectDocumentArchive, []docpkg.HistoryEntry,
 	}
 
 	restoreLayerBlobs(archive.Document.Layers, blobs)
+	restoreBrushTipBlobs(archive.Document.BrushTips, brushBlobs)
 	return archive.Document, append([]docpkg.HistoryEntry(nil), archive.History...), nil
 }
 
@@ -142,5 +158,23 @@ func restoreLayerBlobs(layers []docpkg.ProjectLayerArchive, blobs map[string][]b
 			layers[i].CachedRaster = data
 		}
 		restoreLayerBlobs(layers[i].Children, blobs)
+	}
+}
+
+func stripBrushTipBlobs(resources []docpkg.BrushTipResource, blobs map[string][]byte) {
+	for index := range resources {
+		if len(resources[index].Alpha) == 0 {
+			continue
+		}
+		blobs[resources[index].ID+".alpha.bin"] = resources[index].Alpha
+		resources[index].Alpha = nil
+	}
+}
+
+func restoreBrushTipBlobs(resources []docpkg.BrushTipResource, blobs map[string][]byte) {
+	for index := range resources {
+		if data, ok := blobs[resources[index].ID+".alpha.bin"]; ok {
+			resources[index].Alpha = data
+		}
 	}
 }

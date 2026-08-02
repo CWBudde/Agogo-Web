@@ -1,4 +1,7 @@
 import { CommandID, type LayerNodeMeta, type SetTextStyleCommand } from "@agogo/proto";
+import { useEffect, useRef, useState } from "react";
+import { ContextualColorPickerDialog } from "@/components/brush-color-panels";
+import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import type { EngineContextValue } from "@/wasm/types";
 
 /** One entry of UIMeta.availableFonts: a registered family and its styles. */
@@ -47,12 +50,48 @@ export function CharacterPanel({
   const indentFirst = layer.indentFirst ?? 0;
   const spaceBefore = layer.spaceBefore ?? 0;
   const spaceAfter = layer.spaceAfter ?? 0;
+  const [colorSession, setColorSession] = useState<{
+    layerId: string;
+    initialColor: Rgba;
+  } | null>(null);
+  const colorSessionRef = useRef(colorSession);
+  colorSessionRef.current = colorSession;
+  const colorSessionLayerId = layer.id;
+
+  useEffect(() => {
+    return () => {
+      if (colorSessionRef.current?.layerId === colorSessionLayerId) {
+        colorSessionRef.current = null;
+        setColorSession(null);
+        engine.endTransaction(false);
+      }
+    };
+  }, [colorSessionLayerId, engine]);
 
   const applyStyle = (overrides: Partial<SetTextStyleCommand>) => {
     engine.dispatchCommand(CommandID.SetTextStyle, {
       layerId: layer.id,
       ...overrides,
     } satisfies SetTextStyleCommand);
+  };
+
+  const openColorEditor = () => {
+    if (colorSessionRef.current) {
+      return;
+    }
+    const session = { layerId: layer.id, initialColor: toRgba(color) };
+    engine.beginTransaction("Change text color");
+    colorSessionRef.current = session;
+    setColorSession(session);
+  };
+
+  const finishColorEditor = (commit: boolean) => {
+    if (!colorSessionRef.current) {
+      return;
+    }
+    colorSessionRef.current = null;
+    setColorSession(null);
+    engine.endTransaction(commit);
   };
 
   // Effective style mirrors the engine's textLayerStyleFlags: the boolean
@@ -256,19 +295,28 @@ export function CharacterPanel({
             background: `rgba(${color[0]},${color[1]},${color[2]},${color[3] / 255})`,
           }}
           className="h-6 w-6 flex-shrink-0 rounded border border-border focus-visible:outline-none"
-          onClick={() => {
-            // Toggle between black and red as a simple demo.
-            // A full color picker will be wired in Phase 6.4.
-            const isBlack = color[0] === 0 && color[1] === 0 && color[2] === 0;
-            applyStyle({
-              color: isBlack ? [255, 0, 0, 255] : [0, 0, 0, 255],
-            });
-          }}
+          onClick={openColorEditor}
         />
         <span className="text-[10px] text-muted-foreground/70">
           rgba({color[0]},{color[1]},{color[2]},{(color[3] / 255).toFixed(2)})
         </span>
       </div>
+
+      {colorSession?.layerId === layer.id ? (
+        <ContextualColorPickerDialog
+          title="Text Color"
+          description="Preview the text color, then apply it as one history entry."
+          initialColor={colorSession.initialColor}
+          onPreview={(next) => {
+            engine.dispatchCommand(CommandID.SetTextStyle, {
+              layerId: colorSession.layerId,
+              color: toMutableRgba(next),
+            } satisfies SetTextStyleCommand);
+          }}
+          onApply={() => finishColorEditor(true)}
+          onCancel={() => finishColorEditor(false)}
+        />
+      ) : null}
 
       {/* Alignment */}
       <div className="flex items-center gap-2">

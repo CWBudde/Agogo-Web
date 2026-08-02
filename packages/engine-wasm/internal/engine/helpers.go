@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
@@ -20,6 +21,8 @@ func cloneDocument(doc *Document) *Document {
 	copyDoc.Paths = cloneNamedPaths(doc.Paths)
 	copyDoc.StylePresets = cloneDocumentStylePresets(doc.StylePresets)
 	copyDoc.Patterns = model.ClonePatterns(doc.Patterns)
+	copyDoc.BrushResources = docpkg.CloneBrushTipResources(doc.BrushResources)
+	copyDoc.BrushPresets = docpkg.CloneImportedBrushPresets(doc.BrushPresets)
 	return &copyDoc
 }
 
@@ -112,6 +115,9 @@ func documentsEqual(a, b *Document) bool {
 	if !model.PatternsEqual(a.Patterns, b.Patterns) {
 		return false
 	}
+	if !docpkg.BrushTipResourcesEqual(a.BrushResources, b.BrushResources) || !docpkg.ImportedBrushPresetsEqual(a.BrushPresets, b.BrushPresets) {
+		return false
+	}
 	if a.ContentVersion == b.ContentVersion {
 		// Identical version ⇒ identical pixels; compare structure only.
 		return layerTreeEqualSkipPixels(a.LayerRoot, b.LayerRoot)
@@ -147,7 +153,7 @@ func layerTreeEqualSkipPixels(a, b LayerNode) bool {
 		return left.Bounds == right.Bounds && len(left.Pixels) == len(right.Pixels)
 	case *GroupLayer:
 		right, ok := b.(*GroupLayer)
-		if !ok || !layerCommonFieldsEqual(a, b) || left.Isolated != right.Isolated {
+		if !ok || !layerCommonFieldsEqual(a, b) || left.Isolated != right.Isolated || !model.LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
 			return false
 		}
 		switch {

@@ -35,6 +35,8 @@ export interface BrushStateValue {
   setBrushSpacing: Dispatch<SetStateAction<number>>;
   brushTipShape: BrushTipShape;
   setBrushTipShape: Dispatch<SetStateAction<BrushTipShape>>;
+  brushTipResourceId: string | null;
+  setBrushTipResourceId: Dispatch<SetStateAction<string | null>>;
   brushPresetId: string;
   setBrushPresetId: Dispatch<SetStateAction<string>>;
   brushBlendMode: LayerBlendMode;
@@ -59,6 +61,8 @@ export interface BrushStateValue {
   setBrushFlowJitter: Dispatch<SetStateAction<number>>;
   brushControlSource: BrushControlSource;
   setBrushControlSource: Dispatch<SetStateAction<BrushControlSource>>;
+  brushFadeDabs: number;
+  setBrushFadeDabs: Dispatch<SetStateAction<number>>;
   brushFlow: number;
   setBrushFlow: Dispatch<SetStateAction<number>>;
   mixerBrushWetness: number;
@@ -119,6 +123,7 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
   const [brushRoundness, setBrushRoundness] = useState(0.75);
   const [brushSpacing, setBrushSpacing] = useState(0.14);
   const [brushTipShape, setBrushTipShape] = useState<BrushTipShape>("round");
+  const [brushTipResourceId, setBrushTipResourceId] = useState<string | null>(null);
   const [brushPresetId, setBrushPresetId] = useState(BRUSH_PRESETS[0].id);
   const [brushBlendMode, setBrushBlendMode] = useState<LayerBlendMode>("normal");
   const [brushOpacity, setBrushOpacity] = useState(1);
@@ -131,6 +136,7 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
   const [brushOpacityJitter, setBrushOpacityJitter] = useState(0);
   const [brushFlowJitter, setBrushFlowJitter] = useState(0);
   const [brushControlSource, setBrushControlSource] = useState<BrushControlSource>("pressure");
+  const [brushFadeDabs, setBrushFadeDabs] = useState(100);
   const [brushFlow, setBrushFlow] = useState(1.0);
   const [mixerBrushWetness, setMixerBrushWetness] = useState(0.65);
   const [mixerBrushLoad, setMixerBrushLoad] = useState(0.85);
@@ -212,15 +218,26 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
 
   const applyBrushPreset = useCallback((preset: BrushPreset) => {
     setBrushPresetId(preset.id);
+    if (preset.size !== undefined) {
+      setBrushSize(preset.size);
+    }
     setBrushTipShape(preset.tipShape);
+    setBrushTipResourceId(preset.tipResourceId ?? null);
     setBrushHardness(preset.hardness);
     setBrushSpacing(preset.spacing);
     setBrushAngle(preset.angle);
+    setBrushRoundness(preset.roundness ?? 1);
+    setBrushSizeJitter(preset.sizeJitter ?? 0);
+    setBrushOpacityJitter(preset.opacityJitter ?? 0);
+    setBrushFlowJitter(preset.flowJitter ?? 0);
+    setBrushControlSource(preset.controlSource ?? "pressure");
+    setBrushFadeDabs(preset.fadeDabs ?? 100);
   }, []);
 
   const applyMixerBrushPreset = useCallback((preset: MixerBrushPreset) => {
     setBrushPresetId(preset.baseBrushPresetId);
     setBrushTipShape(preset.tipShape);
+    setBrushTipResourceId(null);
     setBrushHardness(preset.hardness);
     setBrushSpacing(preset.spacing);
     setBrushAngle(preset.angle);
@@ -242,6 +259,8 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
       setBrushSpacing,
       brushTipShape,
       setBrushTipShape,
+      brushTipResourceId,
+      setBrushTipResourceId,
       brushPresetId,
       setBrushPresetId,
       brushBlendMode,
@@ -266,6 +285,8 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
       setBrushFlowJitter,
       brushControlSource,
       setBrushControlSource,
+      brushFadeDabs,
+      setBrushFadeDabs,
       brushFlow,
       setBrushFlow,
       mixerBrushWetness,
@@ -321,6 +342,7 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
       brushRoundness,
       brushSpacing,
       brushTipShape,
+      brushTipResourceId,
       brushPresetId,
       brushBlendMode,
       brushOpacity,
@@ -333,6 +355,7 @@ export function BrushStateProvider({ children }: PropsWithChildren) {
       brushOpacityJitter,
       brushFlowJitter,
       brushControlSource,
+      brushFadeDabs,
       brushFlow,
       mixerBrushWetness,
       mixerBrushLoad,

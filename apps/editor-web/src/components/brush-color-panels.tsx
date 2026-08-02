@@ -5,28 +5,37 @@ import {
   clampByte,
   colorEquals,
   formatPercent,
+  type Hsv,
   hexToRgba,
   hsvToRgba,
   isWebSafeColor,
+  type Rgba,
   rgbaToCss,
   rgbaToHex,
   rgbaToHsv,
   snapToWebSafeColor,
-  type Hsv,
-  type Rgba,
 } from "@/lib/color";
 
 export type BrushTipShape = "round" | "square" | "diamond" | "star" | "line";
-export type BrushControlSource = "pressure" | "tilt" | "fade";
+export type BrushControlSource = "off" | "pressure" | "tilt" | "fade";
 export type ColorChannelMode = "rgb" | "hsv";
 
 export type BrushPreset = {
   id: string;
   name: string;
   tipShape: BrushTipShape;
+  tipResourceId?: string;
+  thumbnailRGBA?: string;
+  size?: number;
   hardness: number;
   spacing: number;
   angle: number;
+  roundness?: number;
+  sizeJitter?: number;
+  opacityJitter?: number;
+  flowJitter?: number;
+  controlSource?: BrushControlSource;
+  fadeDabs?: number;
 };
 
 export const BRUSH_PRESETS: BrushPreset[] = [
@@ -447,6 +456,7 @@ export function BrushSettingsPanel({
             value={controlSource}
             onChange={(event) => onControlSourceChange(event.target.value as BrushControlSource)}
           >
+            <option value="off">Off</option>
             <option value="pressure">Pressure</option>
             <option value="tilt">Tilt</option>
             <option value="fade">Fade</option>
@@ -508,6 +518,8 @@ export function ColorPickerDialog({
   onOnlyWebColorsChange,
   recentColors,
   onRecentColorSelect,
+  noneActionLabel,
+  onNone,
 }: {
   open: boolean;
   title: string;
@@ -522,6 +534,8 @@ export function ColorPickerDialog({
   onOnlyWebColorsChange: (value: boolean) => void;
   recentColors: Rgba[];
   onRecentColorSelect: (color: Rgba) => void;
+  noneActionLabel?: string;
+  onNone?: () => void;
 }) {
   return (
     <Dialog
@@ -542,15 +556,82 @@ export function ColorPickerDialog({
         onRecentColorSelect={onRecentColorSelect}
       />
 
-      <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button size="sm" onClick={onCommit}>
-          Apply
-        </Button>
+      <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3">
+        <div>
+          {noneActionLabel && onNone ? (
+            <Button variant="ghost" size="sm" onClick={onNone}>
+              {noneActionLabel}
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={onCommit}>
+            Apply
+          </Button>
+        </div>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Draft/preview adapter for colors owned by a document object rather than the
+ * global foreground/background swatches. The caller owns the surrounding
+ * history transaction and decides whether Apply commits or Cancel reverts it.
+ */
+export function ContextualColorPickerDialog({
+  title,
+  description,
+  initialColor,
+  onPreview,
+  onApply,
+  onCancel,
+  allowNone = false,
+}: {
+  title: string;
+  description?: string;
+  initialColor: Rgba;
+  onPreview: (color: Rgba) => void;
+  onApply: (color: Rgba) => void;
+  onCancel: () => void;
+  allowNone?: boolean;
+}) {
+  const [color, setColor] = useState<Rgba>(initialColor);
+  const [channelMode, setChannelMode] = useState<ColorChannelMode>("rgb");
+  const [onlyWebColors, setOnlyWebColors] = useState(false);
+
+  const preview = (next: Rgba) => {
+    setColor(next);
+    onPreview(next);
+  };
+
+  return (
+    <ColorPickerDialog
+      open
+      title={title}
+      description={description}
+      color={color}
+      onChange={preview}
+      onCommit={() => onApply(color)}
+      onClose={onCancel}
+      channelMode={channelMode}
+      onChannelModeChange={setChannelMode}
+      onlyWebColors={onlyWebColors}
+      onOnlyWebColorsChange={setOnlyWebColors}
+      recentColors={[]}
+      onRecentColorSelect={preview}
+      noneActionLabel={allowNone ? "None" : undefined}
+      onNone={
+        allowNone
+          ? () => {
+              preview([color[0], color[1], color[2], 0]);
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -720,7 +801,11 @@ function BrushPresetSection({
               ].join(" ")}
               onClick={() => onSelectPreset(preset)}
             >
-              <BrushTipPreview shape={preset.tipShape} />
+              {preset.thumbnailRGBA ? (
+                <ImportedBrushTipPreview rgba={preset.thumbnailRGBA} />
+              ) : (
+                <BrushTipPreview shape={preset.tipShape} />
+              )}
               <div className="mt-2 text-[12px] text-foreground">{preset.name}</div>
               <div className="mt-0.5 text-[11px] text-muted-foreground/70">
                 {formatPercent(preset.spacing)} spacing · {Math.round(preset.hardness * 100)}% hard
@@ -961,7 +1046,7 @@ function ColorEditor({
                 onChange={(event) => {
                   const parsed = hexToRgba(event.target.value);
                   if (parsed) {
-                    handleChange(parsed);
+                    handleChange([parsed[0], parsed[1], parsed[2], color[3]]);
                   }
                 }}
               />
@@ -1029,7 +1114,7 @@ function ColorEditor({
                 style={{ backgroundColor: rgbaToCss(swatch) }}
                 title={rgbaToHex(swatch)}
                 aria-label={`Web color ${rgbaToHex(swatch)}`}
-                onClick={() => handleChange(swatch)}
+                onClick={() => handleChange([swatch[0], swatch[1], swatch[2], color[3]])}
               />
             ))}
           </div>
@@ -1142,6 +1227,33 @@ function BrushTipPreview({
       >
         {shape === "star" ? <div className="h-6 w-6 rotate-45 bg-accent/80" /> : null}
       </div>
+    </div>
+  );
+}
+
+function ImportedBrushTipPreview({ rgba }: { rgba: string }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const binary = atob(rgba);
+    const pixels = new Uint8ClampedArray(binary.length);
+    for (let index = 0; index < binary.length; index++) {
+      pixels[index] = binary.charCodeAt(index);
+    }
+    const side = Math.sqrt(pixels.length / 4);
+    if (!Number.isInteger(side) || side <= 0) {
+      return;
+    }
+    canvas.width = side;
+    canvas.height = side;
+    canvas.getContext("2d")?.putImageData(new ImageData(pixels, side, side), 0, 0);
+  }, [rgba]);
+  return (
+    <div className="flex h-16 items-center justify-center rounded-[var(--ui-radius-sm)] border border-border bg-background">
+      <canvas ref={canvasRef} className="h-14 w-14" aria-label="Imported brush tip preview" />
     </div>
   );
 }

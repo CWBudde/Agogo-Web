@@ -102,6 +102,88 @@ type LayerMask struct {
 	Width   int    `json:"width"`
 	Height  int    `json:"height"`
 	Data    []byte `json:"data,omitempty"`
+	Density int    `json:"density"`
+	Feather int    `json:"feather,omitempty"`
+
+	densitySet            bool
+	effectiveSource       []byte
+	effectiveCoverage     []byte
+	effectiveCacheDensity int
+	effectiveCacheFeather int
+}
+
+func (mask *LayerMask) DensityValue() int {
+	if mask == nil || (!mask.densitySet && mask.Density == 0) {
+		return 100
+	}
+	return min(100, max(0, mask.Density))
+}
+
+func (mask *LayerMask) SetProperties(density, feather *int) {
+	if density != nil {
+		mask.Density = min(100, max(0, *density))
+		mask.densitySet = true
+	}
+	if feather != nil {
+		mask.Feather = min(254, max(0, *feather))
+	}
+	mask.effectiveSource = nil
+	mask.effectiveCoverage = nil
+}
+
+// EffectiveCoverage caches a derived coverage raster while validating the
+// cache against the mutable source bytes. The callback performs the AGG blur
+// and density transform without changing the authoritative mask data.
+func (mask *LayerMask) EffectiveCoverage(compute func([]byte, int, int, int, int) []byte) []byte {
+	if mask == nil {
+		return nil
+	}
+	density := mask.DensityValue()
+	if density == 100 && mask.Feather == 0 {
+		return mask.Data
+	}
+	if mask.effectiveCacheDensity == density && mask.effectiveCacheFeather == mask.Feather && bytes.Equal(mask.effectiveSource, mask.Data) {
+		return mask.effectiveCoverage
+	}
+	mask.effectiveSource = append(mask.effectiveSource[:0], mask.Data...)
+	mask.effectiveCoverage = compute(mask.Data, mask.Width, mask.Height, density, mask.Feather)
+	mask.effectiveCacheDensity = density
+	mask.effectiveCacheFeather = mask.Feather
+	return mask.effectiveCoverage
+}
+
+func (mask LayerMask) MarshalJSON() ([]byte, error) {
+	type archiveMask struct {
+		Enabled bool   `json:"enabled"`
+		Width   int    `json:"width"`
+		Height  int    `json:"height"`
+		Data    []byte `json:"data,omitempty"`
+		Density int    `json:"density"`
+		Feather int    `json:"feather,omitempty"`
+	}
+	return json.Marshal(archiveMask{mask.Enabled, mask.Width, mask.Height, mask.Data, mask.DensityValue(), mask.Feather})
+}
+
+func (mask *LayerMask) UnmarshalJSON(data []byte) error {
+	type archiveMask struct {
+		Enabled bool   `json:"enabled"`
+		Width   int    `json:"width"`
+		Height  int    `json:"height"`
+		Data    []byte `json:"data,omitempty"`
+		Density *int   `json:"density"`
+		Feather int    `json:"feather,omitempty"`
+	}
+	var decoded archiveMask
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*mask = LayerMask{Enabled: decoded.Enabled, Width: decoded.Width, Height: decoded.Height, Data: decoded.Data}
+	density := 100
+	if decoded.Density != nil {
+		density = *decoded.Density
+	}
+	mask.SetProperties(&density, &decoded.Feather)
+	return nil
 }
 
 // VectorMaskRasterCache memoizes the document-sized 8-bit coverage raster of a
@@ -617,9 +699,41 @@ func (l *VectorLayer) Clone() LayerNode {
 
 type GroupLayer struct {
 	layerBase
-	children []LayerNode
-	Isolated bool          `json:"isolated"`
-	Artboard *ArtboardData `json:"artboard,omitempty"`
+	children       []LayerNode
+	Isolated       bool                     `json:"isolated"`
+	Artboard       *ArtboardData            `json:"artboard,omitempty"`
+	VisibilitySolo LayerVisibilitySoloState `json:"-"`
+}
+
+type LayerVisibilitySoloState struct {
+	TreeVersion   int64
+	TargetID      string
+	GuardVersion  int64
+	TreeSignature uint64
+	Visibility    map[string]bool
+}
+
+func CloneLayerVisibilitySoloState(state LayerVisibilitySoloState) LayerVisibilitySoloState {
+	clone := state
+	if state.Visibility != nil {
+		clone.Visibility = make(map[string]bool, len(state.Visibility))
+		for id, visible := range state.Visibility {
+			clone.Visibility[id] = visible
+		}
+	}
+	return clone
+}
+
+func LayerVisibilitySoloStateEqual(a, b LayerVisibilitySoloState) bool {
+	if a.TreeVersion != b.TreeVersion || a.TargetID != b.TargetID || a.GuardVersion != b.GuardVersion || a.TreeSignature != b.TreeSignature || len(a.Visibility) != len(b.Visibility) {
+		return false
+	}
+	for id, visible := range a.Visibility {
+		if other, ok := b.Visibility[id]; !ok || other != visible {
+			return false
+		}
+	}
+	return true
 }
 
 func NewGroupLayer(name string) *GroupLayer {
@@ -647,9 +761,10 @@ func (l *GroupLayer) SetChildren(children []LayerNode) {
 
 func (l *GroupLayer) Clone() LayerNode {
 	clone := &GroupLayer{
-		layerBase: l.cloneBase(),
-		Isolated:  l.Isolated,
-		Artboard:  CloneArtboard(l.Artboard),
+		layerBase:      l.cloneBase(),
+		Isolated:       l.Isolated,
+		Artboard:       CloneArtboard(l.Artboard),
+		VisibilitySolo: CloneLayerVisibilitySoloState(l.VisibilitySolo),
 	}
 	children := make([]LayerNode, 0, len(l.children))
 	for _, child := range l.children {
@@ -668,6 +783,8 @@ func CloneLayerMask(mask *LayerMask) *LayerMask {
 	}
 	copyMask := *mask
 	copyMask.Data = append([]byte(nil), mask.Data...)
+	copyMask.effectiveSource = nil
+	copyMask.effectiveCoverage = nil
 	return &copyMask
 }
 
@@ -838,7 +955,7 @@ func LayerTreeEqual(a, b LayerNode) bool {
 		}
 	case *GroupLayer:
 		right, ok := b.(*GroupLayer)
-		if !ok || left.Isolated != right.Isolated {
+		if !ok || left.Isolated != right.Isolated || !LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
 			return false
 		}
 		switch {
@@ -872,7 +989,7 @@ func LayerMaskEqual(a, b *LayerMask) bool {
 	if a == nil {
 		return true
 	}
-	return a.Enabled == b.Enabled && a.Width == b.Width && a.Height == b.Height && bytes.Equal(a.Data, b.Data)
+	return a.Enabled == b.Enabled && a.Width == b.Width && a.Height == b.Height && a.DensityValue() == b.DensityValue() && a.Feather == b.Feather && bytes.Equal(a.Data, b.Data)
 }
 
 func PathEqual(a, b *Path) bool {

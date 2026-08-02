@@ -355,8 +355,8 @@ func (inst *instance) applyDiscreteTransform(kind, layerID string) error {
 }
 
 func (inst *instance) transformAgain() error {
-	if inst.lastTransform == nil {
-		return fmt.Errorf("no previous transform to repeat")
+	if !inst.canTransformAgainNow() {
+		return fmt.Errorf("transform again is not available in the current editor state")
 	}
 	doc := inst.manager.Active()
 	if doc == nil {

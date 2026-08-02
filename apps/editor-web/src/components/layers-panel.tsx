@@ -10,8 +10,8 @@ import {
 import {
   type DragEvent,
   type KeyboardEvent,
-  memo,
   type MouseEvent,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -568,8 +568,11 @@ export function LayersPanel({
   }, []);
 
   const handleToggleVisibility = useCallback(
-    (layerId: string, visible: boolean) => {
-      engine.dispatchCommand(CommandID.SetLayerVisibility, { layerId, visible });
+    (layerId: string, visible: boolean, solo: boolean) => {
+      engine.dispatchCommand(
+        solo ? CommandID.SoloLayerVisibility : CommandID.SetLayerVisibility,
+        solo ? { layerId } : { layerId, visible },
+      );
     },
     [engine],
   );
@@ -1008,7 +1011,7 @@ type LayerTreeRowProps = {
     layerId: string,
     event?: Pick<MouseEvent<HTMLElement>, "shiftKey" | "ctrlKey" | "metaKey">,
   ) => void;
-  onToggleVisibility: (layerId: string, visible: boolean) => void;
+  onToggleVisibility: (layerId: string, visible: boolean, solo: boolean) => void;
   onCycleLock: (layerId: string, lockMode: LayerLockMode) => void;
   onToggleMaskEdit: (layerId: string) => void;
   onDuplicate: (layerId: string) => void;
@@ -1140,7 +1143,7 @@ const LayerTreeRow = memo(function LayerTreeRowInner({
                 ].join(" ")}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onToggleVisibility(layer.id, !layer.visible);
+                  onToggleVisibility(layer.id, !layer.visible, event.altKey || event.metaKey);
                 }}
                 title={layer.visible ? "Hide layer" : "Show layer"}
                 aria-label={layer.visible ? "Hide layer" : "Show layer"}

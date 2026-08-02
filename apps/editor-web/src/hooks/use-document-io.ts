@@ -1,13 +1,16 @@
-import { CommandID, type CreateDocumentCommand } from "@agogo/proto";
+import { CommandID, type CreateDocumentCommand, type ImportedBrushLibrary } from "@agogo/proto";
 import {
   type ChangeEvent,
   type Dispatch,
   type DragEvent,
   type SetStateAction,
+  useCallback,
+  useEffect,
   useRef,
   useState,
 } from "react";
 import { AUTOSAVE_KEY } from "@/hooks/use-autosave";
+import { loadAbrLibraries, storeAbrLibrary } from "@/lib/brush-library-storage";
 import { loadBrushPresetFile, mergeImportedBrushPresets } from "@/lib/brush-preset-io";
 import { loadShapePresetFile, mergeImportedShapePresets } from "@/lib/shape-preset-io";
 import { exportSwatchesAsAco, loadSwatchSetFile } from "@/lib/swatch-io";
@@ -73,11 +76,65 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
   const brushPresetInputRef = useRef<HTMLInputElement | null>(null);
   const shapePresetInputRef = useRef<HTMLInputElement | null>(null);
   const swatchSetInputRef = useRef<HTMLInputElement | null>(null);
+  const restoredBrushLibrariesRef = useRef(false);
+  const customBrushPresetsRef = useRef(customBrushPresets);
+  customBrushPresetsRef.current = customBrushPresets;
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [hasAutosave, setHasAutosave] = useState(() => {
     return localStorage.getItem(AUTOSAVE_KEY) !== null;
   });
+
+  const mergeEngineBrushLibrary = useCallback(
+    (library: ImportedBrushLibrary | undefined) => {
+      if (!library) {
+        return 0;
+      }
+      const presets = library.presets.map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        tipShape: preset.tipShape ?? ("round" as const),
+        tipResourceId: preset.tipResourceId,
+        thumbnailRGBA: preset.thumbnailRGBA,
+        size: preset.size,
+        hardness: preset.hardness ?? 1,
+        spacing: preset.spacing ?? 0.25,
+        angle: preset.angle ?? 0,
+        roundness: preset.roundness ?? 1,
+        sizeJitter: preset.sizeJitter ?? 0,
+        opacityJitter: preset.opacityJitter ?? 0,
+        flowJitter: preset.flowJitter ?? 0,
+        controlSource: preset.controlSource ?? ("off" as const),
+        fadeDabs: preset.fadeDabs ?? 100,
+      }));
+      const currentPresets = customBrushPresetsRef.current;
+      const merged = mergeImportedBrushPresets(currentPresets, presets);
+      const addedCount = merged.length - currentPresets.length;
+      if (addedCount > 0) {
+        customBrushPresetsRef.current = merged;
+        setCustomBrushPresets(merged);
+        applyBrushPreset(merged[merged.length - addedCount]);
+      }
+      return addedCount;
+    },
+    [applyBrushPreset, setCustomBrushPresets],
+  );
+
+  useEffect(() => {
+    if (!engine.handle || restoredBrushLibrariesRef.current) {
+      return;
+    }
+    restoredBrushLibrariesRef.current = true;
+    void loadAbrLibraries().then((libraries) => {
+      for (const stored of libraries) {
+        const result = engine.dispatchCommand(CommandID.ImportAbrBrushLibrary, {
+          data: stored.data,
+          fileName: stored.fileName,
+        });
+        mergeEngineBrushLibrary(result?.importedBrushLibrary);
+      }
+    });
+  }, [engine.dispatchCommand, engine.handle, mergeEngineBrushLibrary]);
 
   const downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -143,6 +200,9 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
     const fileName = `${activeDocumentName}.${extension}`;
     const blob = new Blob([bytes], { type: mimeType });
     downloadBlob(blob, fileName);
+    engine.dispatchCommand(CommandID.MarkDocumentSaved, {
+      documentId: render?.uiMeta.activeDocumentId,
+    });
   };
 
   const openProject = async (file: File) => {
@@ -272,6 +332,35 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
     }
 
     try {
+      if (file.name.toLowerCase().endsWith(".abr")) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+        }
+        const data = btoa(binary);
+        const result = engine.dispatchCommand(CommandID.ImportAbrBrushLibrary, {
+          data,
+          fileName: file.name,
+        });
+        const library = result?.importedBrushLibrary;
+        if (!library) {
+          throw new Error("The engine did not return an imported ABR library.");
+        }
+        const addedCount = mergeEngineBrushLibrary(library);
+        await storeAbrLibrary({
+          libraryId: library.libraryId,
+          fileName: file.name,
+          data,
+          imported: library,
+        });
+        setBrushPresetStatus(
+          addedCount > 0
+            ? `Imported ${addedCount} brush preset${addedCount === 1 ? "" : "s"} from ${file.name}.`
+            : `No new presets were added from ${file.name}.`,
+        );
+        return;
+      }
       const { presets, sourceName } = await loadBrushPresetFile(file);
       const mergedPresets = mergeImportedBrushPresets(customBrushPresets, presets);
       const addedCount = mergedPresets.length - customBrushPresets.length;

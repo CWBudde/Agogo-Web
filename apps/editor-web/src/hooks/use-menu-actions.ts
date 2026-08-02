@@ -6,6 +6,7 @@ import {
 } from "@agogo/proto";
 import { defaultFilterParams, getFilterDefinition } from "@/components/filters/filter-catalog";
 import type { MenuActionId, MenuPreviewItem } from "@/components/menu-bar/model";
+import { flushCanvasInput } from "@/lib/canvas-input-flush";
 import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
 import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
@@ -131,6 +132,8 @@ export function useMenuActions(io: MenuActionIO) {
         );
       case "edit-paste":
         return !uiMeta?.canPaste;
+      case "transform-again":
+        return !uiMeta?.canTransformAgain;
       case "image-invert":
       case "image-levels":
       case "image-curves":
@@ -269,6 +272,10 @@ export function useMenuActions(io: MenuActionIO) {
         break;
       case "edit-paste":
         engine.dispatchCommand(CommandID.Paste, {});
+        break;
+      case "transform-again":
+        flushCanvasInput();
+        engine.dispatchCommand(CommandID.TransformAgain, {});
         break;
       case "transform-free":
         setActiveTool("transform");

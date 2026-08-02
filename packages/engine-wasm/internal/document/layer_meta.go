@@ -22,6 +22,8 @@ type LayerNodeMeta struct {
 	ClippingBase      bool                 `json:"clippingBase"`
 	HasMask           bool                 `json:"hasMask"`
 	MaskEnabled       bool                 `json:"maskEnabled"`
+	MaskDensity       *int                 `json:"maskDensity,omitempty"`
+	MaskFeather       int                  `json:"maskFeather,omitempty"`
 	HasVectorMask     bool                 `json:"hasVectorMask"`
 	StyleStack        []model.LayerStyle   `json:"styleStack,omitempty"`
 	BlendIf           *model.BlendIfConfig `json:"blendIf,omitempty"`
@@ -90,6 +92,11 @@ func BuildLayerNodeMeta(layer model.LayerNode) LayerNodeMeta {
 		MaskEnabled:   mask != nil && mask.Enabled,
 		HasVectorMask: layer.VectorMask() != nil,
 		StyleStack:    model.CloneLayerStyles(layer.StyleStack()),
+	}
+	if mask != nil {
+		density := mask.DensityValue()
+		meta.MaskDensity = &density
+		meta.MaskFeather = mask.Feather
 	}
 	if adjustment, ok := layer.(*model.AdjustmentLayer); ok {
 		meta.AdjustmentKind = adjustment.AdjustmentKind

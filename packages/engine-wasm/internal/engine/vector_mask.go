@@ -11,7 +11,10 @@
 //     disable the vector mask.
 package engine
 
-import "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
+import (
+	agglib "github.com/cwbudde/agg_go"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
+)
 
 // commandSetVectorMaskPath mirrors the ABI id declared in
 // internal/command/layer.go (and CommandID.SetVectorMaskPath in
@@ -81,10 +84,10 @@ func vectorMaskCoverage(layer LayerNode, docW, docH int) []byte {
 //     per composite.
 func (doc *Document) effectiveLayerMask(layer LayerNode) *LayerMask {
 	coverage := vectorMaskCoverage(layer, doc.Width, doc.Height)
+	raster := effectiveRasterMask(layer.Mask())
 	if coverage == nil {
-		return layer.Mask()
+		return raster
 	}
-	raster := layer.Mask()
 	if raster == nil || !raster.Enabled {
 		return &LayerMask{Enabled: true, Width: doc.Width, Height: doc.Height, Data: coverage}
 	}
@@ -96,4 +99,26 @@ func (doc *Document) effectiveLayerMask(layer LayerNode) *LayerMask {
 		}
 	}
 	return &LayerMask{Enabled: true, Width: doc.Width, Height: doc.Height, Data: combined}
+}
+
+func effectiveRasterMask(mask *LayerMask) *LayerMask {
+	if mask == nil || !mask.Enabled {
+		return mask
+	}
+	if mask.DensityValue() == 100 && mask.Feather == 0 {
+		return mask
+	}
+	coverage := mask.EffectiveCoverage(func(data []byte, width, height, density, feather int) []byte {
+		working := append([]byte(nil), data...)
+		if feather > 0 && width > 0 && height > 0 && len(working) == width*height {
+			working = (agglib.AlphaMask{Width: width, Height: height, Pix: working}).Blurred(feather).Pix
+		}
+		if density < 100 {
+			for index, value := range working {
+				working[index] = uint8(255 - (int(255-value)*density)/100)
+			}
+		}
+		return working
+	})
+	return &LayerMask{Enabled: true, Width: mask.Width, Height: mask.Height, Data: coverage}
 }

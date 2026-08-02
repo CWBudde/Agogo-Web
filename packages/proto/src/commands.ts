@@ -4,6 +4,8 @@ export enum CommandID {
   // Phase 1: Document & Viewport
   CreateDocument = 0x0001,
   CloseDocument = 0x0002,
+  SwitchDocument = 0x0003,
+  MarkDocumentSaved = 0x0004,
   ZoomSet = 0x0010,
   PanSet = 0x0011,
   RotateViewSet = 0x0012,
@@ -12,6 +14,7 @@ export enum CommandID {
   PointerEvent = 0x0015,
   JumpHistory = 0x0016,
   SetShowGuides = 0x0017,
+  GetNavigatorThumbnail = 0x0018,
 
   // Phase 2: Layers
   AddLayer = 0x0100,
@@ -63,6 +66,8 @@ export enum CommandID {
 
   // Phase S.6: Vector mask rendering
   SetVectorMaskPath = 0x012a,
+  SoloLayerVisibility = 0x012b,
+  SetLayerMaskProperties = 0x012c,
 
   // Phase 3: Selection
   NewSelection = 0x0200,
@@ -123,6 +128,7 @@ export enum CommandID {
   ResetMixerBrushState = 0x0416,
   DefinePattern = 0x0417,
   DeletePattern = 0x0418,
+  ImportAbrBrushLibrary = 0x0419,
 
   // Phase 5.4: Filters
   ApplyFilter = 0x0500,
@@ -265,6 +271,9 @@ export interface CurvesPointCommand {
 export interface CurvesAdjustmentParams {
   channel?: string;
   points?: CurvesPointCommand[];
+  redPoints?: CurvesPointCommand[];
+  greenPoints?: CurvesPointCommand[];
+  bluePoints?: CurvesPointCommand[];
 }
 
 export interface HueSatRangeAdjustmentParams {
@@ -406,6 +415,24 @@ export interface CreateDocumentCommand {
   background: DocumentBackground;
 }
 
+export interface CloseDocumentCommand {
+  documentId?: string;
+}
+
+export interface SwitchDocumentCommand {
+  documentId: string;
+}
+
+export interface MarkDocumentSavedCommand {
+  documentId?: string;
+}
+
+export interface GetNavigatorThumbnailCommand {
+  width: number;
+  height: number;
+  background?: "transparent" | "checkerboard" | "white";
+}
+
 export interface ZoomCommand {
   zoom: number;
   hasAnchor?: boolean;
@@ -527,6 +554,16 @@ export interface MoveLayerCommand {
 export interface SetLayerVisibilityCommand {
   layerId: string;
   visible: boolean;
+}
+
+export interface SoloLayerVisibilityCommand {
+  layerId: string;
+}
+
+export interface SetLayerMaskPropertiesCommand {
+  layerId: string;
+  density?: number;
+  feather?: number;
 }
 
 export interface SetLayerOpacityCommand {
@@ -737,6 +774,32 @@ export interface SetAdjustmentParamsCommand {
   layerId: string;
   adjustmentKind?: AdjustmentKind;
   params?: AdjustmentLayerParams;
+}
+
+export type HistogramSource = "active-layer" | "merged";
+export type HistogramChannel = "rgb" | "red" | "green" | "blue" | "alpha" | "luminosity";
+
+export interface ComputeHistogramCommand {
+  source?: HistogramSource;
+  channel?: HistogramChannel;
+}
+
+export type CurvesSampleKind = "black" | "white" | "gray" | "add-point";
+
+export interface SetPointFromSampleCommand {
+  layerId: string;
+  x: number;
+  y: number;
+  sampleSize?: number;
+  kind: CurvesSampleKind;
+  channel?: "rgb" | "red" | "green" | "blue";
+}
+
+export interface IdentifyHueRangeCommand {
+  x: number;
+  y: number;
+  sampleSize?: number;
+  sampleMerged?: boolean;
 }
 
 export interface LayerStyleEntryCommand {
@@ -969,6 +1032,28 @@ export interface BrushParams {
   pressureSize?: boolean; // whether stylus pressure scales brush size
   pressureOpacity?: boolean; // whether stylus pressure scales dab/source opacity
   pressureFlow?: boolean; // whether stylus pressure scales flow
+  tipShape?: "round" | "square" | "diamond" | "line" | "star";
+  tipResourceId?: string;
+  angle?: number; // degrees, normalized to -180..180
+  roundness?: number; // 0.01..1.0
+  spacing?: number; // dab interval as a fraction of the effective diameter
+  sizeDynamics?: BrushDynamic;
+  opacityDynamics?: BrushDynamic;
+  flowDynamics?: BrushDynamic;
+}
+
+export type BrushDynamicControl = "off" | "pressure" | "tilt" | "fade";
+
+export interface BrushDynamic {
+  jitter: number; // 0..1
+  control: BrushDynamicControl;
+  fadeDabs?: number;
+}
+
+export interface ImportAbrBrushLibraryCommand {
+  /** Base64-encoded ABR bytes. */
+  data: string;
+  fileName?: string;
 }
 
 export interface BeginPaintStrokeCommand {

@@ -112,3 +112,16 @@ func TestLevelsPartialPayloadUsesPhotoshopDefaults(t *testing.T) {
 		}
 	})
 }
+
+func TestCurvesCompositeAndChannelCurvesRenderTogether(t *testing.T) {
+	r, g, b, a := applyAdjustmentToPixel(t, curvesAdjustmentFactory, `{
+		"channel":"red",
+		"points":[{"x":0,"y":0},{"x":255,"y":128}],
+		"redPoints":[{"x":0,"y":255},{"x":255,"y":255}],
+		"bluePoints":[{"x":0,"y":0},{"x":255,"y":0}]
+	}`, 100, 150, 200, 240)
+
+	if r != 255 || g != 75 || b != 0 || a != 240 {
+		t.Fatalf("curves output = (%d,%d,%d,%d), want (255,75,0,240)", r, g, b, a)
+	}
+}

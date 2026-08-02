@@ -82,6 +82,18 @@ describe("CanvasHost", () => {
     expect(baseline).toBeGreaterThan(0);
     const initialBrushSize = canvasSpy.lastProps?.brushSize as number;
     const selectionOptionsRef = canvasSpy.lastProps?.selectionOptions;
+    expect(canvasSpy.lastProps).toMatchObject({
+      brushTipShape: "round",
+      brushTipResourceId: null,
+      brushAngle: 0,
+      brushRoundness: 0.75,
+      brushSpacing: 0.14,
+      brushSizeJitter: 0,
+      brushOpacityJitter: 0,
+      brushFlowJitter: 0,
+      brushControlSource: "pressure",
+      brushFadeDabs: 100,
+    });
 
     // Opening a dialog (useDialogState) must NOT re-render the memoized canvas.
     fireEvent.click(getByTestId("open-dialog"));

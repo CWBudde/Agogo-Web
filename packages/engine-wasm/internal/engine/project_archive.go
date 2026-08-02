@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"sort"
 
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 	projectio "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/project"
@@ -17,6 +18,7 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("document is required")
 	}
+	brushTips, brushPresets := archivedBrushDependencies(doc)
 	archive := projectDocumentArchive{
 		Width:           doc.Width,
 		Height:          doc.Height,
@@ -36,6 +38,8 @@ func SaveProject(doc *Document, history []HistoryEntry) ([]byte, error) {
 		SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
 		StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
 		Patterns:        model.ClonePatterns(doc.Patterns),
+		BrushTips:       brushTips,
+		BrushPresets:    brushPresets,
 	}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()
@@ -170,6 +174,37 @@ func projectDocumentArchiveToDocument(archive projectDocumentArchive) (*Document
 	doc.SavedSelections = cloneSavedSelectionChannels(archive.SavedSelections)
 	doc.StylePresets = cloneDocumentStylePresets(archive.StylePresets)
 	doc.Patterns = model.ClonePatterns(archive.Patterns)
+	doc.BrushResources = make(map[string]*brushTipResource, len(archive.BrushTips))
+	for index := range archive.BrushTips {
+		resource := archive.BrushTips[index]
+		if resource.ID == "" || !validBrushTipResource(&resource) {
+			return nil, fmt.Errorf("invalid embedded brush tip %q", resource.ID)
+		}
+		if resource.ID != brushTipResourceID(resource.Width, resource.Height, resource.Alpha) {
+			return nil, fmt.Errorf("embedded brush tip %q failed content verification", resource.ID)
+		}
+		if _, exists := doc.BrushResources[resource.ID]; exists {
+			return nil, fmt.Errorf("duplicate embedded brush tip %q", resource.ID)
+		}
+		doc.BrushResources[resource.ID] = docpkg.CloneBrushTipResource(&resource)
+	}
+	if len(doc.BrushResources) == 0 {
+		doc.BrushResources = nil
+	}
+	doc.BrushPresets = make(map[string]ImportedBrushPreset, len(archive.BrushPresets))
+	for index := range archive.BrushPresets {
+		preset := archive.BrushPresets[index]
+		if preset.TipResourceID == "" || doc.BrushResources[preset.TipResourceID] == nil {
+			return nil, fmt.Errorf("embedded brush preset %q references missing tip %q", preset.ID, preset.TipResourceID)
+		}
+		if _, exists := doc.BrushPresets[preset.TipResourceID]; exists {
+			return nil, fmt.Errorf("duplicate embedded brush preset for tip %q", preset.TipResourceID)
+		}
+		doc.BrushPresets[preset.TipResourceID] = docpkg.CloneImportedBrushPreset(preset)
+	}
+	if len(doc.BrushPresets) == 0 {
+		doc.BrushPresets = nil
+	}
 	children := make([]LayerNode, 0, len(archive.Layers))
 	for _, childArchive := range archive.Layers {
 		child, err := projectLayerArchiveToLayerNode(childArchive)
@@ -181,6 +216,31 @@ func projectDocumentArchiveToDocument(archive projectDocumentArchive) (*Document
 	doc.LayerRoot.SetChildren(children)
 	doc.normalizeClippingState()
 	return doc, nil
+}
+
+// archivedBrushDependencies returns a stable, document-scoped dependency list.
+// Instance-level libraries are deliberately not visible here: only tips copied
+// into the document by documentBrushResource can become project dependencies.
+func archivedBrushDependencies(doc *Document) ([]docpkg.BrushTipResource, []docpkg.ImportedBrushPreset) {
+	if doc == nil || len(doc.BrushResources) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(doc.BrushResources))
+	for id, resource := range doc.BrushResources {
+		if resource != nil {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	tips := make([]docpkg.BrushTipResource, 0, len(ids))
+	presets := make([]docpkg.ImportedBrushPreset, 0, len(ids))
+	for _, id := range ids {
+		tips = append(tips, *docpkg.CloneBrushTipResource(doc.BrushResources[id]))
+		if preset, ok := doc.BrushPresets[id]; ok && preset.TipResourceID == id {
+			presets = append(presets, docpkg.CloneImportedBrushPreset(preset))
+		}
+	}
+	return tips, presets
 }
 
 func projectLayerArchiveToLayerNode(archive projectLayerArchive) (LayerNode, error) {

@@ -42,6 +42,8 @@ const (
 	commandApplyDocumentStylePreset  int32 = 0x0128
 	commandSetArtboard               int32 = 0x0129
 	commandSetVectorMaskPath         int32 = 0x012a
+	commandSoloLayerVisibility       int32 = 0x012b
+	commandSetLayerMaskProperties    int32 = 0x012c
 )
 
 type LayerAddPayload struct {
@@ -87,6 +89,12 @@ type LayerMovePayload struct {
 type LayerVisibilityPayload struct {
 	LayerID string `json:"layerId"`
 	Visible bool   `json:"visible"`
+}
+
+type LayerMaskPropertiesPayload struct {
+	LayerID string `json:"layerId"`
+	Density *int   `json:"density,omitempty"`
+	Feather *int   `json:"feather,omitempty"`
 }
 
 type LayerOpacityPayload struct {
@@ -197,10 +205,13 @@ type LayerArtboardPayload struct {
 }
 
 type LayerSetPointFromSamplePayload struct {
-	LayerID string  `json:"layerId"`
-	X       float64 `json:"x"`
-	Y       float64 `json:"y"`
-	Mode    string  `json:"mode"`
+	LayerID    string  `json:"layerId"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	SampleSize int     `json:"sampleSize,omitempty"`
+	Kind       string  `json:"kind,omitempty"`
+	Channel    string  `json:"channel,omitempty"`
+	Mode       string  `json:"mode,omitempty"`
 }
 
 type LayerDeps struct {
@@ -209,6 +220,7 @@ type LayerDeps struct {
 	DeleteLayer               func(layerID string) error
 	MoveLayer                 func(LayerMovePayload) error
 	SetLayerVisibility        func(LayerVisibilityPayload) error
+	SoloLayerVisibility       func(layerID string) error
 	SetLayerOpacity           func(LayerOpacityPayload) error
 	SetLayerBlendMode         func(LayerBlendModePayload) error
 	DuplicateLayer            func(LayerDuplicatePayload) error
@@ -221,6 +233,7 @@ type LayerDeps struct {
 	ApplyLayerMask            func(layerID string) error
 	InvertLayerMask           func(layerID string) error
 	SetLayerMaskEnabled       func(LayerMaskEnabledPayload) error
+	SetLayerMaskProperties    func(LayerMaskPropertiesPayload) error
 	SetLayerClipToBelow       func(LayerClipPayload) error
 	SetActiveLayer            func(layerID string) error
 	SetLayerName              func(LayerNamePayload) error
@@ -268,6 +281,12 @@ func DispatchLayer(commandID int32, payloadJSON string, deps LayerDeps) (bool, e
 			return true, err
 		}
 		return true, deps.SetLayerVisibility(payload)
+	case commandSoloLayerVisibility:
+		var payload layerIDPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SoloLayerVisibility(payload.LayerID)
 	case commandSetLayerOp:
 		var payload LayerOpacityPayload
 		if err := deps.Decode(payloadJSON, &payload); err != nil {
@@ -336,6 +355,12 @@ func DispatchLayer(commandID int32, payloadJSON string, deps LayerDeps) (bool, e
 			return true, err
 		}
 		return true, deps.SetLayerMaskEnabled(payload)
+	case commandSetLayerMaskProperties:
+		var payload LayerMaskPropertiesPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SetLayerMaskProperties(payload)
 	case commandSetLayerClip:
 		var payload LayerClipPayload
 		if err := deps.Decode(payloadJSON, &payload); err != nil {

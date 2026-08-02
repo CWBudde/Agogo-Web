@@ -45,6 +45,7 @@ type KeyboardActions = {
   onMergeDown(): void;
   onToolSelect(tool: ShortcutTool): void;
   onBeginTransform(): void;
+  onTransformAgain(): void;
   onNudgeLayer(dx: number, dy: number): void;
   onBrushSizeChange(delta: number): void;
   onBrushHardnessChange(delta: number): void;
@@ -221,6 +222,10 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+t":
           event.preventDefault();
           currentActions.onBeginTransform();
+          return;
+        case "Mod+Shift+t":
+          event.preventDefault();
+          currentActions.onTransformAgain();
           return;
         case "Mod+f":
           event.preventDefault();

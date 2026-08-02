@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "react";
+import { AdjustmentSamplingStateProvider } from "./adjustment-sampling-state";
 import { BrushStateProvider } from "./brush-state";
 import { ColorStateProvider } from "./color-state";
 import { DialogStateProvider } from "./dialog-state";
@@ -30,7 +31,9 @@ export function AppStateProvider({ children }: PropsWithChildren) {
               <ViewStateProvider>
                 <ToolStateProvider>
                   <DialogStateProvider>
-                    <FilterStateProvider>{children}</FilterStateProvider>
+                    <AdjustmentSamplingStateProvider>
+                      <FilterStateProvider>{children}</FilterStateProvider>
+                    </AdjustmentSamplingStateProvider>
                   </DialogStateProvider>
                 </ToolStateProvider>
               </ViewStateProvider>

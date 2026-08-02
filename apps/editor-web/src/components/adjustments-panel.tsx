@@ -3,10 +3,10 @@ import {
   type AdjustmentLayerParams,
   type AdjustmentParamsByKind,
   CommandID,
+  type HistogramChannel,
+  type HistogramData,
   type LayerNodeMeta,
 } from "@agogo/proto";
-import { CharacterPanel, type FontFamilyOption } from "./character-panel";
-import { VectorPropertiesPanel } from "./vector-properties-panel";
 import {
   createContext,
   type MouseEvent,
@@ -23,7 +23,11 @@ import {
   useTransactionalSlider,
 } from "@/hooks/use-transactional-slider";
 import { parseNumericInput } from "@/lib/utils";
+import { useAdjustmentSamplingState } from "@/state/adjustment-sampling-state";
 import type { EngineContextValue } from "@/wasm/types";
+import { useUiMeta } from "@/wasm/use-engine-render";
+import { CharacterPanel, type FontFamilyOption } from "./character-panel";
+import { VectorPropertiesPanel } from "./vector-properties-panel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -276,6 +280,9 @@ function AdjustmentParamsEditor({
 }) {
   const kind = layer.adjustmentKind as AdjustmentKind;
   const params = (layer.params ?? {}) as AdjustmentLayerParams;
+  const { cancelSampling } = useAdjustmentSamplingState();
+
+  useEffect(() => cancelSampling, [cancelSampling]);
 
   const updateParams = useCallback(
     (newParams: AdjustmentLayerParams) => {
@@ -300,16 +307,26 @@ function AdjustmentParamsEditor({
 
   return (
     <SliderTransactionContext.Provider value={sliderTransaction}>
-      <AdjustmentEditorBody kind={kind} params={params} updateParams={updateParams} />
+      <AdjustmentEditorBody
+        engine={engine}
+        layerId={layer.id}
+        kind={kind}
+        params={params}
+        updateParams={updateParams}
+      />
     </SliderTransactionContext.Provider>
   );
 }
 
 function AdjustmentEditorBody({
+  engine,
+  layerId,
   kind,
   params,
   updateParams,
 }: {
+  engine: EngineContextValue;
+  layerId: string;
   kind: AdjustmentKind;
   params: AdjustmentLayerParams;
   updateParams: (newParams: AdjustmentLayerParams) => void;
@@ -324,11 +341,20 @@ function AdjustmentEditorBody({
       );
     case "levels":
       return (
-        <LevelsEditor params={params as AdjustmentParamsByKind["levels"]} onChange={updateParams} />
+        <LevelsEditor
+          engine={engine}
+          layerId={layerId}
+          params={params as AdjustmentParamsByKind["levels"]}
+          onChange={updateParams}
+        />
       );
     case "curves":
       return (
-        <CurvesEditor params={params as AdjustmentParamsByKind["curves"]} onChange={updateParams} />
+        <CurvesEditor
+          layerId={layerId}
+          params={params as AdjustmentParamsByKind["curves"]}
+          onChange={updateParams}
+        />
       );
     case "exposure":
       return (
@@ -347,6 +373,7 @@ function AdjustmentEditorBody({
     case "hue-sat":
       return (
         <HueSatEditor
+          layerId={layerId}
           params={params as AdjustmentParamsByKind["hue-sat"]}
           onChange={updateParams}
         />
@@ -571,17 +598,58 @@ function BrightnessContrastEditor({
 }
 
 function LevelsEditor({
+  engine,
+  layerId,
   params,
   onChange,
 }: {
+  engine: EngineContextValue;
+  layerId: string;
   params: AdjustmentParamsByKind["levels"];
   onChange: (p: AdjustmentLayerParams) => void;
 }) {
   const update = (patch: Partial<AdjustmentParamsByKind["levels"]>) =>
     onChange({ ...params, ...patch });
+  const contentVersion = useUiMeta((meta) => meta?.contentVersion ?? 0);
+  const [histogramSource, setHistogramSource] = useState<"active-layer" | "merged">("merged");
+  const [histogram, setHistogram] = useState<HistogramData | null>(null);
+  const channel = (params.channel ?? "rgb") as Extract<
+    HistogramChannel,
+    "rgb" | "red" | "green" | "blue"
+  >;
+  const refreshKey = histogramRefreshKey(layerId, contentVersion, histogramSource, channel);
+  const histogramRequest = useMemo(
+    () => ({ source: histogramSource, channel, refreshKey }),
+    [channel, histogramSource, refreshKey],
+  );
+
+  useEffect(() => {
+    const result = engine.dispatchCommand(CommandID.ComputeHistogram, {
+      source: histogramRequest.source,
+      channel: histogramRequest.channel,
+    });
+    setHistogram(result?.histogram ?? null);
+  }, [engine, histogramRequest]);
 
   return (
     <EditorSection>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">Histogram</span>
+          <select
+            aria-label="Histogram source"
+            value={histogramSource}
+            className="h-5 rounded-[var(--ui-radius-sm)] border border-border bg-muted/30 px-1 text-[9px] text-foreground"
+            onChange={(event) =>
+              setHistogramSource(event.target.value as "active-layer" | "merged")
+            }
+          >
+            <option value="merged">Merged</option>
+            <option value="active-layer">Active layer</option>
+          </select>
+        </div>
+        <HistogramGraph histogram={histogram} channel={channel} />
+      </div>
       <ParamSelect
         label="Channel"
         value={params.channel ?? "rgb"}
@@ -643,17 +711,99 @@ function LevelsEditor({
   );
 }
 
+export function histogramRefreshKey(
+  layerId: string,
+  contentVersion: number,
+  source: "active-layer" | "merged",
+  channel: HistogramChannel,
+): string {
+  return `${layerId}:${contentVersion}:${source}:${channel}`;
+}
+
+function histogramPath(bins: number[], height: number): string {
+  const max = bins.reduce((peak, value) => Math.max(peak, value), 0);
+  if (max <= 0) return "";
+  const scaledMax = Math.sqrt(max);
+  return bins
+    .slice(0, 256)
+    .map((value, index) => {
+      const scaled = value > 0 ? Math.max(1, (Math.sqrt(value) / scaledMax) * height) : 0;
+      return `${index},${height - scaled}`;
+    })
+    .join(" ");
+}
+
+export function HistogramGraph({
+  histogram,
+  channel,
+}: {
+  histogram: HistogramData | null;
+  channel: Extract<HistogramChannel, "rgb" | "red" | "green" | "blue" | "luminosity">;
+}) {
+  const height = 64;
+  const channels =
+    channel === "rgb"
+      ? ([
+          [histogram?.red ?? [], "#ef4444"],
+          [histogram?.green ?? [], "#22c55e"],
+          [histogram?.blue ?? [], "#3b82f6"],
+        ] as const)
+      : ([
+          [histogram?.[channel] ?? [], channel === "luminosity" ? "#e5e7eb" : `var(--${channel})`],
+        ] as const);
+
+  const strokeFor = (name: string) => {
+    if (name === "var(--red)") return "#ef4444";
+    if (name === "var(--green)") return "#22c55e";
+    if (name === "var(--blue)") return "#3b82f6";
+    return name;
+  };
+
+  return (
+    <svg
+      role="img"
+      aria-label={`${channel.toUpperCase()} histogram`}
+      viewBox={`0 0 255 ${height}`}
+      preserveAspectRatio="none"
+      className="h-16 w-full rounded-[var(--ui-radius-sm)] border border-border bg-black/35"
+    >
+      {channels.map(([bins, stroke]) => (
+        <polyline
+          key={stroke}
+          points={histogramPath(bins, height)}
+          fill="none"
+          stroke={strokeFor(stroke)}
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
+  );
+}
+
 function CurvesEditor({
+  layerId,
   params,
   onChange,
 }: {
+  layerId: string;
   params: AdjustmentParamsByKind["curves"];
   onChange: (p: AdjustmentLayerParams) => void;
 }) {
   const update = (patch: Partial<AdjustmentParamsByKind["curves"]>) =>
     onChange({ ...params, ...patch });
+  const { sampling, startSampling, cancelSampling } = useAdjustmentSamplingState();
+  const channel = (params.channel ?? "rgb") as "rgb" | "red" | "green" | "blue";
+  const pointsKey =
+    channel === "red"
+      ? "redPoints"
+      : channel === "green"
+        ? "greenPoints"
+        : channel === "blue"
+          ? "bluePoints"
+          : "points";
 
-  const points = params.points ?? [
+  const points = params[pointsKey] ?? [
     { x: 0, y: 0 },
     { x: 255, y: 255 },
   ];
@@ -662,7 +812,7 @@ function CurvesEditor({
     <EditorSection>
       <ParamSelect
         label="Channel"
-        value={params.channel ?? "rgb"}
+        value={channel}
         options={[
           { value: "rgb", label: "RGB" },
           { value: "red", label: "Red" },
@@ -671,7 +821,49 @@ function CurvesEditor({
         ]}
         onChange={(v) => update({ channel: v })}
       />
-      <CurvesCanvas points={points} onChange={(pts) => update({ points: pts })} />
+      <fieldset className="grid grid-cols-4 gap-1" aria-label="Curves canvas samplers">
+        {(
+          [
+            ["black", "Black"],
+            ["gray", "Gray"],
+            ["white", "White"],
+            ["add-point", "Point"],
+          ] as const
+        ).map(([kind, label]) => {
+          const active =
+            sampling?.type === "curves" &&
+            sampling.targetLayerId === layerId &&
+            sampling.kind === kind;
+          return (
+            <button
+              key={kind}
+              type="button"
+              aria-pressed={active}
+              className={`h-6 rounded-[var(--ui-radius-sm)] border text-[9px] ${
+                active
+                  ? "border-accent bg-accent/20 text-accent"
+                  : "border-border bg-muted/20 text-muted-foreground"
+              }`}
+              onClick={() => {
+                if (active) {
+                  cancelSampling();
+                } else {
+                  startSampling({
+                    type: "curves",
+                    targetLayerId: layerId,
+                    kind,
+                    channel,
+                    sampleSize: 3,
+                  });
+                }
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </fieldset>
+      <CurvesCanvas points={points} onChange={(pts) => update({ [pointsKey]: pts })} />
     </EditorSection>
   );
 }
@@ -888,9 +1080,11 @@ function VibranceEditor({
 }
 
 function HueSatEditor({
+  layerId,
   params,
   onChange,
 }: {
+  layerId: string;
   params: AdjustmentParamsByKind["hue-sat"];
   onChange: (p: AdjustmentLayerParams) => void;
 }) {
@@ -898,6 +1092,8 @@ function HueSatEditor({
     onChange({ ...params, ...patch });
 
   const [activeRange, setActiveRange] = useState("master");
+  const { sampling, startSampling, cancelSampling } = useAdjustmentSamplingState();
+  const samplingRange = sampling?.type === "hue-range" && sampling.targetLayerId === layerId;
 
   const ranges = [
     { value: "master", label: "Master" },
@@ -936,7 +1132,41 @@ function HueSatEditor({
 
   return (
     <EditorSection>
-      <ParamSelect label="Range" value={activeRange} options={ranges} onChange={setActiveRange} />
+      <div className="flex items-end gap-1">
+        <div className="min-w-0 flex-1">
+          <ParamSelect
+            label="Range"
+            value={activeRange}
+            options={ranges}
+            onChange={setActiveRange}
+          />
+        </div>
+        <button
+          type="button"
+          aria-label="Sample hue range from canvas"
+          aria-pressed={samplingRange}
+          className={`mb-px h-6 rounded-[var(--ui-radius-sm)] border px-2 text-[9px] ${
+            samplingRange
+              ? "border-accent bg-accent/20 text-accent"
+              : "border-border bg-muted/20 text-muted-foreground"
+          }`}
+          onClick={() => {
+            if (samplingRange) {
+              cancelSampling();
+            } else {
+              startSampling({
+                type: "hue-range",
+                targetLayerId: layerId,
+                sampleSize: 3,
+                sampleMerged: true,
+                onIdentifiedRange: setActiveRange,
+              });
+            }
+          }}
+        >
+          Sample
+        </button>
+      </div>
       <ParamSlider
         label="Hue"
         min={-180}
@@ -1452,9 +1682,6 @@ function MaskSection({ engine, layer }: { engine: EngineContextValue; layer: Lay
           </HeaderButton>
         </div>
       </div>
-      <p className="text-[10px] text-muted-foreground/60">
-        Density and Feather controls require engine support (planned).
-      </p>
     </div>
   );
 }

@@ -109,8 +109,10 @@ function meta(layers: LayerNodeMeta[], activeLayerId: string | null): UIMeta {
     canUndo: true,
     canRedo: true,
     canPaste: false,
+    canTransformAgain: false,
     activeDocumentId: "doc-1",
     activeDocumentName: "Document",
+    documents: [],
     documentWidth: 640,
     documentHeight: 480,
     documentBackground: "transparent",
@@ -168,6 +170,36 @@ describe("useMenuActions", () => {
     expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(1, CommandID.Cut, {});
     expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(2, CommandID.Copy, {});
     expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(3, CommandID.Paste, {});
+  });
+
+  it("gates Transform Again on engine metadata and flushes canvas input before dispatch", () => {
+    mocks.uiMeta = {
+      ...meta([layer("active", "pixel")], "active"),
+      canTransformAgain: true,
+    };
+    const order: string[] = [];
+    const onFlush = () => order.push("flush");
+    window.addEventListener("agogo:flush-canvas-input", onFlush);
+    mocks.engine.dispatchCommand.mockImplementationOnce(() => {
+      order.push("dispatch");
+    });
+    const { result } = renderHook(() => useMenuActions(io));
+
+    expect(result.current.isMenuActionDisabled("transform-again")).toBe(false);
+    act(() => result.current.handleMenuAction("transform-again"));
+
+    expect(mocks.engine.dispatchCommand).toHaveBeenCalledWith(CommandID.TransformAgain, {});
+    expect(order).toEqual(["flush", "dispatch"]);
+    window.removeEventListener("agogo:flush-canvas-input", onFlush);
+  });
+
+  it("does not dispatch Transform Again when engine metadata says replay is unavailable", () => {
+    const { result } = renderHook(() => useMenuActions(io));
+
+    expect(result.current.isMenuActionDisabled("transform-again")).toBe(true);
+    act(() => result.current.handleMenuAction("transform-again"));
+
+    expect(mocks.engine.dispatchCommand).not.toHaveBeenCalled();
   });
 
   it("disables cut for non-pixel or locked layers and paste for an empty clipboard", () => {

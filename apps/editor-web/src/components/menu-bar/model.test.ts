@@ -38,6 +38,6 @@ describe("menuItems", () => {
         "Reset Workspace",
       ]),
     );
-    expect(itemLabels).toEqual(expect.arrayContaining(["Cut", "Copy", "Paste"]));
+    expect(itemLabels).toEqual(expect.arrayContaining(["Cut", "Copy", "Paste", "Transform Again"]));
   });
 });

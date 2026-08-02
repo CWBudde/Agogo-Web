@@ -16,6 +16,7 @@ export type MenuActionId =
   | "edit-cut"
   | "edit-copy"
   | "edit-paste"
+  | "transform-again"
   | "transform-free"
   | "transform-warp"
   | "transform-flip-h"
@@ -183,6 +184,11 @@ export const menuItems: MenuPreviewMenu[] = [
       {
         title: "Transform",
         items: [
+          {
+            label: "Transform Again",
+            shortcut: "Ctrl+Shift+T",
+            actionId: "transform-again" as const,
+          },
           {
             label: "Free Transform",
             shortcut: "Ctrl+T",

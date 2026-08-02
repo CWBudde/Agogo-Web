@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,6 +84,7 @@ func (doc *Document) AddLayer(layer LayerNode, parentLayerID string, index int) 
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = layer.ID()
 	doc.touchModifiedAtLayer(layer)
 	return nil
@@ -97,6 +99,7 @@ func (doc *Document) DeleteLayer(layerID string) error {
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	if activeChanged {
 		doc.ActiveLayerID = nextActive
 	}
@@ -110,6 +113,7 @@ func (doc *Document) DuplicateLayer(layerID, parentLayerID string, index int) (L
 		return nil, err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = clone.ID()
 	doc.touchModifiedAtLayer(clone)
 	return clone, nil
@@ -120,6 +124,7 @@ func (doc *Document) MoveLayer(layerID, parentLayerID string, index int) error {
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.touchModifiedAt()
 	return nil
 }
@@ -130,8 +135,114 @@ func (doc *Document) SetLayerVisibility(layerID string, visible bool) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetVisible(visible)
+	doc.invalidateLayerSolo(false)
 	doc.touchModifiedAtLayer(layer)
 	return nil
+}
+
+// SoloLayerVisibility atomically isolates one row. A group keeps the baseline
+// visibility of its complete subtree; a leaf keeps only itself, its ancestors,
+// and the clipping base required to render it. Repeating the gesture on the
+// same target restores the guarded baseline, while choosing another target
+// re-isolates from that original baseline.
+func (doc *Document) SoloLayerVisibility(layerID string) error {
+	root := doc.ensureLayerRoot()
+	state := &root.VisibilitySolo
+	treeSignature := layerTreeStructureSignature(root)
+	guardValid := state.GuardVersion == state.TreeVersion && state.TreeSignature == treeSignature
+	target, parent, targetIndex, ok := findLayerByID(root, layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if state.TargetID == layerID && state.Visibility != nil && guardValid {
+		walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+			if visible, exists := state.Visibility[layer.ID()]; exists {
+				layer.SetVisible(visible)
+			}
+		})
+		doc.clearLayerSolo()
+		doc.touchModifiedAt()
+		return nil
+	}
+	if state.Visibility == nil || !guardValid {
+		state.Visibility = make(map[string]bool)
+		walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+			if layer != doc.LayerRoot {
+				state.Visibility[layer.ID()] = layer.Visible()
+			}
+		})
+		state.GuardVersion = state.TreeVersion
+		state.TreeSignature = treeSignature
+	}
+
+	keep := make(map[string]bool)
+	forceVisible := make(map[string]bool)
+	keep[layerID] = true
+	forceVisible[layerID] = true
+	for ancestor := target.Parent(); ancestor != nil && ancestor != doc.LayerRoot; ancestor = ancestor.Parent() {
+		keep[ancestor.ID()] = true
+		forceVisible[ancestor.ID()] = true
+	}
+	if target.LayerType() == LayerTypeGroup {
+		walkLayerTree(target, func(layer LayerNode) { keep[layer.ID()] = true })
+	} else if target.ClipToBelow() && parent != nil {
+		children := parent.Children()
+		if baseIndex := clippingBaseIndex(children, targetIndex); baseIndex >= 0 {
+			base := children[baseIndex]
+			keep[base.ID()] = true
+			forceVisible[base.ID()] = true
+			for ancestor := base.Parent(); ancestor != nil && ancestor != doc.LayerRoot; ancestor = ancestor.Parent() {
+				keep[ancestor.ID()] = true
+				forceVisible[ancestor.ID()] = true
+			}
+		}
+	}
+	baseline := state.Visibility
+	walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+		if layer == doc.LayerRoot {
+			return
+		}
+		if !keep[layer.ID()] {
+			layer.SetVisible(false)
+			return
+		}
+		if forceVisible[layer.ID()] {
+			layer.SetVisible(true)
+			return
+		}
+		layer.SetVisible(baseline[layer.ID()])
+	})
+	state.TargetID = layerID
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) clearLayerSolo() {
+	state := &doc.ensureLayerRoot().VisibilitySolo
+	state.TargetID = ""
+	state.GuardVersion = 0
+	state.TreeSignature = 0
+	state.Visibility = nil
+}
+
+func (doc *Document) invalidateLayerSolo(structural bool) {
+	state := &doc.ensureLayerRoot().VisibilitySolo
+	if structural {
+		state.TreeVersion++
+	}
+	doc.clearLayerSolo()
+}
+
+func layerTreeStructureSignature(root LayerNode) uint64 {
+	hash := fnv.New64a()
+	walkLayerTree(root, func(layer LayerNode) {
+		parentID := ""
+		if parent := layer.Parent(); parent != nil {
+			parentID = parent.ID()
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00", layer.ID(), layer.LayerType(), parentID)
+	})
+	return hash.Sum64()
 }
 
 func (doc *Document) SetLayerOpacity(layerID string, opacity, fillOpacity *float64) error {
@@ -340,6 +451,7 @@ func (doc *Document) ApplyLayerMask(layerID string) error {
 	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
 		return err
 	}
+	mask = effectiveRasterMask(mask)
 	switch typed := layer.(type) {
 	case *PixelLayer:
 		if err := applyMaskToLayerRaster(typed.Bounds, typed.Pixels, mask); err != nil {
@@ -400,6 +512,25 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	}
 	updated := cloneLayerMask(mask)
 	updated.Enabled = enabled
+	layer.SetMask(updated)
+	doc.touchModifiedAtLayer(layer)
+	return nil
+}
+
+func (doc *Document) SetLayerMaskProperties(layerID string, density, feather *int) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	mask := layer.Mask()
+	if mask == nil {
+		return fmt.Errorf("layer %q has no mask", layer.Name())
+	}
+	updated := cloneLayerMask(mask)
+	updated.SetProperties(density, feather)
 	layer.SetMask(updated)
 	doc.touchModifiedAtLayer(layer)
 	return nil
@@ -486,6 +617,7 @@ func (doc *Document) SetLayerClipToBelow(layerID string, clipToBelow bool) error
 	}
 	layer.SetClipToBelow(clipToBelow)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	if clipToBelow {
 		children := parent.Children()
 		baseIndex := clippingBaseIndex(children, index)
@@ -512,6 +644,7 @@ func (doc *Document) FlattenLayer(layerID string) error {
 	}
 	replaceChild(parent, index, flattened)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = flattened.ID()
 	doc.touchModifiedAtLayers(layer, flattened)
 	return nil
@@ -538,6 +671,7 @@ func (doc *Document) MergeDown(layerID string) error {
 	children = append(children[:index], children[index+1:]...)
 	parent.SetChildren(children)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAtLayers(below, layer, merged)
 	return nil
@@ -596,6 +730,7 @@ func (doc *Document) MergeVisible() error {
 	}
 	root.SetChildren(next)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAt()
 	return nil
@@ -631,6 +766,7 @@ func (doc *Document) FlattenImage() error {
 	flattened := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, surface)
 	root.SetChildren([]LayerNode{flattened})
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = flattened.ID()
 	doc.touchModifiedAt()
 	return nil
@@ -1302,7 +1438,10 @@ func combineClipSurface(baseSurface, clipAlpha []byte) []byte {
 
 func newFilledLayerMask(width, height int, fill byte) *LayerMask {
 	if width <= 0 || height <= 0 {
-		return &LayerMask{Enabled: true, Width: width, Height: height}
+		mask := &LayerMask{Enabled: true, Width: width, Height: height}
+		density := 100
+		mask.SetProperties(&density, nil)
+		return mask
 	}
 	data := make([]byte, width*height)
 	if fill != 0 {
@@ -1310,7 +1449,10 @@ func newFilledLayerMask(width, height int, fill byte) *LayerMask {
 			data[index] = fill
 		}
 	}
-	return &LayerMask{Enabled: true, Width: width, Height: height, Data: data}
+	mask := &LayerMask{Enabled: true, Width: width, Height: height, Data: data}
+	density := 100
+	mask.SetProperties(&density, nil)
+	return mask
 }
 
 func applyMaskToLayerRaster(bounds LayerBounds, raster []byte, mask *LayerMask) error {

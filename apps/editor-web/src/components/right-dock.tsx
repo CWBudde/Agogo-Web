@@ -11,6 +11,7 @@ import { CompactRange } from "@/components/compact-range";
 import { type AuxPanel, DockSection, dockTitle } from "@/components/dock-section";
 import { InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
+import { NavigatorPreview } from "@/components/navigator-preview";
 import { PathsPanel } from "@/components/paths-panel";
 import { PropertyGridRow } from "@/components/property-grid-row";
 import { ShapesPanel } from "@/components/shapes-panel";
@@ -88,6 +89,7 @@ export function RightDock({
     brushPresetId,
     brushTipShape,
     setBrushTipShape,
+    setBrushTipResourceId,
     brushSize,
     setBrushSize,
     brushHardness,
@@ -361,7 +363,10 @@ export function RightDock({
                     }
                     hidePresetPicker={activeTool === "mixerBrush"}
                     tipShape={brushTipShape}
-                    onTipShapeChange={setBrushTipShape}
+                    onTipShapeChange={(shape) => {
+                      setBrushTipResourceId(null);
+                      setBrushTipShape(shape);
+                    }}
                     size={brushSize}
                     onSizeChange={setBrushSize}
                     hardness={brushHardness}
@@ -752,7 +757,7 @@ export function RightDock({
               {activeAuxPanel === "navigator" ? (
                 <div className="space-y-[var(--ui-gap-3)]">
                   <div className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-[var(--ui-gap-2)]">
-                    <div className="aspect-[4/3] border border-white/8 bg-[linear-gradient(135deg,rgba(56,189,248,0.18),rgba(15,23,42,0.82))]" />
+                    <NavigatorPreview />
                   </div>
                   <CompactRange
                     id="navigator-zoom-range"

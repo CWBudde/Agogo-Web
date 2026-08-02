@@ -21,6 +21,8 @@ const thumbnailSize = 32
 const (
 	commandCreateDocument            = 0x0001
 	commandCloseDocument             = 0x0002
+	commandSwitchDocument            = 0x0003
+	commandMarkDocumentSaved         = 0x0004
 	commandZoomSet                   = 0x0010
 	commandPanSet                    = 0x0011
 	commandRotateViewSet             = 0x0012
@@ -29,6 +31,7 @@ const (
 	commandPointerEvent              = 0x0015
 	commandJumpHistory               = 0x0016
 	commandSetShowGuides             = 0x0017
+	commandGetNavigatorThumbnail     = 0x0018
 	commandAddLayer                  = 0x0100
 	commandDeleteLayer               = 0x0101
 	commandMoveLayer                 = 0x0102
@@ -119,6 +122,9 @@ const (
 	commandDeleteDocumentStylePreset = 0x0127
 	commandApplyDocumentStylePreset  = 0x0128
 	commandSetArtboard               = 0x0129
+	commandSoloLayerVisibility       = 0x012b
+	commandSetLayerMaskProperties    = 0x012c
+	commandImportAbrBrushLibrary     = 0x0419
 	commandApplyFilter               = 0x0500
 	commandReapplyFilter             = 0x0501
 	commandPreviewFilter             = 0x0502
@@ -207,31 +213,38 @@ type Document struct {
 	ActivePathIdx      int                     `json:"-"`
 	StylePresets       []DocumentStylePreset   `json:"-"`
 	Patterns           []model.PatternResource `json:"-"`
+	// BrushResources and BrushPresets contain only imported sampled tips that
+	// have actually been used in this document. They make project saves
+	// portable without copying every brush in an imported app-level library.
+	BrushResources map[string]*brushTipResource   `json:"-"`
+	BrushPresets   map[string]ImportedBrushPreset `json:"-"`
 }
 
 type UIMeta struct {
 	// Version is the engine's uiMetaVersion counter at the time this meta was
 	// built. The frontend compares it against RenderResult.UIMetaVersion from
 	// hot-path acks to detect when its cached UIMeta went stale.
-	Version             int64           `json:"version"`
-	ActiveLayerID       string          `json:"activeLayerId"`
-	ActiveLayerName     string          `json:"activeLayerName"`
-	CursorType          string          `json:"cursorType"`
-	StatusText          string          `json:"statusText"`
-	ImportWarnings      []string        `json:"importWarnings,omitempty"`
-	RulerOriginX        float64         `json:"rulerOriginX"`
-	RulerOriginY        float64         `json:"rulerOriginY"`
-	History             []HistoryEntry  `json:"history"`
-	CanUndo             bool            `json:"canUndo"`
-	CanRedo             bool            `json:"canRedo"`
-	CanPaste            bool            `json:"canPaste"`
-	CurrentHistoryIndex int             `json:"currentHistoryIndex"`
-	ActiveDocumentID    string          `json:"activeDocumentId"`
-	ActiveDocumentName  string          `json:"activeDocumentName"`
-	DocumentWidth       int             `json:"documentWidth"`
-	DocumentHeight      int             `json:"documentHeight"`
-	DocumentBackground  string          `json:"documentBackground"`
-	Layers              []LayerNodeMeta `json:"layers"`
+	Version             int64             `json:"version"`
+	ActiveLayerID       string            `json:"activeLayerId"`
+	ActiveLayerName     string            `json:"activeLayerName"`
+	CursorType          string            `json:"cursorType"`
+	StatusText          string            `json:"statusText"`
+	ImportWarnings      []string          `json:"importWarnings,omitempty"`
+	RulerOriginX        float64           `json:"rulerOriginX"`
+	RulerOriginY        float64           `json:"rulerOriginY"`
+	History             []HistoryEntry    `json:"history"`
+	CanUndo             bool              `json:"canUndo"`
+	CanRedo             bool              `json:"canRedo"`
+	CanPaste            bool              `json:"canPaste"`
+	CanTransformAgain   bool              `json:"canTransformAgain"`
+	CurrentHistoryIndex int               `json:"currentHistoryIndex"`
+	ActiveDocumentID    string            `json:"activeDocumentId"`
+	ActiveDocumentName  string            `json:"activeDocumentName"`
+	Documents           []DocumentSummary `json:"documents"`
+	DocumentWidth       int               `json:"documentWidth"`
+	DocumentHeight      int               `json:"documentHeight"`
+	DocumentBackground  string            `json:"documentBackground"`
+	Layers              []LayerNodeMeta   `json:"layers"`
 	// ContentVersion is a monotonic counter incremented on every document mutation.
 	// The UI uses this to know when to refresh layer thumbnails.
 	ContentVersion int64 `json:"contentVersion"`
@@ -261,6 +274,33 @@ type UIMeta struct {
 	// font registry (embedded defaults plus fonts loaded via LoadFontData),
 	// sorted by family name with styles in canonical order.
 	AvailableFonts []FontFamilyMeta `json:"availableFonts,omitempty"`
+}
+
+type DocumentSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Active   bool   `json:"active"`
+	Modified bool   `json:"modified"`
+}
+
+type NavigatorThumbnail struct {
+	DocumentID      string `json:"documentId"`
+	ContentVersion  int64  `json:"contentVersion"`
+	RequestedWidth  int    `json:"requestedWidth"`
+	RequestedHeight int    `json:"requestedHeight"`
+	Width           int    `json:"width"`
+	Height          int    `json:"height"`
+	Background      string `json:"background"`
+	RGBA            string `json:"rgba"`
+}
+
+type ImportedBrushLibrary struct {
+	LibraryID string                `json:"libraryId"`
+	Name      string                `json:"name"`
+	Presets   []ImportedBrushPreset `json:"presets"`
+	Warnings  []string              `json:"warnings,omitempty"`
 }
 
 type RenderResult struct {
@@ -295,6 +335,10 @@ type RenderResult struct {
 	Histogram *HistogramData `json:"histogram,omitempty"`
 	// IdentifiedHueRange is set only in response to commandIdentifyHueRange.
 	IdentifiedHueRange string `json:"identifiedHueRange,omitempty"`
+	// NavigatorThumbnail is set only in response to commandGetNavigatorThumbnail.
+	NavigatorThumbnail *NavigatorThumbnail `json:"navigatorThumbnail,omitempty"`
+	// ImportedBrushLibrary is set only in response to commandImportAbrBrushLibrary.
+	ImportedBrushLibrary *ImportedBrushLibrary `json:"importedBrushLibrary,omitempty"`
 	// Error reports a non-fatal render pipeline failure (e.g. layer
 	// compositing failed). The frame buffer is still valid but may not
 	// include document content. Empty when rendering succeeded.
@@ -591,6 +635,7 @@ type rawFrameKey struct {
 type instance struct {
 	pixels                []byte
 	manager               *DocumentManager
+	documentSessions      map[string]*documentSession
 	viewport              ViewportState
 	cachedViewportBase    []byte
 	cachedViewportBaseKey viewportBaseKey
@@ -621,6 +666,8 @@ type instance struct {
 	cachedDocSurface           []byte
 	cachedDocID                string
 	cachedDocContentVersion    int64
+	navigatorCacheKey          navigatorThumbnailKey
+	navigatorCache             *NavigatorThumbnail
 	// maskEditLayerID tracks which layer's mask is currently being edited.
 	// This is UI state only — not included in history snapshots.
 	maskEditLayerID string
@@ -663,6 +710,8 @@ type instance struct {
 	// pixelClipboard stores copied raster content outside document history.
 	// It is instance-scoped so content can be pasted between documents.
 	pixelClipboard pixelClipboard
+	brushResources map[string]*brushTipResource
+	brushPresets   map[string]ImportedBrushPreset
 	// pathTool holds the pen / direct-selection tool UI state.
 	pathTool *pathToolState
 	// editingVectorLayerID is set while the user is editing a VectorLayer's
@@ -713,7 +762,8 @@ func Init(configJSON string) int32 {
 	nextID++
 
 	inst := &instance{
-		manager: newDocumentManager(),
+		manager:          newDocumentManager(),
+		documentSessions: make(map[string]*documentSession),
 		viewport: ViewportState{
 			Zoom:             1,
 			CanvasW:          defaultDocWidth,
@@ -724,6 +774,8 @@ func Init(configJSON string) int32 {
 		foregroundColor: [4]uint8{0, 0, 0, 255},
 		backgroundColor: [4]uint8{255, 255, 255, 255},
 		pathTool:        newPathToolState(),
+		brushResources:  make(map[string]*brushTipResource),
+		brushPresets:    make(map[string]ImportedBrushPreset),
 		mixerBrush: mixerBrushState{
 			clean: true,
 		},
@@ -742,6 +794,12 @@ func Init(configJSON string) int32 {
 		inst.manager.Create(doc)
 		inst.viewport.CenterX = float64(doc.Width) * 0.5
 		inst.viewport.CenterY = float64(doc.Height) * 0.5
+		inst.documentSessions[doc.ID] = &documentSession{
+			history:             inst.history,
+			viewport:            inst.viewport,
+			savedContentVersion: doc.ContentVersion,
+			hasSavedBaseline:    false,
+		}
 	}
 
 	instances[id] = inst
@@ -779,6 +837,28 @@ func DispatchCommand(handle, commandID int32, payloadJSON string) (RenderResult,
 	}
 
 	var suggestedPath []SelectionPoint
+	if commandID == commandGetNavigatorThumbnail {
+		var payload NavigatorThumbnailPayload
+		if err := decodePayloadAny(payloadJSON, &payload); err != nil {
+			return RenderResult{}, err
+		}
+		thumbnail, err := inst.getNavigatorThumbnail(payload)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		result := inst.render()
+		result.NavigatorThumbnail = thumbnail
+		return result, nil
+	}
+	if commandID == commandImportAbrBrushLibrary {
+		library, err := inst.importAbrBrushLibrary(payloadJSON)
+		if err != nil {
+			return RenderResult{}, err
+		}
+		result := inst.render()
+		result.ImportedBrushLibrary = library
+		return result, nil
+	}
 
 	switch cmdpkg.DomainOf(commandID) {
 	case cmdpkg.DomainLayer:

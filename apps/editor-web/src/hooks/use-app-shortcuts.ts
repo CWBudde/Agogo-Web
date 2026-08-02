@@ -117,6 +117,9 @@ export function useAppShortcuts(io: MenuActionIO) {
       setTransformRefPoint([1, 1]);
       engine.dispatchCommand(CommandID.BeginFreeTransform, {});
     },
+    onTransformAgain() {
+      handleMenuAction("transform-again");
+    },
     onNudgeLayer(dx: number, dy: number) {
       const render = getSnapshot();
       if (!render?.uiMeta.activeLayerId) {

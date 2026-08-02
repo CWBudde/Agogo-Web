@@ -9,23 +9,6 @@ type BrushPresetRecord = {
   sourceName: string;
 };
 
-const abrAsciiPattern = /[A-Za-z][A-Za-z0-9 &'()_,./+-]{2,48}/g;
-const abrUtf16Pattern = /[A-Za-z][A-Za-z0-9 &'()_,./+\-\u00c0-\u024f]{2,48}/g;
-const ignoredAbrTokens = new Set([
-  "8bim",
-  "desc",
-  "drsh",
-  "patt",
-  "null",
-  "objc",
-  "text",
-  "long",
-  "bool",
-  "doub",
-  "untf",
-  "type",
-]);
-
 export async function loadBrushPresetFile(file: File): Promise<BrushPresetRecord> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const sourceName = file.name.replace(/\.[^.]+$/, "") || "Imported Brushes";
@@ -36,13 +19,9 @@ export async function loadBrushPresetFile(file: File): Promise<BrushPresetRecord
       sourceName,
     };
   }
-  if (lowerName.endsWith(".abr")) {
-    return {
-      presets: parseAbrBrushPresets(bytes, sourceName),
-      sourceName,
-    };
-  }
-  throw new Error("Unsupported brush preset file. Use .abr or .json.");
+  throw new Error(
+    "Unsupported brush preset file. JSON presets are parsed in the UI; ABR uses the engine importer.",
+  );
 }
 
 export function parseBrushPresetJSON(json: string, sourceName = "Imported Brushes"): BrushPreset[] {
@@ -64,14 +43,6 @@ export function parseBrushPresetJSON(json: string, sourceName = "Imported Brushe
   return dedupeBrushPresets(presets);
 }
 
-export function parseAbrBrushPresets(bytes: Uint8Array, sourceName: string): BrushPreset[] {
-  const names = extractAbrPresetNames(bytes);
-  const presetNames = names.length > 0 ? names : [sourceName];
-  return dedupeBrushPresets(
-    presetNames.map((name, index) => makePresetFromName(name, `${slug(sourceName)}-${index + 1}`)),
-  );
-}
-
 function sanitizeBrushPreset(candidate: unknown, fallbackId: string): BrushPreset | null {
   if (!candidate || typeof candidate !== "object") {
     return null;
@@ -82,10 +53,20 @@ function sanitizeBrushPreset(candidate: unknown, fallbackId: string): BrushPrese
     return null;
   }
   const tipShape = isBrushTipShape(raw.tipShape) ? raw.tipShape : inferTipShape(name);
+  const controlSource = isBrushControlSource(raw.controlSource) ? raw.controlSource : "pressure";
   return {
     id: typeof raw.id === "string" && raw.id.trim().length > 0 ? raw.id.trim() : fallbackId,
     name,
     tipShape,
+    tipResourceId:
+      typeof raw.tipResourceId === "string" && raw.tipResourceId.trim()
+        ? raw.tipResourceId.trim()
+        : undefined,
+    thumbnailRGBA:
+      typeof raw.thumbnailRGBA === "string" && raw.thumbnailRGBA.trim()
+        ? raw.thumbnailRGBA.trim()
+        : undefined,
+    size: typeof raw.size === "number" ? clampNumber(raw.size, 1, 2500) : undefined,
     hardness: clampUnitNumber(
       typeof raw.hardness === "number" ? raw.hardness : inferHardness(name),
     ),
@@ -95,6 +76,12 @@ function sanitizeBrushPreset(candidate: unknown, fallbackId: string): BrushPrese
       2,
     ),
     angle: clampNumber(typeof raw.angle === "number" ? raw.angle : inferAngle(tipShape), -180, 180),
+    roundness: clampNumber(typeof raw.roundness === "number" ? raw.roundness : 1, 0.01, 1),
+    sizeJitter: clampUnitNumber(typeof raw.sizeJitter === "number" ? raw.sizeJitter : 0),
+    opacityJitter: clampUnitNumber(typeof raw.opacityJitter === "number" ? raw.opacityJitter : 0),
+    flowJitter: clampUnitNumber(typeof raw.flowJitter === "number" ? raw.flowJitter : 0),
+    controlSource,
+    fadeDabs: clampNumber(typeof raw.fadeDabs === "number" ? raw.fadeDabs : 100, 1, 10000),
   };
 }
 
@@ -108,53 +95,6 @@ function dedupeBrushPresets(presets: BrushPreset[]) {
     seen.add(key);
     return true;
   });
-}
-
-function extractAbrPresetNames(bytes: Uint8Array) {
-  const names = new Set<string>();
-  for (const candidate of [
-    ...extractPatternMatches(new TextDecoder("latin1").decode(bytes), abrAsciiPattern),
-    ...extractPatternMatches(new TextDecoder("utf-16be").decode(bytes), abrUtf16Pattern),
-  ]) {
-    const normalized = normalizeAbrName(candidate);
-    if (normalized) {
-      names.add(normalized);
-    }
-  }
-  return [...names].slice(0, 64);
-}
-
-function extractPatternMatches(content: string, pattern: RegExp) {
-  return [...content.matchAll(pattern)].map((match) => match[0]);
-}
-
-function normalizeAbrName(value: string) {
-  const normalized = value
-    .replace(/\0/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s\-_.]+|[\s\-_.]+$/g, "")
-    .trim();
-  if (
-    normalized.length < 3 ||
-    normalized.length > 48 ||
-    !/[A-Za-z]/.test(normalized) ||
-    ignoredAbrTokens.has(normalized.toLowerCase())
-  ) {
-    return null;
-  }
-  return normalized;
-}
-
-function makePresetFromName(name: string, id: string): BrushPreset {
-  const tipShape = inferTipShape(name);
-  return {
-    id,
-    name,
-    tipShape,
-    hardness: inferHardness(name),
-    spacing: inferSpacing(name),
-    angle: inferAngle(tipShape),
-  };
 }
 
 function inferTipShape(name: string): BrushTipShape {
@@ -217,6 +157,10 @@ function isBrushTipShape(value: unknown): value is BrushTipShape {
     value === "star" ||
     value === "line"
   );
+}
+
+function isBrushControlSource(value: unknown): value is NonNullable<BrushPreset["controlSource"]> {
+  return value === "off" || value === "pressure" || value === "tilt" || value === "fade";
 }
 
 function clampUnitNumber(value: number) {

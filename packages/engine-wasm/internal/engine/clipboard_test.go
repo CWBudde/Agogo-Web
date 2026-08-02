@@ -31,6 +31,12 @@ func TestClipboardCopyPasteSelectionAndHistory(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("select: %v", err)
 	}
+	if _, err := DispatchCommand(h, commandSetLayerVis, mustJSON(t, SetLayerVisibilityPayload{
+		LayerID: sourceID,
+		Visible: false,
+	})); err != nil {
+		t.Fatalf("hide source layer: %v", err)
+	}
 
 	beforeCopyHistory := len(instances[h].history.Entries())
 	copied, err := DispatchCommand(h, commandCopy, "{}")
@@ -52,6 +58,10 @@ func TestClipboardCopyPasteSelectionAndHistory(t *testing.T) {
 		t.Fatal("paste did not activate a new layer")
 	}
 	doc := instances[h].manager.activeMut()
+	source, _, _, ok := findLayerByID(doc.ensureLayerRoot(), sourceID)
+	if !ok || source.Visible() {
+		t.Fatal("copy changed the hidden source layer's visibility")
+	}
 	layer := findPixelLayer(doc, pasted.UIMeta.ActiveLayerID)
 	if layer == nil {
 		t.Fatal("pasted layer is not a pixel layer")

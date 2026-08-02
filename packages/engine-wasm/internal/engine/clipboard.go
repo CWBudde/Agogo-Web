@@ -160,12 +160,27 @@ func clearPixelLayerSelection(layer *PixelLayer, selection *Selection) (bool, er
 		return false, nil
 	}
 
+	originalPixels := append([]byte(nil), layer.Pixels...)
 	renderer := agglib.NewAgg2D()
-	renderer.Attach(layer.Pixels, layer.Bounds.W, layer.Bounds.H, layer.Bounds.W*4)
+	destination := agglib.NewImage(layer.Pixels, layer.Bounds.W, layer.Bounds.H, layer.Bounds.W*4)
+	if err := destination.Premultiply(); err != nil {
+		return false, fmt.Errorf("premultiply cut destination: %w", err)
+	}
+	renderer.AttachImage(destination)
 	renderer.BlendMode(agglib.BlendDstOut)
 	mask := agglib.NewImage(maskPixels, layer.Bounds.W, layer.Bounds.H, layer.Bounds.W*4)
-	if err := renderer.BlendImageSimpleDefaultAlpha(mask, 0, 0); err != nil {
-		return false, fmt.Errorf("erase cut selection: %w", err)
+	blendErr := renderer.BlendImageSimpleDefaultAlpha(mask, 0, 0)
+	demultiplyErr := destination.Demultiply()
+	if blendErr != nil {
+		return false, fmt.Errorf("erase cut selection: %w", blendErr)
+	}
+	if demultiplyErr != nil {
+		return false, fmt.Errorf("demultiply cut destination: %w", demultiplyErr)
+	}
+	// DstOut only changes alpha. Preserve the straight-alpha layer's hidden RGB
+	// exactly; an 8-bit premultiply/demultiply round trip is otherwise lossy.
+	for index := 0; index < len(layer.Pixels); index += 4 {
+		copy(layer.Pixels[index:index+3], originalPixels[index:index+3])
 	}
 	return true, nil
 }

@@ -10,40 +10,86 @@ import (
 
 const mixerBrushBristleCount = 7
 
+type BrushDynamic struct {
+	Jitter   float64 `json:"jitter"`
+	Control  string  `json:"control"`
+	FadeDabs int     `json:"fadeDabs,omitempty"`
+}
+
 // BrushParams describes one brush dab's visual properties.
 type BrushParams struct {
-	Size             float64  `json:"size"`                              // Diameter in document pixels
-	Hardness         float64  `json:"hardness"`                          // 0.0 (soft/feathered) – 1.0 (hard edge)
-	Flow             float64  `json:"flow"`                              // Per-dab alpha multiplier, 0–1
-	Color            [4]uint8 `json:"color"`                             // RGBA paint color
-	BlendMode        string   `json:"blendMode,omitempty"`               // AGG blend mode string, e.g. "multiply", "screen"
-	WetEdges         bool     `json:"wetEdges,omitempty"`                // Accumulate paint at stroke edges (watercolour effect)
-	Scatter          float64  `json:"scatter,omitempty"`                 // Max random dab offset as a fraction of brush diameter (0 = none)
-	Stabilizer       int      `json:"stabilizer,omitempty"`              // Moving-average lag: number of past input points to average (0 = off)
-	SampleMerged     bool     `json:"sampleMerged,omitempty"`            // Sample composite (all layers) rather than active layer when reading pixels
-	AutoErase        bool     `json:"autoErase,omitempty"`               // If stroke starts on foreground color, paint with background color instead
-	Erase            bool     `json:"erase,omitempty"`                   // Erase to transparency (uses dst-out compositing)
-	EraseBackground  bool     `json:"eraseBackground,omitempty"`         // Erase only pixels matching the sampled base color
-	EraseTolerance   float64  `json:"eraseTolerance,omitempty"`          // Color tolerance for background eraser (0–255 Euclidean RGB distance)
-	MixerBrush       bool     `json:"mixerBrush,omitempty"`              // Mix the brush color with sampled canvas color before painting
-	MixerMix         float64  `json:"mixerMix,omitempty"`                // Sampled-color mix strength, 0–1
-	MixerWetness     float64  `json:"mixerWetness,omitempty"`            // Wet-paint pickup strength, 0–1
-	MixerLoad        float64  `json:"mixerLoad,omitempty"`               // Initial paint load when the brush is clean, 0–1
-	CloneStamp       bool     `json:"cloneStamp,omitempty"`              // Clone pixels from a source point
-	CloneSourceX     float64  `json:"cloneSourceX,omitempty"`            // Source point X in document space
-	CloneSourceY     float64  `json:"cloneSourceY,omitempty"`            // Source point Y in document space
-	CloneAligned     bool     `json:"cloneAligned,omitempty"`            // Keep the source offset fixed across strokes until the source changes
-	CloneOpacity     float64  `json:"cloneOpacity,omitempty"`            // Overall source opacity multiplier, 0–1
-	CloneLoad        float64  `json:"cloneLoad,omitempty"`               // Source load carried through the stroke, 0–1
-	CloneHistory     bool     `json:"cloneHistorySource,omitempty"`      // Sample from a history snapshot instead of the live document
-	CloneHistoryIdx  int      `json:"cloneHistorySourceIndex,omitempty"` // History entry id used when CloneHistory is enabled
-	HistoryBrush     bool     `json:"historyBrush,omitempty"`            // Restore pixels from a previous history state
-	HistorySourceIdx int      `json:"historySourceIndex,omitempty"`      // History entry id used as the source state for the history brush
-	HistoryOpacity   float64  `json:"historyOpacity,omitempty"`          // Overall history-source opacity multiplier, 0–1
-	HistoryLoad      float64  `json:"historyLoad,omitempty"`             // History-source load carried through the stroke, 0–1
-	PressureSize     *bool    `json:"pressureSize,omitempty"`            // Stylus pressure scales brush size when nil/true
-	PressureOpacity  *bool    `json:"pressureOpacity,omitempty"`         // Stylus pressure scales opacity when nil/true
-	PressureFlow     *bool    `json:"pressureFlow,omitempty"`            // Stylus pressure scales flow when nil/true
+	Size             float64       `json:"size"`                              // Diameter in document pixels
+	Hardness         float64       `json:"hardness"`                          // 0.0 (soft/feathered) – 1.0 (hard edge)
+	Flow             float64       `json:"flow"`                              // Per-dab alpha multiplier, 0–1
+	Color            [4]uint8      `json:"color"`                             // RGBA paint color
+	BlendMode        string        `json:"blendMode,omitempty"`               // AGG blend mode string, e.g. "multiply", "screen"
+	WetEdges         bool          `json:"wetEdges,omitempty"`                // Accumulate paint at stroke edges (watercolour effect)
+	Scatter          float64       `json:"scatter,omitempty"`                 // Max random dab offset as a fraction of brush diameter (0 = none)
+	Stabilizer       int           `json:"stabilizer,omitempty"`              // Moving-average lag: number of past input points to average (0 = off)
+	SampleMerged     bool          `json:"sampleMerged,omitempty"`            // Sample composite (all layers) rather than active layer when reading pixels
+	AutoErase        bool          `json:"autoErase,omitempty"`               // If stroke starts on foreground color, paint with background color instead
+	Erase            bool          `json:"erase,omitempty"`                   // Erase to transparency (uses dst-out compositing)
+	EraseBackground  bool          `json:"eraseBackground,omitempty"`         // Erase only pixels matching the sampled base color
+	EraseTolerance   float64       `json:"eraseTolerance,omitempty"`          // Color tolerance for background eraser (0–255 Euclidean RGB distance)
+	MixerBrush       bool          `json:"mixerBrush,omitempty"`              // Mix the brush color with sampled canvas color before painting
+	MixerMix         float64       `json:"mixerMix,omitempty"`                // Sampled-color mix strength, 0–1
+	MixerWetness     float64       `json:"mixerWetness,omitempty"`            // Wet-paint pickup strength, 0–1
+	MixerLoad        float64       `json:"mixerLoad,omitempty"`               // Initial paint load when the brush is clean, 0–1
+	CloneStamp       bool          `json:"cloneStamp,omitempty"`              // Clone pixels from a source point
+	CloneSourceX     float64       `json:"cloneSourceX,omitempty"`            // Source point X in document space
+	CloneSourceY     float64       `json:"cloneSourceY,omitempty"`            // Source point Y in document space
+	CloneAligned     bool          `json:"cloneAligned,omitempty"`            // Keep the source offset fixed across strokes until the source changes
+	CloneOpacity     float64       `json:"cloneOpacity,omitempty"`            // Overall source opacity multiplier, 0–1
+	CloneLoad        float64       `json:"cloneLoad,omitempty"`               // Source load carried through the stroke, 0–1
+	CloneHistory     bool          `json:"cloneHistorySource,omitempty"`      // Sample from a history snapshot instead of the live document
+	CloneHistoryIdx  int           `json:"cloneHistorySourceIndex,omitempty"` // History entry id used when CloneHistory is enabled
+	HistoryBrush     bool          `json:"historyBrush,omitempty"`            // Restore pixels from a previous history state
+	HistorySourceIdx int           `json:"historySourceIndex,omitempty"`      // History entry id used as the source state for the history brush
+	HistoryOpacity   float64       `json:"historyOpacity,omitempty"`          // Overall history-source opacity multiplier, 0–1
+	HistoryLoad      float64       `json:"historyLoad,omitempty"`             // History-source load carried through the stroke, 0–1
+	PressureSize     *bool         `json:"pressureSize,omitempty"`            // Stylus pressure scales brush size when nil/true
+	PressureOpacity  *bool         `json:"pressureOpacity,omitempty"`         // Stylus pressure scales opacity when nil/true
+	PressureFlow     *bool         `json:"pressureFlow,omitempty"`            // Stylus pressure scales flow when nil/true
+	TipShape         string        `json:"tipShape,omitempty"`
+	TipResourceID    string        `json:"tipResourceId,omitempty"`
+	Angle            float64       `json:"angle,omitempty"`
+	Roundness        float64       `json:"roundness,omitempty"`
+	Spacing          float64       `json:"spacing,omitempty"`
+	SizeDynamics     *BrushDynamic `json:"sizeDynamics,omitempty"`
+	OpacityDynamics  *BrushDynamic `json:"opacityDynamics,omitempty"`
+	FlowDynamics     *BrushDynamic `json:"flowDynamics,omitempty"`
+}
+
+const (
+	defaultBrushSpacing = 0.25
+	minBrushSpacing     = 0.01
+	maxBrushSpacing     = 2.0
+	minBrushRoundness   = 0.01
+)
+
+func normalizedBrushSpacing(spacing float64) float64 {
+	if spacing <= 0 || math.IsNaN(spacing) || math.IsInf(spacing, 0) {
+		return defaultBrushSpacing
+	}
+	return clampFloat(spacing, minBrushSpacing, maxBrushSpacing)
+}
+
+// normalizedBrushRoundness preserves the historical circular default when the
+// field is omitted (its JSON zero value), while validating explicit values.
+func normalizedBrushRoundness(roundness float64) float64 {
+	if roundness <= 0 || math.IsNaN(roundness) || math.IsInf(roundness, 0) {
+		return 1
+	}
+	return clampFloat(roundness, minBrushRoundness, 1)
+}
+
+func normalizedBrushTipShape(shape string) string {
+	switch shape {
+	case "square", "diamond", "star", "line":
+		return shape
+	default:
+		return "round"
+	}
 }
 
 // applyTilt derives the dab rotation angle and minor-axis squish factor from
@@ -78,20 +124,19 @@ func applyTilt(tiltX, tiltY float64) (azimuth, squish float64) {
 	return azimuth, squish
 }
 
-// applyScatter returns (cx, cy) offset by a random displacement whose maximum
-// radius equals p.Scatter * p.Size (full diameter). When p.Scatter is 0 the
-// position is returned unchanged.
+// applyScatter is retained as a focused distribution helper for the legacy
+// brush tests. Stroke rendering uses the per-stroke deterministic generator in
+// paint.go rather than this package-global source.
 //
-// The displacement is drawn from a uniform distribution over the disc
-// (random angle, radius = sqrt(u)*maxR to keep area density uniform).
+//nolint:unused // exercised by package tests; production strokes use deterministic dab dynamics
 func applyScatter(cx, cy float64, p BrushParams) (float64, float64) {
 	if p.Scatter <= 0 {
 		return cx, cy
 	}
-	maxR := p.Scatter * p.Size
+	maxRadius := p.Scatter * p.Size
 	angle := rand.Float64() * 2 * math.Pi
-	r := math.Sqrt(rand.Float64()) * maxR
-	return cx + math.Cos(angle)*r, cy + math.Sin(angle)*r
+	radius := math.Sqrt(rand.Float64()) * maxRadius
+	return cx + math.Cos(angle)*radius, cy + math.Sin(angle)*radius
 }
 
 // PaintDab renders a single brush dab centred at (cx, cy) in document space
@@ -113,6 +158,10 @@ func PaintDab(layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish 
 // state) but its rasterizer keeps pre-allocated cell blocks, avoiding the
 // dominant allocation cost of creating a fresh Agg2D per dab.
 func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish float64) {
+	paintDabReuseTip(renderer, layer, cx, cy, p, azimuth, squish, nil, nil)
+}
+
+func paintDabReuseTip(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p BrushParams, azimuth, squish float64, resource *brushTipResource, scratch *[]byte) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 {
@@ -131,13 +180,31 @@ func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p 
 
 	renderer.Attach(layer.Pixels, w, h, w*4)
 	renderer.NoLine()
+	// ImageBlendMode controls an optional pre-composite against ImageBlendColor,
+	// not destination compositing. BlendDst leaves sampled RGBA unchanged; the
+	// regular BlendMode below performs source-over/erase/blend-mode output.
+	renderer.ImageBlendMode(agglib.BlendDst)
 
 	// Apply blend mode. Normal erase uses dst-out (removes destination alpha
 	// proportionally to the brush shape). Other blend modes use the string map.
 	if p.Erase {
 		renderer.BlendMode(agglib.BlendDstOut)
 	} else if p.BlendMode != "" {
-		renderer.BlendMode(agglib.StringToBlendMode(p.BlendMode))
+		mode := agglib.StringToBlendMode(p.BlendMode)
+		renderer.BlendMode(mode)
+	}
+	if resource != nil && resource.Width > 0 && resource.Height > 0 && len(resource.Alpha) == resource.Width*resource.Height {
+		paintSampledBrushTip(renderer, resource, scratch, lx, ly, radius, p, azimuth, squish, flow)
+		return
+	}
+
+	// Tip angle and roundness are brush-local properties. Stylus tilt composes
+	// with them, rather than replacing them, so presets remain directional when
+	// used with a pen.
+	azimuth += p.Angle * math.Pi / 180
+	squish *= normalizedBrushRoundness(p.Roundness)
+	if squish < minBrushRoundness {
+		squish = minBrushRoundness
 	}
 
 	// Build the dab transform (AGG uses pre-multiplication, so call order is
@@ -155,7 +222,7 @@ func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p 
 	renderer.Translate(lx, ly)
 
 	renderer.ResetPath()
-	renderer.AddEllipse(0, 0, radius, radius, agglib.CCW)
+	addProceduralBrushTip(renderer, normalizedBrushTipShape(p.TipShape), radius)
 
 	r, g, b, a := p.Color[0], p.Color[1], p.Color[2], p.Color[3]
 	// For dst-out erasing the color channels are ignored; only alpha drives the erasure.
@@ -207,6 +274,102 @@ func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p 
 	renderer.DrawPath(agglib.FillOnly)
 }
 
+func paintSampledBrushTip(renderer *agglib.Agg2D, resource *brushTipResource, scratch *[]byte, lx, ly, radius float64, p BrushParams, azimuth, squish, flow float64) {
+	needed := resource.Width * resource.Height * 4
+	var rgba []byte
+	if scratch != nil {
+		if cap(*scratch) < needed {
+			*scratch = make([]byte, needed)
+		} else {
+			*scratch = (*scratch)[:needed]
+		}
+		rgba = *scratch
+	} else {
+		rgba = make([]byte, needed)
+	}
+	r, g, b, colorAlpha := p.Color[0], p.Color[1], p.Color[2], p.Color[3]
+	if p.Erase {
+		r, g, b, colorAlpha = 255, 255, 255, 255
+	}
+	alphaScale := float64(colorAlpha) * flow / 255
+	for index, maskAlpha := range resource.Alpha {
+		offset := index * 4
+		rgba[offset] = r
+		rgba[offset+1] = g
+		rgba[offset+2] = b
+		rgba[offset+3] = uint8(math.Round(float64(maskAlpha) * alphaScale))
+	}
+
+	azimuth += p.Angle * math.Pi / 180
+	squish *= normalizedBrushRoundness(p.Roundness)
+	if squish < minBrushRoundness {
+		squish = minBrushRoundness
+	}
+	if squish < 1 {
+		renderer.Scale(1, squish)
+	}
+	if azimuth != 0 {
+		renderer.Rotate(azimuth)
+	}
+	renderer.Translate(lx, ly)
+
+	maxDimension := float64(maxInt(resource.Width, resource.Height))
+	targetW := 2 * radius * float64(resource.Width) / maxDimension
+	targetH := 2 * radius * float64(resource.Height) / maxDimension
+	renderer.ImageFilter(agglib.Bilinear)
+	image := agglib.NewImage(rgba, resource.Width, resource.Height, resource.Width*4)
+	// Resource dimensions and RGBA length were validated above; the AGG image
+	// transform is therefore expected to succeed. A malformed resource simply
+	// leaves this dab empty rather than risking a non-AGG fallback renderer.
+	_ = renderer.TransformImageSimple(image, -targetW*0.5, -targetH*0.5, targetW*0.5, targetH*0.5)
+}
+
+// addProceduralBrushTip appends the supported computed brush shapes as AGG
+// paths. Sampled/imported tips are handled separately by the brush-resource
+// pipeline; an unknown or omitted shape deliberately falls back to round.
+func addProceduralBrushTip(renderer *agglib.Agg2D, shape string, radius float64) {
+	switch shape {
+	case "square":
+		renderer.MoveTo(-radius, -radius)
+		renderer.LineTo(radius, -radius)
+		renderer.LineTo(radius, radius)
+		renderer.LineTo(-radius, radius)
+		renderer.ClosePolygon()
+	case "diamond":
+		renderer.MoveTo(0, -radius)
+		renderer.LineTo(radius, 0)
+		renderer.LineTo(0, radius)
+		renderer.LineTo(-radius, 0)
+		renderer.ClosePolygon()
+	case "star":
+		const points = 10
+		for i := range points {
+			pointRadius := radius
+			if i%2 == 1 {
+				pointRadius *= 0.45
+			}
+			angle := -math.Pi/2 + float64(i)*2*math.Pi/points
+			x := math.Cos(angle) * pointRadius
+			y := math.Sin(angle) * pointRadius
+			if i == 0 {
+				renderer.MoveTo(x, y)
+			} else {
+				renderer.LineTo(x, y)
+			}
+		}
+		renderer.ClosePolygon()
+	case "line":
+		lineRadius := radius * 0.18
+		renderer.MoveTo(-radius, -lineRadius)
+		renderer.LineTo(radius, -lineRadius)
+		renderer.LineTo(radius, lineRadius)
+		renderer.LineTo(-radius, lineRadius)
+		renderer.ClosePolygon()
+	default:
+		renderer.AddEllipse(0, 0, radius, radius, agglib.CCW)
+	}
+}
+
 // EraseBackgroundDab erases pixels within the dab area whose color is within
 // p.EraseTolerance (Euclidean RGB distance) of baseColor. Pixels outside the
 // tolerance band are left untouched. The erasure amount is modulated by the
@@ -215,6 +378,10 @@ func paintDabReuse(renderer *agglib.Agg2D, layer *PixelLayer, cx, cy float64, p 
 // Unlike PaintDab this is a direct per-pixel operation — no AGG compositing —
 // because the erase decision depends on each pixel's existing color.
 func EraseBackgroundDab(layer *PixelLayer, cx, cy float64, p BrushParams, baseColor [4]uint8) {
+	eraseBackgroundDabResource(layer, cx, cy, p, baseColor, nil)
+}
+
+func eraseBackgroundDabResource(layer *PixelLayer, cx, cy float64, p BrushParams, baseColor [4]uint8, resource *brushTipResource) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 {
@@ -230,11 +397,12 @@ func EraseBackgroundDab(layer *PixelLayer, cx, cy float64, p BrushParams, baseCo
 	flow := clampFloat(p.Flow, 0, 1)
 	tolerance := clampFloat(p.EraseTolerance, 0, 442)
 
-	// Axis-aligned bounding box of the dab (conservative — use full radius).
-	x0 := int(lx-radius) - 1
-	y0 := int(ly-radius) - 1
-	x1 := int(lx+radius) + 2
-	y1 := int(ly+radius) + 2
+	// Axis-aligned bounding box of the dab, including rotated square corners.
+	boundRadius := dabFootprintSize(p) * 0.5
+	x0 := int(lx-boundRadius) - 1
+	y0 := int(ly-boundRadius) - 1
+	x1 := int(lx+boundRadius) + 2
+	y1 := int(ly+boundRadius) + 2
 	if x0 < 0 {
 		x0 = 0
 	}
@@ -249,25 +417,13 @@ func EraseBackgroundDab(layer *PixelLayer, cx, cy float64, p BrushParams, baseCo
 	}
 
 	hardness := clampFloat(p.Hardness, 0, 1)
+	azimuth := p.Angle * math.Pi / 180
+	squish := normalizedBrushRoundness(p.Roundness)
+	shape := normalizedBrushTipShape(p.TipShape)
 
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
-			// Normalised distance from dab centre.
-			dx := float64(px) - lx
-			dy := float64(py) - ly
-			dist := math.Sqrt(dx*dx+dy*dy) / radius
-			if dist > 1.0 {
-				continue
-			}
-
-			// Brush mask alpha: 1.0 in the core, falls off toward the edge.
-			var maskAlpha float64
-			if hardness >= 1.0 || dist <= hardness {
-				maskAlpha = 1.0
-			} else {
-				// Linear falloff from hardness radius to edge.
-				maskAlpha = 1.0 - (dist-hardness)/(1.0-hardness)
-			}
+			maskAlpha := brushMaskAlphaAtTipResource(float64(px)-lx, float64(py)-ly, radius, hardness, azimuth, squish, shape, resource)
 			if maskAlpha <= 0 {
 				continue
 			}
@@ -337,6 +493,104 @@ func applyPressure(p BrushParams, pressure float64) BrushParams {
 			p.Color[3] = uint8(math.Round(float64(p.Color[3]) * pressure))
 		}
 	}
+	return p
+}
+
+type dabRandomValues struct {
+	sizeJitter    float64
+	opacityJitter float64
+	flowJitter    float64
+	scatterAngle  float64
+	scatterRadius float64
+}
+
+func normalizedPointerPressure(pressure float64) float64 {
+	if pressure <= 0 {
+		return 1
+	}
+	return clampFloat(pressure, 0, 1)
+}
+
+func dynamicControlFactor(dynamic *BrushDynamic, pressure, tiltX, tiltY float64, dabIndex int) float64 {
+	if dynamic == nil {
+		return 1
+	}
+	switch dynamic.Control {
+	case "pressure":
+		return normalizedPointerPressure(pressure)
+	case "tilt":
+		// Upright pens and mouse input are neutral. Increasing tilt reduces the
+		// controlled value until a fully horizontal pen reaches zero.
+		magnitude := math.Sqrt(tiltX*tiltX + tiltY*tiltY)
+		return 1 - clampFloat(magnitude/90, 0, 1)
+	case "fade":
+		fadeDabs := dynamic.FadeDabs
+		if fadeDabs <= 0 {
+			fadeDabs = 100
+		}
+		return 1 - clampFloat(float64(dabIndex)/float64(fadeDabs), 0, 1)
+	default:
+		return 1
+	}
+}
+
+func jitterFactor(dynamic *BrushDynamic, randomValue float64, enabled bool) float64 {
+	if dynamic == nil || !enabled {
+		return 1
+	}
+	jitter := clampFloat(dynamic.Jitter, 0, 1)
+	return 1 - jitter*clampFloat(randomValue, 0, 1)
+}
+
+// applyStrokeDynamics resolves the three independent dynamic channels for one
+// emitted dab. Explicit dynamics replace the corresponding legacy pressure
+// toggle; omitted dynamics retain the pre-S.8.3 behavior byte-for-byte.
+func applyStrokeDynamics(p BrushParams, pressure, tiltX, tiltY float64, dabIndex int, random dabRandomValues, withJitter bool) BrushParams {
+	result := applyPressure(p, pressure)
+
+	if dynamic := p.SizeDynamics; dynamic != nil {
+		control := dynamicControlFactor(dynamic, pressure, tiltX, tiltY, dabIndex)
+		// Match the legacy pressure-size response: even the weakest controlled
+		// dab remains half the configured diameter.
+		control = 0.5 + 0.5*control
+		result.Size = clampFloat(p.Size*control*jitterFactor(dynamic, random.sizeJitter, withJitter), 1, 2500)
+	}
+	if dynamic := p.OpacityDynamics; dynamic != nil {
+		factor := dynamicControlFactor(dynamic, pressure, tiltX, tiltY, dabIndex) * jitterFactor(dynamic, random.opacityJitter, withJitter)
+		factor = clampFloat(factor, 0, 1)
+		switch {
+		case p.CloneStamp:
+			result.CloneOpacity = clampFloat(p.CloneOpacity*factor, 0, 1)
+		case p.HistoryBrush:
+			result.HistoryOpacity = clampFloat(p.HistoryOpacity*factor, 0, 1)
+		default:
+			result.Color[3] = uint8(math.Round(float64(p.Color[3]) * factor))
+		}
+	}
+	if dynamic := p.FlowDynamics; dynamic != nil {
+		factor := dynamicControlFactor(dynamic, pressure, tiltX, tiltY, dabIndex) * jitterFactor(dynamic, random.flowJitter, withJitter)
+		result.Flow = clampFloat(p.Flow*factor, 0, 1)
+	}
+
+	return result
+}
+
+func applyScatterRandom(cx, cy float64, p BrushParams, random dabRandomValues) (float64, float64) {
+	if p.Scatter <= 0 {
+		return cx, cy
+	}
+	maxR := p.Scatter * p.Size
+	angle := random.scatterAngle * 2 * math.Pi
+	r := math.Sqrt(random.scatterRadius) * maxR
+	return cx + math.Cos(angle)*r, cy + math.Sin(angle)*r
+}
+
+// orientedBrushParams folds pointer tilt into fields consumed by the
+// mask-based paint tools (clone/history/background eraser), whose dab helpers
+// do not otherwise receive the pointer sample's azimuth and squish.
+func orientedBrushParams(p BrushParams, azimuth, squish float64) BrushParams {
+	p.Angle += azimuth * 180 / math.Pi
+	p.Roundness = normalizedBrushRoundness(p.Roundness) * clampFloat(squish, minBrushRoundness, 1)
 	return p
 }
 
@@ -671,6 +925,10 @@ func sampleSurfaceBilinearTransparent(source []byte, sourceW, sourceH int, sampl
 // document space with bilinear filtering so translated/subpixel offsets and
 // source edges behave more like Photoshop's clone tools.
 func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, sourceOffsetX, sourceOffsetY float64, remainingLoad *float64) {
+	cloneStampDabResource(layer, source, sourceW, sourceH, sourceOriginX, sourceOriginY, cx, cy, p, sourceOffsetX, sourceOffsetY, remainingLoad, nil)
+}
+
+func cloneStampDabResource(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, sourceOffsetX, sourceOffsetY float64, remainingLoad *float64, resource *brushTipResource) {
 	w := layer.Bounds.W
 	h := layer.Bounds.H
 	if w <= 0 || h <= 0 || sourceW <= 0 || sourceH <= 0 || len(source) == 0 {
@@ -697,10 +955,11 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 		}
 	}
 
-	x0 := int(lx-radius) - 1
-	y0 := int(ly-radius) - 1
-	x1 := int(lx+radius) + 2
-	y1 := int(ly+radius) + 2
+	boundRadius := dabFootprintSize(p) * 0.5
+	x0 := int(lx-boundRadius) - 1
+	y0 := int(ly-boundRadius) - 1
+	x1 := int(lx+boundRadius) + 2
+	y1 := int(ly+boundRadius) + 2
 	if x0 < 0 {
 		x0 = 0
 	}
@@ -718,7 +977,10 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 	painted := false
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
-			maskAlpha := brushMaskAlphaAt(float64(px)-lx, float64(py)-ly, radius, hardness, 0, 1)
+			maskAlpha := brushMaskAlphaAtTipResource(
+				float64(px)-lx, float64(py)-ly, radius, hardness, p.Angle*math.Pi/180,
+				normalizedBrushRoundness(p.Roundness), normalizedBrushTipShape(p.TipShape), resource,
+			)
 			if maskAlpha <= 0 {
 				continue
 			}
@@ -747,6 +1009,14 @@ func CloneStampDab(layer *PixelLayer, source []byte, sourceW, sourceH, sourceOri
 }
 
 func brushMaskAlphaAt(dx, dy, radius, hardness, azimuth, squish float64) float64 {
+	return brushMaskAlphaAtTip(dx, dy, radius, hardness, azimuth, squish, "round")
+}
+
+func brushMaskAlphaAtTip(dx, dy, radius, hardness, azimuth, squish float64, shape string) float64 {
+	return brushMaskAlphaAtTipResource(dx, dy, radius, hardness, azimuth, squish, shape, nil)
+}
+
+func brushMaskAlphaAtTipResource(dx, dy, radius, hardness, azimuth, squish float64, shape string, resource *brushTipResource) float64 {
 	if radius <= 0 {
 		return 0
 	}
@@ -761,7 +1031,31 @@ func brushMaskAlphaAt(dx, dy, radius, hardness, azimuth, squish float64) float64
 	if squish > 0 && squish < 1 {
 		localY /= squish
 	}
-	dist := math.Sqrt(localX*localX+localY*localY) / radius
+	if resource != nil && resource.Width > 0 && resource.Height > 0 && len(resource.Alpha) == resource.Width*resource.Height {
+		return sampledBrushTipAlpha(resource, localX, localY, radius)
+	}
+	nx := localX / radius
+	ny := localY / radius
+	var dist float64
+	switch normalizedBrushTipShape(shape) {
+	case "square":
+		dist = math.Max(math.Abs(nx), math.Abs(ny))
+	case "diamond":
+		dist = math.Abs(nx) + math.Abs(ny)
+	case "star":
+		angle := math.Atan2(ny, nx) + math.Pi/2
+		if angle < 0 {
+			angle += 2 * math.Pi
+		}
+		sector := angle / (math.Pi / 5)
+		fraction := sector - math.Floor(sector)
+		boundary := 1 - 0.55*(1-math.Abs(2*fraction-1))
+		dist = math.Sqrt(nx*nx+ny*ny) / boundary
+	case "line":
+		dist = math.Max(math.Abs(nx), math.Abs(ny)/0.18)
+	default:
+		dist = math.Sqrt(nx*nx + ny*ny)
+	}
 	if dist > 1.0 {
 		return 0
 	}
@@ -772,6 +1066,41 @@ func brushMaskAlphaAt(dx, dy, radius, hardness, azimuth, squish float64) float64
 		return 1.0 - dist
 	}
 	return 1.0 - (dist-hardness)/(1.0-hardness)
+}
+
+func sampledBrushTipAlpha(resource *brushTipResource, localX, localY, radius float64) float64 {
+	maxDimension := float64(maxInt(resource.Width, resource.Height))
+	targetW := 2 * radius * float64(resource.Width) / maxDimension
+	targetH := 2 * radius * float64(resource.Height) / maxDimension
+	if targetW <= 0 || targetH <= 0 || math.Abs(localX) > targetW*0.5 || math.Abs(localY) > targetH*0.5 {
+		return 0
+	}
+	sampleX := (localX/targetW+0.5)*float64(resource.Width) - 0.5
+	sampleY := (localY/targetH+0.5)*float64(resource.Height) - 0.5
+	x0 := int(math.Floor(sampleX))
+	y0 := int(math.Floor(sampleY))
+	tx := sampleX - float64(x0)
+	ty := sampleY - float64(y0)
+	var alpha float64
+	for oy := 0; oy <= 1; oy++ {
+		for ox := 0; ox <= 1; ox++ {
+			x := x0 + ox
+			y := y0 + oy
+			if x < 0 || y < 0 || x >= resource.Width || y >= resource.Height {
+				continue
+			}
+			weightX := 1 - tx
+			if ox == 1 {
+				weightX = tx
+			}
+			weightY := 1 - ty
+			if oy == 1 {
+				weightY = ty
+			}
+			alpha += float64(resource.Alpha[y*resource.Width+x]) / 255 * weightX * weightY
+		}
+	}
+	return clampFloat(alpha, 0, 1)
 }
 
 func sampleSurfaceColorFootprint(source []byte, sourceW, sourceH, sourceOriginX, sourceOriginY int, cx, cy float64, p BrushParams, azimuth, squish float64) ([4]uint8, float64, bool) {
@@ -854,9 +1183,9 @@ func mixColorRGBA(a, b [4]uint8, t float64) [4]uint8 {
 	}
 }
 
-func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerBrushState, source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, p BrushParams, directionAzimuth, squish float64) {
+func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerBrushState, source []byte, sourceW, sourceH, sourceX, sourceY int, cx, cy float64, p BrushParams, directionAzimuth, squish float64, resource *brushTipResource, scratch *[]byte) {
 	if state == nil {
-		paintDabReuse(renderer, layer, cx, cy, p, directionAzimuth, squish)
+		paintDabReuseTip(renderer, layer, cx, cy, p, directionAzimuth, squish, resource, scratch)
 		return
 	}
 	state.clean = false
@@ -885,7 +1214,7 @@ func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerB
 
 		paintParams := mixerBristlePaintParams(p, state.bristleColors[i], load, edgeFactor, bristleSize)
 		if paintParams.Flow > 0 {
-			paintDabReuse(renderer, layer, bristleCX, bristleCY, paintParams, directionAzimuth, squish)
+			paintDabReuseTip(renderer, layer, bristleCX, bristleCY, paintParams, directionAzimuth, squish, resource, scratch)
 			if edgeFactor > 0.62 {
 				offsetSign := 1.0
 				if offset < 0 {
@@ -896,7 +1225,7 @@ func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerB
 				rim.Size = math.Max(1.2, paintParams.Size*0.9)
 				rimCX := bristleCX + lateralX*offsetSign*paintParams.Size*0.58
 				rimCY := bristleCY + lateralY*offsetSign*paintParams.Size*0.58
-				paintDabReuse(renderer, layer, rimCX, rimCY, rim, directionAzimuth, squish)
+				paintDabReuseTip(renderer, layer, rimCX, rimCY, rim, directionAzimuth, squish, resource, scratch)
 			}
 		}
 
@@ -942,11 +1271,17 @@ func paintMixerBrushDab(renderer *agglib.Agg2D, layer *PixelLayer, state *mixerB
 // dabs could write outside the rows captured for the pixel-delta undo and
 // undo could not restore them.
 func dabFootprintSize(p BrushParams) float64 {
+	tipScale := 1.0
+	if p.TipResourceID != "" || normalizedBrushTipShape(p.TipShape) == "square" {
+		// Size is the square's side length, so a rotated square's axis-aligned
+		// footprint can reach its sqrt(2)-times-larger diagonal.
+		tipScale = math.Sqrt2
+	}
 	if !p.MixerBrush {
-		return p.Size
+		return p.Size * tipScale
 	}
 	bristle := mixerBristleSize(p.Size)
-	return 0.64*p.Size + 2.06*bristle + 2
+	return (0.64*p.Size + 2.06*bristle + 2) * tipScale
 }
 
 // paintDabClippedToSelection runs paint() and then re-blends every pixel in
@@ -1251,6 +1586,55 @@ type brushStrokeState struct {
 	hasPrev     bool
 	hasPrevPrev bool
 	travelled   float64 // carry-over distance since the last dab [0, interval)
+	randomState uint64
+	dabCount    int
+	tipResource *brushTipResource
+	tipRGBA     []byte
+}
+
+func (s *brushStrokeState) initRandom(x, y float64, p BrushParams) {
+	// Derive a repeatable, stroke-local seed from immutable begin-stroke input.
+	// This avoids the package-global random stream while ensuring two equivalent
+	// event/coalescing sequences render identically.
+	seed := uint64(0x6a09e667f3bcc909)
+	for _, value := range []uint64{
+		math.Float64bits(x), math.Float64bits(y), math.Float64bits(p.Size),
+		math.Float64bits(p.Flow), math.Float64bits(p.Angle),
+	} {
+		seed ^= value + 0x9e3779b97f4a7c15 + (seed << 6) + (seed >> 2)
+	}
+	if seed == 0 {
+		seed = 0x9e3779b97f4a7c15
+	}
+	s.randomState = seed
+	s.dabCount = 0
+}
+
+func (s *brushStrokeState) nextRandomFloat() float64 {
+	// SplitMix64 is compact, deterministic, and has ample statistical quality
+	// for brush jitter. Convert the upper 53 bits to an IEEE-754 unit fraction.
+	s.randomState += 0x9e3779b97f4a7c15
+	z := s.randomState
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z ^= z >> 31
+	return float64(z>>11) * (1.0 / (1 << 53))
+}
+
+func (s *brushStrokeState) nextDabParams(p BrushParams, pressure, tiltX, tiltY float64) (BrushParams, dabRandomValues) {
+	if s.randomState == 0 {
+		s.randomState = 0x9e3779b97f4a7c15
+	}
+	random := dabRandomValues{
+		sizeJitter:    s.nextRandomFloat(),
+		opacityJitter: s.nextRandomFloat(),
+		flowJitter:    s.nextRandomFloat(),
+		scatterAngle:  s.nextRandomFloat(),
+		scatterRadius: s.nextRandomFloat(),
+	}
+	effective := applyStrokeDynamics(p, pressure, tiltX, tiltY, s.dabCount, random, true)
+	s.dabCount++
+	return effective, random
 }
 
 // AddPoint takes a new pointer position and returns document-space positions

@@ -28,6 +28,7 @@ function makeActions() {
     onMergeDown: vi.fn(),
     onToolSelect: vi.fn(),
     onBeginTransform: vi.fn(),
+    onTransformAgain: vi.fn(),
     onNudgeLayer: vi.fn(),
     onBrushSizeChange: vi.fn(),
     onBrushHardnessChange: vi.fn(),
@@ -114,6 +115,16 @@ describe("useKeyboardShortcuts", () => {
     fireKeyDown("F", { ctrlKey: true, shiftKey: true });
     expect(actions.onFadeFilter).toHaveBeenCalledTimes(1);
     expect(actions.onReapplyFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the last transform on Mod+Shift+t without beginning a new transform", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("T", { ctrlKey: true, shiftKey: true });
+
+    expect(actions.onTransformAgain).toHaveBeenCalledTimes(1);
+    expect(actions.onBeginTransform).not.toHaveBeenCalled();
   });
 
   it("invokes redo on Mod+Shift+z and undo on Mod+Alt+z", () => {

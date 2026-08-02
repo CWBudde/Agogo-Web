@@ -1,5 +1,17 @@
 import { CommandID, type LayerNodeMeta, type SetVectorLayerStyleCommand } from "@agogo/proto";
+import { useEffect, useRef, useState } from "react";
+import { ContextualColorPickerDialog } from "@/components/brush-color-panels";
+import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import type { EngineContextValue } from "@/wasm/types";
+
+type VectorColorSession = {
+  layerId: string;
+  target: "fill" | "stroke";
+  initialColor: Rgba;
+  fillColor: Rgba;
+  strokeColor: Rgba;
+  strokeWidth: number;
+};
 
 export function VectorPropertiesPanel({
   engine,
@@ -11,6 +23,20 @@ export function VectorPropertiesPanel({
   const fillColor = layer.fillColor ?? [0, 0, 0, 255];
   const strokeColor = layer.strokeColor ?? [0, 0, 0, 0];
   const strokeWidth = layer.strokeWidth ?? 0;
+  const [colorSession, setColorSession] = useState<VectorColorSession | null>(null);
+  const colorSessionRef = useRef(colorSession);
+  colorSessionRef.current = colorSession;
+  const colorSessionLayerId = layer.id;
+
+  useEffect(() => {
+    return () => {
+      if (colorSessionRef.current?.layerId === colorSessionLayerId) {
+        colorSessionRef.current = null;
+        setColorSession(null);
+        engine.endTransaction(false);
+      }
+    };
+  }, [colorSessionLayerId, engine]);
 
   const apply = (
     fill: [number, number, number, number],
@@ -23,6 +49,46 @@ export function VectorPropertiesPanel({
       strokeColor: stroke,
       strokeWidth: width,
     } satisfies SetVectorLayerStyleCommand);
+  };
+
+  const openColorEditor = (target: VectorColorSession["target"]) => {
+    if (colorSessionRef.current) {
+      return;
+    }
+    const currentFill = toRgba(fillColor);
+    const currentStroke = toRgba(strokeColor);
+    const session: VectorColorSession = {
+      layerId: layer.id,
+      target,
+      initialColor: target === "fill" ? currentFill : currentStroke,
+      fillColor: currentFill,
+      strokeColor: currentStroke,
+      strokeWidth,
+    };
+    engine.beginTransaction(target === "fill" ? "Change vector fill" : "Change vector stroke");
+    colorSessionRef.current = session;
+    setColorSession(session);
+  };
+
+  const previewColor = (next: Rgba) => {
+    const session = colorSessionRef.current;
+    if (!session) {
+      return;
+    }
+    apply(
+      toMutableRgba(session.target === "fill" ? next : session.fillColor),
+      toMutableRgba(session.target === "stroke" ? next : session.strokeColor),
+      session.strokeWidth,
+    );
+  };
+
+  const finishColorEditor = (commit: boolean) => {
+    if (!colorSessionRef.current) {
+      return;
+    }
+    colorSessionRef.current = null;
+    setColorSession(null);
+    engine.endTransaction(commit);
   };
 
   return (
@@ -43,13 +109,7 @@ export function VectorPropertiesPanel({
                 : `rgba(${fillColor[0]},${fillColor[1]},${fillColor[2]},${fillColor[3] / 255})`,
           }}
           className="h-6 w-6 flex-shrink-0 rounded border border-border focus-visible:outline-none"
-          onClick={() => {
-            if (fillColor[3] === 0) {
-              apply([0, 0, 0, 255], strokeColor, strokeWidth);
-            } else {
-              apply([0, 0, 0, 0], strokeColor, strokeWidth);
-            }
-          }}
+          onClick={() => openColorEditor("fill")}
         />
         <span className="text-[10px] text-muted-foreground/70">
           {fillColor[3] === 0
@@ -72,13 +132,7 @@ export function VectorPropertiesPanel({
                 : `rgba(${strokeColor[0]},${strokeColor[1]},${strokeColor[2]},${strokeColor[3] / 255})`,
           }}
           className="h-6 w-6 flex-shrink-0 rounded border border-border focus-visible:outline-none"
-          onClick={() => {
-            if (strokeColor[3] === 0) {
-              apply(fillColor, [0, 0, 0, 255], strokeWidth || 2);
-            } else {
-              apply(fillColor, [0, 0, 0, 0], strokeWidth);
-            }
-          }}
+          onClick={() => openColorEditor("stroke")}
         />
         <input
           type="number"
@@ -92,6 +146,18 @@ export function VectorPropertiesPanel({
         />
         <span className="text-[10px] text-muted-foreground/70">px</span>
       </div>
+
+      {colorSession?.layerId === layer.id ? (
+        <ContextualColorPickerDialog
+          title={colorSession.target === "fill" ? "Vector Fill" : "Vector Stroke"}
+          description="Preview the paint, choose None for transparency, or cancel to restore it."
+          initialColor={colorSession.initialColor}
+          onPreview={previewColor}
+          onApply={() => finishColorEditor(true)}
+          onCancel={() => finishColorEditor(false)}
+          allowNone
+        />
+      ) : null}
 
       {/* Edit Path button */}
       <button
