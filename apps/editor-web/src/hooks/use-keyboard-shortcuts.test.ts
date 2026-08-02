@@ -14,6 +14,9 @@ function makeActions() {
     onFitToView: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
+    onCut: vi.fn(),
+    onCopy: vi.fn(),
+    onPaste: vi.fn(),
     onFill: vi.fn(),
     onCanvasSize: vi.fn(),
     onSelectAll: vi.fn(),
@@ -85,6 +88,9 @@ describe("useKeyboardShortcuts", () => {
     fireKeyDown("N", { ctrlKey: true, shiftKey: true });
     fireKeyDown("j", { ctrlKey: true });
     fireKeyDown("e", { ctrlKey: true });
+    fireKeyDown("x", { ctrlKey: true });
+    fireKeyDown("c", { ctrlKey: true });
+    fireKeyDown("v", { ctrlKey: true });
 
     expect(actions.onFill).toHaveBeenCalledTimes(1);
     expect(actions.onCanvasSize).toHaveBeenCalledTimes(1);
@@ -92,6 +98,9 @@ describe("useKeyboardShortcuts", () => {
     expect(actions.onNewLayer).toHaveBeenCalledTimes(1);
     expect(actions.onDuplicateLayer).toHaveBeenCalledTimes(1);
     expect(actions.onMergeDown).toHaveBeenCalledTimes(1);
+    expect(actions.onCut).toHaveBeenCalledTimes(1);
+    expect(actions.onCopy).toHaveBeenCalledTimes(1);
+    expect(actions.onPaste).toHaveBeenCalledTimes(1);
   });
 
   it("reapplies the last filter on Mod+f and fades on Mod+Shift+f", () => {

@@ -73,6 +73,15 @@ export function useAppShortcuts(io: MenuActionIO) {
     onRedo() {
       engine.redo();
     },
+    onCut() {
+      handleMenuAction("edit-cut");
+    },
+    onCopy() {
+      handleMenuAction("edit-copy");
+    },
+    onPaste() {
+      handleMenuAction("edit-paste");
+    },
     onFill() {
       handleMenuAction("edit-fill");
     },

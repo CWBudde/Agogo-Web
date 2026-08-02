@@ -155,6 +155,15 @@ func (inst *instance) dispatchSelectionPaintCommand(commandID int32, payloadJSON
 			})
 			return inst.history.Execute(inst, command)
 		},
+		Copy: func() error {
+			return inst.copyPixels()
+		},
+		Cut: func() error {
+			return inst.cutPixels()
+		},
+		Paste: func() error {
+			return inst.pastePixels()
+		},
 	}); handled || err != nil {
 		return handled, nil, suggestedPath, err
 	}

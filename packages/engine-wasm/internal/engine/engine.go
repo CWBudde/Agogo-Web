@@ -77,6 +77,9 @@ const (
 	commandRefineSelection           = 0x0211
 	commandOutputSelection           = 0x0212
 	commandSetSelectionViewMode      = 0x0213
+	commandCopy                      = 0x0214
+	commandCut                       = 0x0215
+	commandPaste                     = 0x0216
 	commandBeginFreeTransform        = 0x0300
 	commandUpdateFreeTransform       = 0x0301
 	commandCommitFreeTransform       = 0x0302
@@ -221,6 +224,7 @@ type UIMeta struct {
 	History             []HistoryEntry  `json:"history"`
 	CanUndo             bool            `json:"canUndo"`
 	CanRedo             bool            `json:"canRedo"`
+	CanPaste            bool            `json:"canPaste"`
 	CurrentHistoryIndex int             `json:"currentHistoryIndex"`
 	ActiveDocumentID    string          `json:"activeDocumentId"`
 	ActiveDocumentName  string          `json:"activeDocumentName"`
@@ -656,6 +660,9 @@ type instance struct {
 	preFadeSnapshot *fadeSnapshot
 	// styleClipboard stores copied layer styles outside document history.
 	styleClipboard styleClipboard
+	// pixelClipboard stores copied raster content outside document history.
+	// It is instance-scoped so content can be pasted between documents.
+	pixelClipboard pixelClipboard
 	// pathTool holds the pen / direct-selection tool UI state.
 	pathTool *pathToolState
 	// editingVectorLayerID is set while the user is editing a VectorLayer's

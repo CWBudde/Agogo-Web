@@ -25,7 +25,7 @@ func DomainOf(commandID int32) Domain {
 		return DomainLayer
 	case commandID == 0x0001 || commandID == 0x0002 || (commandID >= 0x0010 && commandID <= 0x0017) || (commandID >= 0xffe0 && commandID <= 0xffe2) || commandID == 0xfff0 || commandID == 0xfff1 || (commandID >= 0x0117 && commandID <= 0x0119):
 		return DomainCore
-	case (commandID >= 0x0200 && commandID <= 0x0212) || (commandID >= 0x0400 && commandID <= 0x0418):
+	case (commandID >= 0x0200 && commandID <= 0x0216) || (commandID >= 0x0400 && commandID <= 0x0418):
 		return DomainSelectionPaint
 	case (commandID >= 0x0300 && commandID <= 0x0309) || (commandID >= 0x0320 && commandID <= 0x0324):
 		return DomainTransform

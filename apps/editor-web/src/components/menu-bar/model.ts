@@ -13,6 +13,9 @@ export type MenuActionId =
   | "canvas-size"
   | "edit-undo"
   | "edit-redo"
+  | "edit-cut"
+  | "edit-copy"
+  | "edit-paste"
   | "transform-free"
   | "transform-warp"
   | "transform-flip-h"
@@ -144,7 +147,7 @@ export const menuItems: MenuPreviewMenu[] = [
   },
   {
     label: "Edit",
-    caption: "History, fill, and layer transformations.",
+    caption: "History, clipboard, fill, and layer transformations.",
     sections: [
       {
         title: "History",
@@ -156,6 +159,14 @@ export const menuItems: MenuPreviewMenu[] = [
             actionId: "edit-undo",
           },
           { label: "Redo", shortcut: "Ctrl+Shift+Z", actionId: "edit-redo" },
+        ],
+      },
+      {
+        title: "Clipboard",
+        items: [
+          { label: "Cut", shortcut: "Ctrl+X", actionId: "edit-cut" },
+          { label: "Copy", shortcut: "Ctrl+C", actionId: "edit-copy" },
+          { label: "Paste", shortcut: "Ctrl+V", actionId: "edit-paste" },
         ],
       },
       {

@@ -399,6 +399,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 			CurrentHistoryIndex: inst.history.CurrentIndex(),
 			CanUndo:             inst.history.CanUndo(),
 			CanRedo:             inst.history.CanRedo(),
+			CanPaste:            inst.pixelClipboard.valid(),
 			MaskEditLayerID:     inst.maskEditLayerID,
 			AvailableFonts:      buildAvailableFontsMeta(),
 		}
@@ -422,6 +423,7 @@ func (inst *instance) renderUIMeta() UIMeta {
 		CurrentHistoryIndex:    inst.history.CurrentIndex(),
 		CanUndo:                inst.history.CanUndo(),
 		CanRedo:                inst.history.CanRedo(),
+		CanPaste:               inst.pixelClipboard.valid(),
 		ActiveDocumentID:       doc.ID,
 		ActiveDocumentName:     doc.Name,
 		DocumentWidth:          doc.Width,

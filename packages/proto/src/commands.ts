@@ -86,6 +86,11 @@ export enum CommandID {
   OutputSelection = 0x0212,
   SetSelectionViewMode = 0x0213,
 
+  // Phase S.8: pixel clipboard
+  Copy = 0x0214,
+  Cut = 0x0215,
+  Paste = 0x0216,
+
   // Phase 3.3: Free Transform
   BeginFreeTransform = 0x0300,
   UpdateFreeTransform = 0x0301,

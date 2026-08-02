@@ -14,7 +14,7 @@ describe("menuItems", () => {
     expect(actionlessItems).toEqual([]);
   });
 
-  it("omits deferred and unsupported menu placeholders", () => {
+  it("omits unsupported menu placeholders", () => {
     const menuLabels = menuItems.map((menu) => menu.label);
     const itemLabels = menuItems.flatMap((menu) =>
       menu.sections.flatMap((section) => section.items.map((item) => item.label)),
@@ -23,9 +23,6 @@ describe("menuItems", () => {
     expect(menuLabels).not.toContain("Help");
     expect(itemLabels).not.toEqual(
       expect.arrayContaining([
-        "Cut",
-        "Copy",
-        "Paste",
         "Generate Assets",
         "Image Size...",
         "Trim",
@@ -41,5 +38,6 @@ describe("menuItems", () => {
         "Reset Workspace",
       ]),
     );
+    expect(itemLabels).toEqual(expect.arrayContaining(["Cut", "Copy", "Paste"]));
   });
 });

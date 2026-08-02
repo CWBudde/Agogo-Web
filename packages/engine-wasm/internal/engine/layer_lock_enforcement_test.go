@@ -92,6 +92,12 @@ var lockedOps = []struct {
 		},
 	},
 	{
+		name: "cut",
+		run: func(inst *instance, doc *Document, layer *PixelLayer) error {
+			return inst.cutPixels()
+		},
+	},
+	{
 		name: "fill path",
 		run: func(inst *instance, doc *Document, layer *PixelLayer) error {
 			return inst.executeDocCommand("Fill path", func(doc *Document) error {

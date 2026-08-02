@@ -108,6 +108,7 @@ function meta(layers: LayerNodeMeta[], activeLayerId: string | null): UIMeta {
     currentHistoryIndex: 0,
     canUndo: true,
     canRedo: true,
+    canPaste: false,
     activeDocumentId: "doc-1",
     activeDocumentName: "Document",
     documentWidth: 640,
@@ -145,6 +146,37 @@ describe("useMenuActions", () => {
     expect(mocks.engine.setZoom).toHaveBeenNthCalledWith(1, 2.2);
     expect(mocks.engine.setZoom).toHaveBeenNthCalledWith(2, 2 / 1.1);
     expect(mocks.engine.fitToView).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatches clipboard actions and derives their eligibility", () => {
+    mocks.uiMeta = {
+      ...meta([layer("active", "pixel")], "active"),
+      canPaste: true,
+    };
+    const { result } = renderHook(() => useMenuActions(io));
+
+    expect(result.current.isMenuActionDisabled("edit-cut")).toBe(false);
+    expect(result.current.isMenuActionDisabled("edit-copy")).toBe(false);
+    expect(result.current.isMenuActionDisabled("edit-paste")).toBe(false);
+
+    act(() => {
+      result.current.handleMenuAction("edit-cut");
+      result.current.handleMenuAction("edit-copy");
+      result.current.handleMenuAction("edit-paste");
+    });
+
+    expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(1, CommandID.Cut, {});
+    expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(2, CommandID.Copy, {});
+    expect(mocks.engine.dispatchCommand).toHaveBeenNthCalledWith(3, CommandID.Paste, {});
+  });
+
+  it("disables cut for non-pixel or locked layers and paste for an empty clipboard", () => {
+    mocks.uiMeta = meta([layer("active", "vector", { lockMode: "all" })], "active");
+    const { result } = renderHook(() => useMenuActions(io));
+
+    expect(result.current.isMenuActionDisabled("edit-cut")).toBe(true);
+    expect(result.current.isMenuActionDisabled("edit-copy")).toBe(false);
+    expect(result.current.isMenuActionDisabled("edit-paste")).toBe(true);
   });
 
   it("dispatches the Layer menu through the existing engine commands", () => {

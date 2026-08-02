@@ -120,6 +120,17 @@ export function useMenuActions(io: MenuActionIO) {
         return !uiMeta?.canUndo;
       case "edit-redo":
         return !uiMeta?.canRedo;
+      case "edit-copy":
+        return !activeLayer || activeLayer.layerType === "adjustment";
+      case "edit-cut":
+        return (
+          !activeLayer ||
+          activeLayer.layerType !== "pixel" ||
+          activeLayer.lockMode === "pixels" ||
+          activeLayer.lockMode === "all"
+        );
+      case "edit-paste":
+        return !uiMeta?.canPaste;
       case "image-invert":
       case "image-levels":
       case "image-curves":
@@ -249,6 +260,15 @@ export function useMenuActions(io: MenuActionIO) {
         break;
       case "edit-redo":
         engine.redo();
+        break;
+      case "edit-copy":
+        engine.dispatchCommand(CommandID.Copy, {});
+        break;
+      case "edit-cut":
+        engine.dispatchCommand(CommandID.Cut, {});
+        break;
+      case "edit-paste":
+        engine.dispatchCommand(CommandID.Paste, {});
         break;
       case "transform-free":
         setActiveTool("transform");

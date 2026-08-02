@@ -512,17 +512,161 @@
 
 > Recurring audit finding: engine command exists, tested, and works — frontend never dispatches it. 24 handled-but-never-dispatched commands total.
 
+**Goal:** Finish the remaining engine-to-UI feature slices without hiding multi-day backend, ABI, state-management, and test work behind single checklist items.
+
+**Acceptance criterion:** Every remaining S.8 feature is either usable end-to-end from the UI or deliberately removed from the visible product; all new commands have shared TypeScript/Go contracts, undo/error behavior is explicit, and focused engine plus frontend tests cover the user-visible flow.
+
 - [x] **Filter menu** (2026-07-26) — the entire filter domain (0x0500–0x0505, 26 registered filters, live preview, Ctrl+F reapply, Fade) is now wired. Added TS payload types (`ApplyFilterCommand`/`PreviewFilterCommand`/`FadeFilterCommand`), a static frontend filter catalog mirroring the engine registry (id/name/category/hasDialog + per-filter param schema), a generic catalog-driven `FilterDialog` managing the engine's preview lifecycle (open→PreviewFilter, tweak→re-preview, Preview toggle→Cancel, Apply→CommitFilterPreview / ApplyFilter, Cancel/Escape/unmount→CancelFilterPreview), a `FadeDialog` (opacity + blend mode → FadeFilter), a `FilterStateProvider` (active dialog, last-applied filter, one-shot fade availability), Filter-menu regeneration from the catalog with category section headers, and Ctrl+F (reapply) / Ctrl+Shift+F (fade) shortcuts. TDD: filter-catalog, filter-state reducer, FilterDialog, FadeDialog, MenuPreviewPanel, keyboard-shortcut tests. As a side benefit, `MenuPreviewPanel` now renders the (already-authored) section titles for every multi-section menu.
 - [x] **Menu bar de-mock** (2026-08-01) — every visible entry now has a real action: wired Undo/Redo, core adjustment-layer creation, all Layer actions, viewport Zoom/Fit, and Window panel focus with accurate disabled/checked state; wired the shortcuts the menu advertises (Fill, Canvas Size, Reselect, layer commands, modified zoom/fit). Removed deferred Clipboard entries, dead Generate Assets/Image Size/Trim/Pixel Grid/Rulers/workspace/Help placeholders, and the Scale/Rotate/Skew/Distort/Perspective aliases that all mislabeled plain free transform. A menu-model invariant test prevents actionless entries from returning.
-- [ ] **Clipboard**: no cut/copy/paste exists anywhere (needs new engine commands + UI)
-- [ ] Histogram display in Levels UI (`ComputeHistogram` has no consumer); Curves black/white/gray eyedroppers (`SetPointFromSample` never dispatched); Hue/Sat range eyedropper (`IdentifyHueRange` never dispatched)
-- [ ] Transform Again menu item (backend complete, zero frontend)
-- [ ] Brush jitter dynamics: panel sliders are display-only — values never reach the engine, no proto fields exist
-- [ ] Navigator: real document thumbnail (currently a static CSS-gradient placeholder, `App.tsx:4400`)
-- [ ] Multi-document: `SwitchDocument` proto command + document tab bar (engine `DocumentManager` supports it; unreachable by users) — blocked on S.2 undo-vs-multi-doc fix
-- [ ] Alt+click visibility eye = solo (claimed in 2.4, no altKey handling)
-- [ ] Character panel real color picker (currently a black↔red demo toggle); vector properties real fill/stroke pickers (transparent↔black toggle); remove or implement mask Density/Feather sliders and other decorative controls
-- [ ] Real `.abr` parser (current "import" is a filename-regex heuristic)
+- [x] **Clipboard** (2026-08-02) — added instance-scoped pixel clipboard commands (`Copy`/`Cut`/`Paste`, 0x0214–0x0216), selection-aware copy/cut with feather coverage, lock-safe undoable cuts, same-document positioning and cross-document centering on paste, `canPaste` UI metadata, Edit-menu actions with truthful enablement, and Ctrl+X/C/V shortcuts.
+
+#### Phase S.8.1: Adjustment Histograms & Canvas Eyedroppers
+
+**Goal:** Connect the existing histogram and adjustment-sampling commands to Levels, Curves, and Hue/Saturation controls with one coherent canvas interaction mode.
+
+**Acceptance criterion:** Levels displays the requested live histogram, Curves black/white/gray/add-point samplers mutate the selected Curves layer from a canvas click, and the Hue/Saturation sampler selects the identified color range; Escape and tool/layer changes cancel sampling cleanly.
+
+- [ ] Complete the shared ABI types that the implemented backend responses currently lack:
+  - [ ] Add payload types for `ComputeHistogram`, `SetPointFromSample`, and `IdentifyHueRange`
+  - [ ] Add `HistogramData` and `histogram`/`identifiedHueRange` fields to the TypeScript `RenderResult` contract
+  - [ ] Verify command errors and command-specific response fields survive the Wasm context merge path
+- [ ] Build reusable adjustment canvas-sampling state instead of three independent pointer handlers:
+  - [ ] Track the target adjustment layer, sampler kind, sample size, and cursor
+  - [ ] Route the next eligible canvas click in document coordinates to the owning adjustment editor
+  - [ ] Cancel on Escape, panel/layer change, tool change, dialog close, or deleted target layer
+  - [ ] Avoid collisions with the normal Eyedropper, Color Sampler, pan, and selection modifier gestures
+- [ ] Wire the Levels histogram display:
+  - [ ] Request active-layer or merged data and draw the selected RGB/luminance channel behind the Levels controls
+  - [ ] Refresh on active layer, content version, source, or channel changes without recomputing on every render frame
+  - [ ] Handle empty/transparent documents and scale bins without losing narrow peaks
+- [ ] Wire Curves sampling controls for black, white, gray, and add-point modes to `SetPointFromSample`
+- [ ] Refresh Curves parameters/UIMeta after a sample and preserve channel-specific curve editing and undo semantics
+- [ ] Wire the Hue/Saturation eyedropper to `IdentifyHueRange`, update the active range selector from the returned value, and keep existing range parameters intact
+- [ ] Add Go command-contract regression tests where missing and frontend tests for response decoding, histogram refresh keys, sampler lifecycle, cursor state, dispatch payloads, and cancellation
+
+#### Phase S.8.2: Transform Again UI & Command State
+
+**Goal:** Expose the already-implemented `TransformAgain` operation with honest availability and Photoshop-style keyboard access.
+
+**Acceptance criterion:** Edit → Transform Again and its shortcut replay the last committed free or discrete transform on the current eligible layer, remain disabled when replay is impossible, and produce a normal undoable history entry.
+
+- [ ] Expose `canTransformAgain` (and any eligibility reason needed by the UI) in `UIMeta` rather than enabling the action optimistically
+- [ ] Add the Transform Again menu action with accurate disabled state and `Ctrl/Cmd+Shift+T`
+- [ ] Flush pending pointer input and reject invocation during incompatible in-flight crop, transform, text-edit, or paint states
+- [ ] Preserve backend errors in the frontend notification path instead of silently closing the menu
+- [ ] Add menu-model, shortcut, and engine-context tests covering unavailable, free-transform, discrete-transform, and undo cases
+
+#### Phase S.8.3: Brush Tip & Jitter Dynamics Wiring
+
+**Goal:** Make the visible Brush Settings controls affect rendered strokes, beginning with size/opacity/flow jitter and including the adjacent preset fields on which real brush import depends.
+
+**Acceptance criterion:** Size, opacity, and flow jitter visibly and measurably affect dabs; zero jitter remains byte-identical to the current output; tip shape, angle, roundness, and spacing are either engine-backed or removed from the panel; all paint-like tools receive the same applicable settings.
+
+- [ ] Audit the complete Brush Settings payload path from `brush-state.tsx` → `CanvasHost` → `EditorCanvas` → `packages/proto` → Go and list every currently decorative field
+- [ ] Extend the shared `BrushParams` contract with normalized, documented fields for:
+  - [ ] Size, opacity, and flow jitter
+  - [ ] Tip shape/preset ID, angle, roundness, and spacing
+  - [ ] Per-dynamic control-source semantics (`off`, pressure, tilt, fade) without conflicting with the existing pressure toggles
+- [ ] Define deterministic stroke dynamics:
+  - [ ] Create a per-stroke random source/seed rather than relying on the package-global `math/rand` stream
+  - [ ] Sample dynamics once per emitted dab, clamp effective size/opacity/flow, and compute the undo/dirty footprint from the effective size
+  - [ ] Preserve repeatable tests and stable coalesced-event behavior
+- [ ] Render supported procedural tip shapes through `agg_go` paths and make angle/roundness affect the dab transform
+- [ ] Replace the fixed `0.25` dab spacing in the stroke pipeline with validated brush/preset spacing while keeping a safe minimum
+- [ ] Thread the settings through brush, pencil, eraser, mixer, clone stamp, and history brush paths, explicitly documenting settings that do not apply to a tool
+- [ ] Ensure preset selection and JSON import/export round-trip every engine-backed field; make unsupported imported fields visible as warnings rather than silently inventing behavior
+- [ ] Add statistical engine tests for jitter ranges/distribution, byte-parity tests at zero jitter, dirty-rect/selection/undo tests for variable-size dabs, and frontend payload tests for every paint tool
+- [ ] Re-run paint benchmarks to ensure per-dab dynamics do not regress the S.4 hot path disproportionately
+
+#### Phase S.8.4: Real Navigator Preview & Viewport Control
+
+**Goal:** Replace the static Navigator placeholder with an engine-rendered document preview and an interactive viewport indicator.
+
+**Acceptance criterion:** Navigator shows the active composited document, refreshes after content/document changes without work on idle frames, displays the visible canvas region, and supports click/drag pan plus zoom control.
+
+- [ ] Add a dedicated navigator-thumbnail command/response rather than placing base64 pixel data in every `UIMeta`
+- [ ] Render a bounded, aspect-correct composite thumbnail in Go/Wasm using `agg_go` image scaling and return its dimensions plus RGBA bytes
+- [ ] Cache the thumbnail by active document ID, content version, requested size, and background mode
+- [ ] Build a display-only thumbnail canvas component that only blits the engine-owned RGBA result
+- [ ] Project the current canvas corners into document/thumbnail space and draw an accurate viewport polygon for pan, zoom, and rotated views
+- [ ] Add click-to-center and drag-to-pan interactions; keep the existing zoom slider synchronized with engine viewport state
+- [ ] Refresh on panel open, active-document change, content-version change, and panel resize, with request deduplication for React Strict Mode
+- [ ] Cover transparent documents, extreme aspect ratios, zoom beyond document bounds, rotation, no-active-document state, and stale async responses in Go and frontend tests
+
+#### Phase S.8.5: Multi-Document Sessions & Tab Bar
+
+**Goal:** Turn the existing `DocumentManager` storage into safe user-facing multi-document sessions with switching, closing, and per-document workspace state.
+
+**Acceptance criterion:** Users can keep multiple documents open, switch from a tab bar without losing edits or sibling documents, return to each document's viewport/history/UI state, and close documents with correct active-tab and unsaved-change behavior.
+
+- [ ] Define the document-session contract before exposing tabs:
+  - [ ] Decide which state is per document: viewport, history, selection/edit modes, last transform/filter, clone/history sources, and transient previews
+  - [ ] Cancel or commit in-flight paint, transform, crop, text, and filter-preview state deterministically before switching
+  - [ ] Define tab ordering, next-active behavior on close, and whether document creation/opening participates in edit history
+- [ ] Add a `SwitchDocument` command and shared payload type; expose an ordered document summary list in `UIMeta` with ID, display name, active state, dimensions, and modified/clean state
+- [ ] Replace the single global viewport/history assumptions with document-keyed session state (or an equivalent ownership model) so switching does not mix undo stacks or camera positions
+- [ ] Audit all manager-replacing flows:
+  - [ ] Opening/importing a project or image must add/replace only the intended document rather than discard unrelated open documents
+  - [ ] Undo/redo and history jump must operate on the active document without unexpectedly activating or mutating a sibling
+  - [ ] Autosave, Save/Save As, export, thumbnails, filter state, and cached render keys must target the active document ID
+- [ ] Add an accessible tab bar with active/modified indicators, close buttons, overflow behavior, middle-click close, and `Ctrl/Cmd+Tab` / `Ctrl/Cmd+Shift+Tab` navigation
+- [ ] Add a close-confirmation flow for modified documents and define the last-document empty-workspace state
+- [ ] Invalidate/rebuild render, UIMeta, layer-thumbnail, Navigator, and document-sized canvas caches on switch without leaking Wasm buffers
+- [ ] Add engine tests with at least three documents covering switch/edit/undo/redo/close/reopen/import and the S.2 sibling-preservation regression; add frontend tab, shortcut, confirmation, and active-state tests
+
+#### Phase S.8.6: Atomic Layer-Visibility Solo
+
+**Goal:** Implement the advertised Alt/Option-click eye gesture as one coherent layer-tree operation rather than a burst of frontend visibility commands.
+
+**Acceptance criterion:** Alt/Option-clicking a layer eye isolates the intended layer, preserves the ancestor visibility needed to render it, restores the prior visibility set on the matching gesture, and is undoable as one history step.
+
+- [ ] Define solo semantics for nested groups, clipped layers, multi-selection, hidden ancestors, and a second Alt/Option-click
+- [ ] Add one engine command that captures/applies the full visibility change atomically and records one history entry
+- [ ] Store the pre-solo visibility set with a document/layer-tree version guard so stale state is never restored after structural edits
+- [ ] Pass `event.altKey`/`event.metaKey` from the actual eye pointer event without changing normal click behavior or row selection
+- [ ] Add nested-group engine tests plus Layers-panel tests for normal toggle, solo, restore, undo/redo, and modifier handling
+
+#### Phase S.8.7: Real Contextual Color & Mask Controls
+
+**Goal:** Replace demo toggles and decorative Properties controls with reusable, cancel-safe editors backed by real engine state.
+
+**Acceptance criterion:** Text color and vector fill/stroke open a real color editor with preview/apply/cancel semantics; every visible mask control changes compositing or is removed; no Properties-panel control pretends to edit state it cannot persist.
+
+- [ ] Generalize the existing `ColorPickerDialog` from foreground/background global state to a contextual draft/commit API
+- [ ] Wire Character text color:
+  - [ ] Open from the current text color, preview through the existing text-layer update command, and restore the original value on Cancel/Escape
+  - [ ] Preserve alpha and include the change in the correct text-edit/history transaction
+- [ ] Wire vector fill and stroke independently:
+  - [ ] Support full RGBA selection plus an explicit None/transparent action
+  - [ ] Preserve the other paint and stroke width while one color is previewed
+  - [ ] Re-rasterize through the engine and make Apply/Cancel/undo behavior deterministic
+- [ ] Decide mask Density/Feather scope from actual engine support:
+  - [ ] If implemented, add non-destructive mask density/feather fields, commands, `UIMeta`, project serialization, clone/equality/history support, and cache invalidation
+  - [ ] Apply density and feather in the engine compositor using `agg_go` primitives; if the required filter API is still internal, complete the narrow S.9 export first
+  - [ ] If deferred, remove the controls and explanatory placeholder rather than leaving disabled decoration
+- [ ] Audit the rest of Character, Vector Properties, Adjustments/Mask, Channels, and related panels for demo toggles, hard-coded previews, or callbacks that only mutate local display state
+- [ ] For every audit finding, wire it end-to-end or remove it; add a frontend invariant/test that visible action controls have a state-changing handler
+- [ ] Add dialog preview/cancel tests, text/vector payload tests, mask render/history/serialization tests when applicable, and accessibility coverage for keyboard and focus return
+
+#### Phase S.8.8: Real ABR Brush Preset Import
+
+**Goal:** Replace filename/name guessing with fixture-driven ABR parsing and render imported brush tips through the engine.
+
+**Acceptance criterion:** Supported `.abr` files import their real preset names, tip images, spacing/shape/dynamics metadata, and usable thumbnails; malformed or unsupported files fail safely with actionable warnings; the regex heuristic is gone.
+
+- [ ] Define the first supported ABR compatibility matrix from licensed or redistributable fixtures (format versions, sampled brushes, computed brushes, compression variants, and descriptor fields)
+- [ ] Move ABR binary parsing into Go/Wasm so decoded tip pixels never become a JavaScript rendering pipeline:
+  - [ ] Add an import command accepting raw file bytes and a response containing sanitized preset metadata, stable IDs, thumbnails, and per-preset warnings
+  - [ ] Implement bounds-checked big-endian readers, versioned sections, descriptor/string parsing, sampled-tip dimensions/depth/compression decoding, and strict allocation limits
+  - [ ] Reject truncated, oversized, or unsupported records without partially registering corrupt presets
+- [ ] Add an engine brush-resource registry for imported grayscale/alpha tips and computed preset metadata; define app-session/document ownership and cleanup on engine disposal
+- [ ] Extend `BrushParams`/preset selection to reference an imported tip ID and render the scaled/rotated tip via `agg_go` image/span/mask primitives
+- [ ] Map supported ABR spacing, diameter, hardness, angle, roundness, and dynamics fields onto the S.8.3 brush model; report unsupported Adobe-only behaviors instead of approximating them silently
+- [ ] Return engine-generated preview thumbnails for the preset picker; keep React limited to displaying the returned bytes and metadata
+- [ ] Decide persistence explicitly: retain imported libraries in IndexedDB/app storage and embed only referenced resources in `.agp`, or document a simpler scoped alternative
+- [ ] Keep JSON preset import as a separate validated format and remove `extractAbrPresetNames` plus all regex-based inference
+- [ ] Add golden metadata/tip-decode tests from external fixtures, malformed/truncation/size-limit tests, parser fuzz tests, and frontend import/duplicate/error/persistence tests
+- [ ] Benchmark large brush libraries and sampled-tip strokes; avoid decoding every tip eagerly if fixture measurements justify indexed lazy loading
 
 ### Phase S.9: agg_go Upgrade & Alignment
 

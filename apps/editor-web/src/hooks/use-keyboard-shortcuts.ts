@@ -31,6 +31,9 @@ type KeyboardActions = {
   onFitToView(): void;
   onUndo(): void;
   onRedo(): void;
+  onCut(): void;
+  onCopy(): void;
+  onPaste(): void;
   onFill(): void;
   onCanvasSize(): void;
   onSelectAll(): void;
@@ -98,6 +101,18 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+Shift+e":
           event.preventDefault();
           currentActions.onExportDocument();
+          return;
+        case "Mod+x":
+          event.preventDefault();
+          currentActions.onCut();
+          return;
+        case "Mod+c":
+          event.preventDefault();
+          currentActions.onCopy();
+          return;
+        case "Mod+v":
+          event.preventDefault();
+          currentActions.onPaste();
           return;
         case "Shift+F5":
           event.preventDefault();

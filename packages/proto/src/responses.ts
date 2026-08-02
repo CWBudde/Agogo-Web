@@ -65,6 +65,8 @@ export interface UIMeta {
   currentHistoryIndex: number;
   canUndo: boolean;
   canRedo: boolean;
+  /** True when the engine's internal pixel clipboard contains pasteable data. */
+  canPaste: boolean;
   activeDocumentId: string;
   activeDocumentName: string;
   documentWidth: number;
