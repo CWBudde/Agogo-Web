@@ -1,13 +1,19 @@
-import { type AdjustmentKind, type AdjustmentLayerParams, CommandID } from "@agogo/proto";
+import {
+  type AdjustmentKind,
+  type AdjustmentLayerParams,
+  CommandID,
+  type LayerNodeMeta,
+} from "@agogo/proto";
 import { defaultFilterParams, getFilterDefinition } from "@/components/filters/filter-catalog";
 import type { MenuActionId, MenuPreviewItem } from "@/components/menu-bar/model";
+import { findLayerMetaInTree, findLayerPositionInTree } from "@/lib/layer-tree";
 import { useDialogState } from "@/state/dialog-state";
 import { useFillGradientState } from "@/state/fill-gradient-state";
 import { useFilterState } from "@/state/filter-state";
 import { useSelectionToolState } from "@/state/selection-tool-state";
 import { useToolState } from "@/state/tool-state";
 import { useViewState } from "@/state/view-state";
-import { useEngine } from "@/wasm/context";
+import { useEngine, useEngineStore } from "@/wasm/context";
 import { useUiMeta } from "@/wasm/use-engine-render";
 
 export type DocumentSaveFormat = "archive" | "psd" | "psb";
@@ -43,12 +49,20 @@ export interface MenuActionIO {
  */
 export function useMenuActions(io: MenuActionIO) {
   const engine = useEngine();
+  const { getSnapshot } = useEngineStore();
   // Menu disabled/checked state derives from uiMeta; subscribing to the whole
   // uiMeta slice keeps it reactive without re-rendering on viewport-only frames.
   const uiMeta = useUiMeta((meta) => meta);
   const { setActiveTool } = useToolState();
   const { setTransformRefPoint, setTransformSelectionActive } = useSelectionToolState();
-  const { showGuides, setShowGuides } = useViewState();
+  const {
+    showGuides,
+    setShowGuides,
+    panelCollapsed,
+    setPanelCollapsed,
+    activeAuxPanel,
+    setActiveAuxPanel,
+  } = useViewState();
   const { setFillDialogOpen } = useFillGradientState();
   const { lastFilter, canFade, openFilter, openFade, noteFilterApplied } = useFilterState();
   const {
@@ -69,10 +83,25 @@ export function useMenuActions(io: MenuActionIO) {
   } = useDialogState();
 
   const savedSelectionChannels = uiMeta?.savedSelectionChannels ?? [];
+  const activeLayer = uiMeta?.activeLayerId
+    ? findLayerMetaInTree(uiMeta.layers, uiMeta.activeLayerId)
+    : null;
+  const activeLayerPosition = uiMeta?.activeLayerId
+    ? findLayerPositionInTree(uiMeta.layers, uiMeta.activeLayerId)
+    : null;
 
-  const checkedMenuActionIds = new Set<MenuActionId>(
-    showGuides ? (["view-toggle-guides"] as MenuActionId[]) : [],
-  );
+  const checkedMenuActionIds = new Set<MenuActionId>();
+  if (showGuides) {
+    checkedMenuActionIds.add("view-toggle-guides");
+  }
+  if (!panelCollapsed) {
+    checkedMenuActionIds.add("window-layers");
+    if (activeAuxPanel === "navigator") {
+      checkedMenuActionIds.add("window-navigator");
+    } else if (activeAuxPanel === "history") {
+      checkedMenuActionIds.add("window-history");
+    }
+  }
 
   const isMenuActionDisabled = (actionId: MenuActionId) => {
     switch (actionId) {
@@ -80,10 +109,21 @@ export function useMenuActions(io: MenuActionIO) {
       case "save-psd":
       case "save-psb":
       case "export-project":
-      case "generate-assets":
       case "canvas-size":
-        return !uiMeta || actionId === "generate-assets";
+      case "layer-new":
+      case "layer-new-group":
+      case "view-zoom-in":
+      case "view-zoom-out":
+      case "view-fit-screen":
+        return !uiMeta;
+      case "edit-undo":
+        return !uiMeta?.canUndo;
+      case "edit-redo":
+        return !uiMeta?.canRedo;
       case "image-invert":
+      case "image-levels":
+      case "image-curves":
+      case "image-hue-sat":
       case "image-channel-mixer":
       case "image-threshold":
       case "image-posterize":
@@ -92,11 +132,6 @@ export function useMenuActions(io: MenuActionIO) {
       case "image-gradient-map":
         return !uiMeta?.activeLayerId;
       case "transform-free":
-      case "transform-scale":
-      case "transform-rotate":
-      case "transform-skew":
-      case "transform-distort":
-      case "transform-perspective":
       case "transform-warp":
         return !uiMeta?.activeLayerId;
       case "transform-flip-h":
@@ -105,6 +140,18 @@ export function useMenuActions(io: MenuActionIO) {
       case "transform-rotate-ccw":
       case "transform-rotate-180":
         return !uiMeta?.activeLayerId;
+      case "layer-add-mask":
+        return !activeLayer || activeLayer.hasMask;
+      case "layer-duplicate":
+        return !activeLayer;
+      case "layer-merge-down":
+        return !activeLayer || !activeLayerPosition || activeLayerPosition.index === 0;
+      case "layer-rasterize":
+        return (
+          !activeLayer ||
+          activeLayer.layerType === "pixel" ||
+          activeLayer.layerType === "adjustment"
+        );
       case "select-all":
       case "select-deselect":
       case "select-reselect":
@@ -197,12 +244,13 @@ export function useMenuActions(io: MenuActionIO) {
       case "canvas-size":
         io.openCanvasSizeDialog();
         break;
+      case "edit-undo":
+        engine.undo();
+        break;
+      case "edit-redo":
+        engine.redo();
+        break;
       case "transform-free":
-      case "transform-scale":
-      case "transform-rotate":
-      case "transform-skew":
-      case "transform-distort":
-      case "transform-perspective":
         setActiveTool("transform");
         setTransformRefPoint([1, 1]);
         engine.dispatchCommand(CommandID.BeginFreeTransform, {});
@@ -272,6 +320,21 @@ export function useMenuActions(io: MenuActionIO) {
       case "edit-fill":
         setFillDialogOpen(true);
         break;
+      case "image-levels":
+        io.createAdjustmentLayer("Levels", "levels");
+        setPanelCollapsed(false);
+        setActiveAuxPanel("properties");
+        break;
+      case "image-curves":
+        io.createAdjustmentLayer("Curves", "curves");
+        setPanelCollapsed(false);
+        setActiveAuxPanel("properties");
+        break;
+      case "image-hue-sat":
+        io.createAdjustmentLayer("Hue/Saturation", "hue-sat");
+        setPanelCollapsed(false);
+        setActiveAuxPanel("properties");
+        break;
       case "image-invert":
         io.createAdjustmentLayer("Invert", "invert");
         break;
@@ -293,12 +356,81 @@ export function useMenuActions(io: MenuActionIO) {
       case "image-gradient-map":
         setGradientMapDialogOpen(true);
         break;
+      case "layer-new":
+        if (uiMeta) {
+          engine.dispatchCommand(CommandID.AddLayer, {
+            layerType: "pixel",
+            name: `Layer ${countLayers(uiMeta.layers) + 1}`,
+            bounds: { x: 0, y: 0, w: uiMeta.documentWidth, h: uiMeta.documentHeight },
+          });
+        }
+        break;
+      case "layer-new-group":
+        if (uiMeta) {
+          engine.dispatchCommand(CommandID.AddLayer, {
+            layerType: "group",
+            name: `Group ${countLayers(uiMeta.layers) + 1}`,
+            isolated: true,
+          });
+        }
+        break;
+      case "layer-add-mask":
+        if (activeLayer) {
+          engine.dispatchCommand(CommandID.AddLayerMask, {
+            layerId: activeLayer.id,
+            mode: "reveal-all",
+          });
+        }
+        break;
+      case "layer-duplicate":
+        if (activeLayer) {
+          engine.dispatchCommand(CommandID.DuplicateLayer, { layerId: activeLayer.id });
+        }
+        break;
+      case "layer-merge-down":
+        if (activeLayer) {
+          engine.dispatchCommand(CommandID.MergeDown, { layerId: activeLayer.id });
+        }
+        break;
+      case "layer-rasterize":
+        if (activeLayer) {
+          engine.dispatchCommand(CommandID.FlattenLayer, { layerId: activeLayer.id });
+        }
+        break;
+      case "view-zoom-in": {
+        const render = getSnapshot();
+        if (render) {
+          engine.setZoom(render.viewport.zoom * 1.1);
+        }
+        break;
+      }
+      case "view-zoom-out": {
+        const render = getSnapshot();
+        if (render) {
+          engine.setZoom(render.viewport.zoom / 1.1);
+        }
+        break;
+      }
+      case "view-fit-screen":
+        engine.fitToView();
+        break;
       case "view-toggle-guides": {
         const next = !showGuides;
         setShowGuides(next);
         engine.setShowGuides(next);
         break;
       }
+      case "window-layers":
+        setPanelCollapsed(false);
+        break;
+      case "window-navigator":
+        setPanelCollapsed(false);
+        setActiveAuxPanel("navigator");
+        break;
+      case "window-history":
+        setPanelCollapsed(false);
+        setActiveAuxPanel("history");
+        break;
       case "filter-last":
         if (lastFilter) {
           engine.dispatchCommand(CommandID.ReapplyFilter, {});
@@ -321,4 +453,8 @@ export function useMenuActions(io: MenuActionIO) {
     isMenuItemDisabled,
     checkedMenuActionIds,
   };
+}
+
+function countLayers(layers: LayerNodeMeta[]): number {
+  return layers.reduce((count, layer) => count + 1 + countLayers(layer.children ?? []), 0);
 }

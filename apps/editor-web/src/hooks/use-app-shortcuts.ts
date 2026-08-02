@@ -73,14 +73,32 @@ export function useAppShortcuts(io: MenuActionIO) {
     onRedo() {
       engine.redo();
     },
+    onFill() {
+      handleMenuAction("edit-fill");
+    },
+    onCanvasSize() {
+      handleMenuAction("canvas-size");
+    },
     onSelectAll() {
       engine.selectAll();
     },
     onDeselect() {
       engine.deselect();
     },
+    onReselect() {
+      engine.reselect();
+    },
     onInvertSelection() {
       engine.invertSelection();
+    },
+    onNewLayer() {
+      handleMenuAction("layer-new");
+    },
+    onDuplicateLayer() {
+      handleMenuAction("layer-duplicate");
+    },
+    onMergeDown() {
+      handleMenuAction("layer-merge-down");
     },
     onToolSelect(tool: ShortcutTool) {
       activateTool(tool);

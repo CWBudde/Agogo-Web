@@ -14,9 +14,15 @@ function makeActions() {
     onFitToView: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
+    onFill: vi.fn(),
+    onCanvasSize: vi.fn(),
     onSelectAll: vi.fn(),
     onDeselect: vi.fn(),
+    onReselect: vi.fn(),
     onInvertSelection: vi.fn(),
+    onNewLayer: vi.fn(),
+    onDuplicateLayer: vi.fn(),
+    onMergeDown: vi.fn(),
     onToolSelect: vi.fn(),
     onBeginTransform: vi.fn(),
     onNudgeLayer: vi.fn(),
@@ -54,6 +60,38 @@ describe("useKeyboardShortcuts", () => {
     fireKeyDown("=");
     expect(actions.onZoomIn).toHaveBeenCalledTimes(2);
     expect(actions.onZoomOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports the modified zoom and fit shortcuts displayed in the View menu", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("+", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("-", { ctrlKey: true });
+    fireKeyDown("0", { ctrlKey: true });
+
+    expect(actions.onZoomIn).toHaveBeenCalledTimes(1);
+    expect(actions.onZoomOut).toHaveBeenCalledTimes(1);
+    expect(actions.onFitToView).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the displayed edit, canvas, selection, and layer shortcuts", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("F5", { shiftKey: true });
+    fireKeyDown("c", { ctrlKey: true, altKey: true });
+    fireKeyDown("D", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("N", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("j", { ctrlKey: true });
+    fireKeyDown("e", { ctrlKey: true });
+
+    expect(actions.onFill).toHaveBeenCalledTimes(1);
+    expect(actions.onCanvasSize).toHaveBeenCalledTimes(1);
+    expect(actions.onReselect).toHaveBeenCalledTimes(1);
+    expect(actions.onNewLayer).toHaveBeenCalledTimes(1);
+    expect(actions.onDuplicateLayer).toHaveBeenCalledTimes(1);
+    expect(actions.onMergeDown).toHaveBeenCalledTimes(1);
   });
 
   it("reapplies the last filter on Mod+f and fades on Mod+Shift+f", () => {

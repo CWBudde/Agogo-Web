@@ -10,14 +10,10 @@ export type MenuActionId =
   | "save-psd"
   | "save-psb"
   | "export-project"
-  | "generate-assets"
   | "canvas-size"
+  | "edit-undo"
+  | "edit-redo"
   | "transform-free"
-  | "transform-scale"
-  | "transform-rotate"
-  | "transform-skew"
-  | "transform-distort"
-  | "transform-perspective"
   | "transform-warp"
   | "transform-flip-h"
   | "transform-flip-v"
@@ -25,6 +21,9 @@ export type MenuActionId =
   | "transform-rotate-ccw"
   | "transform-rotate-180"
   | "edit-fill"
+  | "image-levels"
+  | "image-curves"
+  | "image-hue-sat"
   | "image-invert"
   | "image-channel-mixer"
   | "image-threshold"
@@ -32,6 +31,12 @@ export type MenuActionId =
   | "image-selective-color"
   | "image-photo-filter"
   | "image-gradient-map"
+  | "layer-new"
+  | "layer-new-group"
+  | "layer-add-mask"
+  | "layer-duplicate"
+  | "layer-merge-down"
+  | "layer-rasterize"
   | "select-all"
   | "select-deselect"
   | "select-reselect"
@@ -46,7 +51,13 @@ export type MenuActionId =
   | "select-save-channel"
   | "select-load-channel"
   | "select-and-mask"
+  | "view-zoom-in"
+  | "view-zoom-out"
+  | "view-fit-screen"
   | "view-toggle-guides"
+  | "window-layers"
+  | "window-navigator"
+  | "window-history"
   | "filter-last"
   | "filter-fade";
 
@@ -101,7 +112,7 @@ function buildFilterMenu(): MenuPreviewMenu {
 export const menuItems: MenuPreviewMenu[] = [
   {
     label: "File",
-    caption: "Document lifecycle and export flow preview.",
+    caption: "Create, open, save, and export documents.",
     sections: [
       {
         title: "Document",
@@ -127,33 +138,24 @@ export const menuItems: MenuPreviewMenu[] = [
             shortcut: "Ctrl+Shift+E",
             actionId: "export-project",
           },
-          {
-            label: "Generate Assets",
-            tone: "muted",
-            actionId: "generate-assets",
-            disabled: true,
-          },
         ],
       },
     ],
   },
   {
     label: "Edit",
-    caption: "History, clipboard, and transform placeholders.",
+    caption: "History, fill, and layer transformations.",
     sections: [
       {
         title: "History",
         items: [
-          { label: "Undo", shortcut: "Ctrl+Z", tone: "accent" },
-          { label: "Redo", shortcut: "Ctrl+Shift+Z" },
-        ],
-      },
-      {
-        title: "Clipboard",
-        items: [
-          { label: "Cut", shortcut: "Ctrl+X" },
-          { label: "Copy", shortcut: "Ctrl+C" },
-          { label: "Paste", shortcut: "Ctrl+V" },
+          {
+            label: "Undo",
+            shortcut: "Ctrl+Z",
+            tone: "accent",
+            actionId: "edit-undo",
+          },
+          { label: "Redo", shortcut: "Ctrl+Shift+Z", actionId: "edit-redo" },
         ],
       },
       {
@@ -176,11 +178,6 @@ export const menuItems: MenuPreviewMenu[] = [
             tone: "accent",
             actionId: "transform-free" as const,
           },
-          { label: "Scale", actionId: "transform-scale" as const },
-          { label: "Rotate", actionId: "transform-rotate" as const },
-          { label: "Skew", actionId: "transform-skew" as const },
-          { label: "Distort", actionId: "transform-distort" as const },
-          { label: "Perspective", actionId: "transform-perspective" as const },
           { label: "Warp", actionId: "transform-warp" as const },
           { label: "Flip Horizontal", actionId: "transform-flip-h" as const },
           { label: "Flip Vertical", actionId: "transform-flip-v" as const },
@@ -193,14 +190,14 @@ export const menuItems: MenuPreviewMenu[] = [
   },
   {
     label: "Image",
-    caption: "Canvas-wide operations and color management preview.",
+    caption: "Adjustment layers and canvas geometry.",
     sections: [
       {
         title: "Adjustments",
         items: [
-          { label: "Levels..." },
-          { label: "Curves..." },
-          { label: "Hue/Saturation..." },
+          { label: "Levels", actionId: "image-levels" as const },
+          { label: "Curves", actionId: "image-curves" as const },
+          { label: "Hue/Saturation", actionId: "image-hue-sat" as const },
           { label: "Invert", actionId: "image-invert" as const },
           { label: "Channel Mixer...", actionId: "image-channel-mixer" as const },
           { label: "Threshold...", actionId: "image-threshold" as const },
@@ -213,9 +210,7 @@ export const menuItems: MenuPreviewMenu[] = [
       {
         title: "Geometry",
         items: [
-          { label: "Image Size..." },
           { label: "Canvas Size...", shortcut: "Ctrl+Alt+C", actionId: "canvas-size" as const },
-          { label: "Trim" },
         ],
       },
     ],
@@ -227,17 +222,22 @@ export const menuItems: MenuPreviewMenu[] = [
       {
         title: "Create",
         items: [
-          { label: "New Layer", shortcut: "Shift+Ctrl+N", tone: "accent" },
-          { label: "New Group" },
-          { label: "Layer Mask" },
+          {
+            label: "New Layer",
+            shortcut: "Ctrl+Shift+N",
+            tone: "accent",
+            actionId: "layer-new",
+          },
+          { label: "New Group", actionId: "layer-new-group" },
+          { label: "Layer Mask", actionId: "layer-add-mask" },
         ],
       },
       {
         title: "Arrange",
         items: [
-          { label: "Duplicate Layer", shortcut: "Ctrl+J" },
-          { label: "Merge Down", shortcut: "Ctrl+E" },
-          { label: "Rasterize", tone: "muted" },
+          { label: "Duplicate Layer", shortcut: "Ctrl+J", actionId: "layer-duplicate" },
+          { label: "Merge Down", shortcut: "Ctrl+E", actionId: "layer-merge-down" },
+          { label: "Rasterize", actionId: "layer-rasterize" },
         ],
       },
     ],
@@ -283,55 +283,33 @@ export const menuItems: MenuPreviewMenu[] = [
       {
         title: "Zoom",
         items: [
-          { label: "Zoom In", shortcut: "Ctrl++", tone: "accent" },
-          { label: "Zoom Out", shortcut: "Ctrl+-" },
-          { label: "Fit on Screen", shortcut: "Ctrl+0" },
+          {
+            label: "Zoom In",
+            shortcut: "Ctrl++",
+            tone: "accent",
+            actionId: "view-zoom-in",
+          },
+          { label: "Zoom Out", shortcut: "Ctrl+-", actionId: "view-zoom-out" },
+          { label: "Fit on Screen", shortcut: "Ctrl+0", actionId: "view-fit-screen" },
         ],
       },
       {
         title: "Overlays",
-        items: [
-          { label: "Pixel Grid" },
-          { label: "Rulers" },
-          { label: "Guides", actionId: "view-toggle-guides" },
-        ],
+        items: [{ label: "Guides", actionId: "view-toggle-guides" }],
       },
     ],
   },
   {
     label: "Window",
-    caption: "Dock and workspace organization preview.",
+    caption: "Open editor panels.",
     align: "right",
     sections: [
       {
         title: "Panels",
-        items: [{ label: "Layers", tone: "accent" }, { label: "Navigator" }, { label: "History" }],
-      },
-      {
-        title: "Workspace",
-        items: [{ label: "Essentials" }, { label: "Painting" }, { label: "Reset Workspace" }],
-      },
-    ],
-  },
-  {
-    label: "Help",
-    caption: "Support, onboarding, and diagnostics preview.",
-    align: "right",
-    sections: [
-      {
-        title: "Learn",
         items: [
-          { label: "Welcome Tour" },
-          { label: "Keyboard Shortcuts" },
-          { label: "What’s New" },
-        ],
-      },
-      {
-        title: "Support",
-        items: [
-          { label: "Report Feedback" },
-          { label: "System Info" },
-          { label: "Release Notes", tone: "muted" },
+          { label: "Layers", tone: "accent", actionId: "window-layers" },
+          { label: "Navigator", actionId: "window-navigator" },
+          { label: "History", actionId: "window-history" },
         ],
       },
     ],

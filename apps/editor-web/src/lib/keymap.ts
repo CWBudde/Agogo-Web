@@ -17,8 +17,13 @@ export function shortcutKey(event: KeyboardEvent) {
 export const defaultKeymap = new Map<string, ShortcutAction>([
   ["+", "zoomIn"],
   ["=", "zoomIn"],
+  ["Mod++", "zoomIn"],
+  ["Mod+Shift++", "zoomIn"],
+  ["Mod+=", "zoomIn"],
   ["-", "zoomOut"],
+  ["Mod+-", "zoomOut"],
   ["0", "fitToView"],
+  ["Mod+0", "fitToView"],
   ["Mod+z", "undo"],
   ["Mod+Shift+z", "redo"],
   // Photoshop step-backward
