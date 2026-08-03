@@ -98,6 +98,11 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 				return doc.SetLayerVisibility(payload.LayerID, payload.Visible)
 			})
 		},
+		SoloLayerVisibility: func(layerID string) error {
+			return inst.executeDocCommand("Solo layer visibility", func(doc *Document) error {
+				return doc.SoloLayerVisibility(layerID)
+			})
+		},
 		SetLayerOpacity: func(payload cmdpkg.LayerOpacityPayload) error {
 			return inst.executeDocCommand("Set layer opacity", func(doc *Document) error {
 				return doc.SetLayerOpacity(payload.LayerID, payload.Opacity, payload.FillOpacity)
@@ -161,6 +166,11 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 		SetLayerMaskEnabled: func(payload cmdpkg.LayerMaskEnabledPayload) error {
 			return inst.executeDocCommand("Toggle layer mask", func(doc *Document) error {
 				return doc.SetLayerMaskEnabled(payload.LayerID, payload.Enabled)
+			})
+		},
+		SetLayerMaskProperties: func(payload cmdpkg.LayerMaskPropertiesPayload) error {
+			return inst.executeDocCommand("Set layer mask properties", func(doc *Document) error {
+				return doc.SetLayerMaskProperties(payload.LayerID, payload.Density, payload.Feather)
 			})
 		},
 		SetLayerClipToBelow: func(payload cmdpkg.LayerClipPayload) error {
@@ -264,10 +274,13 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 		},
 		SetPointFromSample: func(payload cmdpkg.LayerSetPointFromSamplePayload) error {
 			return inst.setPointFromSample(SetPointFromSamplePayload{
-				LayerID: payload.LayerID,
-				X:       payload.X,
-				Y:       payload.Y,
-				Mode:    payload.Mode,
+				LayerID:    payload.LayerID,
+				X:          payload.X,
+				Y:          payload.Y,
+				SampleSize: payload.SampleSize,
+				Kind:       payload.Kind,
+				Channel:    payload.Channel,
+				Mode:       payload.Mode,
 			})
 		},
 	})

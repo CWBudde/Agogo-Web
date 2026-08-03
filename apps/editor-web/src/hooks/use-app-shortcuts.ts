@@ -73,14 +73,41 @@ export function useAppShortcuts(io: MenuActionIO) {
     onRedo() {
       engine.redo();
     },
+    onCut() {
+      handleMenuAction("edit-cut");
+    },
+    onCopy() {
+      handleMenuAction("edit-copy");
+    },
+    onPaste() {
+      handleMenuAction("edit-paste");
+    },
+    onFill() {
+      handleMenuAction("edit-fill");
+    },
+    onCanvasSize() {
+      handleMenuAction("canvas-size");
+    },
     onSelectAll() {
       engine.selectAll();
     },
     onDeselect() {
       engine.deselect();
     },
+    onReselect() {
+      engine.reselect();
+    },
     onInvertSelection() {
       engine.invertSelection();
+    },
+    onNewLayer() {
+      handleMenuAction("layer-new");
+    },
+    onDuplicateLayer() {
+      handleMenuAction("layer-duplicate");
+    },
+    onMergeDown() {
+      handleMenuAction("layer-merge-down");
     },
     onToolSelect(tool: ShortcutTool) {
       activateTool(tool);
@@ -89,6 +116,9 @@ export function useAppShortcuts(io: MenuActionIO) {
       setActiveTool("transform");
       setTransformRefPoint([1, 1]);
       engine.dispatchCommand(CommandID.BeginFreeTransform, {});
+    },
+    onTransformAgain() {
+      handleMenuAction("transform-again");
     },
     onNudgeLayer(dx: number, dy: number) {
       const render = getSnapshot();

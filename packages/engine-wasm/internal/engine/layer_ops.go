@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	agg "github.com/cwbudde/agg_go"
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
 
@@ -83,6 +85,7 @@ func (doc *Document) AddLayer(layer LayerNode, parentLayerID string, index int) 
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = layer.ID()
 	doc.touchModifiedAtLayer(layer)
 	return nil
@@ -97,6 +100,7 @@ func (doc *Document) DeleteLayer(layerID string) error {
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	if activeChanged {
 		doc.ActiveLayerID = nextActive
 	}
@@ -110,6 +114,7 @@ func (doc *Document) DuplicateLayer(layerID, parentLayerID string, index int) (L
 		return nil, err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = clone.ID()
 	doc.touchModifiedAtLayer(clone)
 	return clone, nil
@@ -120,6 +125,7 @@ func (doc *Document) MoveLayer(layerID, parentLayerID string, index int) error {
 		return err
 	}
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.touchModifiedAt()
 	return nil
 }
@@ -130,8 +136,114 @@ func (doc *Document) SetLayerVisibility(layerID string, visible bool) error {
 		return fmt.Errorf("layer %q not found", layerID)
 	}
 	layer.SetVisible(visible)
+	doc.invalidateLayerSolo(false)
 	doc.touchModifiedAtLayer(layer)
 	return nil
+}
+
+// SoloLayerVisibility atomically isolates one row. A group keeps the baseline
+// visibility of its complete subtree; a leaf keeps only itself, its ancestors,
+// and the clipping base required to render it. Repeating the gesture on the
+// same target restores the guarded baseline, while choosing another target
+// re-isolates from that original baseline.
+func (doc *Document) SoloLayerVisibility(layerID string) error {
+	root := doc.ensureLayerRoot()
+	state := &root.VisibilitySolo
+	treeSignature := layerTreeStructureSignature(root)
+	guardValid := state.GuardVersion == state.TreeVersion && state.TreeSignature == treeSignature
+	target, parent, targetIndex, ok := findLayerByID(root, layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	if state.TargetID == layerID && state.Visibility != nil && guardValid {
+		walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+			if visible, exists := state.Visibility[layer.ID()]; exists {
+				layer.SetVisible(visible)
+			}
+		})
+		doc.clearLayerSolo()
+		doc.touchModifiedAt()
+		return nil
+	}
+	if state.Visibility == nil || !guardValid {
+		state.Visibility = make(map[string]bool)
+		walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+			if layer != doc.LayerRoot {
+				state.Visibility[layer.ID()] = layer.Visible()
+			}
+		})
+		state.GuardVersion = state.TreeVersion
+		state.TreeSignature = treeSignature
+	}
+
+	keep := make(map[string]bool)
+	forceVisible := make(map[string]bool)
+	keep[layerID] = true
+	forceVisible[layerID] = true
+	for ancestor := target.Parent(); ancestor != nil && ancestor != doc.LayerRoot; ancestor = ancestor.Parent() {
+		keep[ancestor.ID()] = true
+		forceVisible[ancestor.ID()] = true
+	}
+	if target.LayerType() == LayerTypeGroup {
+		walkLayerTree(target, func(layer LayerNode) { keep[layer.ID()] = true })
+	} else if target.ClipToBelow() && parent != nil {
+		children := parent.Children()
+		if baseIndex := clippingBaseIndex(children, targetIndex); baseIndex >= 0 {
+			base := children[baseIndex]
+			keep[base.ID()] = true
+			forceVisible[base.ID()] = true
+			for ancestor := base.Parent(); ancestor != nil && ancestor != doc.LayerRoot; ancestor = ancestor.Parent() {
+				keep[ancestor.ID()] = true
+				forceVisible[ancestor.ID()] = true
+			}
+		}
+	}
+	baseline := state.Visibility
+	walkLayerTree(doc.LayerRoot, func(layer LayerNode) {
+		if layer == doc.LayerRoot {
+			return
+		}
+		if !keep[layer.ID()] {
+			layer.SetVisible(false)
+			return
+		}
+		if forceVisible[layer.ID()] {
+			layer.SetVisible(true)
+			return
+		}
+		layer.SetVisible(baseline[layer.ID()])
+	})
+	state.TargetID = layerID
+	doc.touchModifiedAt()
+	return nil
+}
+
+func (doc *Document) clearLayerSolo() {
+	state := &doc.ensureLayerRoot().VisibilitySolo
+	state.TargetID = ""
+	state.GuardVersion = 0
+	state.TreeSignature = 0
+	state.Visibility = nil
+}
+
+func (doc *Document) invalidateLayerSolo(structural bool) {
+	state := &doc.ensureLayerRoot().VisibilitySolo
+	if structural {
+		state.TreeVersion++
+	}
+	doc.clearLayerSolo()
+}
+
+func layerTreeStructureSignature(root LayerNode) uint64 {
+	hash := fnv.New64a()
+	walkLayerTree(root, func(layer LayerNode) {
+		parentID := ""
+		if parent := layer.Parent(); parent != nil {
+			parentID = parent.ID()
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00", layer.ID(), layer.LayerType(), parentID)
+	})
+	return hash.Sum64()
 }
 
 func (doc *Document) SetLayerOpacity(layerID string, opacity, fillOpacity *float64) error {
@@ -340,6 +452,7 @@ func (doc *Document) ApplyLayerMask(layerID string) error {
 	if err := ensureLayerEditable(layer, editLayerPixels); err != nil {
 		return err
 	}
+	mask = effectiveRasterMask(mask)
 	switch typed := layer.(type) {
 	case *PixelLayer:
 		if err := applyMaskToLayerRaster(typed.Bounds, typed.Pixels, mask); err != nil {
@@ -400,6 +513,25 @@ func (doc *Document) SetLayerMaskEnabled(layerID string, enabled bool) error {
 	}
 	updated := cloneLayerMask(mask)
 	updated.Enabled = enabled
+	layer.SetMask(updated)
+	doc.touchModifiedAtLayer(layer)
+	return nil
+}
+
+func (doc *Document) SetLayerMaskProperties(layerID string, density, feather *int) error {
+	if doc == nil {
+		return fmt.Errorf("document is required")
+	}
+	layer, _, _, ok := findLayerByID(doc.ensureLayerRoot(), layerID)
+	if !ok {
+		return fmt.Errorf("layer %q not found", layerID)
+	}
+	mask := layer.Mask()
+	if mask == nil {
+		return fmt.Errorf("layer %q has no mask", layer.Name())
+	}
+	updated := cloneLayerMask(mask)
+	updated.SetProperties(density, feather)
 	layer.SetMask(updated)
 	doc.touchModifiedAtLayer(layer)
 	return nil
@@ -486,6 +618,7 @@ func (doc *Document) SetLayerClipToBelow(layerID string, clipToBelow bool) error
 	}
 	layer.SetClipToBelow(clipToBelow)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	if clipToBelow {
 		children := parent.Children()
 		baseIndex := clippingBaseIndex(children, index)
@@ -512,6 +645,7 @@ func (doc *Document) FlattenLayer(layerID string) error {
 	}
 	replaceChild(parent, index, flattened)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = flattened.ID()
 	doc.touchModifiedAtLayers(layer, flattened)
 	return nil
@@ -538,6 +672,7 @@ func (doc *Document) MergeDown(layerID string) error {
 	children = append(children[:index], children[index+1:]...)
 	parent.SetChildren(children)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAtLayers(below, layer, merged)
 	return nil
@@ -596,6 +731,7 @@ func (doc *Document) MergeVisible() error {
 	}
 	root.SetChildren(next)
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = merged.ID()
 	doc.touchModifiedAt()
 	return nil
@@ -631,6 +767,7 @@ func (doc *Document) FlattenImage() error {
 	flattened := NewPixelLayer("Background", LayerBounds{X: 0, Y: 0, W: doc.Width, H: doc.Height}, surface)
 	root.SetChildren([]LayerNode{flattened})
 	doc.normalizeClippingState()
+	doc.invalidateLayerSolo(true)
 	doc.ActiveLayerID = flattened.ID()
 	doc.touchModifiedAt()
 	return nil
@@ -1140,64 +1277,32 @@ func compositeRasterIntoDocument(dest []byte, docW, docH int, bounds LayerBounds
 	if len(src) != expectedLen {
 		return fmt.Errorf("raster length %d does not match bounds %dx%d", len(src), bounds.W, bounds.H)
 	}
-	yStart, yEnd := 0, bounds.H
-	xStart, xEnd := 0, bounds.W
-	if clip != nil {
-		yStart = maxInt(yStart, clip.Y-bounds.Y)
-		yEnd = minInt(yEnd, clip.Y+clip.H-bounds.Y)
-		xStart = maxInt(xStart, clip.X-bounds.X)
-		xEnd = minInt(xEnd, clip.X+clip.W-bounds.X)
-		if yStart >= yEnd || xStart >= xEnd {
-			return nil
-		}
-	}
 	identityBlendIf := blendIfIsIdentity(blendIf)
-	for y := yStart; y < yEnd; y++ {
-		docY := bounds.Y + y
-		if docY < 0 || docY >= docH {
-			continue
-		}
-		for x := xStart; x < xEnd; x++ {
-			docX := bounds.X + x
-			if docX < 0 || docX >= docW {
-				continue
-			}
-			srcIndex := (y*bounds.W + x) * 4
-			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
-			maskAlpha = scaleMaskedAlpha(maskAlpha, clipSurfaceAlphaAt(clipAlpha, docW, docX, docY))
-			if maskAlpha == 0 {
-				continue
-			}
-			destIndex := (docY*docW + docX) * 4
-			srcPixel := src[srcIndex : srcIndex+4]
-			pixelOpacity := opacity
-			var origDest [4]uint8
-			if !identityBlendIf {
-				srcRGBA := [4]uint8{srcPixel[0], srcPixel[1], srcPixel[2], srcPixel[3]}
-				copy(origDest[:], dest[destIndex:destIndex+4])
-				pixelOpacity *= blendIfAlpha(srcRGBA, origDest, blendIf)
-				if pixelOpacity <= 0 {
-					continue
-				}
-			}
-			if maskAlpha == 255 {
-				compositePixelWithBlend(dest[destIndex:destIndex+4], srcPixel, blendMode, pixelOpacity, pixelNoiseSeed(docX, docY))
-			} else {
-				var masked [4]byte
-				copy(masked[:], srcPixel)
-				masked[3] = scaleMaskedAlpha(srcPixel[3], maskAlpha)
-				if masked[3] == 0 {
-					continue
-				}
-				compositePixelWithBlend(dest[destIndex:destIndex+4], masked[:], blendMode, pixelOpacity, pixelNoiseSeed(docX, docY))
-			}
-			if !identityBlendIf {
-				var after [4]uint8
-				copy(after[:], dest[destIndex:destIndex+4])
-				applyChannelsMask(&origDest, &after, blendIf)
-				copy(dest[destIndex:destIndex+4], after[:])
-			}
-		}
+
+	var original []byte
+	if !identityBlendIf {
+		original = acquireSurface(len(dest))
+		defer releaseSurface(original)
+		copy(original, dest)
+	}
+
+	coverage := buildRasterCompositeMask(docW, docH, bounds, src, dest, mask, clipAlpha, blendIf)
+	defer releaseCompositeMask(coverage)
+	err := compositeImageStraight(
+		dest, docW, docH,
+		src, bounds.W, bounds.H,
+		agg.Rect{X2: bounds.W, Y2: bounds.H},
+		agg.PointI{X: bounds.X, Y: bounds.Y},
+		blendMode, opacity,
+		coverage, agg.PointI{X: bounds.X, Y: bounds.Y},
+		aggRectFromDirty(clip), engineDissolveSeed,
+	)
+	if err != nil {
+		return fmt.Errorf("composite raster: %w", err)
+	}
+
+	if !identityBlendIf {
+		applyBlendIfChannelsClipped(dest, original, docW, docH, bounds, blendIf, clip)
 	}
 	return nil
 }
@@ -1302,7 +1407,10 @@ func combineClipSurface(baseSurface, clipAlpha []byte) []byte {
 
 func newFilledLayerMask(width, height int, fill byte) *LayerMask {
 	if width <= 0 || height <= 0 {
-		return &LayerMask{Enabled: true, Width: width, Height: height}
+		mask := &LayerMask{Enabled: true, Width: width, Height: height}
+		density := 100
+		mask.SetProperties(&density, nil)
+		return mask
 	}
 	data := make([]byte, width*height)
 	if fill != 0 {
@@ -1310,7 +1418,10 @@ func newFilledLayerMask(width, height int, fill byte) *LayerMask {
 			data[index] = fill
 		}
 	}
-	return &LayerMask{Enabled: true, Width: width, Height: height, Data: data}
+	mask := &LayerMask{Enabled: true, Width: width, Height: height, Data: data}
+	density := 100
+	mask.SetProperties(&density, nil)
+	return mask
 }
 
 func applyMaskToLayerRaster(bounds LayerBounds, raster []byte, mask *LayerMask) error {
@@ -1449,48 +1560,28 @@ func compositeDocumentSurfaceClipped(dest, src []byte, docW int, blendMode Blend
 	if len(dest) != len(src) || opacity <= 0 || docW <= 0 {
 		return
 	}
-	identity := blendIfIsIdentity(blendIf)
-	if clip == nil {
-		compositeDocumentSurfaceSpan(dest, src, docW, 0, len(dest), blendMode, opacity, identity, blendIf)
+	docH := len(dest) / (docW * 4)
+	if docH <= 0 || docW*docH*4 != len(dest) {
 		return
 	}
-	for y := clip.Y; y < clip.Y+clip.H; y++ {
-		rowStart := (y*docW + clip.X) * 4
-		rowEnd := rowStart + clip.W*4
-		if rowStart < 0 || rowEnd > len(dest) {
-			continue
-		}
-		compositeDocumentSurfaceSpan(dest, src, docW, rowStart, rowEnd, blendMode, opacity, identity, blendIf)
+	identity := blendIfIsIdentity(blendIf)
+	var original []byte
+	if !identity {
+		original = acquireSurface(len(dest))
+		defer releaseSurface(original)
+		copy(original, dest)
 	}
-}
 
-// compositeDocumentSurfaceSpan composites the byte range [from, to) of two
-// document-sized surfaces. The dissolve noise seed follows the
-// document-coordinate convention pixelNoiseSeed(docX, docY); every caller
-// threads a positive docW (compositeDocumentSurfaceClipped guards it).
-func compositeDocumentSurfaceSpan(dest, src []byte, docW, from, to int, blendMode BlendMode, opacity float64, identity bool, blendIf *BlendIfConfig) {
-	for offset := from; offset < to; offset += 4 {
-		pixelOpacity := opacity
-		var origDest [4]uint8
-		if !identity {
-			srcRGBA := [4]uint8{src[offset], src[offset+1], src[offset+2], src[offset+3]}
-			copy(origDest[:], dest[offset:offset+4])
-			pixelOpacity *= blendIfAlpha(srcRGBA, origDest, blendIf)
-			if pixelOpacity <= 0 {
-				continue
-			}
-		}
-		var noiseSeed uint32
-		if blendMode == BlendModeDissolve {
-			pixelIndex := offset / 4
-			noiseSeed = pixelNoiseSeed(pixelIndex%docW, pixelIndex/docW)
-		}
-		compositePixelWithBlend(dest[offset:offset+4], src[offset:offset+4], blendMode, pixelOpacity, noiseSeed)
-		if !identity {
-			var after [4]uint8
-			copy(after[:], dest[offset:offset+4])
-			applyChannelsMask(&origDest, &after, blendIf)
-			copy(dest[offset:offset+4], after[:])
-		}
+	coverage := buildDocumentCompositeMask(docW, docH, src, dest, blendIf)
+	defer releaseCompositeMask(coverage)
+	_ = compositeImageStraight(
+		dest, docW, docH,
+		src, docW, docH,
+		agg.Rect{X2: docW, Y2: docH}, agg.PointI{},
+		blendMode, opacity,
+		coverage, agg.PointI{}, aggRectFromDirty(clip), engineDissolveSeed,
+	)
+	if !identity {
+		applyBlendIfChannelsClipped(dest, original, docW, docH, LayerBounds{W: docW, H: docH}, blendIf, clip)
 	}
 }

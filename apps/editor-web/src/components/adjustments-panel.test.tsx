@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CurvesCanvas } from "@/components/adjustments-panel";
+import { CurvesCanvas, HistogramGraph, histogramRefreshKey } from "@/components/adjustments-panel";
 
 type Point = { x: number; y: number };
 
@@ -148,5 +148,36 @@ describe("CurvesCanvas dragging", () => {
     expect(pts).toHaveLength(3);
     expect(isStrictlyAscendingByX(pts)).toBe(true);
     expect(pts[1]).toEqual({ x: 128, y: 60 });
+  });
+});
+
+describe("Levels histogram", () => {
+  it("keys refreshes by layer, content, source, and channel", () => {
+    const base = histogramRefreshKey("levels-1", 4, "merged", "rgb");
+    expect(histogramRefreshKey("levels-2", 4, "merged", "rgb")).not.toBe(base);
+    expect(histogramRefreshKey("levels-1", 5, "merged", "rgb")).not.toBe(base);
+    expect(histogramRefreshKey("levels-1", 4, "active-layer", "rgb")).not.toBe(base);
+    expect(histogramRefreshKey("levels-1", 4, "merged", "red")).not.toBe(base);
+  });
+
+  it("renders RGB peaks and handles an empty histogram", () => {
+    const bins = () => Array.from({ length: 256 }, () => 0);
+    const red = bins();
+    const green = bins();
+    const blue = bins();
+    red[12] = 1;
+    green[128] = 100;
+    blue[240] = 10;
+    const { container, rerender } = render(
+      <HistogramGraph
+        channel="rgb"
+        histogram={{ red, green, blue, alpha: bins(), luminosity: bins() }}
+      />,
+    );
+    expect(container.querySelectorAll("polyline")).toHaveLength(3);
+    expect(container.querySelectorAll("polyline")[0].getAttribute("points")).toContain("12,");
+
+    rerender(<HistogramGraph channel="luminosity" histogram={null} />);
+    expect(container.querySelector("polyline")?.getAttribute("points")).toBe("");
   });
 });

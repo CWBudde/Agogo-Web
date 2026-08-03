@@ -219,19 +219,19 @@ func TestHistoryStressPointerSnapshotsWithStrokes(t *testing.T) {
 		t.Fatal("after redo x5: green stroke missing")
 	}
 
-	// ---- Jump to the middle (S3: create doc + add + rename + red stroke,
-	// history index 4 because the document creation is entry 1). ----
-	if _, err := DispatchCommand(h, commandJumpHistory, `{"historyIndex":4}`); err != nil {
-		t.Fatalf("jump to index 4: %v", err)
+	// ---- Jump to the middle (S3: add + rename + red stroke). Document
+	// creation is session lifecycle and is intentionally absent from history. ----
+	if _, err := DispatchCommand(h, commandJumpHistory, `{"historyIndex":3}`); err != nil {
+		t.Fatalf("jump to index 3: %v", err)
 	}
 	if name, op := layerState(); name != "Painted" || op != 1 {
-		t.Fatalf("after jump to 4: layer = (%q, %v), want (Painted, 1)", name, op)
+		t.Fatalf("after jump to 3: layer = (%q, %v), want (Painted, 1)", name, op)
 	}
 	if a := alphaAt(storedLayerPixels(t, h, layerID), docW, 32, 32); a == 0 {
-		t.Fatal("after jump to 4: red stroke missing")
+		t.Fatal("after jump to 3: red stroke missing")
 	}
 	if g := greenAt(storedLayerPixels(t, h, layerID), docW, 10, 10); g != 0 {
-		t.Fatalf("after jump to 4: green at (10,10) = %d, want 0", g)
+		t.Fatalf("after jump to 3: green at (10,10) = %d, want 0", g)
 	}
 
 	// ---- Fresh edit from the middle: redo stack must be truncated. ----

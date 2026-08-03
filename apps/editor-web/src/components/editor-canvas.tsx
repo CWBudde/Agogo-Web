@@ -3,6 +3,8 @@ import {
   type AddTextLayerCommand,
   type ApplyGradientCommand,
   type BeginPaintStrokeCommand,
+  type BrushDynamicControl,
+  type BrushParams,
   CommandID,
   type ContinuePaintStrokeCommand,
   type CropOverlayType,
@@ -18,16 +20,18 @@ import {
   type SetArtboardCommand,
 } from "@agogo/proto";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CANVAS_INPUT_FLUSH_EVENT } from "@/lib/canvas-input-flush";
 import { type Rgba, toMutableRgba, toRgba } from "@/lib/color";
 import {
   buildRegularPolygonPoints,
   getShapePresetSubpaths,
-  mapShapePresetToBounds,
   mapShapePresetSubpathsToBounds,
+  mapShapePresetToBounds,
   resolveShapeDragBounds,
-  shapeSubpathsToSvgPathData,
   type ShapePreset,
+  shapeSubpathsToSvgPathData,
 } from "@/lib/shape-presets";
+import { useAdjustmentSamplingState } from "@/state/adjustment-sampling-state";
 import { useEngine } from "@/wasm/context";
 import { useEngineRender } from "@/wasm/use-engine-render";
 import { PathOverlayRenderer } from "./path-overlay";
@@ -88,6 +92,16 @@ type EditorCanvasProps = {
   brushBlendMode: string;
   brushAirbrush: boolean;
   brushSmoothing: number;
+  brushTipShape: "round" | "square" | "diamond" | "star" | "line";
+  brushTipResourceId: string | null;
+  brushAngle: number;
+  brushRoundness: number;
+  brushSpacing: number;
+  brushSizeJitter: number;
+  brushOpacityJitter: number;
+  brushFlowJitter: number;
+  brushControlSource: BrushDynamicControl;
+  brushFadeDabs: number;
   pressureAffectsSize: boolean;
   pressureAffectsOpacity: boolean;
   pressureAffectsFlow: boolean;
@@ -730,6 +744,16 @@ export function EditorCanvas({
   brushBlendMode,
   brushAirbrush,
   brushSmoothing,
+  brushTipShape,
+  brushTipResourceId,
+  brushAngle,
+  brushRoundness,
+  brushSpacing,
+  brushSizeJitter,
+  brushOpacityJitter,
+  brushFlowJitter,
+  brushControlSource,
+  brushFadeDabs,
   pressureAffectsSize,
   pressureAffectsOpacity,
   pressureAffectsFlow,
@@ -804,13 +828,17 @@ export function EditorCanvas({
     x: number;
     y: number;
     pressure: number;
+    tiltX: number;
+    tiltY: number;
   } | null>(null);
   const airbrushLastTickRef = useRef(0);
   // rAF-coalesced input batching (Phase S.4): raw pointermove/hover events fire
   // far faster than one animation frame (125–1000 Hz pens/mice). We accumulate
   // paint-stroke samples and the latest pointer-move payload here and flush them
   // once per frame to avoid one engine dispatch per raw event.
-  const pendingStrokePointsRef = useRef<{ x: number; y: number; pressure?: number }[]>([]);
+  const pendingStrokePointsRef = useRef<
+    { x: number; y: number; pressure?: number; tiltX?: number; tiltY?: number }[]
+  >([]);
   const pendingPointerMoveRef = useRef<PointerEventCommand | null>(null);
   const inputFlushRafRef = useRef<number | null>(null);
   // Cached ImageData reused across blit frames; recreated only when the canvas
@@ -856,6 +884,7 @@ export function EditorCanvas({
   const [artboardEditDraft, setArtboardEditDraft] = useState<ArtboardEditDraft | null>(null);
   const [magneticLassoDraft, setMagneticLassoDraft] = useState<MagneticLassoDraft | null>(null);
   const engine = useEngine();
+  const { consumeCanvasSample, cursor: adjustmentSamplingCursor } = useAdjustmentSamplingState();
   // The canvas is the display surface: it needs the full render state every
   // committed frame (its rAF pixel loop reads renderRef.current, kept fresh
   // here). Subscribing via the store replaces the old per-frame context read.
@@ -872,6 +901,44 @@ export function EditorCanvas({
     color[2],
     Math.max(0, Math.min(255, Math.round(color[3] * brushOpacity))),
   ];
+
+  const dynamicControl = (pressureEnabled: boolean): BrushDynamicControl =>
+    brushControlSource === "pressure" && !pressureEnabled ? "off" : brushControlSource;
+  const dynamicFadeDabs = Math.max(1, Math.min(10000, Math.round(brushFadeDabs)));
+  const brushTipParams: Pick<
+    BrushParams,
+    | "tipShape"
+    | "tipResourceId"
+    | "angle"
+    | "roundness"
+    | "spacing"
+    | "sizeDynamics"
+    | "opacityDynamics"
+    | "flowDynamics"
+  > = {
+    // The UI and Go engine support the current computed star tip. The shared
+    // contract is updated alongside this payload path.
+    tipShape: brushTipShape as BrushParams["tipShape"],
+    tipResourceId: brushTipResourceId ?? undefined,
+    angle: Math.max(-180, Math.min(180, brushAngle)),
+    roundness: Math.max(0.01, Math.min(1, brushRoundness)),
+    spacing: Math.max(0.01, Math.min(2, brushSpacing)),
+    sizeDynamics: {
+      jitter: Math.max(0, Math.min(1, brushSizeJitter)),
+      control: dynamicControl(pressureAffectsSize),
+      fadeDabs: dynamicFadeDabs,
+    },
+    opacityDynamics: {
+      jitter: Math.max(0, Math.min(1, brushOpacityJitter)),
+      control: dynamicControl(pressureAffectsOpacity),
+      fadeDabs: dynamicFadeDabs,
+    },
+    flowDynamics: {
+      jitter: Math.max(0, Math.min(1, brushFlowJitter)),
+      control: dynamicControl(pressureAffectsFlow),
+      fadeDabs: dynamicFadeDabs,
+    },
+  };
 
   const dispatchCropUpdate = (
     crop: { x: number; y: number; w: number; h: number; rotation?: number },
@@ -924,6 +991,8 @@ export function EditorCanvas({
         x: last.x,
         y: last.y,
         pressure: last.pressure,
+        tiltX: last.tiltX,
+        tiltY: last.tiltY,
         points,
       } satisfies ContinuePaintStrokeCommand);
     }
@@ -933,6 +1002,12 @@ export function EditorCanvas({
       engine.dispatchPointerEvent(move);
     }
   }, [engine]);
+
+  useEffect(() => {
+    const handleExternalFlush = () => flushPendingInput();
+    window.addEventListener(CANVAS_INPUT_FLUSH_EVENT, handleExternalFlush);
+    return () => window.removeEventListener(CANVAS_INPUT_FLUSH_EVENT, handleExternalFlush);
+  }, [flushPendingInput]);
 
   const scheduleInputFlush = useCallback(() => {
     if (inputFlushRafRef.current === null) {
@@ -970,6 +1045,8 @@ export function EditorCanvas({
           x: sample.x,
           y: sample.y,
           pressure: sample.pressure,
+          tiltX: sample.tiltX,
+          tiltY: sample.tiltY,
         } satisfies ContinuePaintStrokeCommand);
         airbrushLastTickRef.current = timestamp;
       }
@@ -1877,6 +1954,7 @@ export function EditorCanvas({
     <div
       ref={hostRef}
       className="relative h-full min-h-[32rem] overflow-hidden rounded-[var(--ui-radius-md)] border border-white/8 bg-[#111419]"
+      style={adjustmentSamplingCursor ? { cursor: adjustmentSamplingCursor } : undefined}
       role="application"
       aria-label="Editor canvas"
       onContextMenu={(event) => {
@@ -1897,6 +1975,21 @@ export function EditorCanvas({
         }
         const docPoint = clientPointToDocument(event.clientX, event.clientY);
         if (!docPoint) {
+          return;
+        }
+        if (
+          consumeCanvasSample({
+            x: docPoint.x,
+            y: docPoint.y,
+            button: event.button,
+            altKey: event.altKey,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            shiftKey: event.shiftKey,
+            isPanMode,
+          })
+        ) {
+          event.preventDefault();
           return;
         }
         if (activeTool === "marquee" && event.button === 0) {
@@ -2484,6 +2577,8 @@ export function EditorCanvas({
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           if (cloneStampAligned) {
@@ -2496,6 +2591,8 @@ export function EditorCanvas({
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
             brush: {
               size: brushSize,
               hardness: brushHardness,
@@ -2515,6 +2612,7 @@ export function EditorCanvas({
               pressureSize: pressureAffectsSize,
               pressureOpacity: pressureAffectsOpacity,
               pressureFlow: pressureAffectsFlow,
+              ...brushTipParams,
             },
           } satisfies BeginPaintStrokeCommand);
           startAirbrushLoop();
@@ -2528,12 +2626,16 @@ export function EditorCanvas({
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
             brush: {
               size: brushSize,
               hardness: brushHardness,
@@ -2549,6 +2651,7 @@ export function EditorCanvas({
               pressureSize: pressureAffectsSize,
               pressureOpacity: pressureAffectsOpacity,
               pressureFlow: pressureAffectsFlow,
+              ...brushTipParams,
             },
           } satisfies BeginPaintStrokeCommand);
           startAirbrushLoop();
@@ -2569,12 +2672,16 @@ export function EditorCanvas({
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           engine.dispatchCommand(CommandID.BeginPaintStroke, {
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
             brush: {
               size: brushSize,
               hardness: activeTool === "pencil" ? 1.0 : brushHardness,
@@ -2597,6 +2704,7 @@ export function EditorCanvas({
               pressureSize: pressureAffectsSize,
               pressureOpacity: pressureAffectsOpacity,
               pressureFlow: pressureAffectsFlow,
+              ...brushTipParams,
             },
           } satisfies BeginPaintStrokeCommand);
           startAirbrushLoop();
@@ -3323,12 +3431,16 @@ export function EditorCanvas({
               x: p.x,
               y: p.y,
               pressure: strokePressure(raw),
+              tiltX: raw.tiltX,
+              tiltY: raw.tiltY,
             });
           }
           airbrushSampleRef.current = {
             x: docPoint.x,
             y: docPoint.y,
             pressure: strokePressure(event),
+            tiltX: event.tiltX,
+            tiltY: event.tiltY,
           };
           scheduleInputFlush();
           return;

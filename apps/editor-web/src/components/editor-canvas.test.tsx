@@ -8,7 +8,7 @@ import type { EngineContextValue } from "@/wasm/types";
 // the engine store; route both to per-test stubs instead of standing up the
 // whole Wasm provider. renderState lives in vi.hoisted so the use-engine-render
 // mock (also hoisted) can read it.
-const { engineRef, renderState } = vi.hoisted(() => {
+const { adjustmentSamplingRef, engineRef, renderState } = vi.hoisted(() => {
   const layerMeta = {
     id: "layer-1",
     name: "Layer 1",
@@ -48,6 +48,12 @@ const { engineRef, renderState } = vi.hoisted(() => {
     },
   };
   return {
+    adjustmentSamplingRef: {
+      current: null as unknown as {
+        cursor: "crosshair" | null;
+        consumeCanvasSample: ReturnType<typeof vi.fn>;
+      },
+    },
     engineRef: { current: null as unknown as EngineContextValue },
     renderState,
   };
@@ -61,6 +67,10 @@ vi.mock("@/wasm/use-engine-render", () => ({
   useEngineRender: (selector: (s: unknown) => unknown) => selector(renderState),
   useUiMeta: (selector: (m: unknown) => unknown) => selector(renderState.uiMeta),
   useViewport: () => renderState.viewport,
+}));
+
+vi.mock("@/state/adjustment-sampling-state", () => ({
+  useAdjustmentSamplingState: () => adjustmentSamplingRef.current,
 }));
 
 function createEngine(): EngineContextValue & {
@@ -140,6 +150,16 @@ const defaultProps = {
   brushBlendMode: "normal",
   brushAirbrush: false,
   brushSmoothing: 0,
+  brushTipShape: "round" as const,
+  brushTipResourceId: null,
+  brushAngle: 0,
+  brushRoundness: 1,
+  brushSpacing: 0.25,
+  brushSizeJitter: 0,
+  brushOpacityJitter: 0,
+  brushFlowJitter: 0,
+  brushControlSource: "off" as const,
+  brushFadeDabs: 100,
   pressureAffectsSize: false,
   pressureAffectsOpacity: false,
   pressureAffectsFlow: false,
@@ -211,6 +231,10 @@ const defaultProps = {
 };
 
 beforeEach(() => {
+  adjustmentSamplingRef.current = {
+    cursor: null,
+    consumeCanvasSample: vi.fn(() => false),
+  };
   // jsdom does not implement pointer capture or ResizeObserver.
   Element.prototype.setPointerCapture = vi.fn();
   Element.prototype.releasePointerCapture = vi.fn();
@@ -324,5 +348,144 @@ describe("EditorCanvas gesture cancellation", () => {
     expect(endCalls.length).toBe(1);
     // Paint strokes are committed, not reverted — no transaction involved.
     expect(engine.endTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("EditorCanvas brush payload", () => {
+  it.each([
+    "brush",
+    "pencil",
+    "eraser",
+    "mixerBrush",
+    "cloneStamp",
+    "historyBrush",
+  ] as const)("sends computed tip and independent dynamics for %s", (activeTool) => {
+    const engine = createEngine();
+    engineRef.current = engine;
+    render(
+      <EditorCanvas
+        {...defaultProps}
+        activeTool={activeTool}
+        brushTipShape="diamond"
+        brushTipResourceId="tip-imported"
+        brushAngle={32}
+        brushRoundness={0.45}
+        brushSpacing={0.17}
+        brushSizeJitter={0.3}
+        brushOpacityJitter={0.2}
+        brushFlowJitter={0.1}
+        brushControlSource="pressure"
+        brushFadeDabs={240}
+        pressureAffectsSize={true}
+        pressureAffectsOpacity={false}
+        pressureAffectsFlow={true}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("application"), {
+      pointerId: 41,
+      pointerType: "pen",
+      button: 0,
+      buttons: 1,
+      clientX: 50,
+      clientY: 50,
+      pressure: 0.6,
+      tiltX: 18,
+      tiltY: -7,
+    });
+
+    const begin = engine.dispatchCommand.mock.calls.find(
+      (call) => call[0] === CommandID.BeginPaintStroke,
+    )?.[1] as {
+      pressure: number;
+      tiltX: number;
+      tiltY: number;
+      brush: Record<string, unknown>;
+    };
+    expect(begin.pressure).toBeCloseTo(0.6);
+    expect(begin).toMatchObject({ tiltX: 18, tiltY: -7 });
+    expect(begin.brush).toMatchObject({
+      tipShape: "diamond",
+      tipResourceId: "tip-imported",
+      angle: 32,
+      roundness: 0.45,
+      spacing: 0.17,
+      sizeDynamics: { jitter: 0.3, control: "pressure", fadeDabs: 240 },
+      opacityDynamics: { jitter: 0.2, control: "off", fadeDabs: 240 },
+      flowDynamics: { jitter: 0.1, control: "pressure", fadeDabs: 240 },
+    });
+  });
+
+  it("preserves tilt for coalesced stroke points", () => {
+    const engine = createEngine();
+    engineRef.current = engine;
+    render(<EditorCanvas {...defaultProps} activeTool="brush" />);
+    const surface = screen.getByRole("application");
+    fireEvent.pointerDown(surface, {
+      pointerId: 52,
+      pointerType: "pen",
+      button: 0,
+      buttons: 1,
+      clientX: 40,
+      clientY: 40,
+      pressure: 0.5,
+      tiltX: 3,
+      tiltY: 4,
+    });
+    fireEvent.pointerMove(surface, {
+      pointerId: 52,
+      pointerType: "pen",
+      buttons: 1,
+      clientX: 60,
+      clientY: 55,
+      pressure: 0.7,
+      tiltX: 21,
+      tiltY: -12,
+    });
+    fireEvent.pointerUp(surface, {
+      pointerId: 52,
+      pointerType: "pen",
+      button: 0,
+      clientX: 60,
+      clientY: 55,
+    });
+    const payload = engine.dispatchCommand.mock.calls.find(
+      (call) => call[0] === CommandID.ContinuePaintStroke,
+    )?.[1] as {
+      tiltX: number;
+      tiltY: number;
+      points: Array<{ pressure: number; tiltX: number; tiltY: number }>;
+    };
+    expect(payload.points).toHaveLength(1);
+    expect(payload.points[0].pressure).toBeCloseTo(0.7);
+    expect(payload.points[0]).toMatchObject({ tiltX: 21, tiltY: -12 });
+    expect(payload).toMatchObject({ tiltX: 21, tiltY: -12 });
+  });
+});
+
+describe("EditorCanvas adjustment sampling", () => {
+  it("consumes an eligible document-space sample before normal tool handling", () => {
+    const engine = createEngine();
+    engineRef.current = engine;
+    adjustmentSamplingRef.current = {
+      cursor: "crosshair",
+      consumeCanvasSample: vi.fn(() => true),
+    };
+    render(<EditorCanvas {...defaultProps} activeTool="brush" />);
+    const surface = screen.getByRole("application");
+    expect(surface.style.cursor).toBe("crosshair");
+    fireEvent.pointerDown(surface, {
+      pointerId: 61,
+      button: 0,
+      buttons: 1,
+      clientX: 50,
+      clientY: 50,
+    });
+    expect(adjustmentSamplingRef.current.consumeCanvasSample).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 50, y: 50, button: 0, isPanMode: false }),
+    );
+    expect(engine.dispatchCommand).not.toHaveBeenCalledWith(
+      CommandID.BeginPaintStroke,
+      expect.anything(),
+    );
   });
 });

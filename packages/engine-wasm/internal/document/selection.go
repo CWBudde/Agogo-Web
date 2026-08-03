@@ -259,10 +259,13 @@ func NewLayerMaskFromSelection(selection *Selection) *model.LayerMask {
 	if selection == nil {
 		return nil
 	}
-	return &model.LayerMask{
+	mask := &model.LayerMask{
 		Enabled: true,
 		Width:   selection.Width,
 		Height:  selection.Height,
 		Data:    append([]byte(nil), selection.Mask...),
 	}
+	density := 100
+	mask.SetProperties(&density, nil)
+	return mask
 }

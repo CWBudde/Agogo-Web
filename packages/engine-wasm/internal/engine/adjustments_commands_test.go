@@ -50,6 +50,9 @@ func TestComputeHistogramActiveLayer(t *testing.T) {
 	if hist.Blue[0] != 16 {
 		t.Errorf("Blue[0] = %d, want 16", hist.Blue[0])
 	}
+	if hist.Alpha[255] != 16 {
+		t.Errorf("Alpha[255] = %d, want 16", hist.Alpha[255])
+	}
 	// Red bin 0 should be 0 for the red channel.
 	if hist.Red[0] != 0 {
 		t.Errorf("Red[0] = %d, want 0", hist.Red[0])
@@ -79,7 +82,8 @@ func TestComputeHistogramMerged(t *testing.T) {
 	}
 
 	result, err := DispatchCommand(h, commandComputeHistogram, mustJSON(t, ComputeHistogramPayload{
-		LayerID: "merged",
+		Source:  "merged",
+		Channel: "luminance",
 	}))
 	if err != nil {
 		t.Fatalf("compute histogram merged: %v", err)
@@ -127,6 +131,23 @@ func TestComputeHistogramLuminance(t *testing.T) {
 
 	if result.Histogram.Luminance[255] != 4 {
 		t.Errorf("Luminance[255] = %d, want 4", result.Histogram.Luminance[255])
+	}
+}
+
+func TestHistogramJSONMatchesFrontendLuminosityABI(t *testing.T) {
+	payload, err := json.Marshal(HistogramData{})
+	if err != nil {
+		t.Fatalf("marshal histogram: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("unmarshal histogram fields: %v", err)
+	}
+	if _, ok := fields["luminosity"]; !ok {
+		t.Fatalf("histogram JSON has no luminosity field: %s", payload)
+	}
+	if _, ok := fields["luminance"]; ok {
+		t.Fatalf("histogram JSON exposes stale luminance field: %s", payload)
 	}
 }
 
@@ -329,6 +350,59 @@ func TestSetPointFromSampleWhitePoint(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a curve point with Y=255, got points: %+v", params.Points)
+	}
+}
+
+func TestSetPointFromSampleUsesRequestedChannelAndNewPayloadNames(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	t.Cleanup(func() { Free(h) })
+
+	px := make([]byte, 4*4*4)
+	for i := 0; i < len(px); i += 4 {
+		px[i] = 24
+		px[i+1] = 100
+		px[i+2] = 220
+		px[i+3] = 255
+	}
+	_, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: "pixel",
+		Name:      "color-layer",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+		Pixels:    px,
+	}))
+	if err != nil {
+		t.Fatalf("add layer: %v", err)
+	}
+	_, err = DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType:      "adjustment",
+		Name:           "curves",
+		AdjustmentKind: "curves",
+	}))
+	if err != nil {
+		t.Fatalf("add curves: %v", err)
+	}
+
+	_, err = DispatchCommand(h, commandSetPointFromSample, mustJSON(t, SetPointFromSamplePayload{
+		X: 1, Y: 1, SampleSize: 1, Kind: "add-point", Channel: "red",
+	}))
+	if err != nil {
+		t.Fatalf("set red point: %v", err)
+	}
+
+	mu.Lock()
+	inst := instances[h]
+	mu.Unlock()
+	doc := inst.manager.Active()
+	adj := doc.findLayer(doc.ActiveLayerID).(*AdjustmentLayer)
+	var params curvesParams
+	if err := json.Unmarshal(adj.Params, &params); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(params.Points) != 0 {
+		t.Fatalf("composite points changed: %+v", params.Points)
+	}
+	if len(params.RedPoints) != 3 || params.RedPoints[1].X != 24 || params.RedPoints[1].Y != 24 {
+		t.Fatalf("red points = %+v, want identity point at sampled red value 24", params.RedPoints)
 	}
 }
 

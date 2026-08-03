@@ -97,6 +97,34 @@ func (m *Manager[T]) Active() T {
 	return m.clone(value)
 }
 
+// Get returns a clone of the value identified by id.
+func (m *Manager[T]) Get(id string) T {
+	var zero T
+	value, ok := m.docs[id]
+	if !ok {
+		return zero
+	}
+	return m.clone(value)
+}
+
+// Has reports whether id is present without cloning the stored value.
+func (m *Manager[T]) Has(id string) bool {
+	_, ok := m.docs[id]
+	return ok
+}
+
+// Inspect calls inspect with the manager-owned value identified by id without
+// cloning it. The callback must treat the value as read-only and must not retain
+// it after returning.
+func (m *Manager[T]) Inspect(id string, inspect func(T)) bool {
+	value, ok := m.docs[id]
+	if !ok || inspect == nil {
+		return false
+	}
+	inspect(value)
+	return true
+}
+
 func (m *Manager[T]) ActiveMut() T {
 	var zero T
 	if m.activeID == "" {
@@ -126,14 +154,31 @@ func (m *Manager[T]) Switch(id string) error {
 }
 
 func (m *Manager[T]) CloseActive() error {
-	if m.activeID == "" {
+	return m.Close(m.activeID)
+}
+
+// Close removes id while preserving the remaining order. When the active
+// value is closed, the value immediately to its left becomes active; if there
+// is no left neighbor the first value to its right is used.
+func (m *Manager[T]) Close(id string) error {
+	if id == "" {
 		return nil
 	}
-	delete(m.docs, m.activeID)
+	if _, ok := m.docs[id]; !ok {
+		return fmt.Errorf("document %q not found", id)
+	}
+	closedIndex := -1
+	for i, candidate := range m.order {
+		if candidate == id {
+			closedIndex = i
+			break
+		}
+	}
+	delete(m.docs, id)
 	nextOrder := make([]string, 0, len(m.order))
-	for _, id := range m.order {
-		if id != m.activeID {
-			nextOrder = append(nextOrder, id)
+	for _, candidate := range m.order {
+		if candidate != id {
+			nextOrder = append(nextOrder, candidate)
 		}
 	}
 	m.order = nextOrder
@@ -141,6 +186,13 @@ func (m *Manager[T]) CloseActive() error {
 		m.activeID = ""
 		return nil
 	}
-	m.activeID = m.order[len(m.order)-1]
+	if m.activeID != id {
+		return nil
+	}
+	if closedIndex > 0 {
+		m.activeID = m.order[closedIndex-1]
+	} else {
+		m.activeID = m.order[0]
+	}
 	return nil
 }

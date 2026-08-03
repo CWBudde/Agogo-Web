@@ -10,40 +10,22 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 	return cmdpkg.DispatchCore(commandID, payloadJSON, cmdpkg.CoreDeps{
 		Decode: decodePayloadAny,
 		CreateDocument: func(payload cmdpkg.CoreCreateDocumentPayload) error {
-			command := newSnapshotCommand(fmt.Sprintf("New document: %s", defaultDocumentName(payload.Name)), func(inst *instance) (snapshot, error) {
-				doc := inst.newDocument(CreateDocumentPayload{
-					Name:       payload.Name,
-					Width:      payload.Width,
-					Height:     payload.Height,
-					Resolution: payload.Resolution,
-					ColorMode:  payload.ColorMode,
-					BitDepth:   payload.BitDepth,
-					Background: payload.Background,
-				})
-				inst.resetMixerBrushState()
-				inst.manager.Create(doc)
-				inst.viewport.CenterX = float64(doc.Width) * 0.5
-				inst.viewport.CenterY = float64(doc.Height) * 0.5
-				inst.fitViewportToActiveDocument()
-				return inst.captureSnapshot(), nil
+			doc := inst.newDocument(CreateDocumentPayload{
+				Name:       payload.Name,
+				Width:      payload.Width,
+				Height:     payload.Height,
+				Resolution: payload.Resolution,
+				ColorMode:  payload.ColorMode,
+				BitDepth:   payload.BitDepth,
+				Background: payload.Background,
 			})
-			return inst.history.Execute(inst, command)
+			inst.resetMixerBrushState()
+			inst.createDocumentSession(doc, true)
+			return nil
 		},
-		CloseDocument: func() error {
-			command := newSnapshotCommand("Close document", func(inst *instance) (snapshot, error) {
-				inst.resetMixerBrushState()
-				if err := inst.manager.CloseActive(); err != nil {
-					return snapshot{}, err
-				}
-				if doc := inst.manager.Active(); doc != nil {
-					inst.viewport.CenterX = float64(doc.Width) * 0.5
-					inst.viewport.CenterY = float64(doc.Height) * 0.5
-					inst.fitViewportToActiveDocument()
-				}
-				return inst.captureSnapshot(), nil
-			})
-			return inst.history.Execute(inst, command)
-		},
+		CloseDocument:  inst.closeDocument,
+		SwitchDocument: inst.switchDocument,
+		MarkSaved:      inst.markDocumentSaved,
 		// ZoomSet, PanSet and RotateViewSet are pure viewport (camera) changes.
 		// Photoshop never treats navigation as an undoable action, so these
 		// mutate inst.viewport directly and never touch inst.history.
@@ -129,24 +111,18 @@ func (inst *instance) dispatchCoreCommand(commandID int32, payloadJSON string) (
 			return inst.history.Execute(inst, command)
 		},
 		OpenImageFile: func(payload cmdpkg.CoreOpenImageFilePayload) error {
-			command := newSnapshotCommand(fmt.Sprintf("Open image: %s", payload.Name), func(inst *instance) (snapshot, error) {
-				doc := inst.newDocument(CreateDocumentPayload{
-					Name:   payload.Name,
-					Width:  payload.Width,
-					Height: payload.Height,
-				})
-				bounds := LayerBounds{X: 0, Y: 0, W: payload.Width, H: payload.Height}
-				layer := NewPixelLayer("Background", bounds, payload.Pixels)
-				if err := doc.AddLayer(layer, doc.LayerRoot.ID(), -1); err != nil {
-					return snapshot{}, err
-				}
-				inst.manager.Create(doc)
-				inst.viewport.CenterX = float64(doc.Width) * 0.5
-				inst.viewport.CenterY = float64(doc.Height) * 0.5
-				inst.fitViewportToActiveDocument()
-				return inst.captureSnapshot(), nil
+			doc := inst.newDocument(CreateDocumentPayload{
+				Name:   payload.Name,
+				Width:  payload.Width,
+				Height: payload.Height,
 			})
-			return inst.history.Execute(inst, command)
+			bounds := LayerBounds{X: 0, Y: 0, W: payload.Width, H: payload.Height}
+			layer := NewPixelLayer("Background", bounds, payload.Pixels)
+			if err := doc.AddLayer(layer, doc.LayerRoot.ID(), -1); err != nil {
+				return err
+			}
+			inst.createDocumentSession(doc, true)
+			return nil
 		},
 		TranslateLayer: func(payload cmdpkg.CoreTranslateLayerPayload) error {
 			command := newSnapshotCommand("Move layer", func(inst *instance) (snapshot, error) {

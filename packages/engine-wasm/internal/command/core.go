@@ -3,6 +3,8 @@ package command
 const (
 	commandCreateDocument int32 = 0x0001
 	commandCloseDocument  int32 = 0x0002
+	commandSwitchDocument int32 = 0x0003
+	commandMarkSaved      int32 = 0x0004
 	commandZoomSet        int32 = 0x0010
 	commandPanSet         int32 = 0x0011
 	commandRotateViewSet  int32 = 0x0012
@@ -29,6 +31,10 @@ type CoreCreateDocumentPayload struct {
 	ColorMode  string  `json:"colorMode"`
 	BitDepth   int     `json:"bitDepth"`
 	Background string  `json:"background"`
+}
+
+type CoreDocumentTargetPayload struct {
+	DocumentID string `json:"documentId"`
 }
 
 type CoreZoomPayload struct {
@@ -96,7 +102,9 @@ type CoreTranslateLayerPayload struct {
 type CoreDeps struct {
 	Decode         func(string, any) error
 	CreateDocument func(CoreCreateDocumentPayload) error
-	CloseDocument  func() error
+	CloseDocument  func(string) error
+	SwitchDocument func(string) error
+	MarkSaved      func(string) error
 	ZoomSet        func(CoreZoomPayload) error
 	PanSet         func(CorePanPayload) error
 	RotateViewSet  func(CoreRotatePayload) error
@@ -125,7 +133,25 @@ func DispatchCore(commandID int32, payloadJSON string, deps CoreDeps) (bool, err
 		return true, deps.CreateDocument(payload)
 
 	case commandCloseDocument:
-		return true, deps.CloseDocument()
+		var payload CoreDocumentTargetPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.CloseDocument(payload.DocumentID)
+
+	case commandSwitchDocument:
+		var payload CoreDocumentTargetPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SwitchDocument(payload.DocumentID)
+
+	case commandMarkSaved:
+		var payload CoreDocumentTargetPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.MarkSaved(payload.DocumentID)
 
 	case commandZoomSet:
 		var payload CoreZoomPayload

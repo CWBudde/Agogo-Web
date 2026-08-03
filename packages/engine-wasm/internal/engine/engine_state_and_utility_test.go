@@ -415,7 +415,7 @@ func TestDocumentManagerSwitchReplaceAndCloseActive(t *testing.T) {
 	}
 }
 
-func TestCloseDocumentActivatesPreviousDocumentAndUndoRestoresClosedDocument(t *testing.T) {
+func TestCloseDocumentActivatesPreviousDocumentAndIsNotUndoable(t *testing.T) {
 	h := Init("")
 	defer Free(h)
 
@@ -460,23 +460,8 @@ func TestCloseDocumentActivatesPreviousDocumentAndUndoRestoresClosedDocument(t *
 		t.Fatalf("viewport center after close = %.2f, %.2f, want 400, 300", closed.Viewport.CenterX, closed.Viewport.CenterY)
 	}
 
-	undone, err := DispatchCommand(h, commandUndo, "")
-	if err != nil {
-		t.Fatalf("undo close document: %v", err)
-	}
-	if undone.UIMeta.ActiveDocumentName != "Third" {
-		t.Fatalf("active document name after undo = %q, want Third", undone.UIMeta.ActiveDocumentName)
-	}
-	if undone.UIMeta.DocumentWidth != 320 || undone.UIMeta.DocumentHeight != 240 {
-		t.Fatalf("active document size after undo = %dx%d, want 320x240", undone.UIMeta.DocumentWidth, undone.UIMeta.DocumentHeight)
-	}
-
-	redone, err := DispatchCommand(h, commandRedo, "")
-	if err != nil {
-		t.Fatalf("redo close document: %v", err)
-	}
-	if redone.UIMeta.ActiveDocumentName != "Second" {
-		t.Fatalf("active document name after redo = %q, want Second", redone.UIMeta.ActiveDocumentName)
+	if closed.UIMeta.CanUndo || closed.UIMeta.CanRedo {
+		t.Fatal("document lifecycle must not enter content history")
 	}
 }
 
@@ -497,19 +482,8 @@ func TestCloseLastDocumentReturnsNoActiveDocumentState(t *testing.T) {
 	if closed.UIMeta.StatusText != "No active document" {
 		t.Fatalf("status text after closing last document = %q, want No active document", closed.UIMeta.StatusText)
 	}
-	if !closed.UIMeta.CanUndo {
-		t.Fatal("closing the last document should still be undoable")
-	}
-
-	undone, err := DispatchCommand(h, commandUndo, "")
-	if err != nil {
-		t.Fatalf("undo close last document: %v", err)
-	}
-	if undone.UIMeta.ActiveDocumentName == "" {
-		t.Fatal("undo close last document should restore an active document")
-	}
-	if undone.BufferLen == 0 {
-		t.Fatal("undo close last document should restore the render buffer")
+	if closed.UIMeta.CanUndo || closed.UIMeta.CanRedo {
+		t.Fatal("closing the last document must not enter content history")
 	}
 }
 

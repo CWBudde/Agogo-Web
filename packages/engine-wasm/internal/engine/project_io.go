@@ -70,16 +70,14 @@ func (inst *instance) importProject(payload string) (RenderResult, error) {
 			return RenderResult{}, fmt.Errorf("load project: unsupported import payload")
 		}
 	}
-	inst.manager = newDocumentManager()
+	if doc.ID == "" || inst.manager.Has(doc.ID) {
+		doc.ID = inst.uniqueImportedDocumentID()
+	}
+	inst.registerDocumentBrushResources(doc)
 	inst.resetMixerBrushState()
 	inst.resetCloneStampState()
-	inst.manager.Create(doc)
-	inst.viewport.CenterX = float64(doc.Width) * 0.5
-	inst.viewport.CenterY = float64(doc.Height) * 0.5
-	inst.fitViewportToActiveDocument()
+	inst.createDocumentSession(doc, false)
 	inst.importWarnings = append([]string(nil), warnings...)
-	// History is intentionally cleared on import: opening a project starts a
-	// fresh undo stack regardless of any history stored in the archive.
-	inst.history.Clear()
+	inst.saveActiveDocumentSession()
 	return inst.render(), nil
 }

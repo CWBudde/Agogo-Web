@@ -15,6 +15,8 @@ type (
 	SavedSelectionChannel     = docpkg.SavedSelectionChannel
 	SavedSelectionChannelMeta = docpkg.SavedSelectionChannelMeta
 	DocumentStylePreset       = docpkg.DocumentStylePreset
+	ImportedBrushPreset       = docpkg.ImportedBrushPreset
+	brushTipResource          = docpkg.BrushTipResource
 	ViewportState             = docpkg.ViewportState
 	HistoryEntry              = docpkg.HistoryEntry
 	RawRenderResult           = docpkg.RawRenderResult
@@ -37,6 +39,7 @@ func parseBackground(kind string) Background {
 	return docpkg.ParseBackground(kind)
 }
 
+//nolint:unused // kept for package-local tests
 func defaultDocumentName(name string) string {
 	return docpkg.DefaultDocumentName(name)
 }

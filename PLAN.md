@@ -512,39 +512,405 @@
 
 > Recurring audit finding: engine command exists, tested, and works — frontend never dispatches it. 24 handled-but-never-dispatched commands total.
 
+**Goal:** Finish the remaining engine-to-UI feature slices without hiding multi-day backend, ABI, state-management, and test work behind single checklist items.
+
+**Acceptance criterion:** Every remaining S.8 feature is either usable end-to-end from the UI or deliberately removed from the visible product; all new commands have shared TypeScript/Go contracts, undo/error behavior is explicit, and focused engine plus frontend tests cover the user-visible flow.
+
 - [x] **Filter menu** (2026-07-26) — the entire filter domain (0x0500–0x0505, 26 registered filters, live preview, Ctrl+F reapply, Fade) is now wired. Added TS payload types (`ApplyFilterCommand`/`PreviewFilterCommand`/`FadeFilterCommand`), a static frontend filter catalog mirroring the engine registry (id/name/category/hasDialog + per-filter param schema), a generic catalog-driven `FilterDialog` managing the engine's preview lifecycle (open→PreviewFilter, tweak→re-preview, Preview toggle→Cancel, Apply→CommitFilterPreview / ApplyFilter, Cancel/Escape/unmount→CancelFilterPreview), a `FadeDialog` (opacity + blend mode → FadeFilter), a `FilterStateProvider` (active dialog, last-applied filter, one-shot fade availability), Filter-menu regeneration from the catalog with category section headers, and Ctrl+F (reapply) / Ctrl+Shift+F (fade) shortcuts. TDD: filter-catalog, filter-state reducer, FilterDialog, FadeDialog, MenuPreviewPanel, keyboard-shortcut tests. As a side benefit, `MenuPreviewPanel` now renders the (already-authored) section titles for every multi-section menu.
-- [ ] **Menu bar de-mock**: items without `actionId` are permanently disabled — Edit▸Undo/Redo/Cut/Copy/Paste, entire Layer menu, Image▸Levels/Curves/…, View▸Zoom/Fit, entire Window and Help menus; wire or remove (Edit▸Scale/Rotate/Skew/… also all mislabel plain free transform)
-- [ ] **Clipboard**: no cut/copy/paste exists anywhere (needs new engine commands + UI)
-- [ ] Histogram display in Levels UI (`ComputeHistogram` has no consumer); Curves black/white/gray eyedroppers (`SetPointFromSample` never dispatched); Hue/Sat range eyedropper (`IdentifyHueRange` never dispatched)
-- [ ] Transform Again menu item (backend complete, zero frontend)
-- [ ] Brush jitter dynamics: panel sliders are display-only — values never reach the engine, no proto fields exist
-- [ ] Navigator: real document thumbnail (currently a static CSS-gradient placeholder, `App.tsx:4400`)
-- [ ] Multi-document: `SwitchDocument` proto command + document tab bar (engine `DocumentManager` supports it; unreachable by users) — blocked on S.2 undo-vs-multi-doc fix
-- [ ] Alt+click visibility eye = solo (claimed in 2.4, no altKey handling)
-- [ ] Character panel real color picker (currently a black↔red demo toggle); vector properties real fill/stroke pickers (transparent↔black toggle); remove or implement mask Density/Feather sliders and other decorative controls
-- [ ] Real `.abr` parser (current "import" is a filename-regex heuristic)
+- [x] **Menu bar de-mock** (2026-08-01) — every visible entry now has a real action: wired Undo/Redo, core adjustment-layer creation, all Layer actions, viewport Zoom/Fit, and Window panel focus with accurate disabled/checked state; wired the shortcuts the menu advertises (Fill, Canvas Size, Reselect, layer commands, modified zoom/fit). Removed deferred Clipboard entries, dead Generate Assets/Image Size/Trim/Pixel Grid/Rulers/workspace/Help placeholders, and the Scale/Rotate/Skew/Distort/Perspective aliases that all mislabeled plain free transform. A menu-model invariant test prevents actionless entries from returning.
+- [x] **Clipboard** (2026-08-02) — added instance-scoped pixel clipboard commands (`Copy`/`Cut`/`Paste`, 0x0214–0x0216), selection-aware copy/cut with feather coverage, lock-safe undoable cuts, same-document positioning and cross-document centering on paste, `canPaste` UI metadata, Edit-menu actions with truthful enablement, and Ctrl+X/C/V shortcuts.
+
+#### Phase S.8.1: Adjustment Histograms & Canvas Eyedroppers
+
+**Goal:** Connect the existing histogram and adjustment-sampling commands to Levels, Curves, and Hue/Saturation controls with one coherent canvas interaction mode.
+
+**Acceptance criterion:** Levels displays the requested live histogram, Curves black/white/gray/add-point samplers mutate the selected Curves layer from a canvas click, and the Hue/Saturation sampler selects the identified color range; Escape and tool/layer changes cancel sampling cleanly.
+
+- [x] Complete the shared ABI types that the implemented backend responses currently lack:
+  - [x] Add payload types for `ComputeHistogram`, `SetPointFromSample`, and `IdentifyHueRange`
+  - [x] Add `HistogramData` and `histogram`/`identifiedHueRange` fields to the TypeScript `RenderResult` contract
+  - [x] Verify command errors and command-specific response fields survive the Wasm context merge path
+- [x] Build reusable adjustment canvas-sampling state instead of three independent pointer handlers:
+  - [x] Track the target adjustment layer, sampler kind, sample size, and cursor
+  - [x] Route the next eligible canvas click in document coordinates to the owning adjustment editor
+  - [x] Cancel on Escape, panel/layer change, tool change, dialog close, or deleted target layer
+  - [x] Avoid collisions with the normal Eyedropper, Color Sampler, pan, and selection modifier gestures
+- [x] Wire the Levels histogram display:
+  - [x] Request active-layer or merged data and draw the selected RGB/luminance channel behind the Levels controls
+  - [x] Refresh on active layer, content version, source, or channel changes without recomputing on every render frame
+  - [x] Handle empty/transparent documents and scale bins without losing narrow peaks
+- [x] Wire Curves sampling controls for black, white, gray, and add-point modes to `SetPointFromSample`
+- [x] Refresh Curves parameters/UIMeta after a sample and preserve channel-specific curve editing and undo semantics
+- [x] Wire the Hue/Saturation eyedropper to `IdentifyHueRange`, update the active range selector from the returned value, and keep existing range parameters intact
+- [x] Add Go command-contract regression tests where missing and frontend tests for response decoding, histogram refresh keys, sampler lifecycle, cursor state, dispatch payloads, and cancellation
+
+#### Phase S.8.2: Transform Again UI & Command State
+
+**Goal:** Expose the already-implemented `TransformAgain` operation with honest availability and Photoshop-style keyboard access.
+
+**Acceptance criterion:** Edit → Transform Again and its shortcut replay the last committed free or discrete transform on the current eligible layer, remain disabled when replay is impossible, and produce a normal undoable history entry.
+
+- [x] Expose `canTransformAgain` (and any eligibility reason needed by the UI) in `UIMeta` rather than enabling the action optimistically
+- [x] Add the Transform Again menu action with accurate disabled state and `Ctrl/Cmd+Shift+T`
+- [x] Flush pending pointer input and reject invocation during incompatible in-flight crop, transform, text-edit, or paint states
+- [x] Preserve backend errors in the frontend notification path instead of silently closing the menu
+- [x] Add menu-model, shortcut, and engine-context tests covering unavailable, free-transform, discrete-transform, and undo cases
+
+#### Phase S.8.3: Brush Tip & Jitter Dynamics Wiring
+
+**Goal:** Make the visible Brush Settings controls affect rendered strokes, beginning with size/opacity/flow jitter and including the adjacent preset fields on which real brush import depends.
+
+**Acceptance criterion:** Size, opacity, and flow jitter visibly and measurably affect dabs; zero jitter remains byte-identical to the current output; tip shape, angle, roundness, and spacing are either engine-backed or removed from the panel; all paint-like tools receive the same applicable settings.
+
+- [x] Audit the complete Brush Settings payload path from `brush-state.tsx` → `CanvasHost` → `EditorCanvas` → `packages/proto` → Go and list every currently decorative field
+- [x] Extend the shared `BrushParams` contract with normalized, documented fields for:
+  - [x] Size, opacity, and flow jitter
+  - [x] Tip shape/preset ID, angle, roundness, and spacing
+  - [x] Per-dynamic control-source semantics (`off`, pressure, tilt, fade) without conflicting with the existing pressure toggles
+- [x] Define deterministic stroke dynamics:
+  - [x] Create a per-stroke random source/seed rather than relying on the package-global `math/rand` stream
+  - [x] Sample dynamics once per emitted dab, clamp effective size/opacity/flow, and compute the undo/dirty footprint from the effective size
+  - [x] Preserve repeatable tests and stable coalesced-event behavior
+- [x] Render supported procedural tip shapes through `agg_go` paths and make angle/roundness affect the dab transform
+- [x] Replace the fixed `0.25` dab spacing in the stroke pipeline with validated brush/preset spacing while keeping a safe minimum
+- [x] Thread the settings through brush, pencil, eraser, mixer, clone stamp, and history brush paths, explicitly documenting settings that do not apply to a tool
+- [x] Ensure preset selection and JSON import/export round-trip every engine-backed field; make unsupported imported fields visible as warnings rather than silently inventing behavior
+- [x] Add statistical engine tests for jitter ranges/distribution, byte-parity tests at zero jitter, dirty-rect/selection/undo tests for variable-size dabs, and frontend payload tests for every paint tool
+- [x] Re-run paint benchmarks to ensure per-dab dynamics do not regress the S.4 hot path disproportionately
+
+#### Phase S.8.4: Real Navigator Preview & Viewport Control
+
+**Goal:** Replace the static Navigator placeholder with an engine-rendered document preview and an interactive viewport indicator.
+
+**Acceptance criterion:** Navigator shows the active composited document, refreshes after content/document changes without work on idle frames, displays the visible canvas region, and supports click/drag pan plus zoom control.
+
+- [x] Add a dedicated navigator-thumbnail command/response rather than placing base64 pixel data in every `UIMeta`
+- [x] Render a bounded, aspect-correct composite thumbnail in Go/Wasm using `agg_go` image scaling and return its dimensions plus RGBA bytes
+- [x] Cache the thumbnail by active document ID, content version, requested size, and background mode
+- [x] Build a display-only thumbnail canvas component that only blits the engine-owned RGBA result
+- [x] Project the current canvas corners into document/thumbnail space and draw an accurate viewport polygon for pan, zoom, and rotated views
+- [x] Add click-to-center and drag-to-pan interactions; keep the existing zoom slider synchronized with engine viewport state
+- [x] Refresh on panel open, active-document change, content-version change, and panel resize, with request deduplication for React Strict Mode
+- [x] Cover transparent documents, extreme aspect ratios, zoom beyond document bounds, rotation, no-active-document state, and stale async responses in Go and frontend tests
+
+#### Phase S.8.5: Multi-Document Sessions & Tab Bar
+
+**Goal:** Turn the existing `DocumentManager` storage into safe user-facing multi-document sessions with switching, closing, and per-document workspace state.
+
+**Acceptance criterion:** Users can keep multiple documents open, switch from a tab bar without losing edits or sibling documents, return to each document's viewport/history/UI state, and close documents with correct active-tab and unsaved-change behavior.
+
+- [x] Define the document-session contract before exposing tabs:
+  - [x] Decide which state is per document: viewport, history, selection/edit modes, last transform/filter, clone/history sources, and transient previews
+  - [x] Cancel or commit in-flight paint, transform, crop, text, and filter-preview state deterministically before switching
+  - [x] Define tab ordering, next-active behavior on close, and whether document creation/opening participates in edit history
+- [x] Add a `SwitchDocument` command and shared payload type; expose an ordered document summary list in `UIMeta` with ID, display name, active state, dimensions, and modified/clean state
+- [x] Replace the single global viewport/history assumptions with document-keyed session state (or an equivalent ownership model) so switching does not mix undo stacks or camera positions
+- [x] Audit all manager-replacing flows:
+  - [x] Opening/importing a project or image must add/replace only the intended document rather than discard unrelated open documents
+  - [x] Undo/redo and history jump must operate on the active document without unexpectedly activating or mutating a sibling
+  - [x] Autosave, Save/Save As, export, thumbnails, filter state, and cached render keys must target the active document ID
+- [x] Add an accessible tab bar with active/modified indicators, close buttons, overflow behavior, middle-click close, and `Ctrl/Cmd+Tab` / `Ctrl/Cmd+Shift+Tab` navigation
+- [x] Add a close-confirmation flow for modified documents and define the last-document empty-workspace state
+- [x] Invalidate/rebuild render, UIMeta, layer-thumbnail, Navigator, and document-sized canvas caches on switch without leaking Wasm buffers
+- [x] Add engine tests with at least three documents covering switch/edit/undo/redo/close/reopen/import and the S.2 sibling-preservation regression; add frontend tab, shortcut, confirmation, and active-state tests
+
+#### Phase S.8.6: Atomic Layer-Visibility Solo
+
+**Goal:** Implement the advertised Alt/Option-click eye gesture as one coherent layer-tree operation rather than a burst of frontend visibility commands.
+
+**Acceptance criterion:** Alt/Option-clicking a layer eye isolates the intended layer, preserves the ancestor visibility needed to render it, restores the prior visibility set on the matching gesture, and is undoable as one history step.
+
+- [x] Define solo semantics for nested groups, clipped layers, multi-selection, hidden ancestors, and a second Alt/Option-click
+- [x] Add one engine command that captures/applies the full visibility change atomically and records one history entry
+- [x] Store the pre-solo visibility set with a document/layer-tree version guard so stale state is never restored after structural edits
+- [x] Pass `event.altKey`/`event.metaKey` from the actual eye pointer event without changing normal click behavior or row selection
+- [x] Add nested-group engine tests plus Layers-panel tests for normal toggle, solo, restore, undo/redo, and modifier handling
+
+#### Phase S.8.7: Real Contextual Color & Mask Controls
+
+**Goal:** Replace demo toggles and decorative Properties controls with reusable, cancel-safe editors backed by real engine state.
+
+**Acceptance criterion:** Text color and vector fill/stroke open a real color editor with preview/apply/cancel semantics; every visible mask control changes compositing or is removed; no Properties-panel control pretends to edit state it cannot persist.
+
+- [x] Generalize the existing `ColorPickerDialog` from foreground/background global state to a contextual draft/commit API
+- [x] Wire Character text color:
+  - [x] Open from the current text color, preview through the existing text-layer update command, and restore the original value on Cancel/Escape
+  - [x] Preserve alpha and include the change in the correct text-edit/history transaction
+- [x] Wire vector fill and stroke independently:
+  - [x] Support full RGBA selection plus an explicit None/transparent action
+  - [x] Preserve the other paint and stroke width while one color is previewed
+  - [x] Re-rasterize through the engine and make Apply/Cancel/undo behavior deterministic
+- [x] Decide mask Density/Feather scope from actual engine support:
+  - [x] If implemented, add non-destructive mask density/feather fields, commands, `UIMeta`, project serialization, clone/equality/history support, and cache invalidation
+  - [x] Apply density and feather in the engine compositor using `agg_go` primitives; if the required filter API is still internal, complete the narrow S.9 export first
+  - [x] If deferred, remove the controls and explanatory placeholder rather than leaving disabled decoration
+- [x] Audit the rest of Character, Vector Properties, Adjustments/Mask, Channels, and related panels for demo toggles, hard-coded previews, or callbacks that only mutate local display state
+- [x] For every audit finding, wire it end-to-end or remove it; add a frontend invariant/test that visible action controls have a state-changing handler
+- [x] Add dialog preview/cancel tests, text/vector payload tests, mask render/history/serialization tests when applicable, and accessibility coverage for keyboard and focus return
+
+#### Phase S.8.8: Real ABR Brush Preset Import
+
+**Goal:** Replace filename/name guessing with fixture-driven ABR parsing and render imported brush tips through the engine.
+
+**Acceptance criterion:** Supported `.abr` files import their real preset names, tip images, spacing/shape/dynamics metadata, and usable thumbnails; malformed or unsupported files fail safely with actionable warnings; the regex heuristic is gone.
+
+- [ ] Define the first supported ABR compatibility matrix from licensed or redistributable fixtures (format versions, sampled brushes, computed brushes, compression variants, and descriptor fields)
+  - [x] Document and test the synthetic v6/v7, sampled RAW/RLE, computed-descriptor, malformed-input, and resource-limit matrix without claiming external provenance
+  - [ ] Validate Photoshop-produced descriptor layouts, sampled-mask polarity, version variants, and compression behavior against a licensed redistributable external fixture corpus
+- [x] Move ABR binary parsing into Go/Wasm so decoded tip pixels never become a JavaScript rendering pipeline:
+  - [x] Add an import command accepting raw file bytes and a response containing sanitized preset metadata, stable IDs, thumbnails, and per-preset warnings
+  - [x] Implement bounds-checked big-endian readers, versioned sections, descriptor/string parsing, sampled-tip dimensions/depth/compression decoding, and strict allocation limits
+  - [x] Reject truncated, oversized, or unsupported records without partially registering corrupt presets
+- [x] Add an engine brush-resource registry for imported grayscale/alpha tips and computed preset metadata; define app-session/document ownership and cleanup on engine disposal
+- [x] Extend `BrushParams`/preset selection to reference an imported tip ID and render the scaled/rotated tip via `agg_go` image/span/mask primitives
+- [x] Map supported ABR spacing, diameter, hardness, angle, roundness, and dynamics fields onto the S.8.3 brush model; report unsupported Adobe-only behaviors instead of approximating them silently
+- [x] Return engine-generated preview thumbnails for the preset picker; keep React limited to displaying the returned bytes and metadata
+- [x] Decide persistence explicitly: retain imported libraries in IndexedDB/app storage and embed only referenced resources in `.agp`, or document a simpler scoped alternative
+- [x] Keep JSON preset import as a separate validated format and remove `extractAbrPresetNames` plus all regex-based inference
+- [ ] Add golden metadata/tip-decode tests from external fixtures, malformed/truncation/size-limit tests, parser fuzz tests, and frontend import/duplicate/error/persistence tests
+  - [x] Cover malformed, truncated, oversized, fuzz-seed, frontend import/error/persistence, and project portability paths with synthetic fixtures
+  - [ ] Add golden metadata and tip-decode assertions derived from licensed external ABR files
+- [x] Benchmark large brush libraries and sampled-tip strokes; avoid decoding every tip eagerly if fixture measurements justify indexed lazy loading
 
 ### Phase S.9: agg_go Upgrade & Alignment
 
+> Recurring audit finding: AGENTS.md mandates that all pixel work go through `agg_go`, but the primitives the engine actually needs for compositing live under `agg_go/internal/` and are unimportable. The engine therefore carries its own per-pixel float64 blend engine, its own layer compositor, and its own viewport resampler — the rule is currently impossible to follow, not merely unfollowed.
+
+> **Completed 2026-08-03:** public APIs released in `agg_go v0.5.0`; engine dependency, compositor, viewport, gradients, and crop resampling migrated; intentional manual loops documented and guarded.
+
+**Goal:** Make the "use agg_go primitives" rule actually satisfiable by exporting the missing public API in `agg_go`, then retire the engine's hand-written pixel loops on the paths where AGG is genuinely equivalent or better — without regressing the S.4 dirty-rect performance work or changing rendered output outside of documented, intentional fixes.
+
+**Acceptance criterion:** Every remaining hand-written pixel loop in the engine is either replaced by a public `agg_go` call or listed on the keep-manual list with a stated reason; blend/composite/resample output is covered by golden-pixel tests that pin behavior across the migration; the S.4 benchmarks show no disproportionate regression; and `agg_go` ships the exports and comp-ops as a tagged release the engine depends on by version, not by `go.work` replace.
+
+**Cross-repo note:** `agg_go` work happens in `../agg_go` (the root `go.work` already `use`s it, so engine builds pick up local changes immediately). `packages/engine-wasm/go.mod` still pins `github.com/cwbudde/agg_go v0.3.2`; each sub-phase that changes `agg_go` must end in a tagged release and a `go.mod` bump so CI — which has no `go.work` — builds the same code. `agg_go v0.4.0` is already tagged and unconsumed; fold that bump into S.9.1.
+
 - [x] **Upgrade `agg_go` v0.2.21 → v0.3.2** — done 2026-07-06; full Go test suite passes, host and js/wasm builds clean. Brings AVX2/SSE2 SIMD blend kernels, the **DstOut comp-op fix (eraser)**, `FillLinearGradientStops`, sRGB/premultiplied-alpha correctness fixes, raster-text overhaul, dashed strokes
-- [ ] In agg_go: export the composite/span/image-filter primitives the engine needs (they live under `internal/` and cannot be imported — the AGENTS.md "use agg_go primitives" rule is currently impossible to follow for compositing)
-- [ ] In agg_go: extend `CompOp` with the 14 missing Photoshop modes (Linear Burn/Dodge, Vivid/Pin/Linear Light, Hard Mix, Divide, Subtract, Darker/Lighter Color, Dissolve, Hue/Sat/Color/Luminosity)
-- [ ] Then migrate the three highest-traffic manual-pixel paths to agg_go: `blend.go` (287-line per-pixel float64 blend engine, called per pixel from 5 files), the layer compositor (`layer_ops.go:987–1045`), and the viewport resampler (`viewport_composite.go` — replaceable by one AGG transformed-image draw)
-- [ ] Migrate `renderCustomGradient` (`fill_gradient.go:429–498`) to agg_go span generators / `FillLinearGradientStops`; route crop resampling (`crop.go:369–406`) through AGG image filters
-- [ ] Keep-manual list stays valid: flips/rotate90/180, discrete remaps, transform overlay (Phase X.7 policy), `EraseBackgroundDab` tolerance erase
+
+#### Phase S.9.1: Public agg_go Compositing, Span & Image-Filter API
+
+**Goal:** Export the narrow, stable surface of `agg_go/internal/{pixfmt,span,image,rasterizer,renderer}` that the engine needs, so compositing and resampling can be written against a public API instead of being reimplemented.
+
+**Acceptance criterion:** The engine can composite an RGBA source rect onto an RGBA destination with a comp-op, opacity, and an alpha mask, and can draw a transformed/filtered image, using only exported `agg_go` identifiers; the exported API is documented, tested in `agg_go`, and released as a tag the engine consumes by version.
+
+- [x] Derive the required surface from real call sites rather than exporting `internal/` wholesale:
+  - [x] Inventory what `blend.go`, `layer_ops.go`, `viewport_composite.go`, `fill_gradient.go`, and `crop.go` actually need (comp-op blending on a byte slice, alpha-mask modulated composite, transformed-image span rendering, image filter kernels, multi-stop gradient LUTs)
+  - [x] Record which needs are already met by existing public API (`Context.DrawImageTransformed`/`DrawImageQuad`/`DrawImageRegion`, `SetImageFilter`/`SetImageResample`, `AlphaMask`, `FillLinearGradientStops`) so the export list only covers genuine gaps
+  - [x] Decide per gap: promote to a public wrapper type, or re-export like `blending.go` re-exports `BlendMode`
+  - [x] Decision record: keep existing `Context`/filter APIs intact; add narrow caller-owned-buffer wrappers (`CompositeImage`, `DrawImageAffine`, `RenderGradient`, `GradientLUT`) and additive canonical filter aliases rather than exposing `internal/` packages
+- [x] Add the public compositing entry points in `agg_go`:
+  - [x] Attach a pixel format to a caller-owned RGBA byte slice with explicit stride, premultiplication state, and bounds
+  - [x] Blend a source rect onto a destination rect with comp-op + cover/opacity + optional `AlphaMask`, with clipping handled inside AGG
+  - [x] Keep the SIMD blend kernels reachable through the public path so the export does not silently land on the scalar fallback
+- [x] Add the public image-filter/span surface: named filter kernels (nearest, bilinear, bicubic, Lanczos where present), resample-vs-non-resample selection, and transformed-image drawing into a caller-owned buffer without a `Context` round-trip when one is not wanted
+- [x] Add the public gradient-span surface needed by S.9.6: arbitrary-stop LUT construction plus linear/radial/conical/diamond span generators addressable independently of `Context` fill state
+- [x] Define and document the API contract explicitly: premultiplied vs straight alpha, RGBA byte order, stride/offset conventions, clipping behavior, and which calls allocate
+- [x] Add `agg_go` tests for every exported symbol (including a parity test that the public path and the pre-existing `internal/` path produce identical bytes) and doc examples for the compositing and transformed-image calls
+- [x] Release `agg_go` v0.5.0 with the exports, bump `packages/engine-wasm/go.mod` off v0.3.2, and verify host + `js/wasm` builds and the full Go suite pass without `go.work`
+- [x] Re-check the AGENTS.md "Known gaps" table and remove/adjust the "Public color-conversion API" and image-filter rows if this phase closes them
+
+#### Phase S.9.2: Photoshop Comp-Op Coverage in agg_go
+
+**Goal:** Give `agg_go` the 14 Photoshop blend modes the engine's `blend.go` implements privately, so a migrated compositor does not have to fall back to hand-written math for half the mode list.
+
+**Acceptance criterion:** All 27 engine `BlendMode` values in `internal/model/layers.go:35–61` map onto a public `agg_go` comp-op (or are documented as deliberately engine-side), and per-mode pixel parity against the current `blendRGB` implementation is proven by test.
+
+- [x] Establish the reference before writing kernels: extract the current `blendRGB`/`compositePixelWithBlend` behavior into a golden per-mode expected-pixel table (this table is the migration contract for S.9.3)
+- [x] Add the separable modes missing from `blending.go`'s re-export list (which today stops at the Porter-Duff + PDF set `BlendAlpha`…`BlendExclusion`): Linear Burn, Linear Dodge, Vivid Light, Linear Light, Pin Light, Hard Mix, Divide, Subtract
+- [x] Add the non-separable modes: Hue, Saturation, Color, Luminosity — port `setLuminosity`/`clipColor`/`setSaturation` semantics from the C++ AGG/PDF definitions rather than from the engine copy, then diff against the engine copy
+- [x] Add the two special cases explicitly, since neither is a pure per-channel function:
+  - [x] Darker Color / Lighter Color operate on whole-pixel luminance, not per channel
+  - [x] Dissolve is stochastic — define the randomness contract (caller-supplied per-pixel seed, matching the engine's `pixelNoiseSeed(x, y)` determinism) so results stay reproducible and test-stable
+- [x] Decide and document alpha handling for the new modes (premultiplied path, zero-alpha backdrop, out-of-range intermediates) so `NaN`/clamp behavior is specified, not incidental
+- [x] Provide SIMD kernels where the mode is cheap enough to vectorize, and verify the scalar and SIMD paths agree bit-for-bit
+  - [x] The public uniform-row SrcOver path reaches the existing AVX2/SSE2 kernel and has a forced-scalar byte-for-byte differential test; varying-color and complex Photoshop modes remain exact scalar paths
+- [x] Add `agg_go` per-mode tests over the golden table, plus edge-case tests (alpha 0/1, black/white backdrops, saturated channels) and benchmarks for the new comp-ops
+- [x] Tag the consolidated `agg_go` v0.5.0 release and bump the engine dependency (completed once in S.9.1 after all cross-repo work)
+
+#### Phase S.9.3: Retire the Engine's Private Blend Engine
+
+**Goal:** Replace `internal/engine/blend.go` (312 lines of per-pixel `float64` math, invoked per pixel from `dispatch_filter.go:448`, `viewport_composite.go:115/152/209`, `brush.go:739`, `fill_gradient.go:253/282`, and `layer_ops.go:1184/1192/1488`) with the public `agg_go` comp-ops from S.9.2.
+
+**Acceptance criterion:** `blendRGB` and its per-mode helpers are deleted; all six call sites go through `agg_go`; the S.9.2 golden table passes unchanged (or every intentional difference is listed with a reason); and the blend-heavy benchmarks do not regress.
+
+- [x] Convert the per-pixel call sites to span/rect-level calls first — the win is as much about leaving the per-pixel function-call granularity as about the math
+- [x] Reconcile the two color models: the engine blends in straight-alpha `float64` 0–1, `agg_go` blends premultiplied 8-bit; quantify the rounding delta on the golden table and decide per mode whether to accept it, widen precision (`BlenderRGBA8PlainFixed`, `pixfmt_rgba128`), or keep the mode engine-side
+  - [x] Opaque output is exact for all 27 engine modes; translucent output is exact for corrected Soft Light and within one byte for the remaining modes, the expected 8-bit quantization boundary
+- [x] Preserve the semantics the engine layered on top of raw blending: `opacity` scaling, `pixelNoiseSeed` determinism for Dissolve, and the BlendIf/mask modulation applied by the callers
+- [x] Migrate call sites in isolation-first order — `fill_gradient.go` and `brush.go` (simple, `BlendModeNormal`) → `dispatch_filter.go` → `viewport_composite.go` → `layer_ops.go` — keeping each step independently testable and revertable
+- [x] Delete `blend.go` and retarget `blend_test.go` at the new path so the existing mode coverage (including the finiteness fuzz at `blend_test.go:308`) keeps running
+- [x] Re-run `BenchmarkRenderPipeline512`, `BenchmarkRenderCompositeSurface`, and `BenchmarkRenderFrameAfterPaintDirtyRect`; record before/after numbers in this plan the way Phase X did
+  - [x] 512² paint strokes: 23.6–24.7 ms → 9.2–11.7 ms; pipeline composite: 10.0–11.2 ms → 1.24–1.35 ms; full surface render: 67.4–71.5 ms → 16.3–25.6 ms
+  - [x] Dirty viewport at aligned 100%: 185–207 µs → 217–232 µs after warm-up; fractional 137%: 0.50–0.96 ms → 5.1–6.0 ms, still below a 16.7 ms frame and bounded to the dirty region via the premultiplied surface cache
+
+#### Phase S.9.4: Layer Compositor Migration
+
+**Goal:** Move the layer-stack compositor onto `agg_go` surface/mask primitives while preserving the S.4 incremental dirty-rect contract.
+
+**Acceptance criterion:** `compositeRasterIntoDocument` and `compositeDocumentSurfaceClipped` composite through public `agg_go` calls; clipped and full recomposites remain byte-identical to each other; and masks, clipping masks, BlendIf, group isolation, and adjustment-layer caching behave exactly as before.
+
+- [x] Correct the stale plan reference: the per-pixel writers are `layer_ops.go:1184/1192` (raster into document) and `layer_ops.go:1488` (surface composite), not `layer_ops.go:987–1045` — that range is now the `compositeLayerOntoWithClipOptions` dispatcher
+- [x] Map each engine concept onto an AGG primitive before touching code: layer mask + vector mask + clip alpha → `AlphaMask` composition; `effectiveLayerOpacity × effectiveContentOpacity` → cover; BlendIf → a derived per-pixel mask or a retained engine-side pre-pass
+- [x] Fold the mask chain into a single `AlphaMask` per composite instead of re-multiplying per pixel, and confirm `effectiveLayerMask`'s existing vector-mask folding still short-circuits for empty masks
+- [x] Keep the clip-rect path a first-class argument, not an afterthought: AGG clip box must reproduce the current `clip *DirtyRect` semantics, including the documented rule that style surfaces render unclipped and only their final composite is clipped
+- [x] Leave the adjustment-layer branch alone in this phase (it is a backdrop transform, not a blend) and re-verify the `allowAdjustmentCache` / `copySurfaceOutsideRect` invariants after migration
+- [x] Verify `surfacePool` reuse still holds — AGG attaching to pooled buffers must not retain references past the composite
+- [x] Add golden-pixel tests for the compositor before migrating (nested groups, isolated groups, clipping masks, BlendIf, partial opacity, masked + styled layers) — this is the S.11 golden-image work pulled forward where it is a prerequisite
+- [x] Add an equivalence test asserting clipped incremental recomposite == full recomposite for randomized dirty rects
+
+#### Phase S.9.5: Viewport Resampler Migration
+
+**Goal:** Replace the three hand-written viewport samplers in `viewport_composite.go` with a single AGG transformed-image draw.
+
+**Acceptance criterion:** `compositeViewportIdentity` (`:130`), `compositeViewportBilinearUnrotated` (`:218`), and `compositeViewportBilinearRotated` (`:329`) collapse into one transform-driven path; pan/zoom/rotate output is at least as good as today; and the zoom benchmarks do not regress.
+
+- [x] Express the viewport as a single affine transform (pan + zoom + rotation about the canvas center) and drive `DrawImageTransformed`/`DrawImageQuad` with it, replacing the three special-cased loops and `docBoundsOnCanvas`'s manual corner projection
+- [x] Preserve the identity-zoom fast path deliberately: measure whether AGG's setup cost beats the current straight copy at zoom 1 and keep the manual path if it does not (the Phase X.7 policy already establishes that AGG setup cost can dominate for cheap ops)
+- [x] Choose filters per zoom regime (nearest for ≥100% pixel-accurate inspection, resampling filter for minification) and expose that choice where the UI's existing zoom semantics expect it
+  - [x] Policy selected from the existing editor behavior: bilinear below 4× or whenever rotated; nearest at unrotated zoom ≥4× for pixel inspection
+- [x] Preserve `storeBilinearPixel`'s premultiplied handling and the checkerboard/transparency backdrop composition order
+- [x] Confirm the clip-rect argument still restricts work to the dirty region — the S.4 win is that a paint frame resamples O(dirty), and an unclipped AGG draw would silently undo it
+- [x] Re-run `BenchmarkCompositeViewportZoom1` and `BenchmarkViewportZoomScenarios512` across zoom levels and rotation on/off; keep whichever path wins per regime and document the split
+  - [x] Aligned identity stays a measured manual row-copy fast path (0.28–0.73 ms, zero allocations); transformed views use the unified AGG affine path, with interactive dirty frames fed by a cached premultiplied document surface
+- [x] Add golden tests for zoom in/out, fractional zoom, rotated views, and document edges partially off-canvas
+
+#### Phase S.9.6: Gradient & Crop Resampling Migration
+
+**Goal:** Route the remaining two manual sampling paths — custom gradient rendering and crop/content-aware resampling — through `agg_go` span generators and image filters.
+
+**Acceptance criterion:** `renderCustomGradient` produces its output from AGG gradient spans, rotated crop and content-aware fill sample through AGG image filters, and gradient dithering/banding behavior is preserved or improved.
+
+- [x] Correct the stale plan references: `renderCustomGradient` is `fill_gradient.go:450–496` (with `buildGradientLUT` at `:355`), and crop resampling is `applyRotatedCropToPixelLayer` (`crop.go:470`) plus `buildContentAwareCropFillLayer` (`crop.go:500`), both via `sampleBilinear`
+- [x] Map `buildGradientLUT`'s 256-entry `agglib.Color` table onto the S.9.1 public gradient-LUT API instead of hand-indexing it in `gradientColorAt`
+- [x] Cover every gradient type the UI offers (linear, radial, angle, reflected, diamond) with an AGG span generator; add any missing generator to `agg_go/internal/span/` following the AGENTS.md porting rules rather than keeping an engine-side special case
+- [x] Decide the fate of `applyGradientDither` (`fill_gradient.go:523`): keep it as a post-pass, or fold it into the span path if AGG's higher-precision LUT already removes the banding it exists to hide — test the banding case either way
+  - [x] Dither is folded into `RenderGradient`; tests pin deterministic RGB jitter while preserving alpha exactly
+- [x] Replace `sampleBilinear` in the rotated-crop path with an AGG transformed-image draw, keeping the pixel-center convention (`+0.5`) that the current call sites depend on
+- [x] Route content-aware crop-fill sampling through the same filter path, leaving `diffuseCropExpansion` (`crop.go:562`) manual — it is a diffusion solver, not a resample
+- [x] Add golden tests for each gradient type (including multi-stop and alpha stops), rotated crops at several angles, and crop expansion into unknown regions
+
+#### Phase S.9.7: Keep-Manual Boundary & Enforcement
+
+**Goal:** Turn the keep-manual list from a plan footnote into a stated, reviewable policy so the next audit does not re-flag intentional decisions as violations.
+
+**Acceptance criterion:** Every remaining hand-written pixel loop in the engine is either on the documented keep-manual list with a measured or structural justification, or has a ticketed migration; AGENTS.md reflects the real rule; and new manual loops are visible in review.
+
+- [x] Re-validate the keep-manual list against the post-migration code: flips/rotate90/180, discrete remaps, transform overlay (Phase X.7 policy), `EraseBackgroundDab` tolerance erase, `diffuseCropExpansion`
+- [x] Give each entry a reason of record — measured (AGG setup cost exceeds the op, per X.7 benchmarks) or structural (not a rasterization problem) — rather than "kept manual"
+- [x] Sweep the engine for pixel loops not on the list after S.9.3–S.9.6 and classify each as migrate/keep/ticket
+  - [x] Reason-of-record and ticket ledger lives in `internal/engine/PIXEL_LOOP_POLICY.md`; open groups are `S9-MASK-COMPOSITE`, `S9-BRUSH-SAMPLING`, `S9-IMAGE-SCALE`, `S9-FILTER-DISTORT`, `S9-ALPHA-CONVERSION`, and `S9-STYLE-SPANS`
+- [x] Update the AGENTS.md agg_go section so the mandate names the public API that now exists and cites the keep-manual exceptions
+- [x] Add a lightweight guard (lint rule, test, or documented review checklist item) that surfaces new direct per-pixel writes in `internal/engine` so the drift is caught at review time
+  - [x] `TestManualPixelLoopAllowlist` parses production engine files, rejects unreviewed adjacent RGBA writes in loops, verifies allowlisted functions still exist, and documents the syntax-only review fallback
 
 ### Phase S.10: PSD Interop Repair
 
 > Current state: PSD I/O is effectively an Agogo↔Agogo container. Round-trip tests pass only because reader and writer share the same bugs and fidelity rides on an embedded `AgogoProject` JSON block — there are zero external fixtures.
 
-- [ ] **Compression constants off by +2** (`internal/io/psd/types.go:10–18`: mid-block `iota` reuse yields Raw=2/RLE=3/Zip=4/ZipPred=5 vs spec 0/1/2/3) — **any genuine Photoshop file fails with "unsupported compression 1"** and written files are invalid for other apps
-- [ ] Add real Photoshop-exported fixture files and round-trip tests against them
-- [ ] Fix group section-divider semantics (inverted vs Photoshop → spurious/inverted group structure)
-- [ ] Fix layer masks (wrong decode dims `parser.go:212`; decoded pixels never assigned `import.go:94–98`; writer discards mask offset `writer.go:107`)
-- [ ] Map all 27 blend modes (only 7 mapped; soft light etc. collapse to Normal, `helpers.go:121–140`)
-- [ ] Fix zip channel decode (always `ErrUnexpectedEOF`, `pixels.go:130`)
-- [ ] Bound allocations on untrusted length fields (`helpers.go:166` — hostile/corrupt file OOM-kills the editor) and add `Fuzz*` tests for the parser (highest-risk untested surface: binary parsing of untrusted input in-browser)
-- [ ] Reconstruct (not just capture as metadata) adjustment layers and text layers on import; replace the JSON-in-descriptor TySh/lfx2 pseudo-format with spec-conformant descriptors
+**Goal:** Turn PSD from a private container into real interop: files Photoshop wrote open correctly, files Agogo writes open correctly in Photoshop, and the embedded-project shortcut becomes an optional fidelity bonus rather than the thing that makes round-trips pass.
+
+**Acceptance criterion:** A corpus of genuine Photoshop-exported fixtures imports with correct layer structure, masks, blend modes, and pixels — **with the `AgogoProject` resource stripped**; Agogo-written PSDs open in Photoshop (or a third-party reader) with the same structure; the parser survives fuzzing and hostile length fields without OOM; and every remaining fidelity gap is a recorded warning, not a silent loss.
+
+**Ordering note:** S.10.1 (fixtures) gates everything else. Every other sub-phase is currently unfalsifiable — reader and writer share their bugs, so the existing round-trip tests pass on wrong data. Do not "fix" the semantics sub-phases before there is an external file to be wrong against.
+
+#### Phase S.10.1: External Fixtures & Honest Round-Trip Testing
+
+**Goal:** Establish ground truth. Today there is not a single `.psd`/`.psb` file or `testdata/` directory anywhere in `packages/engine-wasm`, so no test can distinguish "correct" from "self-consistent".
+
+**Acceptance criterion:** A licensed fixture corpus lives in the repo with provenance; import assertions compare against externally-derived expectations, not against Agogo's own writer; and the `AgogoProject` bypass is disabled in fixture tests.
+
+- [ ] Close the bypass that makes current round-trip tests vacuous:
+  - [ ] `psd_reader.go:32–38` returns `LoadProject(resources.AgogoProject)` and never reaches `loadPSDFallback` when the resource is present — the real parser is untested on any file Agogo wrote
+  - [ ] Add a test-only (or explicit-option) path that forces the spec parser regardless of the embedded resource, and run the entire existing round-trip suite through it
+  - [ ] Decide the product rule: is `AgogoProject` a fidelity bonus layered *on top of* a correct parse, or a replacement for it? Document the answer — it determines whether unsupported PSD features may silently ride the JSON block
+- [ ] Build the fixture corpus with licensing recorded per file (self-authored in Photoshop, CC0, or explicitly redistributable — no scraped sample files)
+- [ ] Cover the matrix that actually exercises the parser: 8-bit RGB and grayscale; RAW/RLE/ZIP/ZIP-with-prediction compression; nested groups; layer masks with non-zero offsets; clipping masks; all blend modes; adjustment and text layers; layer effects; PSB (>30000px) and a PSD near the dimension limit
+- [ ] Derive expectations independently — record per-fixture expected layer tree, bounds, blend modes, and sampled pixel values from Photoshop or a known-good third-party reader, not from Agogo's output
+- [ ] Add the writer half: export each fixture and verify the bytes reopen correctly in a reader that is not Agogo's own; document the verification method (manual Photoshop check is acceptable if recorded, but automate what can be automated)
+- [ ] Add a golden-warning assertion per fixture so a regression that starts silently dropping data shows up as a changed warning set
+- [ ] Keep fixture size bounded (small canvases, few layers) so the corpus does not bloat the repo or CI
+
+#### Phase S.10.2: Compression & Channel Decode Correctness
+
+**Goal:** Make the byte-level channel decoders spec-conformant for every compression scheme, and verify against fixtures rather than against Agogo's encoder.
+
+**Acceptance criterion:** RAW, RLE, ZIP, and ZIP-with-prediction channels decode correctly from real Photoshop files for both layer channels and the composite image, and Agogo's encoder produces bytes those same decoders and Photoshop accept.
+
+- [ ] **Update stale status:** the compression constants are already fixed on `codex/fix-psd-compression-ids` (`types.go:14–18` now reads Raw=0/RLE=1/Zip=2/ZipPred=3, commit `8abfe00`), and the ZIP channel payload read was fixed in `0727dc9` — verify both against S.10.1 fixtures, since neither fix has ever been tested against a genuine Photoshop file
+- [ ] Validate `decodeZipChannel` / `decodeZipImageData` / `applyZipPredictionInPlace` (`pixels.go:140–207`) on real ZIP and ZIP-prediction fixtures, including the prediction reset at each row boundary
+- [ ] Validate RLE/PackBits both directions: `DecodePackBits` (`helpers.go:80`) against Photoshop-written scanlines, and `EncodePackBitsRow` (`helpers.go:351`) for the pathological runs (alternating bytes, 128-byte runs, single-byte rows) where PackBits encoders classically go wrong
+- [ ] Verify the per-row byte-count table is read and written with the right width for PSD vs PSB (2 bytes vs 4) — a PSB regression here is invisible until a large file is opened
+- [ ] Handle bit depths beyond 8 explicitly: either implement 16/32-bit channel decode or reject with a clear, actionable error instead of misreading the data
+- [ ] Add per-compression decode tests over fixtures and an encode→decode→compare test for each scheme
+
+#### Phase S.10.3: Layer Group & Section-Divider Semantics
+
+**Goal:** Reconstruct the layer tree the way Photoshop actually encodes it, instead of the current inverted reading.
+
+**Acceptance criterion:** Nested groups from Photoshop fixtures import with correct nesting, order, and group attributes; Agogo-written groups reopen in Photoshop with the same structure; and unbalanced markers degrade to a warning plus a flat-but-complete tree, never to dropped layers.
+
+- [ ] Fix the inverted divider handling in `psdimport/import.go:61–67`: PSD stores layers bottom-to-top, so in file order the type-3 bounding divider marks the group's *bottom* and the type-1/2 record marks its *top*. The current code treats type 1 (open folder) **and** type 3 (bounding divider) as "begin group" and type 2 (closed folder) as "close" — so a collapsed folder is misread as an end marker and a divider as a start
+- [ ] Preserve the open/closed distinction (type 1 vs 2) as group expanded state rather than discarding it
+- [ ] Fix the writer side to match: `buildSectionDivider` (`writer.go:128`) emits only the 4-byte section type, while Photoshop's `lsct` block is 12+ bytes including the blend-mode signature and sub-type — verify against what Photoshop accepts
+- [ ] Ensure the writer emits the bounding-divider record for each group, not just the folder record, and in the correct bottom-to-top order
+- [ ] Carry group attributes through both directions: visibility, opacity, blend mode, clipping (`ClipToBelow`), and pass-through vs isolated blending (pass-through is `passthru`, not a normal blend key — confirm it survives)
+- [ ] Make unbalanced markers non-destructive: the current `popStack` failure path (`import.go:30–40`) and the trailing unclosed-group loop should always yield every layer, flattened if necessary, with a warning
+- [ ] Add fixture tests for deep nesting, adjacent sibling groups, a group as the first/last layer, empty groups, and clipping across a group boundary
+
+#### Phase S.10.4: Layer Masks (Read & Write)
+
+**Goal:** Make layer masks actually survive a round trip — today they are recognized, sized, and then thrown away.
+
+**Acceptance criterion:** A Photoshop layer mask imports with correct pixels, offset, enabled state, and default fill; Agogo-written masks reopen with the same; and a masked layer renders identically to Photoshop's flattened composite within a stated tolerance.
+
+- [ ] Fix mask channel decode dimensions: `parser.go:212` decodes **every** channel at the layer's `Bounds.W/H`, but the user-mask channel (ID −2) has its own `LayerMaskBounds` — mask pixels are currently decoded at the wrong size
+- [ ] Assign the decoded pixels: `import.go:93–98` builds a `model.LayerMask` with `Enabled`/`Width`/`Height` but never sets `Data`, so every imported mask is empty
+- [ ] Handle the real-mask flag set: disabled (`flags&0x0001`, already read at `parser.go:403`), inverted, "mask from vector data", and the default color/fill byte for pixels outside the mask rect
+- [ ] Handle the mask rectangle honestly — masks are stored in document space with their own offset, independent of the layer bounds; decide whether the model stores document-space or layer-relative masks and convert once, in one place
+- [ ] Fix the writer: `writeLayerMaskData` (`writer.go:101–119`) writes the rect as `(0, 0, Height, Width)` — discarding the mask offset — and emits no channel −2 data at all, so exported masks are a rectangle with no pixels
+- [ ] Support the real-mask/user-mask channel pair (−2 and −3) at least well enough to not misattribute one as the other
+- [ ] Add fixture tests for offset masks, disabled masks, inverted masks, masks larger and smaller than their layer, and a mask on a group
+
+#### Phase S.10.5: Complete Blend-Mode Mapping
+
+**Goal:** Map all 27 engine blend modes to their PSD keys in both directions.
+
+**Acceptance criterion:** Every `model.BlendMode` round-trips through `BlendKey`→`MapBlendMode` unchanged; unknown incoming keys produce a warning rather than a silent Normal; and a fixture using every Photoshop blend mode imports with all 27 correct.
+
+- [ ] Extend `MapBlendMode` (`helpers.go:121–140`) beyond its current 7 keys (`mul`, `scrn`, `over`, `diff`, `smud`, `dark`, `lite`) to the full Photoshop set — Dissolve `"diss"`, Linear Burn `"lbrn"`, Darker Color `"dkCl"`, Color Dodge `"div "`, Linear Dodge `"lddg"`, Lighter Color `"lgCl"`, Soft Light `"sLit"`, Hard Light `"hLit"`, Vivid Light `"vLit"`, Linear Light `"lLit"`, Pin Light `"pLit"`, Hard Mix `"hMix"`, Subtract `"fsub"`, Divide `"fdiv"`, Hue `"hue "`, Saturation `"sat "`, Color `"colr"`, Luminosity `"lum "`, Color Burn `"idiv"`, plus pass-through `"pass"` (note the space-padded four-byte keys)
+- [ ] Mirror the same table in `BlendKey` (`helpers.go:584–603`) — the two functions must be one table, not two switch statements that can drift
+- [ ] Respect the 4-byte fixed-width key convention (trailing spaces are significant on write, trimmed on read) and verify Agogo's written keys are byte-exact
+- [ ] Replace the silent `default: BlendModeNormal` fallback with a recorded warning naming the unmapped key
+- [ ] Add a table-driven exhaustive round-trip test over all 27 `model.BlendMode` values plus a fixture whose layers use every Photoshop mode
+
+#### Phase S.10.6: Parser Hardening Against Hostile Input
+
+**Goal:** Treat PSD parsing as what it is — untrusted binary input parsed inside the user's browser tab — and make it fail safely.
+
+**Acceptance criterion:** No crafted or truncated file can OOM, panic, or hang the editor; every allocation derived from a file field is bounded by remaining input; and `Fuzz*` targets run in CI with a seed corpus.
+
+- [ ] Bound every length-driven allocation against actual remaining bytes: `readBytesFrom` (`helpers.go:166`) currently does `make([]byte, n)` after only a negative check, so a 4-byte field can request gigabytes
+- [ ] Audit the same pattern across all readers — section lengths (`readSectionLengthFrom`), channel lengths, descriptor strings, Unicode strings (`ParseUnicodeString`, `parseUnicodeStringFromReader`), Pascal strings, and the additional-layer-info block loop
+- [ ] Bound decompression output, not just input: zlib and PackBits are both expansion vectors, so cap decoded size by the expected pixel count before decoding rather than after
+- [ ] Enforce total document limits consistently — `PSDMaxDimension` exists at `types.go:37`; verify width × height × channels × depth is checked before any allocation, including for PSB
+- [ ] Guard the structural loops against non-termination: layer counts, channel counts, and the additional-info key loop must all make forward progress or abort
+- [ ] Add `Fuzz*` targets for `Parse`, `ParseLayerAndMaskInfo`, `ParseCompositeImageData`, `DecodePackBits`, and the descriptor reader; seed the corpus from S.10.1 fixtures and check in any crashers found
+- [ ] Convert panics to errors at the package boundary so a malformed file surfaces as a user-facing message, never as a Wasm trap that kills the engine instance
+- [ ] Add explicit truncation tests: every fixture cut at many offsets must produce an error or partial-with-warnings result, never a panic
+
+#### Phase S.10.7: Real Adjustment, Text & Effect Reconstruction
+
+**Goal:** Replace the JSON-in-descriptor pseudo-format and the flatten-to-pixels fallback with spec-conformant descriptors, so adjustment layers, text layers, and effects survive interop with Photoshop rather than only with Agogo.
+
+**Acceptance criterion:** Photoshop adjustment and text layers import as live, editable layers of the right type; Agogo-written ones open in Photoshop as native adjustment/text layers; and the `AgAJ` JSON block is gone or demoted to a redundant fidelity extra.
+
+- [ ] Remove the private pseudo-format: `metadata.go:235–252` stores Agogo state as JSON inside an `AgAJ` block — no other application can read it, and its presence hides how little of the real format is implemented
+- [ ] Parse the genuine adjustment blocks into live `AdjustmentLayer`s: `levl` (Levels), `curv` (Curves), `hue2` (Hue/Saturation), plus `brit`, `blnc`, `blwh`, `mixr`, `phfl`, `selc`, `thrs`, `post`, `nvrt`, and the solid/gradient/pattern fill types
+- [ ] Implement a real descriptor reader/writer for the ones that need it (Photoshop moved most adjustments to descriptor form) rather than special-casing each binary layout
+- [ ] Reconstruct text layers from `TySh` — transform matrix, the engine data (`Txt2`) or classic style-run structures, font/size/color/tracking/leading — instead of the current flatten-to-pixels path that emits `"unsupported metadata block TySh imported as flattened pixel layer"` (`import.go:86–88`)
+- [ ] Reconstruct layer effects from `lfx2`/`lrFX` into the engine's style stack, mapping drop shadow, inner shadow, outer/inner glow, stroke, and overlays to the S.5 style model — and warn on effects the engine cannot represent
+- [ ] Define the fallback contract explicitly: when reconstruction is impossible, import the flattened pixels **and** record a warning naming the block, so data is never silently dropped or silently misrepresented as editable
+- [ ] Keep smart objects (`SoLd`/`PlLd`) explicitly out of scope for this phase, but make their warning accurate about what was lost
+- [ ] Add fixture tests per adjustment type, per text-layer style variation, and per effect, asserting the reconstructed layer's parameters — not just that some layer appeared
 
 ### Phase S.11: Test & QA Hardening
 

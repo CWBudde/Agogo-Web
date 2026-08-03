@@ -81,8 +81,18 @@ All graphic processing **must** use `agg_go` — the Go port of the Anti-Grain G
 
 - `agg_go` handles all pixel formats (RGBA, RGB, grayscale, etc.) and rendering styles
 - The project exists specifically to showcase the breadth and quality of `agg_go`'s capabilities
-- Never implement pixel-level rendering logic outside of `agg_go` — use its scanline rasterizer, span generators, color interpolation, and compositing primitives
+- Do not implement rendering, compositing, gradient, or image-resampling loops outside of `agg_go` — use its scanline rasterizer, span generators, color interpolation, and compositing primitives
 - When adding new rendering features (gradients, patterns, filters, blending modes, anti-aliasing), first explore what `agg_go` already provides before writing custom code
+- Engine-side loops are permitted only by the reviewed exception policy in [`packages/engine-wasm/internal/engine/PIXEL_LOOP_POLICY.md`](packages/engine-wasm/internal/engine/PIXEL_LOOP_POLICY.md). Exact remaps, format adapters, pixel-domain solvers without an AGG equivalent, and pixel-crisp UI overlays require a structural or measured reason of record; new exceptions must be added to the AST guard allowlist in the same change.
+
+Use the public APIs before reaching into lower-level AGG composition:
+
+| Operation | Public `agg_go` API |
+| --- | --- |
+| RGBA source/destination compositing, masks, opacity, clipping, Photoshop/Porter-Duff modes | `CompositeImage`, `CompositeOptions`, `AlphaMask`, `AlphaStraight` / `AlphaPremultiplied` |
+| Filtered affine image drawing into caller-owned buffers | `DrawImageAffine`, `ImageTransformOptions`, `ImageEdgeMode` |
+| Arbitrary-stop full-surface gradients | `NewGradientLUT`, `GradientLUT`, `RenderGradient`, `GradientRenderOptions`, `GradientShape*` |
+| Image filter selection | `Nearest`, `Bilinear`, `Bicubic`, plus exported `Hamming`, `Kaiser`, `Gaussian`, `Bessel`, `Mitchell`, `Sinc`, and `Lanczos` kernels |
 
 ### Extending agg_go with Missing Features
 
@@ -118,7 +128,6 @@ When a feature genuinely does not exist in `agg_go`, port it directly from the c
 | Feature | C++ header | Target Go location |
 |---------|------------|-------------------|
 | Image-textured outline rendering | `agg_renderer_outline_image.h` | `internal/renderer/outline/` |
-| Complete image-filter kernel suite (Lanczos, sinc, etc.) | `agg_image_filters.h` | `internal/image/filters.go` |
 | Styled-cell AA rasteriser (compound sub-paths) | `agg_rasterizer_cells_aa.h` styled variant | `internal/rasterizer/cells_aa_styled.go` |
 | Perspective-subdivision span interpolator | `agg_span_interpolator_persp.h` subdivided variant | `internal/span/` |
 | Public color-conversion API (RGB8/RGB16) | `agg_color_conv_rgb8/16.h` | `internal/color/conv/` → expose via public API |

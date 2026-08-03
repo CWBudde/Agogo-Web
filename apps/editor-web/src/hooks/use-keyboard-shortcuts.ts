@@ -31,11 +31,21 @@ type KeyboardActions = {
   onFitToView(): void;
   onUndo(): void;
   onRedo(): void;
+  onCut(): void;
+  onCopy(): void;
+  onPaste(): void;
+  onFill(): void;
+  onCanvasSize(): void;
   onSelectAll(): void;
   onDeselect(): void;
+  onReselect(): void;
   onInvertSelection(): void;
+  onNewLayer(): void;
+  onDuplicateLayer(): void;
+  onMergeDown(): void;
   onToolSelect(tool: ShortcutTool): void;
   onBeginTransform(): void;
+  onTransformAgain(): void;
   onNudgeLayer(dx: number, dy: number): void;
   onBrushSizeChange(delta: number): void;
   onBrushHardnessChange(delta: number): void;
@@ -93,6 +103,38 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
           event.preventDefault();
           currentActions.onExportDocument();
           return;
+        case "Mod+x":
+          event.preventDefault();
+          currentActions.onCut();
+          return;
+        case "Mod+c":
+          event.preventDefault();
+          currentActions.onCopy();
+          return;
+        case "Mod+v":
+          event.preventDefault();
+          currentActions.onPaste();
+          return;
+        case "Shift+F5":
+          event.preventDefault();
+          currentActions.onFill();
+          return;
+        case "Mod+Alt+c":
+          event.preventDefault();
+          currentActions.onCanvasSize();
+          return;
+        case "Mod+Shift+n":
+          event.preventDefault();
+          currentActions.onNewLayer();
+          return;
+        case "Mod+j":
+          event.preventDefault();
+          currentActions.onDuplicateLayer();
+          return;
+        case "Mod+e":
+          event.preventDefault();
+          currentActions.onMergeDown();
+          return;
         case "Mod+a":
           event.preventDefault();
           currentActions.onSelectAll();
@@ -100,6 +142,10 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+d":
           event.preventDefault();
           currentActions.onDeselect();
+          return;
+        case "Mod+Shift+d":
+          event.preventDefault();
+          currentActions.onReselect();
           return;
         case "Mod+Shift+i":
           event.preventDefault();
@@ -176,6 +222,10 @@ export function useKeyboardShortcuts(actions: KeyboardActions) {
         case "Mod+t":
           event.preventDefault();
           currentActions.onBeginTransform();
+          return;
+        case "Mod+Shift+t":
+          event.preventDefault();
+          currentActions.onTransformAgain();
           return;
         case "Mod+f":
           event.preventDefault();

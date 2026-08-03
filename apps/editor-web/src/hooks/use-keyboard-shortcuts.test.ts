@@ -14,11 +14,21 @@ function makeActions() {
     onFitToView: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
+    onCut: vi.fn(),
+    onCopy: vi.fn(),
+    onPaste: vi.fn(),
+    onFill: vi.fn(),
+    onCanvasSize: vi.fn(),
     onSelectAll: vi.fn(),
     onDeselect: vi.fn(),
+    onReselect: vi.fn(),
     onInvertSelection: vi.fn(),
+    onNewLayer: vi.fn(),
+    onDuplicateLayer: vi.fn(),
+    onMergeDown: vi.fn(),
     onToolSelect: vi.fn(),
     onBeginTransform: vi.fn(),
+    onTransformAgain: vi.fn(),
     onNudgeLayer: vi.fn(),
     onBrushSizeChange: vi.fn(),
     onBrushHardnessChange: vi.fn(),
@@ -56,6 +66,44 @@ describe("useKeyboardShortcuts", () => {
     expect(actions.onZoomOut).toHaveBeenCalledTimes(1);
   });
 
+  it("supports the modified zoom and fit shortcuts displayed in the View menu", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("+", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("-", { ctrlKey: true });
+    fireKeyDown("0", { ctrlKey: true });
+
+    expect(actions.onZoomIn).toHaveBeenCalledTimes(1);
+    expect(actions.onZoomOut).toHaveBeenCalledTimes(1);
+    expect(actions.onFitToView).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the displayed edit, canvas, selection, and layer shortcuts", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("F5", { shiftKey: true });
+    fireKeyDown("c", { ctrlKey: true, altKey: true });
+    fireKeyDown("D", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("N", { ctrlKey: true, shiftKey: true });
+    fireKeyDown("j", { ctrlKey: true });
+    fireKeyDown("e", { ctrlKey: true });
+    fireKeyDown("x", { ctrlKey: true });
+    fireKeyDown("c", { ctrlKey: true });
+    fireKeyDown("v", { ctrlKey: true });
+
+    expect(actions.onFill).toHaveBeenCalledTimes(1);
+    expect(actions.onCanvasSize).toHaveBeenCalledTimes(1);
+    expect(actions.onReselect).toHaveBeenCalledTimes(1);
+    expect(actions.onNewLayer).toHaveBeenCalledTimes(1);
+    expect(actions.onDuplicateLayer).toHaveBeenCalledTimes(1);
+    expect(actions.onMergeDown).toHaveBeenCalledTimes(1);
+    expect(actions.onCut).toHaveBeenCalledTimes(1);
+    expect(actions.onCopy).toHaveBeenCalledTimes(1);
+    expect(actions.onPaste).toHaveBeenCalledTimes(1);
+  });
+
   it("reapplies the last filter on Mod+f and fades on Mod+Shift+f", () => {
     const actions = makeActions();
     renderHook(() => useKeyboardShortcuts(actions));
@@ -67,6 +115,16 @@ describe("useKeyboardShortcuts", () => {
     fireKeyDown("F", { ctrlKey: true, shiftKey: true });
     expect(actions.onFadeFilter).toHaveBeenCalledTimes(1);
     expect(actions.onReapplyFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the last transform on Mod+Shift+t without beginning a new transform", () => {
+    const actions = makeActions();
+    renderHook(() => useKeyboardShortcuts(actions));
+
+    fireKeyDown("T", { ctrlKey: true, shiftKey: true });
+
+    expect(actions.onTransformAgain).toHaveBeenCalledTimes(1);
+    expect(actions.onBeginTransform).not.toHaveBeenCalled();
   });
 
   it("invokes redo on Mod+Shift+z and undo on Mod+Alt+z", () => {

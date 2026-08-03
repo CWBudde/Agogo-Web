@@ -59,6 +59,10 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		params:     brushParams,
 		stabilizer: newStabilizer(brushParams.Stabilizer),
 	}
+	stroke.strokeState.initRandom(p.X, p.Y, brushParams)
+	if brushParams.TipResourceID != "" {
+		stroke.strokeState.tipResource = inst.documentBrushResource(doc, brushParams.TipResourceID)
+	}
 
 	// Background eraser: sample the pixel under the pointer once at stroke begin.
 	if brushParams.EraseBackground {
@@ -110,31 +114,32 @@ func (inst *instance) handleBeginPaintStroke(p BeginPaintStrokePayload) {
 		// No pressure reported (mouse input) → dynamics neutral, not weakened.
 		pressure = 1
 	}
-	effective := applyPressure(brushParams, pressure)
+	spacingParams := applyStrokeDynamics(brushParams, pressure, p.TiltX, p.TiltY, 0, dabRandomValues{}, false)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
-	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
-	footprint := dabFootprintSize(effective)
+	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, normalizedBrushSpacing(brushParams.Spacing), spacingParams.Size)
 	var selScratch []byte
 	for _, dab := range dabs {
-		dx, dy := applyScatter(dab[0], dab[1], effective)
-		dabParams := effective
+		dabParams, random := stroke.strokeState.nextDabParams(brushParams, pressure, p.TiltX, p.TiltY)
+		dx, dy := applyScatterRandom(dab[0], dab[1], dabParams, random)
+		footprint := dabFootprintSize(dabParams)
+		directParams := orientedBrushParams(dabParams, azimuth, squish)
 		stroke.saveRowsBeforeDab(layer, dx, dy, footprint, &inst.undoRowBuf)
 		paintDabClippedToSelection(layer, doc.Selection, dx, dy, footprint, &selScratch, func() {
 			if brushParams.EraseBackground {
-				EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+				eraseBackgroundDabResource(layer, dx, dy, directParams, inst.paintStroke.bgEraseBaseColor, stroke.strokeState.tipResource)
 			} else if dabParams.CloneStamp {
-				CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
+				cloneStampDabResource(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, directParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad, stroke.strokeState.tipResource)
 			} else if dabParams.HistoryBrush {
-				CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
+				cloneStampDabResource(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, directParams, 0, 0, &inst.paintStroke.historyRemainingLoad, stroke.strokeState.tipResource)
 			} else {
 				if dabParams.MixerBrush {
 					dirX, dirY := mixerStrokeDirection(stroke, dx, dy, azimuth)
 					directionAzimuth := math.Atan2(dirY, dirX)
-					paintMixerBrushDab(stroke.renderer, layer, &stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+					paintMixerBrushDab(stroke.renderer, layer, &stroke.mixer, stroke.mixerSource, stroke.mixerSourceW, stroke.mixerSourceH, stroke.mixerSourceX, stroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish, stroke.strokeState.tipResource, &stroke.strokeState.tipRGBA)
 					updateMixerStrokeDirection(stroke, dx, dy)
 				} else {
-					paintDabReuse(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+					paintDabReuseTip(stroke.renderer, layer, dx, dy, dabParams, azimuth, squish, stroke.strokeState.tipResource, &stroke.strokeState.tipRGBA)
 				}
 			}
 		})
@@ -200,30 +205,31 @@ func (inst *instance) continuePaintStrokePoint(doc *Document, layer *PixelLayer,
 		// No pressure reported (mouse input) → dynamics neutral, not weakened.
 		pressure = 1
 	}
-	effective := applyPressure(inst.paintStroke.params, pressure)
+	spacingParams := applyStrokeDynamics(inst.paintStroke.params, pressure, p.TiltX, p.TiltY, inst.paintStroke.strokeState.dabCount, dabRandomValues{}, false)
 	azimuth, squish := applyTilt(p.TiltX, p.TiltY)
 	sx, sy := inst.paintStroke.stabilizer.Push(p.X, p.Y)
-	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, 0.25, effective.Size)
-	footprint := dabFootprintSize(effective)
+	dabs := inst.paintStroke.strokeState.AddPoint(sx, sy, normalizedBrushSpacing(inst.paintStroke.params.Spacing), spacingParams.Size)
 	for _, dab := range dabs {
-		dx, dy := applyScatter(dab[0], dab[1], effective)
-		dabParams := effective
+		dabParams, random := inst.paintStroke.strokeState.nextDabParams(inst.paintStroke.params, pressure, p.TiltX, p.TiltY)
+		dx, dy := applyScatterRandom(dab[0], dab[1], dabParams, random)
+		footprint := dabFootprintSize(dabParams)
+		directParams := orientedBrushParams(dabParams, azimuth, squish)
 		inst.paintStroke.saveRowsBeforeDab(layer, dx, dy, footprint, &inst.undoRowBuf)
 		paintDabClippedToSelection(layer, doc.Selection, dx, dy, footprint, selScratch, func() {
 			if inst.paintStroke.params.EraseBackground {
-				EraseBackgroundDab(layer, dx, dy, dabParams, inst.paintStroke.bgEraseBaseColor)
+				eraseBackgroundDabResource(layer, dx, dy, directParams, inst.paintStroke.bgEraseBaseColor, inst.paintStroke.strokeState.tipResource)
 			} else if dabParams.CloneStamp {
-				CloneStampDab(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, dabParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad)
+				cloneStampDabResource(layer, inst.paintStroke.cloneSource, inst.paintStroke.cloneSourceW, inst.paintStroke.cloneSourceH, inst.paintStroke.cloneSourceX, inst.paintStroke.cloneSourceY, dx, dy, directParams, inst.paintStroke.cloneOffsetX, inst.paintStroke.cloneOffsetY, &inst.paintStroke.cloneRemainingLoad, inst.paintStroke.strokeState.tipResource)
 			} else if dabParams.HistoryBrush {
-				CloneStampDab(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, dabParams, 0, 0, &inst.paintStroke.historyRemainingLoad)
+				cloneStampDabResource(layer, inst.paintStroke.historySource, inst.paintStroke.historySourceW, inst.paintStroke.historySourceH, inst.paintStroke.historySourceX, inst.paintStroke.historySourceY, dx, dy, directParams, 0, 0, &inst.paintStroke.historyRemainingLoad, inst.paintStroke.strokeState.tipResource)
 			} else {
 				if dabParams.MixerBrush {
 					dirX, dirY := mixerStrokeDirection(inst.paintStroke, dx, dy, azimuth)
 					directionAzimuth := math.Atan2(dirY, dirX)
-					paintMixerBrushDab(inst.paintStroke.renderer, layer, &inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish)
+					paintMixerBrushDab(inst.paintStroke.renderer, layer, &inst.paintStroke.mixer, inst.paintStroke.mixerSource, inst.paintStroke.mixerSourceW, inst.paintStroke.mixerSourceH, inst.paintStroke.mixerSourceX, inst.paintStroke.mixerSourceY, dx, dy, dabParams, directionAzimuth, squish, inst.paintStroke.strokeState.tipResource, &inst.paintStroke.strokeState.tipRGBA)
 					updateMixerStrokeDirection(inst.paintStroke, dx, dy)
 				} else {
-					paintDabReuse(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish)
+					paintDabReuseTip(inst.paintStroke.renderer, layer, dx, dy, dabParams, azimuth, squish, inst.paintStroke.strokeState.tipResource, &inst.paintStroke.strokeState.tipRGBA)
 				}
 			}
 		})

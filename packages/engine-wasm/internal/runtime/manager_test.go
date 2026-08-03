@@ -119,6 +119,45 @@ func TestManagerIDsReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestManagerHasAndInspectDoNotClone(t *testing.T) {
+	cloneCount := 0
+	m := NewManager(
+		func(d *doc) *doc {
+			cloneCount++
+			if d == nil {
+				return nil
+			}
+			clone := *d
+			return &clone
+		},
+		func(d *doc) string {
+			if d == nil {
+				return ""
+			}
+			return d.id
+		},
+	)
+	m.Create(&doc{id: "a", name: "A"})
+	cloneCount = 0
+
+	if !m.Has("a") || m.Has("missing") {
+		t.Fatalf("unexpected Has results: present=%v missing=%v", m.Has("a"), m.Has("missing"))
+	}
+	var inspected *doc
+	if !m.Inspect("a", func(value *doc) { inspected = value }) {
+		t.Fatal("Inspect(a) returned false")
+	}
+	if inspected != m.ActiveMut() {
+		t.Fatal("Inspect should expose the stored value without cloning")
+	}
+	if m.Inspect("missing", func(*doc) {}) {
+		t.Fatal("Inspect(missing) returned true")
+	}
+	if cloneCount != 0 {
+		t.Fatalf("Has/Inspect cloned %d values, want 0", cloneCount)
+	}
+}
+
 func TestManagerReplaceActiveNoCloneStoresSamePointer(t *testing.T) {
 	m := newDocManager()
 	m.Create(&doc{id: "a", name: "A"})

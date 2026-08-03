@@ -358,6 +358,20 @@ func BenchmarkViewportZoomScenarios512(b *testing.B) {
 			Rotation: 0,
 		},
 		{
+			Name:     "Zoom125Subpixel",
+			Zoom:     1.25,
+			CenterX:  benchmarkCanvasSize*0.5 + 0.25,
+			CenterY:  benchmarkCanvasSize*0.5 - 0.375,
+			Rotation: 0,
+		},
+		{
+			Name:     "Zoom125Rotated30",
+			Zoom:     1.25,
+			CenterX:  benchmarkCanvasSize * 0.5,
+			CenterY:  benchmarkCanvasSize * 0.5,
+			Rotation: 30,
+		},
+		{
 			Name:     "Zoom1000",
 			Zoom:     10,
 			CenterX:  benchmarkCanvasSize * 0.5,

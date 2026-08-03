@@ -34,6 +34,61 @@ export interface ThumbnailEntry {
   maskRGBA?: string;
 }
 
+export interface DocumentSummary {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  active: boolean;
+  modified: boolean;
+}
+
+export interface HistogramData {
+  red: number[];
+  green: number[];
+  blue: number[];
+  alpha: number[];
+  luminosity: number[];
+}
+
+export interface NavigatorThumbnail {
+  documentId: string;
+  contentVersion: number;
+  requestedWidth: number;
+  requestedHeight: number;
+  width: number;
+  height: number;
+  background: "transparent" | "checkerboard" | "white";
+  /** Base64-encoded RGBA8 pixels. */
+  rgba: string;
+}
+
+export interface ImportedBrushPreset {
+  id: string;
+  name: string;
+  tipResourceId?: string;
+  thumbnailRGBA?: string;
+  tipShape?: "round" | "square" | "diamond" | "star" | "line";
+  size?: number;
+  hardness?: number;
+  spacing?: number;
+  angle?: number;
+  roundness?: number;
+  sizeJitter?: number;
+  opacityJitter?: number;
+  flowJitter?: number;
+  controlSource?: "off" | "pressure" | "tilt" | "fade";
+  fadeDabs?: number;
+  warnings?: string[];
+}
+
+export interface ImportedBrushLibrary {
+  libraryId: string;
+  name: string;
+  presets: ImportedBrushPreset[];
+  warnings?: string[];
+}
+
 export interface SelectionMeta {
   active: boolean;
   bounds?: DirtyRect;
@@ -65,8 +120,12 @@ export interface UIMeta {
   currentHistoryIndex: number;
   canUndo: boolean;
   canRedo: boolean;
+  /** True when the engine's internal pixel clipboard contains pasteable data. */
+  canPaste: boolean;
+  canTransformAgain: boolean;
   activeDocumentId: string;
   activeDocumentName: string;
+  documents: DocumentSummary[];
   documentWidth: number;
   documentHeight: number;
   documentBackground: string;
@@ -143,6 +202,8 @@ export interface LayerNodeMeta {
   clippingBase: boolean;
   hasMask: boolean;
   maskEnabled: boolean;
+  maskDensity?: number;
+  maskFeather?: number;
   hasVectorMask: boolean;
   isolated?: boolean;
   isArtboard?: boolean;
@@ -219,6 +280,14 @@ export interface RenderResult {
   suggestedPath?: Array<{ x: number; y: number }>;
   /** RGBA color returned only by SampleMergedColor command. */
   sampledColor?: [number, number, number, number];
+  /** Present only in the response to ComputeHistogram. */
+  histogram?: HistogramData;
+  /** Present only in the response to IdentifyHueRange. */
+  identifiedHueRange?: string;
+  /** Present only in the response to GetNavigatorThumbnail. */
+  navigatorThumbnail?: NavigatorThumbnail;
+  /** Present only in the response to ImportAbrBrushLibrary. */
+  importedBrushLibrary?: ImportedBrushLibrary;
 }
 
 export interface RawRenderResult {

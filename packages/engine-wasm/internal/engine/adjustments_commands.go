@@ -15,12 +15,15 @@ type HistogramData struct {
 	Red       [256]uint32 `json:"red"`
 	Green     [256]uint32 `json:"green"`
 	Blue      [256]uint32 `json:"blue"`
-	Luminance [256]uint32 `json:"luminance"`
+	Alpha     [256]uint32 `json:"alpha"`
+	Luminance [256]uint32 `json:"luminosity"`
 }
 
 // ComputeHistogramPayload is the JSON payload for the ComputeHistogram command.
 type ComputeHistogramPayload struct {
-	LayerID string `json:"layerId"` // empty = active layer; "merged" = composite
+	Source  string `json:"source,omitempty"`  // "active-layer" or "merged"
+	Channel string `json:"channel,omitempty"` // response still carries every channel
+	LayerID string `json:"layerId,omitempty"` // legacy: empty = active, "merged" = composite
 }
 
 // computeHistogram builds histogram data from a pixel layer or the merged composite.
@@ -40,7 +43,8 @@ func (inst *instance) computeHistogram(payloadJSON string) (*HistogramData, erro
 	var surface []byte
 	var w, h int
 
-	if payload.LayerID == "merged" {
+	merged := payload.Source == "merged" || payload.LayerID == "merged"
+	if merged {
 		surface = inst.compositeSurface(doc)
 		w, h = doc.Width, doc.Height
 	} else {
@@ -69,7 +73,8 @@ func (inst *instance) computeHistogram(payloadJSON string) (*HistogramData, erro
 			if i+3 >= len(surface) {
 				continue
 			}
-			// Skip fully transparent pixels.
+			hist.Alpha[surface[i+3]]++
+			// Transparent pixels do not carry meaningful color information.
 			if surface[i+3] == 0 {
 				continue
 			}
@@ -90,9 +95,10 @@ func (inst *instance) computeHistogram(payloadJSON string) (*HistogramData, erro
 
 // IdentifyHueRangePayload is the JSON payload for commandIdentifyHueRange.
 type IdentifyHueRangePayload struct {
-	X          float64 `json:"x"` // document-space
-	Y          float64 `json:"y"`
-	SampleSize int     `json:"sampleSize"` // averaging radius, default 1
+	X            float64 `json:"x"` // document-space
+	Y            float64 `json:"y"`
+	SampleSize   int     `json:"sampleSize"` // averaging square width, default 1
+	SampleMerged bool    `json:"sampleMerged,omitempty"`
 }
 
 // identifyHueRange samples a color at the given position and returns which
@@ -188,10 +194,13 @@ func classifyHueRange(r, g, b uint8) string {
 
 // SetPointFromSamplePayload is the JSON payload for commandSetPointFromSample.
 type SetPointFromSamplePayload struct {
-	LayerID string  `json:"layerId"` // target curves adjustment layer
-	X       float64 `json:"x"`       // document-space sample position
-	Y       float64 `json:"y"`
-	Mode    string  `json:"mode"` // "black", "white", "gray", or "add" (add point)
+	LayerID    string  `json:"layerId"` // target curves adjustment layer
+	X          float64 `json:"x"`       // document-space sample position
+	Y          float64 `json:"y"`
+	SampleSize int     `json:"sampleSize,omitempty"`
+	Kind       string  `json:"kind,omitempty"`    // "black", "white", "gray", "add-point"
+	Channel    string  `json:"channel,omitempty"` // "rgb", "red", "green", or "blue"
+	Mode       string  `json:"mode,omitempty"`    // legacy alias for kind
 }
 
 func (inst *instance) setPointFromSample(payload SetPointFromSamplePayload) error {
@@ -209,7 +218,11 @@ func (inst *instance) setPointFromSample(payload SetPointFromSamplePayload) erro
 		return fmt.Errorf("set point from sample: position outside document")
 	}
 
-	color, ok := sampleSurfaceColorAverage(surface, w, h, px, py, 3)
+	sampleSize := payload.SampleSize
+	if sampleSize <= 0 {
+		sampleSize = 3
+	}
+	color, ok := sampleSurfaceColorAverage(surface, w, h, px, py, sampleSize)
 	if !ok {
 		return fmt.Errorf("set point from sample: could not sample color")
 	}
@@ -235,28 +248,35 @@ func (inst *instance) setPointFromSample(payload SetPointFromSamplePayload) erro
 			return fmt.Errorf("set point from sample: %w", err)
 		}
 	}
-	if params.Points == nil {
-		params.Points = []curvePoint{{X: 0, Y: 0}, {X: 255, Y: 255}}
+	channel := normalizeChannelSelector(payload.Channel)
+	if channel == "" || channel == "composite" {
+		channel = "rgb"
+	}
+	points := curvePointsForChannel(&params, channel)
+	if points == nil {
+		points = []curvePoint{{X: 0, Y: 0}, {X: 255, Y: 255}}
 	}
 
-	// Compute luminance of sampled color.
-	lum := colorLuminance([3]float64{float64(color[0]) / 255, float64(color[1]) / 255, float64(color[2]) / 255})
-	sampledValue := lum * 255
-
-	switch payload.Mode {
+	sampledValue := sampledCurveChannelValue(color, channel)
+	kind := payload.Kind
+	if kind == "" {
+		kind = payload.Mode
+	}
+	switch kind {
 	case "black":
 		// Set black point: map sampled luminance → 0 output.
-		params.Points = setOrAddCurvePoint(params.Points, sampledValue, 0)
+		points = setOrAddCurvePoint(points, sampledValue, 0)
 	case "white":
 		// Set white point: map sampled luminance → 255 output.
-		params.Points = setOrAddCurvePoint(params.Points, sampledValue, 255)
+		points = setOrAddCurvePoint(points, sampledValue, 255)
 	case "gray":
 		// Set gray point: map sampled luminance → 128 output.
-		params.Points = setOrAddCurvePoint(params.Points, sampledValue, 128)
+		points = setOrAddCurvePoint(points, sampledValue, 128)
 	default:
 		// "add": add a point at identity (input = output).
-		params.Points = setOrAddCurvePoint(params.Points, sampledValue, sampledValue)
+		points = setOrAddCurvePoint(points, sampledValue, sampledValue)
 	}
+	setCurvePointsForChannel(&params, channel, points)
 
 	newParams, err := json.Marshal(params)
 	if err != nil {
@@ -266,6 +286,49 @@ func (inst *instance) setPointFromSample(payload SetPointFromSamplePayload) erro
 	return inst.executeDocCommand("Set curve point from sample", func(doc *Document) error {
 		return doc.SetAdjustmentLayerParams(layerID, "", json.RawMessage(newParams))
 	})
+}
+
+func sampledCurveChannelValue(color [4]uint8, channel string) float64 {
+	switch channel {
+	case "red":
+		return float64(color[0])
+	case "green":
+		return float64(color[1])
+	case "blue":
+		return float64(color[2])
+	default:
+		return colorLuminance([3]float64{
+			float64(color[0]) / 255,
+			float64(color[1]) / 255,
+			float64(color[2]) / 255,
+		}) * 255
+	}
+}
+
+func curvePointsForChannel(params *curvesParams, channel string) []curvePoint {
+	switch channel {
+	case "red":
+		return params.RedPoints
+	case "green":
+		return params.GreenPoints
+	case "blue":
+		return params.BluePoints
+	default:
+		return params.Points
+	}
+}
+
+func setCurvePointsForChannel(params *curvesParams, channel string, points []curvePoint) {
+	switch channel {
+	case "red":
+		params.RedPoints = points
+	case "green":
+		params.GreenPoints = points
+	case "blue":
+		params.BluePoints = points
+	default:
+		params.Points = points
+	}
 }
 
 // setOrAddCurvePoint updates an existing point near x or adds a new one.

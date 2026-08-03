@@ -20,6 +20,9 @@ const (
 	commandLoadSelectionFromChannel int32 = 0x0210
 	commandRefineSelection          int32 = 0x0211
 	commandOutputSelection          int32 = 0x0212
+	commandCopy                     int32 = 0x0214
+	commandCut                      int32 = 0x0215
+	commandPaste                    int32 = 0x0216
 )
 
 type SelectionRect struct {
@@ -149,6 +152,9 @@ type SelectionDeps struct {
 	LoadSelectionFromChannel func(name, mode string) error
 	RefineSelection          func(smartRadius, contrast float64, layerID string, sampleMerged bool) error
 	OutputSelection          func(mode, layerID, name string, sampleMerged bool) error
+	Copy                     func() error
+	Cut                      func() error
+	Paste                    func() error
 }
 
 func DispatchSelection(commandID int32, payloadJSON string, deps SelectionDeps) (bool, error) {
@@ -269,6 +275,15 @@ func DispatchSelection(commandID int32, payloadJSON string, deps SelectionDeps) 
 			return true, err
 		}
 		return true, deps.OutputSelection(payload.Mode, payload.LayerID, payload.Name, payload.SampleMerged)
+
+	case commandCopy:
+		return true, deps.Copy()
+
+	case commandCut:
+		return true, deps.Cut()
+
+	case commandPaste:
+		return true, deps.Paste()
 	}
 
 	return false, nil

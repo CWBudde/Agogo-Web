@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTOSAVE_KEY, useAutosave } from "@/hooks/use-autosave";
+import { AUTOSAVE_KEY, autosaveKeyForDocument, useAutosave } from "@/hooks/use-autosave";
 import { subscribeToasts, type ToastOptions } from "@/lib/toast-bus";
 
 // requestIdleCallback shim: callbacks queue up and only run via flushIdle().
@@ -74,6 +74,22 @@ describe("useAutosave", () => {
 
     expect(engine.exportProject).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(AUTOSAVE_KEY)).toBe("ZmFrZS16aXA=");
+  });
+
+  it("cancels a pending save when the active document changes", () => {
+    const engine = makeEngine();
+    const { rerender } = renderHook(
+      ({ contentVersion, documentId }) =>
+        useAutosave({ engine, contentVersion, documentId, enabled: true }),
+      { initialProps: { contentVersion: 10, documentId: "doc-a" } },
+    );
+
+    rerender({ contentVersion: 1, documentId: "doc-b" });
+    flushIdle();
+
+    expect(engine.exportProject).not.toHaveBeenCalled();
+    expect(localStorage.getItem(autosaveKeyForDocument("doc-a"))).toBeNull();
+    expect(localStorage.getItem(autosaveKeyForDocument("doc-b"))).toBeNull();
   });
 
   it("saves again once the threshold is crossed a second time", () => {

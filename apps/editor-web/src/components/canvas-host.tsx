@@ -47,6 +47,16 @@ export function CanvasHost() {
     brushBlendMode,
     brushAirbrush,
     brushSmoothing,
+    brushTipShape,
+    brushTipResourceId,
+    brushAngle,
+    brushRoundness,
+    brushSpacing,
+    brushSizeJitter,
+    brushOpacityJitter,
+    brushFlowJitter,
+    brushControlSource,
+    brushFadeDabs,
     pressureAffectsSize,
     pressureAffectsOpacity,
     pressureAffectsFlow,
@@ -247,6 +257,16 @@ export function CanvasHost() {
       brushBlendMode={brushBlendMode}
       brushAirbrush={brushAirbrush}
       brushSmoothing={brushSmoothing}
+      brushTipShape={brushTipShape}
+      brushTipResourceId={brushTipResourceId}
+      brushAngle={brushAngle}
+      brushRoundness={brushRoundness}
+      brushSpacing={brushSpacing}
+      brushSizeJitter={brushSizeJitter}
+      brushOpacityJitter={brushOpacityJitter}
+      brushFlowJitter={brushFlowJitter}
+      brushControlSource={brushControlSource}
+      brushFadeDabs={brushFadeDabs}
       pressureAffectsSize={pressureAffectsSize}
       pressureAffectsOpacity={pressureAffectsOpacity}
       pressureAffectsFlow={pressureAffectsFlow}

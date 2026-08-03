@@ -65,6 +65,8 @@ type ProjectDocumentArchive struct {
 	SavedSelections []SavedSelectionChannel `json:"savedSelections,omitempty"`
 	StylePresets    []DocumentStylePreset   `json:"stylePresets,omitempty"`
 	Patterns        []model.PatternResource `json:"patterns,omitempty"`
+	BrushTips       []BrushTipResource      `json:"brushTips,omitempty"`
+	BrushPresets    []ImportedBrushPreset   `json:"brushPresets,omitempty"`
 }
 
 type ProjectLayerArchive struct {

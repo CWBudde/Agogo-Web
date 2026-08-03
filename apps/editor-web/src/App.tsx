@@ -37,6 +37,7 @@ import {
 import { ToolRail } from "@/components/tool-rail";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DocumentTabs } from "@/components/document-tabs";
 import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
@@ -128,7 +129,12 @@ export default function App() {
 
   const contentVersion = uiMeta?.contentVersion;
 
-  useAutosave({ engine, contentVersion, enabled: engine.handle !== null });
+  useAutosave({
+    engine,
+    contentVersion,
+    documentId: uiMeta?.activeDocumentId,
+    enabled: engine.handle !== null,
+  });
 
   const wasCustomShapeActiveRef = useRef(false);
   useEffect(() => {
@@ -283,6 +289,8 @@ export default function App() {
 
           <ToolOptions openBrushPresetImport={documentIo.openBrushPresetImport} />
 
+          <DocumentTabs />
+
           {editingVectorLayerID ? (
             <div className="editor-chrome flex min-h-[34px] items-center gap-3 border-b border-warning/30 bg-warning/8 px-3 py-1">
               <span className="text-[11px] text-warning">
@@ -353,7 +361,7 @@ export default function App() {
             />
           </section>
 
-          <StatusBar documentName={draft.name} />
+          <StatusBar documentName={uiMeta?.activeDocumentName ?? draft.name} />
         </div>
       </div>
 

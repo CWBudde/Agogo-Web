@@ -390,100 +390,6 @@ func decomposeRotationSkew(a, b, c, d float64) (rotation, skewX, skewY float64) 
 	return thetaY, 0, shear
 }
 
-// ---------------------------------------------------------------------------
-// Pixel resampling
-// ---------------------------------------------------------------------------
-
-// txPixelAt returns the RGBA at integer layer-local (px, py), clamped to bounds.
-//
-//nolint:unused
-func txPixelAt(pixels []byte, w, h, px, py int) [4]byte {
-	px = clampInt(px, 0, w-1)
-	py = clampInt(py, 0, h-1)
-	i := (py*w + px) * 4
-	return [4]byte{pixels[i], pixels[i+1], pixels[i+2], pixels[i+3]}
-}
-
-//nolint:unused
-func sampleNearest(pixels []byte, w, h int, lx, ly float64) [4]byte {
-	return txPixelAt(pixels, w, h, int(math.Round(lx-0.5)), int(math.Round(ly-0.5)))
-}
-
-func sampleBilinear(pixels []byte, w, h int, lx, ly float64) [4]byte {
-	fx := lx - 0.5
-	fy := ly - 0.5
-	x0 := int(math.Floor(fx))
-	y0 := int(math.Floor(fy))
-	tx := fx - float64(x0)
-	ty := fy - float64(y0)
-	weightsX0 := 1 - tx
-	weightsY0 := 1 - ty
-	w00 := weightsX0 * weightsY0
-	w10 := tx * weightsY0
-	w01 := weightsX0 * ty
-	w11 := tx * ty
-
-	var x1, y1 int
-	if x0 >= 0 && x0+1 < w && y0 >= 0 && y0+1 < h {
-		x1 = x0 + 1
-		y1 = y0 + 1
-	} else {
-		x0 = clampInt(x0, 0, w-1)
-		y0 = clampInt(y0, 0, h-1)
-		x1 = clampInt(x0+1, 0, w-1)
-		y1 = clampInt(y0+1, 0, h-1)
-	}
-
-	row0 := y0 * w * 4
-	row1 := y1 * w * 4
-	i00 := row0 + x0*4
-	i10 := row0 + x1*4
-	i01 := row1 + x0*4
-	i11 := row1 + x1*4
-
-	return [4]byte{
-		byte(float64(pixels[i00])*w00 + float64(pixels[i10])*w10 + float64(pixels[i01])*w01 + float64(pixels[i11])*w11),
-		byte(float64(pixels[i00+1])*w00 + float64(pixels[i10+1])*w10 + float64(pixels[i01+1])*w01 + float64(pixels[i11+1])*w11),
-		byte(float64(pixels[i00+2])*w00 + float64(pixels[i10+2])*w10 + float64(pixels[i01+2])*w01 + float64(pixels[i11+2])*w11),
-		byte(float64(pixels[i00+3])*w00 + float64(pixels[i10+3])*w10 + float64(pixels[i01+3])*w01 + float64(pixels[i11+3])*w11),
-	}
-}
-
-// catmullRomKernel evaluates the Catmull-Rom kernel for parameter t and four
-// control samples p0..p3.
-//
-//nolint:unused
-func catmullRomKernel(t, p0, p1, p2, p3 float64) float64 {
-	return 0.5 * ((2 * p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t*t + (-p0+3*p1-3*p2+p3)*t*t*t)
-}
-
-//nolint:unused
-func sampleBicubic(pixels []byte, w, h int, lx, ly float64) [4]byte {
-	fx := lx - 0.5
-	fy := ly - 0.5
-	x := int(math.Floor(fx))
-	y := int(math.Floor(fy))
-	tx := fx - float64(x)
-	ty := fy - float64(y)
-
-	var out [4]byte
-	for c := range 4 {
-		var row [4]float64
-		for j := range 4 {
-			row[j] = catmullRomKernel(
-				tx,
-				float64(txPixelAt(pixels, w, h, x-1, y-1+j)[c]),
-				float64(txPixelAt(pixels, w, h, x, y-1+j)[c]),
-				float64(txPixelAt(pixels, w, h, x+1, y-1+j)[c]),
-				float64(txPixelAt(pixels, w, h, x+2, y-1+j)[c]),
-			)
-		}
-		v := catmullRomKernel(ty, row[0], row[1], row[2], row[3])
-		out[c] = byte(clampFloat(v, 0, 255))
-	}
-	return out
-}
-
 func acquireTransformPixels(s *FreeTransformState, size int) []byte {
 	if size <= 0 {
 		return nil
@@ -1461,31 +1367,17 @@ func mergePixelLayerOnto(dst *PixelLayer, srcPixels []byte, srcBounds LayerBound
 		}
 	}
 
-	// Composite src pixels over the union canvas (source-over).
-	for ly := range srcBounds.H {
-		for lx := range srcBounds.W {
-			si := (ly*srcBounds.W + lx) * 4
-			if si+3 >= len(srcPixels) {
-				continue
-			}
-			sA := float64(srcPixels[si+3]) / 255
-			if sA <= 0 {
-				continue
-			}
-			ox := lx + srcBounds.X - unionX
-			oy := ly + srcBounds.Y - unionY
-			di := (oy*unionW + ox) * 4
-			dA := float64(out[di+3]) / 255
-			outA := sA + dA*(1-sA)
-			if outA < 1e-9 {
-				continue
-			}
-			for c := range 3 {
-				out[di+c] = byte((float64(srcPixels[si+c])*sA + float64(out[di+c])*dA*(1-sA)) / outA)
-			}
-			out[di+3] = byte(outA * 255)
-		}
-	}
+	// Composite the transformed layer through agg_go's straight-alpha
+	// source-over path. The union surface is local, while Dissolve (if this
+	// helper ever grows mode support) would still use document coordinates.
+	_ = compositeImageStraight(
+		out, unionW, unionH,
+		srcPixels, srcBounds.W, srcBounds.H,
+		agglib.Rect{X2: srcBounds.W, Y2: srcBounds.H},
+		agglib.PointI{X: srcBounds.X - unionX, Y: srcBounds.Y - unionY},
+		BlendModeNormal, 1,
+		nil, agglib.PointI{}, nil, offsetDissolveSeed(unionX, unionY),
+	)
 
 	dst.Pixels = out
 	dst.Bounds = LayerBounds{X: unionX, Y: unionY, W: unionW, H: unionH}

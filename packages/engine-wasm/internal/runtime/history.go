@@ -90,13 +90,18 @@ func (c *groupedCommand[C, S]) After() S {
 }
 
 type HistoryStack[C any, S any] struct {
-	undo     []Command[C]
-	redo     []Command[C]
-	maxDepth int
-	active   *groupedCommand[C, S]
-	capture  func(C) S
-	restore  func(C, S) error
-	equal    func(S, S) bool
+	undo            []Command[C]
+	redo            []Command[C]
+	undoRevisions   []uint64
+	redoRevisions   []uint64
+	baseRevision    uint64
+	currentRevision uint64
+	nextRevision    uint64
+	maxDepth        int
+	active          *groupedCommand[C, S]
+	capture         func(C) S
+	restore         func(C, S) error
+	equal           func(S, S) bool
 }
 
 func NewHistoryStack[C any, S any](
@@ -118,12 +123,17 @@ func (h *HistoryStack[C, S]) Clone() *HistoryStack[C, S] {
 		return nil
 	}
 	return &HistoryStack[C, S]{
-		undo:     append([]Command[C](nil), h.undo...),
-		redo:     append([]Command[C](nil), h.redo...),
-		maxDepth: h.maxDepth,
-		capture:  h.capture,
-		restore:  h.restore,
-		equal:    h.equal,
+		undo:            append([]Command[C](nil), h.undo...),
+		redo:            append([]Command[C](nil), h.redo...),
+		undoRevisions:   append([]uint64(nil), h.undoRevisions...),
+		redoRevisions:   append([]uint64(nil), h.redoRevisions...),
+		baseRevision:    h.baseRevision,
+		currentRevision: h.currentRevision,
+		nextRevision:    h.nextRevision,
+		maxDepth:        h.maxDepth,
+		capture:         h.capture,
+		restore:         h.restore,
+		equal:           h.equal,
 	}
 }
 
@@ -213,11 +223,19 @@ func (h *HistoryStack[C, S]) CancelTransaction(ctx C) error {
 }
 
 func (h *HistoryStack[C, S]) push(command Command[C]) {
+	h.nextRevision++
+	revision := h.nextRevision
 	h.undo = append(h.undo, command)
+	h.undoRevisions = append(h.undoRevisions, revision)
 	if len(h.undo) > h.maxDepth {
-		h.undo = h.undo[len(h.undo)-h.maxDepth:]
+		dropped := len(h.undo) - h.maxDepth
+		h.baseRevision = h.undoRevisions[dropped-1]
+		h.undo = h.undo[dropped:]
+		h.undoRevisions = h.undoRevisions[dropped:]
 	}
 	h.redo = h.redo[:0]
+	h.redoRevisions = h.redoRevisions[:0]
+	h.currentRevision = revision
 }
 
 func (h *HistoryStack[C, S]) Push(command Command[C]) {
@@ -230,6 +248,9 @@ func (h *HistoryStack[C, S]) Push(command Command[C]) {
 // would replay onto a different base state and corrupt the document.
 func (h *HistoryStack[C, S]) ClearRedo() {
 	h.redo = h.redo[:0]
+	h.redoRevisions = h.redoRevisions[:0]
+	h.nextRevision++
+	h.currentRevision = h.nextRevision
 }
 
 // Undo reverses the most recent command. The command is only moved from the undo
@@ -241,11 +262,19 @@ func (h *HistoryStack[C, S]) Undo(ctx C) error {
 		return nil
 	}
 	command := h.undo[len(h.undo)-1]
+	revision := h.undoRevisions[len(h.undoRevisions)-1]
 	if err := command.Undo(ctx); err != nil {
 		return err
 	}
 	h.undo = h.undo[:len(h.undo)-1]
+	h.undoRevisions = h.undoRevisions[:len(h.undoRevisions)-1]
 	h.redo = append(h.redo, command)
+	h.redoRevisions = append(h.redoRevisions, revision)
+	if len(h.undoRevisions) == 0 {
+		h.currentRevision = h.baseRevision
+	} else {
+		h.currentRevision = h.undoRevisions[len(h.undoRevisions)-1]
+	}
 	return nil
 }
 
@@ -257,11 +286,15 @@ func (h *HistoryStack[C, S]) Redo(ctx C) error {
 		return nil
 	}
 	command := h.redo[len(h.redo)-1]
+	revision := h.redoRevisions[len(h.redoRevisions)-1]
 	if err := command.Apply(ctx); err != nil {
 		return err
 	}
 	h.redo = h.redo[:len(h.redo)-1]
+	h.redoRevisions = h.redoRevisions[:len(h.redoRevisions)-1]
 	h.undo = append(h.undo, command)
+	h.undoRevisions = append(h.undoRevisions, revision)
+	h.currentRevision = revision
 	return nil
 }
 
@@ -309,9 +342,16 @@ func (h *HistoryStack[C, S]) SnapshotAt(historyIndex int) (S, bool) {
 func (h *HistoryStack[C, S]) CanUndo() bool { return len(h.undo) > 0 }
 func (h *HistoryStack[C, S]) CanRedo() bool { return len(h.redo) > 0 }
 
+// Revision identifies the current logical document state. Unlike a render
+// cache version, undo followed by redo returns to the same revision.
+func (h *HistoryStack[C, S]) Revision() uint64 { return h.currentRevision }
+
 func (h *HistoryStack[C, S]) Clear() {
 	h.undo = nil
 	h.redo = nil
+	h.undoRevisions = nil
+	h.redoRevisions = nil
+	h.baseRevision = h.currentRevision
 	h.active = nil
 }
 

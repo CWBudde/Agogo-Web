@@ -228,62 +228,10 @@ func dissolveEnabled(alpha float64, seed uint32) bool {
 	return float64(seed)*invMaxUint32Plus1 < alpha
 }
 
-func colorLuminance(color [3]float64) float64 {
-	// Rec. 601 luma coefficients — intentionally matches Photoshop's Hue/Saturation/
-	// Color/Luminosity blend group. W3C compositing spec uses Rec. 709 (0.2126, 0.7152,
-	// 0.0722) instead; do not "correct" these without re-verifying Photoshop parity.
-	return 0.3*color[0] + 0.59*color[1] + 0.11*color[2]
-}
-
-func luminosity(color [3]float64) float64 {
-	return colorLuminance(color)
-}
-
 func saturation(color [3]float64) float64 {
 	maxComponent := math.Max(color[0], math.Max(color[1], color[2]))
 	minComponent := math.Min(color[0], math.Min(color[1], color[2]))
 	return maxComponent - minComponent
-}
-
-func setLuminosity(color [3]float64, target float64) [3]float64 {
-	delta := target - luminosity(color)
-	adjusted := [3]float64{color[0] + delta, color[1] + delta, color[2] + delta}
-	return clipColor(adjusted)
-}
-
-func clipColor(color [3]float64) [3]float64 {
-	minComponent := math.Min(color[0], math.Min(color[1], color[2]))
-	maxComponent := math.Max(color[0], math.Max(color[1], color[2]))
-	lum := luminosity(color)
-	if minComponent < 0 {
-		if denom := lum - minComponent; denom > 0 {
-			for index := range color {
-				color[index] = lum + ((color[index]-lum)*lum)/denom
-			}
-		} else {
-			// Degenerate: lum rounded onto the minimum (near-equal negative
-			// components), so the spec scale factor is 0/0. Flatten to lum;
-			// the clamp below maps it into range.
-			for index := range color {
-				color[index] = lum
-			}
-		}
-	}
-	if maxComponent > 1 {
-		if denom := maxComponent - lum; denom > 0 {
-			for index := range color {
-				color[index] = lum + ((color[index]-lum)*(1-lum))/denom
-			}
-		} else {
-			for index := range color {
-				color[index] = lum
-			}
-		}
-	}
-	for index := range color {
-		color[index] = clampUnit(color[index])
-	}
-	return color
 }
 
 func setSaturation(color [3]float64, target float64) [3]float64 {

@@ -21,17 +21,24 @@ describe("BrushStateProvider", () => {
   });
 
   it("applyBrushPreset applies all tip parameters at once", () => {
-    const preset = BRUSH_PRESETS[1];
+    const preset = { ...BRUSH_PRESETS[1], size: 48 };
     const { result } = renderHook(() => useBrushState(), { wrapper });
 
     act(() => {
       result.current.applyBrushPreset(preset);
     });
     expect(result.current.brushPresetId).toBe(preset.id);
+    expect(result.current.brushSize).toBe(48);
     expect(result.current.brushTipShape).toBe(preset.tipShape);
     expect(result.current.brushHardness).toBe(preset.hardness);
     expect(result.current.brushSpacing).toBe(preset.spacing);
     expect(result.current.brushAngle).toBe(preset.angle);
+    expect(result.current.brushRoundness).toBe(preset.roundness ?? 1);
+    expect(result.current.brushSizeJitter).toBe(preset.sizeJitter ?? 0);
+    expect(result.current.brushOpacityJitter).toBe(preset.opacityJitter ?? 0);
+    expect(result.current.brushFlowJitter).toBe(preset.flowJitter ?? 0);
+    expect(result.current.brushControlSource).toBe(preset.controlSource ?? "pressure");
+    expect(result.current.brushFadeDabs).toBe(preset.fadeDabs ?? 100);
   });
 
   it("falls back to the first preset when the selected custom preset disappears", () => {

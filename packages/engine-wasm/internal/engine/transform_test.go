@@ -1315,6 +1315,54 @@ func TestTransformAgain_DiscreteRotate(t *testing.T) {
 	}
 }
 
+func TestTransformAgain_UIMetaEligibilityAndUndo(t *testing.T) {
+	h, _ := makeTestDoc(t, 4, 6, 0, 0)
+	defer Free(h)
+
+	result, err := DispatchCommand(h, commandRotateLayer90CW, mustJSON(t, DiscreteTransformPayload{}))
+	if err != nil {
+		t.Fatalf("rotate90CW: %v", err)
+	}
+	if !result.UIMeta.CanTransformAgain {
+		t.Fatal("Transform Again should be available after a committed discrete transform")
+	}
+
+	if _, err = DispatchCommand(h, commandTransformAgain, `{}`); err != nil {
+		t.Fatalf("transform again: %v", err)
+	}
+	if got := activeLayerBounds(t, h); got.W != 4 || got.H != 6 {
+		t.Fatalf("after replay: want 4x6, got %dx%d", got.W, got.H)
+	}
+
+	if _, err = DispatchCommand(h, commandUndo, `{}`); err != nil {
+		t.Fatalf("undo transform again: %v", err)
+	}
+	if got := activeLayerBounds(t, h); got.W != 6 || got.H != 4 {
+		t.Fatalf("after undo: want 6x4, got %dx%d", got.W, got.H)
+	}
+}
+
+func TestTransformAgain_RejectsActiveFreeTransformUsingUIMetaPredicate(t *testing.T) {
+	h, layerID := makeTestDoc(t, 4, 4, 0, 0)
+	defer Free(h)
+
+	if _, err := DispatchCommand(h, commandFlipLayerH, mustJSON(t, DiscreteTransformPayload{})); err != nil {
+		t.Fatalf("flipH: %v", err)
+	}
+	result, err := DispatchCommand(h, commandBeginFreeTransform, mustJSON(t, BeginFreeTransformPayload{
+		LayerID: layerID,
+	}))
+	if err != nil {
+		t.Fatalf("begin free transform: %v", err)
+	}
+	if result.UIMeta.CanTransformAgain {
+		t.Fatal("Transform Again must be unavailable while free transform is active")
+	}
+	if _, err = DispatchCommand(h, commandTransformAgain, `{}`); err == nil {
+		t.Fatal("expected Transform Again execution to reject the same in-flight state")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Mask transformation regression tests (S.5): transforms must carry the layer
 // mask (raster + vector) along with the pixels.

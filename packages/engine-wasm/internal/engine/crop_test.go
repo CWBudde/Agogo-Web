@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"testing"
 )
 
@@ -294,6 +295,47 @@ func TestApplyRotatedCropToPixelLayerSolidPixels(t *testing.T) {
 			t.Fatalf("pixel %d = %v, want solid source color", index/4, pixels[index:index+4])
 		}
 	}
+}
+
+func TestApplyRotatedCropToPixelLayerMatchesLegacySampling(t *testing.T) {
+	pixels := make([]byte, 5*5*4)
+	for y := range 5 {
+		for x := range 5 {
+			offset := (y*5 + x) * 4
+			pixels[offset] = uint8(20 + x*35)
+			pixels[offset+1] = uint8(15 + y*40)
+			pixels[offset+2] = uint8(10 + (x+y)*20)
+			pixels[offset+3] = 255
+		}
+	}
+	layer := NewPixelLayer("Layer", LayerBounds{X: 0, Y: 0, W: 5, H: 5}, pixels)
+	for _, angle := range []float64{0, math.Pi / 12, math.Pi / 4, math.Pi / 2} {
+		got, _ := applyRotatedCropToPixelLayer(layer, 2.5, 2.5, 3, 3, angle)
+		want := legacyRotatedCropPixels(layer, 2.5, 2.5, 3, 3, angle)
+		for index := range got {
+			delta := int(got[index]) - int(want[index])
+			if delta < -2 || delta > 2 {
+				t.Fatalf("angle=%g byte=%d got=%d want=%d; pixel got=%v want=%v", angle, index, got[index], want[index], got[index/4*4:index/4*4+4], want[index/4*4:index/4*4+4])
+			}
+		}
+	}
+}
+
+func legacyRotatedCropPixels(layer *PixelLayer, centerX, centerY, width, height, radians float64) []byte {
+	outW, outH := int(math.Round(width)), int(math.Round(height))
+	result := make([]byte, outW*outH*4)
+	cosine, sine := math.Cos(radians), math.Sin(radians)
+	for y := range outH {
+		for x := range outW {
+			localX := float64(x) + 0.5 - width/2
+			localY := float64(y) + 0.5 - height/2
+			sourceX := centerX + localX*cosine - localY*sine - float64(layer.Bounds.X)
+			sourceY := centerY + localX*sine + localY*cosine - float64(layer.Bounds.Y)
+			color := sampleBilinear(layer.Pixels, layer.Bounds.W, layer.Bounds.H, sourceX+0.5, sourceY+0.5)
+			copy(result[(y*outW+x)*4:(y*outW+x+1)*4], color[:])
+		}
+	}
+	return result
 }
 
 func TestTrimPixelLayerToBoundsClearsOutsidePixels(t *testing.T) {

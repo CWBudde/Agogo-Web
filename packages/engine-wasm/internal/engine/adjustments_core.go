@@ -25,8 +25,11 @@ type curvePoint struct {
 }
 
 type curvesParams struct {
-	Channel string       `json:"channel,omitempty"`
-	Points  []curvePoint `json:"points,omitempty"`
+	Channel     string       `json:"channel,omitempty"`
+	Points      []curvePoint `json:"points,omitempty"`
+	RedPoints   []curvePoint `json:"redPoints,omitempty"`
+	GreenPoints []curvePoint `json:"greenPoints,omitempty"`
+	BluePoints  []curvePoint `json:"bluePoints,omitempty"`
 }
 
 type hueSatParams struct {
@@ -186,23 +189,18 @@ func curvesAdjustmentFactory(params json.RawMessage) (AdjustmentPixelFunc, error
 		return nil, err
 	}
 	points := normalizeCurvePoints(cfg.Points)
-	channel := normalizeChannelSelector(cfg.Channel)
+	redPoints := normalizeCurvePoints(cfg.RedPoints)
+	greenPoints := normalizeCurvePoints(cfg.GreenPoints)
+	bluePoints := normalizeCurvePoints(cfg.BluePoints)
 	return func(r, g, b, a uint8, _ json.RawMessage) (uint8, uint8, uint8, uint8, error) {
-		if len(points) == 0 {
-			return r, g, b, a, nil
-		}
-		if channel == "" || channel == "rgb" || channel == "composite" {
-			rr, gg, bb := applyCurvesToRGB(r, g, b, points)
-			return rr, gg, bb, a, nil
-		}
-		switch channel {
-		case "red":
-			r = applyCurveValue(r, points)
-		case "green":
-			g = applyCurveValue(g, points)
-		case "blue":
-			b = applyCurveValue(b, points)
-		}
+		// The channel field is editor state only. Curves are persisted as one
+		// composite curve plus independent RGB channel curves, and all four
+		// participate in rendering regardless of which channel is selected in
+		// the properties panel.
+		r, g, b = applyCurvesToRGB(r, g, b, points)
+		r = applyCurveValue(r, redPoints)
+		g = applyCurveValue(g, greenPoints)
+		b = applyCurveValue(b, bluePoints)
 		return r, g, b, a, nil
 	}, nil
 }

@@ -15,6 +15,7 @@ func SaveProjectZip(doc *Document, history []HistoryEntry) ([]byte, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("document is required")
 	}
+	brushTips, brushPresets := archivedBrushDependencies(doc)
 	archive := projectDocumentArchive{
 		Width:           doc.Width,
 		Height:          doc.Height,
@@ -34,6 +35,8 @@ func SaveProjectZip(doc *Document, history []HistoryEntry) ([]byte, error) {
 		SavedSelections: cloneSavedSelectionChannels(doc.SavedSelections),
 		StylePresets:    cloneDocumentStylePresets(doc.StylePresets),
 		Patterns:        model.ClonePatterns(doc.Patterns),
+		BrushTips:       brushTips,
+		BrushPresets:    brushPresets,
 	}
 	if root := doc.ensureLayerRoot(); root != nil {
 		children := root.Children()

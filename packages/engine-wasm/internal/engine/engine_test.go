@@ -75,8 +75,8 @@ func TestCreateDocumentUpdatesStatusAndMetadata(t *testing.T) {
 	if result.UIMeta.DocumentWidth != 2048 || result.UIMeta.DocumentHeight != 2048 {
 		t.Fatalf("document size = %dx%d, want 2048x2048", result.UIMeta.DocumentWidth, result.UIMeta.DocumentHeight)
 	}
-	if len(result.UIMeta.History) == 0 {
-		t.Fatal("history should contain the create document entry")
+	if len(result.UIMeta.History) != 0 {
+		t.Fatal("creating a document must start with an empty content history")
 	}
 }
 
@@ -1051,8 +1051,8 @@ func TestJumpHistoryMovesLinearlyToTargetState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add layer 2: %v", err)
 	}
-	if len(latest.UIMeta.History) != 3 || latest.UIMeta.CurrentHistoryIndex != 3 {
-		t.Fatalf("history len/index = %d/%d, want 3/3", len(latest.UIMeta.History), latest.UIMeta.CurrentHistoryIndex)
+	if len(latest.UIMeta.History) != 2 || latest.UIMeta.CurrentHistoryIndex != 2 {
+		t.Fatalf("history len/index = %d/%d, want 2/2", len(latest.UIMeta.History), latest.UIMeta.CurrentHistoryIndex)
 	}
 
 	// Navigation performed after the edits must be unaffected by history jumps.
@@ -1068,8 +1068,8 @@ func TestJumpHistoryMovesLinearlyToTargetState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jump back: %v", err)
 	}
-	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != 0 {
-		t.Fatalf("layer count after jump back to index 1 = %d, want 0", got)
+	if got := len(instances[h].manager.Active().LayerRoot.Children()); got != 1 {
+		t.Fatalf("layer count after jump back to index 1 = %d, want 1", got)
 	}
 	if jumpedBack.UIMeta.CurrentHistoryIndex != 1 {
 		t.Fatalf("currentHistoryIndex = %d, want 1", jumpedBack.UIMeta.CurrentHistoryIndex)
@@ -1081,7 +1081,7 @@ func TestJumpHistoryMovesLinearlyToTargetState(t *testing.T) {
 		t.Fatalf("jump back changed the viewport: got %+v, want %+v (navigation is independent of history)", jumpedBack.Viewport, navigated.Viewport)
 	}
 
-	jumpedForward, err := DispatchCommand(h, commandJumpHistory, mustJSON(t, JumpHistoryPayload{HistoryIndex: 3}))
+	jumpedForward, err := DispatchCommand(h, commandJumpHistory, mustJSON(t, JumpHistoryPayload{HistoryIndex: 2}))
 	if err != nil {
 		t.Fatalf("jump forward: %v", err)
 	}

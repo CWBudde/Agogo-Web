@@ -1,11 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
 import {
   CommandID,
   type DocumentStylePresetEntry,
   type LayerNodeMeta,
   type ThumbnailEntry,
 } from "@agogo/proto";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { LayerPropertiesDialog, LayersPanel } from "@/components/layers-panel";
 import type { EngineContextValue } from "@/wasm/types";
 
@@ -165,6 +165,42 @@ describe("LayerPropertiesDialog", () => {
 });
 
 describe("LayersPanel", () => {
+  it("keeps a normal eye click as a visibility toggle and sends modifier clicks as atomic solo", () => {
+    const engine = createEngine();
+    const layer = makeLayer("layer-1", "Levels 1");
+
+    render(
+      <LayersPanel
+        engine={engine}
+        layers={[layer]}
+        activeLayerId={layer.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[layer.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />,
+    );
+
+    const eye = screen.getByRole("button", { name: "Hide layer" });
+    fireEvent.click(eye);
+    fireEvent.click(eye, { altKey: true });
+    fireEvent.click(eye, { metaKey: true });
+
+    expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.SetLayerVisibility, {
+      layerId: layer.id,
+      visible: false,
+    });
+    expect(engine.dispatchCommand).toHaveBeenCalledTimes(3);
+    expect(engine.dispatchCommand).toHaveBeenNthCalledWith(2, CommandID.SoloLayerVisibility, {
+      layerId: layer.id,
+    });
+    expect(engine.dispatchCommand).toHaveBeenNthCalledWith(3, CommandID.SoloLayerVisibility, {
+      layerId: layer.id,
+    });
+  });
+
   it("dispatches copy, paste, and clear layer style commands from the context menu", () => {
     const engine = createEngine();
     const layer = makeLayer("layer-1", "Levels 1");

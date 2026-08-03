@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"math"
 )
 
 func (doc *Document) renderStyledLayerSurface(layer LayerNode, clipAlpha []byte) ([]byte, error) {
@@ -69,41 +68,9 @@ func buildDocumentSurfaceFromRaster(docW, docH int, bounds LayerBounds, src []by
 		return nil, errRasterLengthMismatch(bounds, len(src))
 	}
 
-	for y := 0; y < bounds.H; y++ {
-		docY := bounds.Y + y
-		if docY < 0 || docY >= docH {
-			continue
-		}
-		for x := 0; x < bounds.W; x++ {
-			docX := bounds.X + x
-			if docX < 0 || docX >= docW {
-				continue
-			}
-
-			srcIndex := (y*bounds.W + x) * 4
-			alpha := src[srcIndex+3]
-			if alpha == 0 {
-				continue
-			}
-
-			maskAlpha := layerMaskAlphaAt(mask, docX, docY)
-			maskAlpha = scaleMaskedAlpha(maskAlpha, clipSurfaceAlphaAt(clipAlpha, docW, docX, docY))
-			if maskAlpha == 0 {
-				continue
-			}
-
-			effectiveAlpha := scaleMaskedAlpha(alpha, maskAlpha)
-			effectiveAlpha = scaleMaskedAlpha(effectiveAlpha, uint8(math.Round(clampUnit(opacity)*255)))
-			if effectiveAlpha == 0 {
-				continue
-			}
-
-			destIndex := (docY*docW + docX) * 4
-			copy(surface[destIndex:destIndex+4], src[srcIndex:srcIndex+4])
-			surface[destIndex+3] = effectiveAlpha
-		}
+	if err := compositeRasterIntoDocument(surface, docW, docH, bounds, src, BlendModeNormal, opacity, mask, clipAlpha, nil, nil); err != nil {
+		return nil, err
 	}
-
 	return surface, nil
 }
 
