@@ -24,7 +24,8 @@ function openDatabase(): Promise<IDBDatabase | null> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Could not open brush library storage."));
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not open brush library storage."));
   });
 }
 

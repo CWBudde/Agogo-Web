@@ -95,7 +95,8 @@ func TestParseComputedBrushDescriptor(t *testing.T) {
 
 func TestParseMultipleSectionsAndUnknownSection(t *testing.T) {
 	raw := fixtureSampleRecord(1, 1, 1, 0, []byte{99})
-	data := fixtureABR(6, 1,
+	data := fixtureABR(
+		6, 1,
 		fixtureBlock("patt", []byte{1, 2, 3, 4}),
 		fixtureBlock("desc", fixtureDescriptor()),
 		fixtureBlock("samp", raw),
@@ -189,7 +190,8 @@ func TestParseRejectsBadBoundsAndPadding(t *testing.T) {
 		t.Fatalf("bad bounds Parse() = (%#v, %v)", lib, err)
 	}
 
-	block := fixtureABR(6, 1,
+	block := fixtureABR(
+		6, 1,
 		fixtureBlock("desc", fixtureDescriptor()),
 		fixtureBlock("patt", []byte{42}),
 	)
