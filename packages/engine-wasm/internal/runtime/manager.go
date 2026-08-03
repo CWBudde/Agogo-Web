@@ -107,6 +107,24 @@ func (m *Manager[T]) Get(id string) T {
 	return m.clone(value)
 }
 
+// Has reports whether id is present without cloning the stored value.
+func (m *Manager[T]) Has(id string) bool {
+	_, ok := m.docs[id]
+	return ok
+}
+
+// Inspect calls inspect with the manager-owned value identified by id without
+// cloning it. The callback must treat the value as read-only and must not retain
+// it after returning.
+func (m *Manager[T]) Inspect(id string, inspect func(T)) bool {
+	value, ok := m.docs[id]
+	if !ok || inspect == nil {
+		return false
+	}
+	inspect(value)
+	return true
+}
+
 func (m *Manager[T]) ActiveMut() T {
 	var zero T
 	if m.activeID == "" {

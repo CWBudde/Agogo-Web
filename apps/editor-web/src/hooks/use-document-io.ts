@@ -32,6 +32,27 @@ function fileStem(value: string) {
   return normalized || "swatches";
 }
 
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}.`));
+    reader.onabort = () => reject(new Error(`Reading ${file.name} was cancelled.`));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error(`Could not encode ${file.name}.`));
+        return;
+      }
+      const separator = reader.result.indexOf(",");
+      if (separator < 0) {
+        reject(new Error(`Could not encode ${file.name}.`));
+        return;
+      }
+      resolve(reader.result.slice(separator + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 interface UseDocumentIoParams {
   /** The App-owned document draft (dialog draft, mirrored from the engine). */
   draft: CreateDocumentCommand;
@@ -333,12 +354,7 @@ export function useDocumentIo({ draft, setDraft }: UseDocumentIoParams) {
 
     try {
       if (file.name.toLowerCase().endsWith(".abr")) {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        let binary = "";
-        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        }
-        const data = btoa(binary);
+        const data = await readFileAsBase64(file);
         const result = engine.dispatchCommand(CommandID.ImportAbrBrushLibrary, {
           data,
           fileName: file.name,

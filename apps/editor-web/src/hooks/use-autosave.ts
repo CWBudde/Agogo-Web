@@ -46,20 +46,27 @@ export function useAutosave({
   const lastSavedVersionsRef = useRef(new Map<string, number>());
   const failureToastShownRef = useRef(false);
   const pendingSaveRef = useRef<ScheduledSave | null>(null);
+  const pendingSaveKeyRef = useRef<string | null>(null);
   const exportProjectRef = useRef(engine.exportProject);
   useEffect(() => {
     exportProjectRef.current = engine.exportProject;
   });
 
   useEffect(() => {
+    const key = documentId || "active";
+    if (pendingSaveRef.current && pendingSaveKeyRef.current !== key) {
+      pendingSaveRef.current.cancel();
+      pendingSaveRef.current = null;
+      pendingSaveKeyRef.current = null;
+    }
     if (!enabled || contentVersion === undefined || contentVersion === 0) {
       // Nothing to save (engine gone / document closed) — drop any save that
       // is still pending so it cannot fire against stale state.
       pendingSaveRef.current?.cancel();
       pendingSaveRef.current = null;
+      pendingSaveKeyRef.current = null;
       return;
     }
-    const key = documentId || "active";
     const lastSavedVersion = lastSavedVersionsRef.current.get(key) ?? 0;
     if (contentVersion - lastSavedVersion < AUTOSAVE_EVERY_N_VERSIONS) {
       return;
@@ -67,8 +74,10 @@ export function useAutosave({
 
     // Coalesce: a newer contentVersion supersedes any not-yet-run save.
     pendingSaveRef.current?.cancel();
+    pendingSaveKeyRef.current = key;
     pendingSaveRef.current = scheduleIdle(() => {
       pendingSaveRef.current = null;
+      pendingSaveKeyRef.current = null;
       try {
         const base64Zip = exportProjectRef.current();
         if (!base64Zip) {
@@ -102,6 +111,7 @@ export function useAutosave({
     return () => {
       pendingSaveRef.current?.cancel();
       pendingSaveRef.current = null;
+      pendingSaveKeyRef.current = null;
     };
   }, []);
 }

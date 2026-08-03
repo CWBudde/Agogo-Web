@@ -100,6 +100,43 @@ func TestDocumentSavedBaselineTracksUndoAndBranching(t *testing.T) {
 	}
 }
 
+func TestDocumentSavedBaselineRecognizesPixelDeltaRedo(t *testing.T) {
+	h := Init(mustJSON(t, EngineConfig{DocumentWidth: 16, DocumentHeight: 16, Background: "transparent"}))
+	defer Free(h)
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Paint",
+		Bounds:    LayerBounds{W: 16, H: 16},
+		Pixels:    make([]byte, 16*16*4),
+	})); err != nil {
+		t.Fatalf("add paint layer: %v", err)
+	}
+
+	inst := instances[h]
+	brush := BrushParams{Size: 4, Hardness: 1, Flow: 1, Color: [4]uint8{255, 0, 0, 255}}
+	inst.handleBeginPaintStroke(BeginPaintStrokePayload{X: 8, Y: 8, Pressure: 1, Brush: brush})
+	if err := inst.handleEndPaintStroke(); err != nil {
+		t.Fatalf("end paint stroke: %v", err)
+	}
+	docID := inst.manager.ActiveID()
+	if err := inst.markDocumentSaved(docID); err != nil {
+		t.Fatalf("mark painted state saved: %v", err)
+	}
+
+	if err := inst.history.Undo(inst); err != nil {
+		t.Fatalf("undo paint: %v", err)
+	}
+	if summaries := inst.documentSummaries(); len(summaries) != 1 || !summaries[0].Modified {
+		t.Fatalf("undone paint should be dirty: %+v", summaries)
+	}
+	if err := inst.history.Redo(inst); err != nil {
+		t.Fatalf("redo paint: %v", err)
+	}
+	if summaries := inst.documentSummaries(); len(summaries) != 1 || summaries[0].Modified {
+		t.Fatalf("redo to the saved pixels should be clean: %+v", summaries)
+	}
+}
+
 func TestCloseTargetDocumentActivatesLeftNeighbor(t *testing.T) {
 	h := Init("")
 	defer Free(h)
@@ -119,5 +156,42 @@ func TestCloseTargetDocumentActivatesLeftNeighbor(t *testing.T) {
 	}
 	if closed.UIMeta.ActiveDocumentID != ids[1] {
 		t.Fatalf("active after close = %q, want left neighbor %q", closed.UIMeta.ActiveDocumentID, ids[1])
+	}
+}
+
+func TestClosingInactiveDocumentKeepsActiveSessionLoaded(t *testing.T) {
+	h := Init("")
+	defer Free(h)
+	first, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "First", Width: 100, Height: 80, Resolution: 72, ColorMode: "rgb", BitDepth: 8, Background: "transparent",
+	}))
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	firstID := first.UIMeta.ActiveDocumentID
+	second, err := DispatchCommand(h, commandCreateDocument, mustJSON(t, CreateDocumentPayload{
+		Name: "Second", Width: 60, Height: 40, Resolution: 72, ColorMode: "rgb", BitDepth: 8, Background: "transparent",
+	}))
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandSwitchDocument, mustJSON(t, map[string]string{"documentId": firstID})); err != nil {
+		t.Fatalf("switch first: %v", err)
+	}
+	if _, err := DispatchCommand(h, commandPanSet, mustJSON(t, PanPayload{CenterX: 17, CenterY: 23})); err != nil {
+		t.Fatalf("pan first: %v", err)
+	}
+
+	closed, err := DispatchCommand(h, commandCloseDocument, mustJSON(t, map[string]string{
+		"documentId": second.UIMeta.ActiveDocumentID,
+	}))
+	if err != nil {
+		t.Fatalf("close inactive second: %v", err)
+	}
+	if closed.UIMeta.ActiveDocumentID != firstID {
+		t.Fatalf("active document = %q, want %q", closed.UIMeta.ActiveDocumentID, firstID)
+	}
+	if closed.Viewport.CenterX != 17 || closed.Viewport.CenterY != 23 {
+		t.Fatalf("active viewport after inactive close = %.1f,%.1f, want 17,23", closed.Viewport.CenterX, closed.Viewport.CenterY)
 	}
 }

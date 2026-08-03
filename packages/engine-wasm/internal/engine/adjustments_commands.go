@@ -16,7 +16,7 @@ type HistogramData struct {
 	Green     [256]uint32 `json:"green"`
 	Blue      [256]uint32 `json:"blue"`
 	Alpha     [256]uint32 `json:"alpha"`
-	Luminance [256]uint32 `json:"luminance"`
+	Luminance [256]uint32 `json:"luminosity"`
 }
 
 // ComputeHistogramPayload is the JSON payload for the ComputeHistogram command.

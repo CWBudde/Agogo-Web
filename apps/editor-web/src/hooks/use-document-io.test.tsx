@@ -115,10 +115,7 @@ describe("useDocumentIo ABR integration", () => {
       }),
     );
     const input = { value: "selected", files: [] as unknown as FileList };
-    const file = {
-      name: "studio.abr",
-      arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer,
-    } as File;
+    const file = new File([Uint8Array.from([1, 2, 3])], "studio.abr");
     Object.defineProperty(input, "files", { value: [file] });
 
     await act(async () => {
@@ -198,10 +195,7 @@ describe("useDocumentIo ABR integration", () => {
       }),
     );
     const input = { value: "selected", files: [] as unknown as FileList };
-    const file = {
-      name: "broken.abr",
-      arrayBuffer: async () => Uint8Array.from([1]).buffer,
-    } as File;
+    const file = new File([Uint8Array.from([1])], "broken.abr");
     Object.defineProperty(input, "files", { value: [file] });
 
     await act(async () => {

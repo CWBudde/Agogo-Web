@@ -798,10 +798,10 @@ func Init(configJSON string) int32 {
 		inst.viewport.CenterX = float64(doc.Width) * 0.5
 		inst.viewport.CenterY = float64(doc.Height) * 0.5
 		inst.documentSessions[doc.ID] = &documentSession{
-			history:             inst.history,
-			viewport:            inst.viewport,
-			savedContentVersion: doc.ContentVersion,
-			hasSavedBaseline:    false,
+			history:              inst.history,
+			viewport:             inst.viewport,
+			savedHistoryRevision: inst.history.Revision(),
+			hasSavedBaseline:     false,
 		}
 	}
 

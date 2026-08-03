@@ -70,7 +70,7 @@ func (inst *instance) importProject(payload string) (RenderResult, error) {
 			return RenderResult{}, fmt.Errorf("load project: unsupported import payload")
 		}
 	}
-	if doc.ID == "" || inst.manager.Get(doc.ID) != nil {
+	if doc.ID == "" || inst.manager.Has(doc.ID) {
 		doc.ID = inst.uniqueImportedDocumentID()
 	}
 	inst.registerDocumentBrushResources(doc)

@@ -134,6 +134,23 @@ func TestComputeHistogramLuminance(t *testing.T) {
 	}
 }
 
+func TestHistogramJSONMatchesFrontendLuminosityABI(t *testing.T) {
+	payload, err := json.Marshal(HistogramData{})
+	if err != nil {
+		t.Fatalf("marshal histogram: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("unmarshal histogram fields: %v", err)
+	}
+	if _, ok := fields["luminosity"]; !ok {
+		t.Fatalf("histogram JSON has no luminosity field: %s", payload)
+	}
+	if _, ok := fields["luminance"]; ok {
+		t.Fatalf("histogram JSON exposes stale luminance field: %s", payload)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Identify Hue Range tests
 // ---------------------------------------------------------------------------

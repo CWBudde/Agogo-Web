@@ -32,6 +32,9 @@ func (inst *instance) getNavigatorThumbnail(payload NavigatorThumbnailPayload) (
 	requestedW := maxInt(1, minInt(payload.Width, navigatorMaxDimension))
 	requestedH := maxInt(1, minInt(payload.Height, navigatorMaxDimension))
 	background := stringValueOrDefault(payload.Background, "transparent")
+	if background != "transparent" && background != "white" && background != "checkerboard" {
+		return nil, fmt.Errorf("unsupported navigator background %q", background)
+	}
 	key := navigatorThumbnailKey{
 		documentID: doc.ID, contentVersion: doc.ContentVersion,
 		width: requestedW, height: requestedH, background: background,
@@ -51,6 +54,7 @@ func (inst *instance) getNavigatorThumbnail(payload NavigatorThumbnailPayload) (
 	dest := make([]byte, width*height*4)
 	renderer := agglib.NewAgg2D()
 	renderer.Attach(dest, width, height, width*4)
+	fillNavigatorBackground(renderer, width, height, background)
 	renderer.ImageFilter(agglib.Bilinear)
 	image := agglib.NewImage(surface, doc.Width, doc.Height, doc.Width*4)
 	if err := renderer.TransformImageSimple(image, 0, 0, float64(width), float64(height)); err != nil {
@@ -70,4 +74,30 @@ func (inst *instance) getNavigatorThumbnail(payload NavigatorThumbnailPayload) (
 	inst.navigatorCache = thumbnail
 	copy := *thumbnail
 	return &copy, nil
+}
+
+func fillNavigatorBackground(renderer *agglib.Agg2D, width, height int, background string) {
+	switch background {
+	case "white":
+		renderer.ClearAll(agglib.NewColor(255, 255, 255, 255))
+	case "checkerboard":
+		const tileSize = 8
+		renderer.ClearAll(agglib.NewColor(224, 224, 224, 255))
+		for y := 0; y < height; y += tileSize {
+			for x := 0; x < width; x += tileSize {
+				if (x/tileSize+y/tileSize)%2 == 0 {
+					continue
+				}
+				renderer.FillColor(agglib.NewColor(184, 184, 184, 255))
+				renderer.Rectangle(
+					float64(x),
+					float64(y),
+					float64(minInt(x+tileSize, width)),
+					float64(minInt(y+tileSize, height)),
+				)
+			}
+		}
+	default:
+		renderer.ClearAll(agglib.NewColor(0, 0, 0, 0))
+	}
 }

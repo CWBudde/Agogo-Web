@@ -299,3 +299,55 @@ func TestExecuteSuppressesNoOpCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestRevisionIdentifiesUndoRedoAndBranches(t *testing.T) {
+	ctx := &testCtx{}
+	h := newTestStack()
+	initial := h.Revision()
+
+	if err := h.Execute(ctx, &stubCommand{desc: "first"}); err != nil {
+		t.Fatalf("Execute first: %v", err)
+	}
+	first := h.Revision()
+	if first == initial {
+		t.Fatal("an edit must advance the revision")
+	}
+	if err := h.Undo(ctx); err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if got := h.Revision(); got != initial {
+		t.Fatalf("revision after undo = %d, want initial %d", got, initial)
+	}
+	if err := h.Redo(ctx); err != nil {
+		t.Fatalf("Redo: %v", err)
+	}
+	if got := h.Revision(); got != first {
+		t.Fatalf("revision after redo = %d, want original edited revision %d", got, first)
+	}
+
+	if err := h.Undo(ctx); err != nil {
+		t.Fatalf("second Undo: %v", err)
+	}
+	if err := h.Execute(ctx, &stubCommand{desc: "branch"}); err != nil {
+		t.Fatalf("Execute branch: %v", err)
+	}
+	if got := h.Revision(); got == first || got == initial {
+		t.Fatalf("branched edit reused revision %d", got)
+	}
+}
+
+func TestClearKeepsCurrentRevision(t *testing.T) {
+	ctx := &testCtx{}
+	h := newTestStack()
+	if err := h.Execute(ctx, &stubCommand{desc: "edit"}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := h.Revision()
+	h.Clear()
+	if got := h.Revision(); got != want {
+		t.Fatalf("revision after Clear = %d, want %d", got, want)
+	}
+	if h.CanUndo() || h.CanRedo() {
+		t.Fatal("Clear must empty undo and redo stacks")
+	}
+}

@@ -9,14 +9,14 @@ import (
 // activated. Canvas dimensions and device-pixel ratio remain workspace-wide
 // and are deliberately copied from the live viewport when a session is loaded.
 type documentSession struct {
-	history             *HistoryStack
-	viewport            ViewportState
-	lastTransform       *LastTransformRecord
-	lastFilter          *lastFilterState
-	preFadeSnapshot     *fadeSnapshot
-	importWarnings      []string
-	savedContentVersion int64
-	hasSavedBaseline    bool
+	history              *HistoryStack
+	viewport             ViewportState
+	lastTransform        *LastTransformRecord
+	lastFilter           *lastFilterState
+	preFadeSnapshot      *fadeSnapshot
+	importWarnings       []string
+	savedHistoryRevision uint64
+	hasSavedBaseline     bool
 }
 
 func (inst *instance) ensureDocumentSessions() {
@@ -85,10 +85,10 @@ func (inst *instance) createDocumentSession(doc *Document, modified bool) {
 	inst.fitViewportToActiveDocument()
 	inst.ensureDocumentSessions()
 	inst.documentSessions[doc.ID] = &documentSession{
-		history:             inst.history,
-		viewport:            inst.viewport,
-		savedContentVersion: doc.ContentVersion,
-		hasSavedBaseline:    !modified,
+		history:              inst.history,
+		viewport:             inst.viewport,
+		savedHistoryRevision: inst.history.Revision(),
+		hasSavedBaseline:     !modified,
 	}
 }
 
@@ -156,14 +156,16 @@ func (inst *instance) closeDocument(id string) error {
 		return err
 	}
 	delete(inst.documentSessions, id)
-	if next := inst.manager.ActiveID(); next != "" {
-		inst.loadDocumentSession(next)
-	} else {
-		inst.history = newHistoryStack(defaultHistoryMax)
-		inst.lastTransform = nil
-		inst.lastFilter = nil
-		inst.preFadeSnapshot = nil
-		inst.importWarnings = nil
+	if wasActive {
+		if next := inst.manager.ActiveID(); next != "" {
+			inst.loadDocumentSession(next)
+		} else {
+			inst.history = newHistoryStack(defaultHistoryMax)
+			inst.lastTransform = nil
+			inst.lastFilter = nil
+			inst.preFadeSnapshot = nil
+			inst.importWarnings = nil
+		}
 	}
 	inst.invalidateRenderCaches()
 	return nil
@@ -173,8 +175,7 @@ func (inst *instance) markDocumentSaved(id string) error {
 	if id == "" {
 		id = inst.manager.ActiveID()
 	}
-	doc := inst.manager.Get(id)
-	if doc == nil {
+	if !inst.manager.Has(id) {
 		return fmt.Errorf("document %q not found", id)
 	}
 	inst.ensureDocumentSessions()
@@ -183,7 +184,10 @@ func (inst *instance) markDocumentSaved(id string) error {
 		session = &documentSession{history: newHistoryStack(defaultHistoryMax)}
 		inst.documentSessions[id] = session
 	}
-	session.savedContentVersion = doc.ContentVersion
+	if session.history == nil {
+		session.history = newHistoryStack(defaultHistoryMax)
+	}
+	session.savedHistoryRevision = session.history.Revision()
 	session.hasSavedBaseline = true
 	return nil
 }
@@ -192,22 +196,23 @@ func (inst *instance) documentSummaries() []DocumentSummary {
 	ids := inst.manager.IDs()
 	result := make([]DocumentSummary, 0, len(ids))
 	for _, id := range ids {
-		doc := inst.manager.Get(id)
-		if doc == nil {
-			continue
-		}
-		session := inst.documentSessions[id]
-		modified := true
-		if session != nil && session.hasSavedBaseline {
-			modified = session.savedContentVersion != doc.ContentVersion
-		}
-		result = append(result, DocumentSummary{
-			ID:       id,
-			Name:     doc.Name,
-			Width:    doc.Width,
-			Height:   doc.Height,
-			Active:   id == inst.manager.ActiveID(),
-			Modified: modified,
+		inst.manager.Inspect(id, func(doc *Document) {
+			if doc == nil {
+				return
+			}
+			session := inst.documentSessions[id]
+			modified := true
+			if session != nil && session.history != nil && session.hasSavedBaseline {
+				modified = session.savedHistoryRevision != session.history.Revision()
+			}
+			result = append(result, DocumentSummary{
+				ID:       id,
+				Name:     doc.Name,
+				Width:    doc.Width,
+				Height:   doc.Height,
+				Active:   id == inst.manager.ActiveID(),
+				Modified: modified,
+			})
 		})
 	}
 	return result
@@ -238,7 +243,7 @@ func (inst *instance) invalidateRenderCaches() {
 func (inst *instance) uniqueImportedDocumentID() string {
 	for {
 		id := fmt.Sprintf("doc-%04d", atomic.AddInt64(&nextDocID, 1))
-		if inst.manager.Get(id) == nil {
+		if !inst.manager.Has(id) {
 			return id
 		}
 	}
