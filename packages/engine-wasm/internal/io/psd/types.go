@@ -29,13 +29,24 @@ const (
 )
 
 const (
-	LayerSectionNormal      = 0
-	LayerSectionOpenFolder  = 1
-	LayerSectionCloseFolder = 2
-	LayerSectionNested      = 3
+	LayerSectionNormal          = 0
+	LayerSectionOpenFolder      = 1
+	LayerSectionClosedFolder    = 2
+	LayerSectionBoundingDivider = 3
+
+	// Deprecated aliases retained for callers compiled against the old names.
+	// A type-2 record is a closed folder, not a close marker; type 3 is the
+	// bounding divider that marks the bottom of a group in PSD layer order.
+	LayerSectionCloseFolder = LayerSectionClosedFolder
+	LayerSectionNested      = LayerSectionBoundingDivider
 )
 
-const PSDMaxDimension = 30000
+const (
+	PSDMaxDimension       = 30000
+	PSBMaxDimension       = 300000
+	PSDMaxChannels        = 56
+	maxPSDDecodedByteSize = 512 << 20
+)
 
 type Header struct {
 	Version   uint16
@@ -134,9 +145,13 @@ type LayerRecord struct {
 	LayerID           uint32
 	LayerColorTag     string
 	SectionType       uint32
+	PassThrough       bool
 	HasLayerMask      bool
 	LayerMaskBounds   model.LayerBounds
 	LayerMaskEnabled  bool
+	LayerMaskDefault  uint8
+	LayerMaskFlags    uint8
+	LayerMaskInverted bool
 	HasVectorMask     bool
 	VectorMask        *VectorMaskMeta
 	Effects           *LayerEffectsMeta

@@ -89,7 +89,7 @@ func writeLayerRecord(out *bytes.Buffer, psb bool, record ExportLayerRecord) {
 	writePascalString4(&extra, record.Name)
 	writeUnicodeLayerNameBlock(&extra, record.Name)
 	if record.SectionType != 0 {
-		WriteAdditionalLayerInfoBlock(&extra, "8BIM", "lsct", buildSectionDivider(record.SectionType))
+		WriteAdditionalLayerInfoBlock(&extra, "8BIM", "lsct", buildSectionDivider(record.SectionType, record.BlendKey))
 	}
 	for _, block := range record.ExtraBlocks {
 		WriteAdditionalLayerInfoBlock(&extra, block.Signature, block.Key, block.Payload)
@@ -108,12 +108,12 @@ func writeLayerMaskData(out *bytes.Buffer, mask *model.LayerMask) {
 	writeInt32(&payload, 0)
 	writeInt32(&payload, int32(mask.Height))
 	writeInt32(&payload, int32(mask.Width))
-	writeUint16(&payload, 0)
-	flags := uint16(0)
+	payload.WriteByte(255)
+	flags := byte(0)
 	if !mask.Enabled {
-		flags = 1
+		flags |= 0x02
 	}
-	writeUint16(&payload, flags)
+	payload.WriteByte(flags)
 	writeUint32(out, uint32(payload.Len()))
 	out.Write(payload.Bytes())
 }
@@ -125,8 +125,10 @@ func writeUnicodeLayerNameBlock(out *bytes.Buffer, name string) {
 	WriteAdditionalLayerInfoBlock(out, "8BIM", "luni", EncodeUnicodeString(name))
 }
 
-func buildSectionDivider(sectionType uint32) []byte {
+func buildSectionDivider(sectionType uint32, blendKey string) []byte {
 	var out bytes.Buffer
 	writeUint32(&out, sectionType)
+	writeString(&out, "8BIM")
+	writeString(&out, blendKey)
 	return out.Bytes()
 }

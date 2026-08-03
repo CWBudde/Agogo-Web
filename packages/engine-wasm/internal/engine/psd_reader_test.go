@@ -63,6 +63,30 @@ func TestLoadPSDImportsCompositeImageAndResolution(t *testing.T) {
 	}
 }
 
+func TestLoadPSDRequiresValidPSDContentBeforeUsingEmbeddedProject(t *testing.T) {
+	embedded, err := SaveProject(newRenderableProjectFixture(), nil)
+	if err != nil {
+		t.Fatalf("SaveProject: %v", err)
+	}
+	data := buildMinimalPSD(t, minimalPSDConfig{
+		width:    1,
+		height:   1,
+		channels: 3,
+		resources: []psdImageResource{{
+			id:   psdImageResourceAgogoProject,
+			name: "Agogo",
+			data: embedded,
+		}},
+		composite: psdImageData{compression: 99},
+	})
+
+	if _, _, err := LoadPSD(data); err == nil {
+		t.Fatal("LoadPSD succeeded via embedded project despite invalid PSD image data")
+	} else if !strings.Contains(err.Error(), "unsupported PSD composite compression 99") {
+		t.Fatalf("LoadPSD error = %q, want underlying PSD parse failure", err)
+	}
+}
+
 func TestLoadPSDImportsLayerRasterDataAndWarnsForUnsupportedTextMetadata(t *testing.T) {
 	data := buildMinimalPSD(t, minimalPSDConfig{
 		width:    1,
@@ -193,10 +217,10 @@ func TestLoadPSDParsesSectionDividerBlocksIntoGroups(t *testing.T) {
 		channels: 3,
 		layers: []minimalPSDLayer{
 			{
-				name: "Group",
+				name: "</Layer group>",
 				rect: LayerBounds{X: 0, Y: 0, W: 0, H: 0},
 				extraBlocks: []psdTaggedBlock{
-					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionOpenFolder)},
+					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionNested)},
 				},
 			},
 			{
@@ -210,10 +234,10 @@ func TestLoadPSDParsesSectionDividerBlocksIntoGroups(t *testing.T) {
 				},
 			},
 			{
-				name: "Group End",
+				name: "Group",
 				rect: LayerBounds{X: 0, Y: 0, W: 0, H: 0},
 				extraBlocks: []psdTaggedBlock{
-					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionCloseFolder)},
+					{signature: "8BIM", key: "lsct", data: buildSectionDividerData(psdLayerSectionOpenFolder)},
 				},
 			},
 		},
@@ -257,13 +281,15 @@ func TestLoadPSDParsesLayerMaskMetadata(t *testing.T) {
 		channels: 3,
 		layers: []minimalPSDLayer{
 			{
-				name: "Masked",
-				rect: LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				name:     "Masked",
+				rect:     LayerBounds{X: 0, Y: 0, W: 1, H: 1},
+				maskData: buildLayerMaskData(t, LayerBounds{X: 0, Y: 0, W: 1, H: 1}),
 				channels: []psdLayerChannel{
 					{id: 0, compression: psdCompressionRaw, data: []byte{10}},
 					{id: 1, compression: psdCompressionRaw, data: []byte{20}},
 					{id: 2, compression: psdCompressionRaw, data: []byte{30}},
 					{id: -1, compression: psdCompressionRaw, data: []byte{255}},
+					{id: -2, compression: psdCompressionRaw, data: []byte{127}},
 				},
 			},
 		},
@@ -294,6 +320,9 @@ func TestLoadPSDParsesLayerMaskMetadata(t *testing.T) {
 	}
 	if mask.Width != 1 || mask.Height != 1 {
 		t.Fatalf("mask size = %dx%d, want 1x1", mask.Width, mask.Height)
+	}
+	if !bytes.Equal(mask.Data, []byte{127}) {
+		t.Fatalf("mask data = %v, want [127]", mask.Data)
 	}
 }
 
@@ -903,9 +932,6 @@ func buildLayerAndMaskSection(t *testing.T, layers []minimalPSDLayer) []byte {
 		layerRecords.WriteByte(0)
 
 		var extra bytes.Buffer
-		if len(layer.maskData) == 0 {
-			layer.maskData = buildLayerMaskData(t, layer.rect)
-		}
 		if len(layer.blendRanges) == 0 {
 			layer.blendRanges = buildLayerBlendRangeData()
 		}
@@ -1182,8 +1208,8 @@ func buildLayerMaskData(t *testing.T, bounds LayerBounds) []byte {
 	writeInt32(&out, int32(bounds.X))
 	writeInt32(&out, int32(bounds.Y+bounds.H))
 	writeInt32(&out, int32(bounds.X+bounds.W))
-	writeUint16(&out, 0) // default color
-	writeUint16(&out, 0) // flags
+	out.WriteByte(0) // default color
+	out.WriteByte(0) // flags
 	return out.Bytes()
 }
 
@@ -1246,7 +1272,7 @@ func writePascalString4(out *bytes.Buffer, value string) {
 	}
 	out.WriteByte(byte(len(value)))
 	out.WriteString(value)
-	for out.Len()%4 != 0 {
+	for padding := (4 - ((1 + len(value)) % 4)) % 4; padding > 0; padding-- {
 		out.WriteByte(0)
 	}
 }

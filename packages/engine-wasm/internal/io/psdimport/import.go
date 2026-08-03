@@ -12,9 +12,7 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		return nil, nil, nil
 	}
 	var warnings []string
-	nodes := make([]model.LayerNode, 0, len(layers))
-	groups := make([]*model.GroupLayer, 0)
-	stacks := [][]model.LayerNode{nodes}
+	stacks := [][]model.LayerNode{make([]model.LayerNode, 0, len(layers))}
 
 	resolveName := func(record psdio.LayerRecord, index int) string {
 		if record.Name != "" {
@@ -27,16 +25,22 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		stacks = append(stacks, make([]model.LayerNode, 0))
 	}
 
-	popStack := func() (*model.GroupLayer, error) {
-		if len(stacks) <= 1 || len(groups) == 0 {
-			return nil, fmt.Errorf("unbalanced group close marker")
+	popStack := func(record psdio.LayerRecord, name string) (*model.GroupLayer, error) {
+		if len(stacks) <= 1 {
+			return nil, fmt.Errorf("folder record has no bounding divider")
 		}
-		lastGroupIdx := len(groups) - 1
-		group := groups[lastGroupIdx]
 		children := stacks[len(stacks)-1]
 		stacks = stacks[:len(stacks)-1]
-		groups = groups[:lastGroupIdx]
+		group := model.NewGroupLayer(name)
+		group.SetVisible(record.Visible)
+		group.SetOpacity(record.Opacity)
+		group.SetBlendMode(record.BlendMode)
+		group.SetClipToBelow(record.ClipToBelow)
+		group.Isolated = !record.PassThrough
+		group.SetMask(buildLayerMask(header, record))
 		group.SetChildren(children)
+		top := len(stacks) - 1
+		stacks[top] = append(stacks[top], group)
 		return group, nil
 	}
 
@@ -45,26 +49,16 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		stacks[top] = append(stacks[top], node)
 	}
 
-	beginGroup := func(record psdio.LayerRecord, name string) {
-		group := model.NewGroupLayer(name)
-		group.SetVisible(record.Visible)
-		group.SetOpacity(record.Opacity)
-		group.SetBlendMode(record.BlendMode)
-		group.SetClipToBelow(record.ClipToBelow)
-		addToCurrent(group)
-		groups = append(groups, group)
-		pushStack()
-	}
-
 	for index, record := range layers {
 		name := resolveName(record, index)
-		if record.SectionType == psdio.LayerSectionOpenFolder || record.SectionType == psdio.LayerSectionNested {
-			beginGroup(record, name)
+		if record.SectionType == psdio.LayerSectionBoundingDivider {
+			pushStack()
 			continue
 		}
-		if record.SectionType == psdio.LayerSectionCloseFolder {
-			if _, err := popStack(); err != nil {
-				warnings = append(warnings, "unbalanced group end marker")
+		if record.SectionType == psdio.LayerSectionOpenFolder || record.SectionType == psdio.LayerSectionClosedFolder {
+			warnings = append(warnings, record.MetadataWarnings...)
+			if _, err := popStack(record, name); err != nil {
+				warnings = append(warnings, fmt.Sprintf("group %q: %v", name, err))
 				continue
 			}
 			continue
@@ -90,26 +84,61 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 			warnings = append(warnings, fmt.Sprintf("layer %q: unsupported metadata block %s imported as flattened pixel layer", name, key))
 		}
 		warnings = append(warnings, record.MetadataWarnings...)
-		if record.HasLayerMask && record.LayerMaskBounds.W > 0 && record.LayerMaskBounds.H > 0 {
-			layer.SetMask(&model.LayerMask{
-				Enabled: record.LayerMaskEnabled,
-				Width:   record.LayerMaskBounds.W,
-				Height:  record.LayerMaskBounds.H,
-			})
-		}
+		layer.SetMask(buildLayerMask(header, record))
 		addToCurrent(layer)
 	}
 	for len(stacks) > 1 {
-		group, err := popStack()
-		if err != nil {
-			break
-		}
-		if group != nil {
-			warnings = append(warnings, fmt.Sprintf("group %q was not explicitly closed", group.Name()))
+		children := stacks[len(stacks)-1]
+		stacks = stacks[:len(stacks)-1]
+		top := len(stacks) - 1
+		stacks[top] = append(stacks[top], children...)
+		warnings = append(warnings, "unbalanced group bounding divider; imported its contents without a group")
+	}
+	return stacks[0], warnings, nil
+}
+
+// buildLayerMask converts PSD's independently positioned mask rectangle into
+// the engine's document-sized mask representation. Pixels outside the stored
+// rectangle use the PSD default color.
+func buildLayerMask(header psdio.Header, record psdio.LayerRecord) *model.LayerMask {
+	if !record.HasLayerMask || header.Width <= 0 || header.Height <= 0 {
+		return nil
+	}
+	data := make([]byte, header.Width*header.Height)
+	defaultColor := record.LayerMaskDefault
+	if record.LayerMaskInverted {
+		defaultColor = 255 - defaultColor
+	}
+	for index := range data {
+		data[index] = defaultColor
+	}
+	maskPixels := record.ChannelPixels[-2]
+	bounds := record.LayerMaskBounds
+	if bounds.W > 0 && bounds.H > 0 && len(maskPixels) == bounds.W*bounds.H {
+		for maskY := 0; maskY < bounds.H; maskY++ {
+			docY := bounds.Y + maskY
+			if docY < 0 || docY >= header.Height {
+				continue
+			}
+			for maskX := 0; maskX < bounds.W; maskX++ {
+				docX := bounds.X + maskX
+				if docX < 0 || docX >= header.Width {
+					continue
+				}
+				value := maskPixels[maskY*bounds.W+maskX]
+				if record.LayerMaskInverted {
+					value = 255 - value
+				}
+				data[docY*header.Width+docX] = value
+			}
 		}
 	}
-	nodes = stacks[0]
-	return nodes, warnings, nil
+	return &model.LayerMask{
+		Enabled: record.LayerMaskEnabled,
+		Width:   header.Width,
+		Height:  header.Height,
+		Data:    data,
+	}
 }
 
 func flattenLayerPixels(header psdio.Header, layer psdio.LayerRecord) ([]byte, error) {

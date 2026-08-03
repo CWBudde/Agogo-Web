@@ -818,10 +818,10 @@
 
 **Acceptance criterion:** A licensed fixture corpus lives in the repo with provenance; import assertions compare against externally-derived expectations, not against Agogo's own writer; and the `AgogoProject` bypass is disabled in fixture tests.
 
-- [ ] Close the bypass that makes current round-trip tests vacuous:
-  - [ ] `psd_reader.go:32–38` returns `LoadProject(resources.AgogoProject)` and never reaches `loadPSDFallback` when the resource is present — the real parser is untested on any file Agogo wrote
-  - [ ] Add a test-only (or explicit-option) path that forces the spec parser regardless of the embedded resource, and run the entire existing round-trip suite through it
-  - [ ] Decide the product rule: is `AgogoProject` a fidelity bonus layered *on top of* a correct parse, or a replacement for it? Document the answer — it determines whether unsupported PSD features may silently ride the JSON block
+- [x] Close the bypass that makes current round-trip tests vacuous:
+  - [x] `LoadPSD` now reconstructs the document from PSD layer/composite structures before considering `resources.AgogoProject`; invalid PSD content can no longer succeed through the embedded archive alone
+  - [x] `LoadPSDWithOptions(..., PSDLoadOptions{IgnoreEmbeddedProject: true})` forces the spec-only result, and the existing writer round-trip exercises it while asserting the reconstructed layer tree and visible warnings
+  - [x] Product rule: `AgogoProject` is an optional fidelity bonus layered on top of a successful PSD parse, never a replacement for correct parsing; spec-only tests must ignore it and unsupported PSD content must remain independently testable
 - [ ] Build the fixture corpus with licensing recorded per file (self-authored in Photoshop, CC0, or explicitly redistributable — no scraped sample files)
 - [ ] Cover the matrix that actually exercises the parser: 8-bit RGB and grayscale; RAW/RLE/ZIP/ZIP-with-prediction compression; nested groups; layer masks with non-zero offsets; clipping masks; all blend modes; adjustment and text layers; layer effects; PSB (>30000px) and a PSD near the dimension limit
 - [ ] Derive expectations independently — record per-fixture expected layer tree, bounds, blend modes, and sampled pixel values from Photoshop or a known-good third-party reader, not from Agogo's output
@@ -835,11 +835,14 @@
 
 **Acceptance criterion:** RAW, RLE, ZIP, and ZIP-with-prediction channels decode correctly from real Photoshop files for both layer channels and the composite image, and Agogo's encoder produces bytes those same decoders and Photoshop accept.
 
-- [ ] **Update stale status:** the compression constants are already fixed on `codex/fix-psd-compression-ids` (`types.go:14–18` now reads Raw=0/RLE=1/Zip=2/ZipPred=3, commit `8abfe00`), and the ZIP channel payload read was fixed in `0727dc9` — verify both against S.10.1 fixtures, since neither fix has ever been tested against a genuine Photoshop file
+- [ ] **Update stale status:** the compression constants and ZIP channel payload read are covered by local spec-shaped tests, but still need verification against S.10.1 genuine Photoshop fixtures
 - [ ] Validate `decodeZipChannel` / `decodeZipImageData` / `applyZipPredictionInPlace` (`pixels.go:140–207`) on real ZIP and ZIP-prediction fixtures, including the prediction reset at each row boundary
+  - [x] Local tests verify prediction resets independently at every row and channel for layer and composite decoding
 - [ ] Validate RLE/PackBits both directions: `DecodePackBits` (`helpers.go:80`) against Photoshop-written scanlines, and `EncodePackBitsRow` (`helpers.go:351`) for the pathological runs (alternating bytes, 128-byte runs, single-byte rows) where PackBits encoders classically go wrong
-- [ ] Verify the per-row byte-count table is read and written with the right width for PSD vs PSB (2 bytes vs 4) — a PSB regression here is invisible until a large file is opened
-- [ ] Handle bit depths beyond 8 explicitly: either implement 16/32-bit channel decode or reject with a clear, actionable error instead of misreading the data
+  - [x] Local pathological PackBits tests cover empty/single-byte rows, alternating 128-byte literals, 128/129-byte runs, truncation, and decoded-output overflow
+  - [x] Fixed composite RLE layout so all row-count entries precede all compressed scanlines, rather than interleaving each plane's counts and data
+- [x] Verify the per-row byte-count table is read and written with the right width for PSD vs PSB (2 bytes vs 4) — direct encode/decode tests cover both widths
+- [x] Handle bit depths beyond 8 explicitly: 1/16/32-bit input now returns an actionable error instead of being decoded as 8-bit
 - [ ] Add per-compression decode tests over fixtures and an encode→decode→compare test for each scheme
 
 #### Phase S.10.3: Layer Group & Section-Divider Semantics
@@ -848,13 +851,15 @@
 
 **Acceptance criterion:** Nested groups from Photoshop fixtures import with correct nesting, order, and group attributes; Agogo-written groups reopen in Photoshop with the same structure; and unbalanced markers degrade to a warning plus a flat-but-complete tree, never to dropped layers.
 
-- [ ] Fix the inverted divider handling in `psdimport/import.go:61–67`: PSD stores layers bottom-to-top, so in file order the type-3 bounding divider marks the group's *bottom* and the type-1/2 record marks its *top*. The current code treats type 1 (open folder) **and** type 3 (bounding divider) as "begin group" and type 2 (closed folder) as "close" — so a collapsed folder is misread as an end marker and a divider as a start
+- [x] Fix the inverted divider handling: type 3 now opens the bottom boundary and type 1/2 closes the folder at its top, preserving bottom-to-top child order and nested groups
 - [ ] Preserve the open/closed distinction (type 1 vs 2) as group expanded state rather than discarding it
-- [ ] Fix the writer side to match: `buildSectionDivider` (`writer.go:128`) emits only the 4-byte section type, while Photoshop's `lsct` block is 12+ bytes including the blend-mode signature and sub-type — verify against what Photoshop accepts
-- [ ] Ensure the writer emits the bounding-divider record for each group, not just the folder record, and in the correct bottom-to-top order
-- [ ] Carry group attributes through both directions: visibility, opacity, blend mode, clipping (`ClipToBelow`), and pass-through vs isolated blending (pass-through is `passthru`, not a normal blend key — confirm it survives)
-- [ ] Make unbalanced markers non-destructive: the current `popStack` failure path (`import.go:30–40`) and the trailing unclosed-group loop should always yield every layer, flattened if necessary, with a warning
+- [ ] Fix the writer side to match and verify against Photoshop
+  - [x] `buildSectionDivider` emits the 12-byte section type + `8BIM` + blend-key form; external-application acceptance remains fixture-gated
+- [x] Ensure the writer emits the bounding-divider record for each group and the folder record after its children in bottom-to-top order
+- [x] Carry group attributes through both directions: visibility, opacity, blend mode, clipping (`ClipToBelow`), and `pass` pass-through vs isolated blending
+- [x] Make unbalanced markers non-destructive: unclosed boundaries flatten their accumulated children with a warning; unmatched folder records warn without consuming sibling layers
 - [ ] Add fixture tests for deep nesting, adjacent sibling groups, a group as the first/last layer, empty groups, and clipping across a group boundary
+  - [x] Constructed-record regressions cover nested groups, type-2 closed folders, attributes, and unclosed-boundary flattening; genuine fixtures remain required
 
 #### Phase S.10.4: Layer Masks (Read & Write)
 
@@ -862,12 +867,14 @@
 
 **Acceptance criterion:** A Photoshop layer mask imports with correct pixels, offset, enabled state, and default fill; Agogo-written masks reopen with the same; and a masked layer renders identically to Photoshop's flattened composite within a stated tolerance.
 
-- [ ] Fix mask channel decode dimensions: `parser.go:212` decodes **every** channel at the layer's `Bounds.W/H`, but the user-mask channel (ID −2) has its own `LayerMaskBounds` — mask pixels are currently decoded at the wrong size
-- [ ] Assign the decoded pixels: `import.go:93–98` builds a `model.LayerMask` with `Enabled`/`Width`/`Height` but never sets `Data`, so every imported mask is empty
+- [x] Fix mask channel decode dimensions: user-mask channel ID −2 is decoded at `LayerMaskBounds.W/H`, independently of layer bounds
+- [x] Assign decoded pixels: import converts the offset mask rectangle into the engine's canonical document-sized `LayerMask.Data`
 - [ ] Handle the real-mask flag set: disabled (`flags&0x0001`, already read at `parser.go:403`), inverted, "mask from vector data", and the default color/fill byte for pixels outside the mask rect
-- [ ] Handle the mask rectangle honestly — masks are stored in document space with their own offset, independent of the layer bounds; decide whether the model stores document-space or layer-relative masks and convert once, in one place
-- [ ] Fix the writer: `writeLayerMaskData` (`writer.go:101–119`) writes the rect as `(0, 0, Height, Width)` — discarding the mask offset — and emits no channel −2 data at all, so exported masks are a rectangle with no pixels
-- [ ] Support the real-mask/user-mask channel pair (−2 and −3) at least well enough to not misattribute one as the other
+  - [x] User-mask default fill, disabled bit, and inverted bit are parsed; inversion is normalized into the imported document-sized pixels
+  - [ ] Vector-derived and real-mask-specific parameter blocks still need genuine fixtures and representation work
+- [x] Handle the mask rectangle honestly: the model contract is document-sized masks, so import applies the PSD rectangle offset exactly once and fills pixels outside it with the PSD default
+- [x] Fix the writer: document-sized masks emit an explicit `(0, 0, Height, Width)` rectangle plus channel −2 pixel data; group masks now emit their channel as well
+- [x] Keep user-mask −2 and real-mask −3 channel IDs distinct; only −2 populates the current user-mask model, so −3 is not silently misattributed
 - [ ] Add fixture tests for offset masks, disabled masks, inverted masks, masks larger and smaller than their layer, and a mask on a group
 
 #### Phase S.10.5: Complete Blend-Mode Mapping
@@ -876,11 +883,12 @@
 
 **Acceptance criterion:** Every `model.BlendMode` round-trips through `BlendKey`→`MapBlendMode` unchanged; unknown incoming keys produce a warning rather than a silent Normal; and a fixture using every Photoshop blend mode imports with all 27 correct.
 
-- [ ] Extend `MapBlendMode` (`helpers.go:121–140`) beyond its current 7 keys (`mul`, `scrn`, `over`, `diff`, `smud`, `dark`, `lite`) to the full Photoshop set — Dissolve `"diss"`, Linear Burn `"lbrn"`, Darker Color `"dkCl"`, Color Dodge `"div "`, Linear Dodge `"lddg"`, Lighter Color `"lgCl"`, Soft Light `"sLit"`, Hard Light `"hLit"`, Vivid Light `"vLit"`, Linear Light `"lLit"`, Pin Light `"pLit"`, Hard Mix `"hMix"`, Subtract `"fsub"`, Divide `"fdiv"`, Hue `"hue "`, Saturation `"sat "`, Color `"colr"`, Luminosity `"lum "`, Color Burn `"idiv"`, plus pass-through `"pass"` (note the space-padded four-byte keys)
-- [ ] Mirror the same table in `BlendKey` (`helpers.go:584–603`) — the two functions must be one table, not two switch statements that can drift
-- [ ] Respect the 4-byte fixed-width key convention (trailing spaces are significant on write, trimmed on read) and verify Agogo's written keys are byte-exact
-- [ ] Replace the silent `default: BlendModeNormal` fallback with a recorded warning naming the unmapped key
+- [x] Extend `MapBlendMode` to all 27 engine blend modes plus group pass-through `"pass"`
+- [x] Use one authoritative table for both `MapBlendMode` and `BlendKey`
+- [x] Respect byte-exact 4-byte keys, including significant trailing spaces; exhaustive tests pin every emitted key
+- [x] Replace silent unknown-key fallback with a metadata warning naming the key before importing as Normal
 - [ ] Add a table-driven exhaustive round-trip test over all 27 `model.BlendMode` values plus a fixture whose layers use every Photoshop mode
+  - [x] The exhaustive 27-mode round-trip table is present; the external every-mode fixture remains blocked on S.10.1
 
 #### Phase S.10.6: Parser Hardening Against Hostile Input
 
@@ -888,14 +896,17 @@
 
 **Acceptance criterion:** No crafted or truncated file can OOM, panic, or hang the editor; every allocation derived from a file field is bounded by remaining input; and `Fuzz*` targets run in CI with a seed corpus.
 
-- [ ] Bound every length-driven allocation against actual remaining bytes: `readBytesFrom` (`helpers.go:166`) currently does `make([]byte, n)` after only a negative check, so a 4-byte field can request gigabytes
+- [x] Bound every `readBytesFrom` allocation against the remaining bytes before allocating, covering section/channel/block payload readers backed by `bytes.Reader`
 - [ ] Audit the same pattern across all readers — section lengths (`readSectionLengthFrom`), channel lengths, descriptor strings, Unicode strings (`ParseUnicodeString`, `parseUnicodeStringFromReader`), Pascal strings, and the additional-layer-info block loop
-- [ ] Bound decompression output, not just input: zlib and PackBits are both expansion vectors, so cap decoded size by the expected pixel count before decoding rather than after
-- [ ] Enforce total document limits consistently — `PSDMaxDimension` exists at `types.go:37`; verify width × height × channels × depth is checked before any allocation, including for PSB
-- [ ] Guard the structural loops against non-termination: layer counts, channel counts, and the additional-info key loop must all make forward progress or abort
+  - [x] Unicode and descriptor IDs validate their declared lengths; section/channel/additional-info reads inherit the central remaining-input bound
+- [x] Bound decompression output: zlib reads stop at expected size + 1 and PackBits refuses packets that exceed expected decoded output
+- [x] Enforce PSD/PSB dimension, channel-count, and 512 MiB decoded-image safety limits before pixel allocation, using overflow-safe size math
+- [x] Guard layer/channel structural loops with spec limits and minimum remaining-record sizes; additional-info loops consume a complete bounded block or error
 - [ ] Add `Fuzz*` targets for `Parse`, `ParseLayerAndMaskInfo`, `ParseCompositeImageData`, `DecodePackBits`, and the descriptor reader; seed the corpus from S.10.1 fixtures and check in any crashers found
-- [ ] Convert panics to errors at the package boundary so a malformed file surfaces as a user-facing message, never as a Wasm trap that kills the engine instance
+  - [x] Fuzz targets exist for all five parser surfaces and their checked-in synthetic seeds run in normal Go tests; genuine-fixture seeds await S.10.1
+- [x] Convert panics to errors at both `psd.Parse` and the engine `LoadPSDWithOptions` boundary so malformed input cannot become a Wasm trap
 - [ ] Add explicit truncation tests: every fixture cut at many offsets must produce an error or partial-with-warnings result, never a panic
+  - [x] Every truncation offset of a valid synthetic minimal PSD is covered; external fixtures remain unavailable
 
 #### Phase S.10.7: Real Adjustment, Text & Effect Reconstruction
 

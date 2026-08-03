@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -50,10 +51,66 @@ func TestSavePSDAndLoadPSDRoundTripPreservesAgogoDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPSD: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
+	wantWarnings := []string{
+		"layer \"Title\": unsupported metadata block TySh imported as flattened pixel layer",
+	}
+	if !slices.Equal(warnings, wantWarnings) {
+		t.Fatalf("warnings = %v, want %v", warnings, wantWarnings)
 	}
 	assertProjectArchiveEquivalent(t, restored, doc)
+
+	parsed, parsedWarnings, err := LoadPSDWithOptions(data, PSDLoadOptions{IgnoreEmbeddedProject: true})
+	if err != nil {
+		t.Fatalf("LoadPSDWithOptions(ignore embedded project): %v", err)
+	}
+	if !slices.Equal(parsedWarnings, wantWarnings) {
+		t.Fatalf("spec-parser warnings = %v, want %v", parsedWarnings, wantWarnings)
+	}
+	if parsed.Name != "Imported PSD" || parsed.ID == doc.ID {
+		t.Fatalf("spec-parser document identity = (%q, %q), want a newly imported PSD", parsed.Name, parsed.ID)
+	}
+	if len(parsed.Paths) != 0 || len(parsed.StylePresets) != 0 {
+		t.Fatalf("spec-parser restored Agogo-only data: paths=%d stylePresets=%d", len(parsed.Paths), len(parsed.StylePresets))
+	}
+	assertParsedPSDRoundTripLayerTree(t, parsed)
+}
+
+func assertParsedPSDRoundTripLayerTree(t *testing.T, doc *Document) {
+	t.Helper()
+
+	children := doc.LayerRoot.Children()
+	if len(children) != 3 {
+		t.Fatalf("spec-parser root child count = %d, want 3", len(children))
+	}
+	if children[0].Name() != "Base" {
+		t.Fatalf("spec-parser first layer = %q, want Base", children[0].Name())
+	}
+	wantGroups := []struct {
+		index    int
+		name     string
+		children []string
+	}{
+		{index: 1, name: "Overlay Group", children: []string{"Title", "Shape"}},
+		{index: 2, name: "Archive Group", children: []string{"Curves", "Archive Vector"}},
+	}
+	for _, want := range wantGroups {
+		group, ok := children[want.index].(*GroupLayer)
+		if !ok {
+			t.Fatalf("spec-parser layer %d = %T, want *GroupLayer", want.index, children[want.index])
+		}
+		if group.Name() != want.name {
+			t.Fatalf("spec-parser group %d name = %q, want %q", want.index, group.Name(), want.name)
+		}
+		groupChildren := group.Children()
+		if len(groupChildren) != len(want.children) {
+			t.Fatalf("spec-parser group %q child count = %d, want %d", group.Name(), len(groupChildren), len(want.children))
+		}
+		for index, childName := range want.children {
+			if groupChildren[index].Name() != childName {
+				t.Fatalf("spec-parser group %q child %d = %q, want %q", group.Name(), index, groupChildren[index].Name(), childName)
+			}
+		}
+	}
 }
 
 func TestSavePSDUsesPSBForOversizedDocuments(t *testing.T) {

@@ -95,11 +95,17 @@ func appendLayerRecords(records *[]psdio.ExportLayerRecord, params Params, psb b
 			continue
 		}
 		if group, ok := layer.(*model.GroupLayer); ok {
-			*records = append(*records, newGroupRecord(group, psdio.LayerSectionOpenFolder))
+			*records = append(*records, newGroupEndRecord(group))
 			if err := appendLayerRecords(records, params, psb, group.Children()); err != nil {
 				return err
 			}
-			*records = append(*records, newGroupEndRecord(group))
+			folderRecord := newGroupRecord(group, psdio.LayerSectionOpenFolder)
+			channels, err := encodeLayerChannels(params.ColorMode, psb, model.LayerBounds{}, nil, group.Mask())
+			if err != nil {
+				return fmt.Errorf("encode group %q mask: %w", group.Name(), err)
+			}
+			folderRecord.Channels = channels
+			*records = append(*records, folderRecord)
 			continue
 		}
 		record, err := newRasterRecord(params, psb, layer)
@@ -112,12 +118,16 @@ func appendLayerRecords(records *[]psdio.ExportLayerRecord, params Params, psb b
 }
 
 func newGroupRecord(group *model.GroupLayer, sectionType uint32) psdio.ExportLayerRecord {
+	blendKey := psdio.BlendKey(group.BlendMode())
+	if !group.Isolated {
+		blendKey = "pass"
+	}
 	return psdio.ExportLayerRecord{
 		Name:        group.Name(),
 		Opacity:     psdio.UnitOpacity(group.Opacity()),
 		Visible:     group.Visible(),
 		ClipToBelow: group.ClipToBelow(),
-		BlendKey:    psdio.BlendKey(group.BlendMode()),
+		BlendKey:    blendKey,
 		SectionType: sectionType,
 		Mask:        model.CloneLayerMask(group.Mask()),
 		ExtraBlocks: buildLayerExtraBlocks(group),
@@ -125,9 +135,11 @@ func newGroupRecord(group *model.GroupLayer, sectionType uint32) psdio.ExportLay
 }
 
 func newGroupEndRecord(group *model.GroupLayer) psdio.ExportLayerRecord {
-	record := newGroupRecord(group, psdio.LayerSectionCloseFolder)
-	record.Name = group.Name() + " End"
+	record := newGroupRecord(group, psdio.LayerSectionBoundingDivider)
+	record.Name = "</Layer group>"
+	record.BlendKey = "pass"
 	record.Mask = nil
+	record.ExtraBlocks = nil
 	return record
 }
 

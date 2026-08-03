@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strings"
 	"unicode/utf16"
 
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
@@ -28,11 +27,20 @@ func (p *Parser) warnf(format string, args ...any) {
 	p.warnings = append(p.warnings, fmt.Sprintf(format, args...))
 }
 
-func Parse(data []byte) (ParseResult, error) {
+func Parse(data []byte) (result ParseResult, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = ParseResult{}
+			err = fmt.Errorf("invalid PSD data: %v", recovered)
+		}
+	}()
 	parser := NewParser(data)
 	header, err := parser.ParseHeader()
 	if err != nil {
 		return ParseResult{}, err
+	}
+	if err := validateSupportedDepth(header.Depth); err != nil {
+		return ParseResult{Header: header}, err
 	}
 	if err := parser.SkipColorModeData(); err != nil {
 		return ParseResult{}, err
@@ -78,8 +86,11 @@ func ParseUnicodeString(data []byte) (string, error) {
 }
 
 func DecodePackBits(data []byte, expectedLen int) ([]byte, error) {
+	if expectedLen < 0 {
+		return nil, fmt.Errorf("invalid PackBits decoded length %d", expectedLen)
+	}
 	out := make([]byte, 0, expectedLen)
-	for i := 0; i < len(data) && len(out) < expectedLen; {
+	for i := 0; i < len(data); {
 		control := int(int8(data[i]))
 		i++
 		switch {
@@ -88,12 +99,18 @@ func DecodePackBits(data []byte, expectedLen int) ([]byte, error) {
 			if i+count > len(data) {
 				return nil, fmt.Errorf("packbits literal overruns row")
 			}
+			if len(out)+count > expectedLen {
+				return nil, fmt.Errorf("packbits literal exceeds decoded row length")
+			}
 			out = append(out, data[i:i+count]...)
 			i += count
 		case control >= -127:
 			count := 1 - control
 			if i >= len(data) {
 				return nil, fmt.Errorf("packbits repeat overruns row")
+			}
+			if len(out)+count > expectedLen {
+				return nil, fmt.Errorf("packbits repeat exceeds decoded row length")
 			}
 			value := data[i]
 			i++
@@ -118,25 +135,59 @@ func DocumentColorMode(colorMode int) string {
 	}
 }
 
-func MapBlendMode(key string) model.BlendMode {
-	switch strings.TrimSpace(key) {
-	case "mul":
-		return model.BlendModeMultiply
-	case "scrn":
-		return model.BlendModeScreen
-	case "over":
-		return model.BlendModeOverlay
-	case "diff":
-		return model.BlendModeDifference
-	case "smud":
-		return model.BlendModeExclusion
-	case "dark":
-		return model.BlendModeDarken
-	case "lite":
-		return model.BlendModeLighten
-	default:
-		return model.BlendModeNormal
+type psdBlendModeMapping struct {
+	mode      model.BlendMode
+	key       string
+	canonical bool
+}
+
+// psdBlendModeMappings is the single source of truth for PSD blend keys.
+// Keys are byte-exact four-character codes; trailing spaces are significant.
+// Pass-through has no distinct model.BlendMode, so it is accepted as Normal
+// on import but is never emitted for an ordinary Normal layer.
+var psdBlendModeMappings = [...]psdBlendModeMapping{
+	{model.BlendModeNormal, "norm", true},
+	{model.BlendModeDissolve, "diss", true},
+	{model.BlendModeMultiply, "mul ", true},
+	{model.BlendModeColorBurn, "idiv", true},
+	{model.BlendModeLinearBurn, "lbrn", true},
+	{model.BlendModeDarken, "dark", true},
+	{model.BlendModeDarkerColor, "dkCl", true},
+	{model.BlendModeScreen, "scrn", true},
+	{model.BlendModeColorDodge, "div ", true},
+	{model.BlendModeLinearDodge, "lddg", true},
+	{model.BlendModeLighten, "lite", true},
+	{model.BlendModeLighterColor, "lgCl", true},
+	{model.BlendModeOverlay, "over", true},
+	{model.BlendModeSoftLight, "sLit", true},
+	{model.BlendModeHardLight, "hLit", true},
+	{model.BlendModeVividLight, "vLit", true},
+	{model.BlendModeLinearLight, "lLit", true},
+	{model.BlendModePinLight, "pLit", true},
+	{model.BlendModeHardMix, "hMix", true},
+	{model.BlendModeDifference, "diff", true},
+	{model.BlendModeExclusion, "smud", true},
+	{model.BlendModeSubtract, "fsub", true},
+	{model.BlendModeDivide, "fdiv", true},
+	{model.BlendModeHue, "hue ", true},
+	{model.BlendModeSaturation, "sat ", true},
+	{model.BlendModeColor, "colr", true},
+	{model.BlendModeLuminosity, "lum ", true},
+	{model.BlendModeNormal, "pass", false},
+}
+
+func mapBlendMode(key string) (model.BlendMode, bool) {
+	for _, mapping := range psdBlendModeMappings {
+		if mapping.key == key {
+			return mapping.mode, true
+		}
 	}
+	return model.BlendModeNormal, false
+}
+
+func MapBlendMode(key string) model.BlendMode {
+	mode, _ := mapBlendMode(key)
+	return mode
 }
 
 func ParseLayerColorTag(payload []byte) string {
@@ -166,6 +217,9 @@ func ParseLayerColorTag(payload []byte) string {
 func readBytesFrom(r io.Reader, n int) ([]byte, error) {
 	if n < 0 {
 		return nil, fmt.Errorf("invalid read length %d", n)
+	}
+	if remaining, ok := r.(interface{ Len() int }); ok && n > remaining.Len() {
+		return nil, fmt.Errorf("read length %d exceeds remaining input %d", n, remaining.Len())
 	}
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
@@ -392,27 +446,35 @@ func EncodePackBitsRow(data []byte) []byte {
 }
 
 func EncodeCompositeImageData(planes [][]byte, width, height int, psb bool) ([]byte, error) {
-	var out bytes.Buffer
-	writeUint16(&out, CompressionRLE)
-	for _, plane := range planes {
-		rows := make([][]byte, 0, height)
+	if width < 0 || height < 0 {
+		return nil, fmt.Errorf("invalid composite dimensions %dx%d", width, height)
+	}
+	pixelCount := width * height
+	rows := make([][]byte, 0, len(planes)*height)
+	for planeIndex, plane := range planes {
+		if len(plane) != pixelCount {
+			return nil, fmt.Errorf("composite plane %d length %d does not match %dx%d", planeIndex, len(plane), width, height)
+		}
 		for row := 0; row < height; row++ {
 			start := row * width
 			rows = append(rows, EncodePackBitsRow(plane[start:start+width]))
 		}
-		for _, row := range rows {
-			if psb {
-				writeUint32(&out, uint32(len(row)))
-			} else {
-				if len(row) > math.MaxUint16 {
-					return nil, fmt.Errorf("composite RLE row length %d exceeds PSD limit", len(row))
-				}
-				writeUint16(&out, uint16(len(row)))
+	}
+
+	var out bytes.Buffer
+	writeUint16(&out, CompressionRLE)
+	for _, row := range rows {
+		if psb {
+			writeUint32(&out, uint32(len(row)))
+		} else {
+			if len(row) > math.MaxUint16 {
+				return nil, fmt.Errorf("composite RLE row length %d exceeds PSD limit", len(row))
 			}
+			writeUint16(&out, uint16(len(row)))
 		}
-		for _, row := range rows {
-			out.Write(row)
-		}
+	}
+	for _, row := range rows {
+		out.Write(row)
 	}
 	return out.Bytes(), nil
 }
@@ -582,22 +644,10 @@ func UnitOpacity(value float64) uint8 {
 }
 
 func BlendKey(mode model.BlendMode) string {
-	switch mode {
-	case model.BlendModeMultiply:
-		return "mul "
-	case model.BlendModeScreen:
-		return "scrn"
-	case model.BlendModeOverlay:
-		return "over"
-	case model.BlendModeDifference:
-		return "diff"
-	case model.BlendModeExclusion:
-		return "smud"
-	case model.BlendModeDarken:
-		return "dark"
-	case model.BlendModeLighten:
-		return "lite"
-	default:
-		return "norm"
+	for _, mapping := range psdBlendModeMappings {
+		if mapping.canonical && mapping.mode == mode {
+			return mapping.key
+		}
 	}
+	return "norm"
 }

@@ -74,7 +74,7 @@ func (p *Parser) ParseHeader() (Header, error) {
 	if err != nil {
 		return Header{}, err
 	}
-	return Header{
+	header := Header{
 		Version:   version,
 		PSB:       version == 2,
 		Channels:  int(channels),
@@ -82,7 +82,37 @@ func (p *Parser) ParseHeader() (Header, error) {
 		Width:     int(width),
 		Depth:     int(depth),
 		ColorMode: int(colorMode),
-	}, nil
+	}
+	if err := validateHeaderBounds(header); err != nil {
+		return Header{}, err
+	}
+	return header, nil
+}
+
+func validateHeaderBounds(header Header) error {
+	maxDimension := PSDMaxDimension
+	if header.PSB {
+		maxDimension = PSBMaxDimension
+	}
+	if header.Width <= 0 || header.Height <= 0 || header.Width > maxDimension || header.Height > maxDimension {
+		return fmt.Errorf("invalid PSD dimensions %dx%d for version %d (maximum %d)", header.Width, header.Height, header.Version, maxDimension)
+	}
+	if header.Channels <= 0 || header.Channels > PSDMaxChannels {
+		return fmt.Errorf("invalid PSD channel count %d (maximum %d)", header.Channels, PSDMaxChannels)
+	}
+	bytesPerSample := max(1, (header.Depth+7)/8)
+	decodedSize := uint64(header.Width) * uint64(header.Height) * uint64(header.Channels) * uint64(bytesPerSample)
+	if decodedSize > maxPSDDecodedByteSize {
+		return fmt.Errorf("PSD decoded image size %d exceeds safety limit %d", decodedSize, maxPSDDecodedByteSize)
+	}
+	return nil
+}
+
+func validateSupportedDepth(depth int) error {
+	if depth != 8 {
+		return fmt.Errorf("unsupported PSD bit depth %d; only 8-bit channels are currently supported", depth)
+	}
+	return nil
 }
 
 func (p *Parser) SkipColorModeData() error {
@@ -165,6 +195,9 @@ func (p *Parser) ParseImageResources() (ImageResources, error) {
 }
 
 func (p *Parser) ParseLayerAndMaskInfo(header Header) ([]LayerRecord, error) {
+	if err := validateSupportedDepth(header.Depth); err != nil {
+		return nil, err
+	}
 	length, err := p.readSectionLength(header.PSB)
 	if err != nil {
 		return nil, err
@@ -197,6 +230,12 @@ func (p *Parser) ParseLayerAndMaskInfo(header Header) ([]LayerRecord, error) {
 	if layerCount < 0 {
 		layerCount = -layerCount
 	}
+	// Even a channel-free layer record needs 34 bytes before its extra data.
+	// Reject impossible counts before using the file-controlled value as a
+	// capacity hint or entering a long structural loop.
+	if layerCount > layerReader.Len()/34 {
+		return nil, fmt.Errorf("layer count %d exceeds remaining layer data", layerCount)
+	}
 	layers := make([]LayerRecord, 0, layerCount)
 	for i := 0; i < layerCount; i++ {
 		record, err := parseLayerRecord(layerReader, header.PSB)
@@ -209,7 +248,12 @@ func (p *Parser) ParseLayerAndMaskInfo(header Header) ([]LayerRecord, error) {
 	for i := range layers {
 		channelPixels := make(map[int16][]byte, len(layers[i].Channels))
 		for _, channel := range layers[i].Channels {
-			pixels, err := parseChannelImageData(layerReader, header.PSB, channel.Length, layers[i].Bounds.W, layers[i].Bounds.H)
+			width, height := layers[i].Bounds.W, layers[i].Bounds.H
+			if channel.ID == -2 && layers[i].HasLayerMask {
+				width = layers[i].LayerMaskBounds.W
+				height = layers[i].LayerMaskBounds.H
+			}
+			pixels, err := parseChannelImageData(layerReader, header.PSB, channel.Length, width, height)
 			if err != nil {
 				p.warnf("decode layer %q channel %d failed: %v", layers[i].Name, channel.ID, err)
 				continue
@@ -241,6 +285,9 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 	channelCount, err := readUint16From(reader)
 	if err != nil {
 		return LayerRecord{}, err
+	}
+	if channelCount > PSDMaxChannels || int(channelCount) > reader.Len()/6 {
+		return LayerRecord{}, fmt.Errorf("invalid layer channel count %d", channelCount)
 	}
 	record := LayerRecord{
 		Bounds: model.LayerBounds{
@@ -276,7 +323,12 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 	if err != nil {
 		return record, err
 	}
-	record.BlendMode = MapBlendMode(blendKey)
+	var knownBlendMode bool
+	record.BlendMode, knownBlendMode = mapBlendMode(blendKey)
+	record.PassThrough = blendKey == "pass"
+	if !knownBlendMode {
+		record.MetadataWarnings = append(record.MetadataWarnings, fmt.Sprintf("unknown PSD blend mode key %q; imported as Normal", blendKey))
+	}
 	opacity, err := reader.ReadByte()
 	if err != nil {
 		return record, err
@@ -392,15 +444,19 @@ func parseLayerMaskData(payload []byte, record *LayerRecord) {
 	if err != nil {
 		return
 	}
-	if _, err := readUint16From(reader); err != nil {
+	defaultColor, err := reader.ReadByte()
+	if err != nil {
 		return
 	}
-	flags, err := readUint16From(reader)
+	flags, err := reader.ReadByte()
 	if err != nil {
 		return
 	}
 	record.HasLayerMask = true
-	record.LayerMaskEnabled = flags&0x0001 == 0
+	record.LayerMaskEnabled = flags&0x02 == 0
+	record.LayerMaskDefault = defaultColor
+	record.LayerMaskFlags = flags
+	record.LayerMaskInverted = flags&0x04 != 0
 	record.LayerMaskBounds = model.LayerBounds{
 		X: int(left),
 		Y: int(top),

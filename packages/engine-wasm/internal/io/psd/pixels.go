@@ -8,11 +8,20 @@ import (
 )
 
 func (p *Parser) ParseCompositeImageData(header Header) ([]byte, error) {
+	if err := validateSupportedDepth(header.Depth); err != nil {
+		return nil, err
+	}
+	pixelsPerPlane, err := checkedPixelCount(header.Width, header.Height)
+	if err != nil {
+		return nil, err
+	}
+	if header.Channels <= 0 || header.Channels > PSDMaxChannels || (header.Channels > 0 && pixelsPerPlane > maxPSDDecodedByteSize/header.Channels) {
+		return nil, fmt.Errorf("invalid composite channel count or decoded size")
+	}
 	compression, err := p.readUint16()
 	if err != nil {
 		return nil, err
 	}
-	pixelsPerPlane := header.Width * header.Height
 	if pixelsPerPlane == 0 {
 		return nil, nil
 	}
@@ -138,11 +147,14 @@ func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64
 }
 
 func decodeZipChannel(data []byte, width, height int, withPrediction bool) ([]byte, error) {
-	pixels, err := decodeZipPayload(data)
+	pixelCount, err := checkedPixelCount(width, height)
 	if err != nil {
 		return nil, err
 	}
-	pixelCount := width * height
+	pixels, err := decodeZipPayload(data, pixelCount)
+	if err != nil {
+		return nil, err
+	}
 	if len(pixels) != pixelCount {
 		return nil, fmt.Errorf("decoded zip channel length %d, want %d", len(pixels), pixelCount)
 	}
@@ -153,11 +165,14 @@ func decodeZipChannel(data []byte, width, height int, withPrediction bool) ([]by
 }
 
 func decodeZipImageData(compressed []byte, channelCount, pixelCount, width, height int, withPrediction bool) ([]byte, error) {
-	decoded, err := decodeZipPayload(compressed)
+	if channelCount < 0 || pixelCount < 0 || (channelCount > 0 && pixelCount > maxPSDDecodedByteSize/channelCount) {
+		return nil, fmt.Errorf("invalid zip image dimensions")
+	}
+	expected := channelCount * pixelCount
+	decoded, err := decodeZipPayload(compressed, expected)
 	if err != nil {
 		return nil, err
 	}
-	expected := channelCount * pixelCount
 	if len(decoded) != expected {
 		return nil, fmt.Errorf("decoded zip image length %d, want %d", len(decoded), expected)
 	}
@@ -171,12 +186,15 @@ func decodeZipImageData(compressed []byte, channelCount, pixelCount, width, heig
 	return decoded, nil
 }
 
-func decodeZipPayload(data []byte) ([]byte, error) {
+func decodeZipPayload(data []byte, expectedLen int) ([]byte, error) {
+	if expectedLen < 0 || expectedLen > maxPSDDecodedByteSize {
+		return nil, fmt.Errorf("invalid zip decoded length %d", expectedLen)
+	}
 	zr, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to init zip stream: %w", err)
 	}
-	decoded, err := io.ReadAll(zr)
+	decoded, err := io.ReadAll(io.LimitReader(zr, int64(expectedLen)+1))
 	if err != nil {
 		if closeErr := zr.Close(); closeErr != nil {
 			return nil, fmt.Errorf("failed to decode zip stream: %w (close error: %v)", err, closeErr)
@@ -186,7 +204,17 @@ func decodeZipPayload(data []byte) ([]byte, error) {
 	if err := zr.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close zip stream: %w", err)
 	}
+	if len(decoded) > expectedLen {
+		return nil, fmt.Errorf("decoded zip payload exceeds expected length %d", expectedLen)
+	}
 	return decoded, nil
+}
+
+func checkedPixelCount(width, height int) (int, error) {
+	if width < 0 || height < 0 || (width > 0 && height > maxPSDDecodedByteSize/width) {
+		return 0, fmt.Errorf("invalid pixel dimensions %dx%d", width, height)
+	}
+	return width * height, nil
 }
 
 func applyZipPredictionInPlace(data []byte, width, height int) {
