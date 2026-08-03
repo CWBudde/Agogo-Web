@@ -3,6 +3,8 @@ package engine
 import (
 	"fmt"
 	"math"
+
+	agglib "github.com/cwbudde/agg_go"
 )
 
 const (
@@ -473,28 +475,31 @@ func applyRotatedCropToPixelLayer(pl *PixelLayer, cx, cy, w, h, rotRad float64) 
 	newPixels = make([]byte, outW*outH*4)
 	cosR := math.Cos(rotRad)
 	sinR := math.Sin(rotRad)
-
-	for oy := range outH {
-		for ox := range outW {
-			// Crop-local position (relative to crop center in output space)
-			lx := float64(ox) + 0.5 - w/2
-			ly := float64(oy) + 0.5 - h/2
-			// Inverse-rotate to original doc space (rotate by rotRad)
-			srcX := cx + lx*cosR - ly*sinR
-			srcY := cy + lx*sinR + ly*cosR
-			// Transform to layer-local space
-			layerX := srcX - float64(pl.Bounds.X)
-			layerY := srcY - float64(pl.Bounds.Y)
-			// sampleBilinear uses pixel-center convention (lx+0.5, ly+0.5)
-			pix := sampleBilinear(pl.Pixels, pl.Bounds.W, pl.Bounds.H, layerX+0.5, layerY+0.5)
-			i := (oy*outW + ox) * 4
-			newPixels[i] = pix[0]
-			newPixels[i+1] = pix[1]
-			newPixels[i+2] = pix[2]
-			newPixels[i+3] = pix[3]
-		}
-	}
+	tx := w/2 + cosR*(float64(pl.Bounds.X)-cx) + sinR*(float64(pl.Bounds.Y)-cy)
+	ty := h/2 - sinR*(float64(pl.Bounds.X)-cx) + cosR*(float64(pl.Bounds.Y)-cy)
+	transform := agglib.NewTransformationsFromValues(cosR, -sinR, sinR, cosR, tx, ty)
+	renderCropAffine(newPixels, outW, outH, pl.Pixels, pl.Bounds.W, pl.Bounds.H, transform)
 	return newPixels, LayerBounds{X: 0, Y: 0, W: outW, H: outH}
+}
+
+func renderCropAffine(dst []byte, dstW, dstH int, src []byte, srcW, srcH int, transform *agglib.Transformations) {
+	if dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0 || len(dst) < dstW*dstH*4 || len(src) < srcW*srcH*4 {
+		return
+	}
+	dstImage := agglib.NewImage(dst, dstW, dstH, dstW*4)
+	srcImage := agglib.NewImage(src, srcW, srcH, srcW*4)
+	if err := agglib.DrawImageAffine(dstImage, srcImage, agglib.Rect{X1: 0, Y1: 0, X2: srcW, Y2: srcH}, transform, agglib.ImageTransformOptions{
+		Filter:           agglib.Bilinear,
+		Resample:         agglib.NoResample,
+		EdgeMode:         agglib.ImageEdgeClamp,
+		SourceAlpha:      agglib.AlphaStraight,
+		DestinationAlpha: agglib.AlphaStraight,
+		BlendMode:        agglib.BlendSrc,
+		Opacity:          1,
+		SampleOffset:     agglib.Point{X: 0.5, Y: 0.5},
+	}); err != nil {
+		clear(dst)
+	}
 }
 
 func buildContentAwareCropFillLayer(source []byte, sourceW, sourceH int, cropX, cropY, cropW, cropH, rotRad float64) ([]byte, bool) {
@@ -513,6 +518,10 @@ func buildContentAwareCropFillLayer(source []byte, sourceW, sourceH int, cropX, 
 	cy := cropY + cropH/2
 	cosR := math.Cos(rotRad)
 	sinR := math.Sin(rotRad)
+	tx := cropW/2 - cosR*cx - sinR*cy
+	ty := cropH/2 + sinR*cx - cosR*cy
+	transform := agglib.NewTransformationsFromValues(cosR, -sinR, sinR, cosR, tx, ty)
+	renderCropAffine(fillPixels, outW, outH, source, sourceW, sourceH, transform)
 
 	for oy := range outH {
 		for ox := range outW {
@@ -522,8 +531,6 @@ func buildContentAwareCropFillLayer(source []byte, sourceW, sourceH int, cropX, 
 			srcY := cy + lx*sinR + ly*cosR
 			idx := oy*outW + ox
 			if srcX >= 0 && srcX < float64(sourceW) && srcY >= 0 && srcY < float64(sourceH) {
-				pix := sampleBilinear(source, sourceW, sourceH, srcX, srcY)
-				copy(fillPixels[idx*4:idx*4+4], pix[:])
 				known[idx] = true
 				continue
 			}

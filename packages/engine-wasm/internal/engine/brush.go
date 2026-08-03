@@ -974,6 +974,15 @@ func cloneStampDabResource(layer *PixelLayer, source []byte, sourceW, sourceH, s
 	}
 
 	hardness := clampFloat(p.Hardness, 0, 1)
+	dabW := x1 - x0
+	dabH := y1 - y0
+	if dabW <= 0 || dabH <= 0 {
+		return
+	}
+	dabPixels := acquireSurface(dabW * dabH * 4)
+	defer releaseSurface(dabPixels)
+	dabMask := agglib.AlphaMask{Width: dabW, Height: dabH, Pix: acquireSurface(dabW * dabH)}
+	defer releaseSurface(dabMask.Pix)
 	painted := false
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
@@ -992,15 +1001,26 @@ func cloneStampDabResource(layer *PixelLayer, source []byte, sourceW, sourceH, s
 				continue
 			}
 
-			destIndex := (py*w + px) * 4
 			opacity := maskAlpha * flow * cloneOpacity * loadFactor
 			if opacity <= 0 {
 				continue
 			}
 
-			compositePixelWithBlend(layer.Pixels[destIndex:destIndex+4], srcPixel[:], BlendMode(p.BlendMode), opacity, 0)
+			localIndex := ((py-y0)*dabW + px - x0)
+			copy(dabPixels[localIndex*4:localIndex*4+4], srcPixel[:])
+			dabMask.Pix[localIndex] = uint8(clampFloat(opacity, 0, 1)*255 + 0.5)
 			painted = true
 		}
+	}
+	if painted {
+		_ = compositeImageStraight(
+			layer.Pixels, w, h,
+			dabPixels, dabW, dabH,
+			agglib.Rect{X2: dabW, Y2: dabH}, agglib.PointI{X: x0, Y: y0},
+			BlendMode(p.BlendMode), 1,
+			&dabMask, agglib.PointI{X: x0, Y: y0}, nil,
+			offsetDissolveSeed(layer.Bounds.X, layer.Bounds.Y),
+		)
 	}
 	if painted && remainingLoad != nil {
 		decay := clampFloat(0.05+flow*0.12, 0, 1)

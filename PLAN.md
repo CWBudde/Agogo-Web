@@ -676,6 +676,8 @@
 
 > Recurring audit finding: AGENTS.md mandates that all pixel work go through `agg_go`, but the primitives the engine actually needs for compositing live under `agg_go/internal/` and are unimportable. The engine therefore carries its own per-pixel float64 blend engine, its own layer compositor, and its own viewport resampler — the rule is currently impossible to follow, not merely unfollowed.
 
+> **Completed 2026-08-03:** public APIs released in `agg_go v0.5.0`; engine dependency, compositor, viewport, gradients, and crop resampling migrated; intentional manual loops documented and guarded.
+
 **Goal:** Make the "use agg_go primitives" rule actually satisfiable by exporting the missing public API in `agg_go`, then retire the engine's hand-written pixel loops on the paths where AGG is genuinely equivalent or better — without regressing the S.4 dirty-rect performance work or changing rendered output outside of documented, intentional fixes.
 
 **Acceptance criterion:** Every remaining hand-written pixel loop in the engine is either replaced by a public `agg_go` call or listed on the keep-manual list with a stated reason; blend/composite/resample output is covered by golden-pixel tests that pin behavior across the migration; the S.4 benchmarks show no disproportionate regression; and `agg_go` ships the exports and comp-ops as a tagged release the engine depends on by version, not by `go.work` replace.
@@ -690,20 +692,21 @@
 
 **Acceptance criterion:** The engine can composite an RGBA source rect onto an RGBA destination with a comp-op, opacity, and an alpha mask, and can draw a transformed/filtered image, using only exported `agg_go` identifiers; the exported API is documented, tested in `agg_go`, and released as a tag the engine consumes by version.
 
-- [ ] Derive the required surface from real call sites rather than exporting `internal/` wholesale:
-  - [ ] Inventory what `blend.go`, `layer_ops.go`, `viewport_composite.go`, `fill_gradient.go`, and `crop.go` actually need (comp-op blending on a byte slice, alpha-mask modulated composite, transformed-image span rendering, image filter kernels, multi-stop gradient LUTs)
-  - [ ] Record which needs are already met by existing public API (`Context.DrawImageTransformed`/`DrawImageQuad`/`DrawImageRegion`, `SetImageFilter`/`SetImageResample`, `AlphaMask`, `FillLinearGradientStops`) so the export list only covers genuine gaps
-  - [ ] Decide per gap: promote to a public wrapper type, or re-export like `blending.go` re-exports `BlendMode`
-- [ ] Add the public compositing entry points in `agg_go`:
-  - [ ] Attach a pixel format to a caller-owned RGBA byte slice with explicit stride, premultiplication state, and bounds
-  - [ ] Blend a source rect onto a destination rect with comp-op + cover/opacity + optional `AlphaMask`, with clipping handled inside AGG
-  - [ ] Keep the SIMD blend kernels reachable through the public path so the export does not silently land on the scalar fallback
-- [ ] Add the public image-filter/span surface: named filter kernels (nearest, bilinear, bicubic, Lanczos where present), resample-vs-non-resample selection, and transformed-image drawing into a caller-owned buffer without a `Context` round-trip when one is not wanted
-- [ ] Add the public gradient-span surface needed by S.9.6: arbitrary-stop LUT construction plus linear/radial/conical/diamond span generators addressable independently of `Context` fill state
-- [ ] Define and document the API contract explicitly: premultiplied vs straight alpha, RGBA byte order, stride/offset conventions, clipping behavior, and which calls allocate
-- [ ] Add `agg_go` tests for every exported symbol (including a parity test that the public path and the pre-existing `internal/` path produce identical bytes) and doc examples for the compositing and transformed-image calls
-- [ ] Release `agg_go` (≥ v0.4.x) with the exports, bump `packages/engine-wasm/go.mod` off v0.3.2, and verify host + `js/wasm` builds and the full Go suite pass without `go.work`
-- [ ] Re-check the AGENTS.md "Known gaps" table and remove/adjust the "Public color-conversion API" and image-filter rows if this phase closes them
+- [x] Derive the required surface from real call sites rather than exporting `internal/` wholesale:
+  - [x] Inventory what `blend.go`, `layer_ops.go`, `viewport_composite.go`, `fill_gradient.go`, and `crop.go` actually need (comp-op blending on a byte slice, alpha-mask modulated composite, transformed-image span rendering, image filter kernels, multi-stop gradient LUTs)
+  - [x] Record which needs are already met by existing public API (`Context.DrawImageTransformed`/`DrawImageQuad`/`DrawImageRegion`, `SetImageFilter`/`SetImageResample`, `AlphaMask`, `FillLinearGradientStops`) so the export list only covers genuine gaps
+  - [x] Decide per gap: promote to a public wrapper type, or re-export like `blending.go` re-exports `BlendMode`
+  - [x] Decision record: keep existing `Context`/filter APIs intact; add narrow caller-owned-buffer wrappers (`CompositeImage`, `DrawImageAffine`, `RenderGradient`, `GradientLUT`) and additive canonical filter aliases rather than exposing `internal/` packages
+- [x] Add the public compositing entry points in `agg_go`:
+  - [x] Attach a pixel format to a caller-owned RGBA byte slice with explicit stride, premultiplication state, and bounds
+  - [x] Blend a source rect onto a destination rect with comp-op + cover/opacity + optional `AlphaMask`, with clipping handled inside AGG
+  - [x] Keep the SIMD blend kernels reachable through the public path so the export does not silently land on the scalar fallback
+- [x] Add the public image-filter/span surface: named filter kernels (nearest, bilinear, bicubic, Lanczos where present), resample-vs-non-resample selection, and transformed-image drawing into a caller-owned buffer without a `Context` round-trip when one is not wanted
+- [x] Add the public gradient-span surface needed by S.9.6: arbitrary-stop LUT construction plus linear/radial/conical/diamond span generators addressable independently of `Context` fill state
+- [x] Define and document the API contract explicitly: premultiplied vs straight alpha, RGBA byte order, stride/offset conventions, clipping behavior, and which calls allocate
+- [x] Add `agg_go` tests for every exported symbol (including a parity test that the public path and the pre-existing `internal/` path produce identical bytes) and doc examples for the compositing and transformed-image calls
+- [x] Release `agg_go` v0.5.0 with the exports, bump `packages/engine-wasm/go.mod` off v0.3.2, and verify host + `js/wasm` builds and the full Go suite pass without `go.work`
+- [x] Re-check the AGENTS.md "Known gaps" table and remove/adjust the "Public color-conversion API" and image-filter rows if this phase closes them
 
 #### Phase S.9.2: Photoshop Comp-Op Coverage in agg_go
 
@@ -711,16 +714,17 @@
 
 **Acceptance criterion:** All 27 engine `BlendMode` values in `internal/model/layers.go:35–61` map onto a public `agg_go` comp-op (or are documented as deliberately engine-side), and per-mode pixel parity against the current `blendRGB` implementation is proven by test.
 
-- [ ] Establish the reference before writing kernels: extract the current `blendRGB`/`compositePixelWithBlend` behavior into a golden per-mode expected-pixel table (this table is the migration contract for S.9.3)
-- [ ] Add the separable modes missing from `blending.go`'s re-export list (which today stops at the Porter-Duff + PDF set `BlendAlpha`…`BlendExclusion`): Linear Burn, Linear Dodge, Vivid Light, Linear Light, Pin Light, Hard Mix, Divide, Subtract
-- [ ] Add the non-separable modes: Hue, Saturation, Color, Luminosity — port `setLuminosity`/`clipColor`/`setSaturation` semantics from the C++ AGG/PDF definitions rather than from the engine copy, then diff against the engine copy
-- [ ] Add the two special cases explicitly, since neither is a pure per-channel function:
-  - [ ] Darker Color / Lighter Color operate on whole-pixel luminance, not per channel
-  - [ ] Dissolve is stochastic — define the randomness contract (caller-supplied per-pixel seed, matching the engine's `pixelNoiseSeed(x, y)` determinism) so results stay reproducible and test-stable
-- [ ] Decide and document alpha handling for the new modes (premultiplied path, zero-alpha backdrop, out-of-range intermediates) so `NaN`/clamp behavior is specified, not incidental
-- [ ] Provide SIMD kernels where the mode is cheap enough to vectorize, and verify the scalar and SIMD paths agree bit-for-bit
-- [ ] Add `agg_go` per-mode tests over the golden table, plus edge-case tests (alpha 0/1, black/white backdrops, saturated channels) and benchmarks for the new comp-ops
-- [ ] Tag the `agg_go` release and bump the engine dependency
+- [x] Establish the reference before writing kernels: extract the current `blendRGB`/`compositePixelWithBlend` behavior into a golden per-mode expected-pixel table (this table is the migration contract for S.9.3)
+- [x] Add the separable modes missing from `blending.go`'s re-export list (which today stops at the Porter-Duff + PDF set `BlendAlpha`…`BlendExclusion`): Linear Burn, Linear Dodge, Vivid Light, Linear Light, Pin Light, Hard Mix, Divide, Subtract
+- [x] Add the non-separable modes: Hue, Saturation, Color, Luminosity — port `setLuminosity`/`clipColor`/`setSaturation` semantics from the C++ AGG/PDF definitions rather than from the engine copy, then diff against the engine copy
+- [x] Add the two special cases explicitly, since neither is a pure per-channel function:
+  - [x] Darker Color / Lighter Color operate on whole-pixel luminance, not per channel
+  - [x] Dissolve is stochastic — define the randomness contract (caller-supplied per-pixel seed, matching the engine's `pixelNoiseSeed(x, y)` determinism) so results stay reproducible and test-stable
+- [x] Decide and document alpha handling for the new modes (premultiplied path, zero-alpha backdrop, out-of-range intermediates) so `NaN`/clamp behavior is specified, not incidental
+- [x] Provide SIMD kernels where the mode is cheap enough to vectorize, and verify the scalar and SIMD paths agree bit-for-bit
+  - [x] The public uniform-row SrcOver path reaches the existing AVX2/SSE2 kernel and has a forced-scalar byte-for-byte differential test; varying-color and complex Photoshop modes remain exact scalar paths
+- [x] Add `agg_go` per-mode tests over the golden table, plus edge-case tests (alpha 0/1, black/white backdrops, saturated channels) and benchmarks for the new comp-ops
+- [x] Tag the consolidated `agg_go` v0.5.0 release and bump the engine dependency (completed once in S.9.1 after all cross-repo work)
 
 #### Phase S.9.3: Retire the Engine's Private Blend Engine
 
@@ -728,12 +732,15 @@
 
 **Acceptance criterion:** `blendRGB` and its per-mode helpers are deleted; all six call sites go through `agg_go`; the S.9.2 golden table passes unchanged (or every intentional difference is listed with a reason); and the blend-heavy benchmarks do not regress.
 
-- [ ] Convert the per-pixel call sites to span/rect-level calls first — the win is as much about leaving the per-pixel function-call granularity as about the math
-- [ ] Reconcile the two color models: the engine blends in straight-alpha `float64` 0–1, `agg_go` blends premultiplied 8-bit; quantify the rounding delta on the golden table and decide per mode whether to accept it, widen precision (`BlenderRGBA8PlainFixed`, `pixfmt_rgba128`), or keep the mode engine-side
-- [ ] Preserve the semantics the engine layered on top of raw blending: `opacity` scaling, `pixelNoiseSeed` determinism for Dissolve, and the BlendIf/mask modulation applied by the callers
-- [ ] Migrate call sites in isolation-first order — `fill_gradient.go` and `brush.go` (simple, `BlendModeNormal`) → `dispatch_filter.go` → `viewport_composite.go` → `layer_ops.go` — keeping each step independently testable and revertable
-- [ ] Delete `blend.go` and retarget `blend_test.go` at the new path so the existing mode coverage (including the finiteness fuzz at `blend_test.go:308`) keeps running
-- [ ] Re-run `BenchmarkRenderPipeline512`, `BenchmarkRenderCompositeSurface`, and `BenchmarkRenderFrameAfterPaintDirtyRect`; record before/after numbers in this plan the way Phase X did
+- [x] Convert the per-pixel call sites to span/rect-level calls first — the win is as much about leaving the per-pixel function-call granularity as about the math
+- [x] Reconcile the two color models: the engine blends in straight-alpha `float64` 0–1, `agg_go` blends premultiplied 8-bit; quantify the rounding delta on the golden table and decide per mode whether to accept it, widen precision (`BlenderRGBA8PlainFixed`, `pixfmt_rgba128`), or keep the mode engine-side
+  - [x] Opaque output is exact for all 27 engine modes; translucent output is exact for corrected Soft Light and within one byte for the remaining modes, the expected 8-bit quantization boundary
+- [x] Preserve the semantics the engine layered on top of raw blending: `opacity` scaling, `pixelNoiseSeed` determinism for Dissolve, and the BlendIf/mask modulation applied by the callers
+- [x] Migrate call sites in isolation-first order — `fill_gradient.go` and `brush.go` (simple, `BlendModeNormal`) → `dispatch_filter.go` → `viewport_composite.go` → `layer_ops.go` — keeping each step independently testable and revertable
+- [x] Delete `blend.go` and retarget `blend_test.go` at the new path so the existing mode coverage (including the finiteness fuzz at `blend_test.go:308`) keeps running
+- [x] Re-run `BenchmarkRenderPipeline512`, `BenchmarkRenderCompositeSurface`, and `BenchmarkRenderFrameAfterPaintDirtyRect`; record before/after numbers in this plan the way Phase X did
+  - [x] 512² paint strokes: 23.6–24.7 ms → 9.2–11.7 ms; pipeline composite: 10.0–11.2 ms → 1.24–1.35 ms; full surface render: 67.4–71.5 ms → 16.3–25.6 ms
+  - [x] Dirty viewport at aligned 100%: 185–207 µs → 217–232 µs after warm-up; fractional 137%: 0.50–0.96 ms → 5.1–6.0 ms, still below a 16.7 ms frame and bounded to the dirty region via the premultiplied surface cache
 
 #### Phase S.9.4: Layer Compositor Migration
 
@@ -741,14 +748,14 @@
 
 **Acceptance criterion:** `compositeRasterIntoDocument` and `compositeDocumentSurfaceClipped` composite through public `agg_go` calls; clipped and full recomposites remain byte-identical to each other; and masks, clipping masks, BlendIf, group isolation, and adjustment-layer caching behave exactly as before.
 
-- [ ] Correct the stale plan reference: the per-pixel writers are `layer_ops.go:1184/1192` (raster into document) and `layer_ops.go:1488` (surface composite), not `layer_ops.go:987–1045` — that range is now the `compositeLayerOntoWithClipOptions` dispatcher
-- [ ] Map each engine concept onto an AGG primitive before touching code: layer mask + vector mask + clip alpha → `AlphaMask` composition; `effectiveLayerOpacity × effectiveContentOpacity` → cover; BlendIf → a derived per-pixel mask or a retained engine-side pre-pass
-- [ ] Fold the mask chain into a single `AlphaMask` per composite instead of re-multiplying per pixel, and confirm `effectiveLayerMask`'s existing vector-mask folding still short-circuits for empty masks
-- [ ] Keep the clip-rect path a first-class argument, not an afterthought: AGG clip box must reproduce the current `clip *DirtyRect` semantics, including the documented rule that style surfaces render unclipped and only their final composite is clipped
-- [ ] Leave the adjustment-layer branch alone in this phase (it is a backdrop transform, not a blend) and re-verify the `allowAdjustmentCache` / `copySurfaceOutsideRect` invariants after migration
-- [ ] Verify `surfacePool` reuse still holds — AGG attaching to pooled buffers must not retain references past the composite
-- [ ] Add golden-pixel tests for the compositor before migrating (nested groups, isolated groups, clipping masks, BlendIf, partial opacity, masked + styled layers) — this is the S.11 golden-image work pulled forward where it is a prerequisite
-- [ ] Add an equivalence test asserting clipped incremental recomposite == full recomposite for randomized dirty rects
+- [x] Correct the stale plan reference: the per-pixel writers are `layer_ops.go:1184/1192` (raster into document) and `layer_ops.go:1488` (surface composite), not `layer_ops.go:987–1045` — that range is now the `compositeLayerOntoWithClipOptions` dispatcher
+- [x] Map each engine concept onto an AGG primitive before touching code: layer mask + vector mask + clip alpha → `AlphaMask` composition; `effectiveLayerOpacity × effectiveContentOpacity` → cover; BlendIf → a derived per-pixel mask or a retained engine-side pre-pass
+- [x] Fold the mask chain into a single `AlphaMask` per composite instead of re-multiplying per pixel, and confirm `effectiveLayerMask`'s existing vector-mask folding still short-circuits for empty masks
+- [x] Keep the clip-rect path a first-class argument, not an afterthought: AGG clip box must reproduce the current `clip *DirtyRect` semantics, including the documented rule that style surfaces render unclipped and only their final composite is clipped
+- [x] Leave the adjustment-layer branch alone in this phase (it is a backdrop transform, not a blend) and re-verify the `allowAdjustmentCache` / `copySurfaceOutsideRect` invariants after migration
+- [x] Verify `surfacePool` reuse still holds — AGG attaching to pooled buffers must not retain references past the composite
+- [x] Add golden-pixel tests for the compositor before migrating (nested groups, isolated groups, clipping masks, BlendIf, partial opacity, masked + styled layers) — this is the S.11 golden-image work pulled forward where it is a prerequisite
+- [x] Add an equivalence test asserting clipped incremental recomposite == full recomposite for randomized dirty rects
 
 #### Phase S.9.5: Viewport Resampler Migration
 
@@ -756,13 +763,15 @@
 
 **Acceptance criterion:** `compositeViewportIdentity` (`:130`), `compositeViewportBilinearUnrotated` (`:218`), and `compositeViewportBilinearRotated` (`:329`) collapse into one transform-driven path; pan/zoom/rotate output is at least as good as today; and the zoom benchmarks do not regress.
 
-- [ ] Express the viewport as a single affine transform (pan + zoom + rotation about the canvas center) and drive `DrawImageTransformed`/`DrawImageQuad` with it, replacing the three special-cased loops and `docBoundsOnCanvas`'s manual corner projection
-- [ ] Preserve the identity-zoom fast path deliberately: measure whether AGG's setup cost beats the current straight copy at zoom 1 and keep the manual path if it does not (the Phase X.7 policy already establishes that AGG setup cost can dominate for cheap ops)
-- [ ] Choose filters per zoom regime (nearest for ≥100% pixel-accurate inspection, resampling filter for minification) and expose that choice where the UI's existing zoom semantics expect it
-- [ ] Preserve `storeBilinearPixel`'s premultiplied handling and the checkerboard/transparency backdrop composition order
-- [ ] Confirm the clip-rect argument still restricts work to the dirty region — the S.4 win is that a paint frame resamples O(dirty), and an unclipped AGG draw would silently undo it
-- [ ] Re-run `BenchmarkCompositeViewportZoom1` and `BenchmarkViewportZoomScenarios512` across zoom levels and rotation on/off; keep whichever path wins per regime and document the split
-- [ ] Add golden tests for zoom in/out, fractional zoom, rotated views, and document edges partially off-canvas
+- [x] Express the viewport as a single affine transform (pan + zoom + rotation about the canvas center) and drive `DrawImageTransformed`/`DrawImageQuad` with it, replacing the three special-cased loops and `docBoundsOnCanvas`'s manual corner projection
+- [x] Preserve the identity-zoom fast path deliberately: measure whether AGG's setup cost beats the current straight copy at zoom 1 and keep the manual path if it does not (the Phase X.7 policy already establishes that AGG setup cost can dominate for cheap ops)
+- [x] Choose filters per zoom regime (nearest for ≥100% pixel-accurate inspection, resampling filter for minification) and expose that choice where the UI's existing zoom semantics expect it
+  - [x] Policy selected from the existing editor behavior: bilinear below 4× or whenever rotated; nearest at unrotated zoom ≥4× for pixel inspection
+- [x] Preserve `storeBilinearPixel`'s premultiplied handling and the checkerboard/transparency backdrop composition order
+- [x] Confirm the clip-rect argument still restricts work to the dirty region — the S.4 win is that a paint frame resamples O(dirty), and an unclipped AGG draw would silently undo it
+- [x] Re-run `BenchmarkCompositeViewportZoom1` and `BenchmarkViewportZoomScenarios512` across zoom levels and rotation on/off; keep whichever path wins per regime and document the split
+  - [x] Aligned identity stays a measured manual row-copy fast path (0.28–0.73 ms, zero allocations); transformed views use the unified AGG affine path, with interactive dirty frames fed by a cached premultiplied document surface
+- [x] Add golden tests for zoom in/out, fractional zoom, rotated views, and document edges partially off-canvas
 
 #### Phase S.9.6: Gradient & Crop Resampling Migration
 
@@ -770,13 +779,14 @@
 
 **Acceptance criterion:** `renderCustomGradient` produces its output from AGG gradient spans, rotated crop and content-aware fill sample through AGG image filters, and gradient dithering/banding behavior is preserved or improved.
 
-- [ ] Correct the stale plan references: `renderCustomGradient` is `fill_gradient.go:450–496` (with `buildGradientLUT` at `:355`), and crop resampling is `applyRotatedCropToPixelLayer` (`crop.go:470`) plus `buildContentAwareCropFillLayer` (`crop.go:500`), both via `sampleBilinear`
-- [ ] Map `buildGradientLUT`'s 256-entry `agglib.Color` table onto the S.9.1 public gradient-LUT API instead of hand-indexing it in `gradientColorAt`
-- [ ] Cover every gradient type the UI offers (linear, radial, angle, reflected, diamond) with an AGG span generator; add any missing generator to `agg_go/internal/span/` following the AGENTS.md porting rules rather than keeping an engine-side special case
-- [ ] Decide the fate of `applyGradientDither` (`fill_gradient.go:523`): keep it as a post-pass, or fold it into the span path if AGG's higher-precision LUT already removes the banding it exists to hide — test the banding case either way
-- [ ] Replace `sampleBilinear` in the rotated-crop path with an AGG transformed-image draw, keeping the pixel-center convention (`+0.5`) that the current call sites depend on
-- [ ] Route content-aware crop-fill sampling through the same filter path, leaving `diffuseCropExpansion` (`crop.go:562`) manual — it is a diffusion solver, not a resample
-- [ ] Add golden tests for each gradient type (including multi-stop and alpha stops), rotated crops at several angles, and crop expansion into unknown regions
+- [x] Correct the stale plan references: `renderCustomGradient` is `fill_gradient.go:450–496` (with `buildGradientLUT` at `:355`), and crop resampling is `applyRotatedCropToPixelLayer` (`crop.go:470`) plus `buildContentAwareCropFillLayer` (`crop.go:500`), both via `sampleBilinear`
+- [x] Map `buildGradientLUT`'s 256-entry `agglib.Color` table onto the S.9.1 public gradient-LUT API instead of hand-indexing it in `gradientColorAt`
+- [x] Cover every gradient type the UI offers (linear, radial, angle, reflected, diamond) with an AGG span generator; add any missing generator to `agg_go/internal/span/` following the AGENTS.md porting rules rather than keeping an engine-side special case
+- [x] Decide the fate of `applyGradientDither` (`fill_gradient.go:523`): keep it as a post-pass, or fold it into the span path if AGG's higher-precision LUT already removes the banding it exists to hide — test the banding case either way
+  - [x] Dither is folded into `RenderGradient`; tests pin deterministic RGB jitter while preserving alpha exactly
+- [x] Replace `sampleBilinear` in the rotated-crop path with an AGG transformed-image draw, keeping the pixel-center convention (`+0.5`) that the current call sites depend on
+- [x] Route content-aware crop-fill sampling through the same filter path, leaving `diffuseCropExpansion` (`crop.go:562`) manual — it is a diffusion solver, not a resample
+- [x] Add golden tests for each gradient type (including multi-stop and alpha stops), rotated crops at several angles, and crop expansion into unknown regions
 
 #### Phase S.9.7: Keep-Manual Boundary & Enforcement
 
@@ -784,11 +794,13 @@
 
 **Acceptance criterion:** Every remaining hand-written pixel loop in the engine is either on the documented keep-manual list with a measured or structural justification, or has a ticketed migration; AGENTS.md reflects the real rule; and new manual loops are visible in review.
 
-- [ ] Re-validate the keep-manual list against the post-migration code: flips/rotate90/180, discrete remaps, transform overlay (Phase X.7 policy), `EraseBackgroundDab` tolerance erase, `diffuseCropExpansion`
-- [ ] Give each entry a reason of record — measured (AGG setup cost exceeds the op, per X.7 benchmarks) or structural (not a rasterization problem) — rather than "kept manual"
-- [ ] Sweep the engine for pixel loops not on the list after S.9.3–S.9.6 and classify each as migrate/keep/ticket
-- [ ] Update the AGENTS.md agg_go section so the mandate names the public API that now exists and cites the keep-manual exceptions
-- [ ] Add a lightweight guard (lint rule, test, or documented review checklist item) that surfaces new direct per-pixel writes in `internal/engine` so the drift is caught at review time
+- [x] Re-validate the keep-manual list against the post-migration code: flips/rotate90/180, discrete remaps, transform overlay (Phase X.7 policy), `EraseBackgroundDab` tolerance erase, `diffuseCropExpansion`
+- [x] Give each entry a reason of record — measured (AGG setup cost exceeds the op, per X.7 benchmarks) or structural (not a rasterization problem) — rather than "kept manual"
+- [x] Sweep the engine for pixel loops not on the list after S.9.3–S.9.6 and classify each as migrate/keep/ticket
+  - [x] Reason-of-record and ticket ledger lives in `internal/engine/PIXEL_LOOP_POLICY.md`; open groups are `S9-MASK-COMPOSITE`, `S9-BRUSH-SAMPLING`, `S9-IMAGE-SCALE`, `S9-FILTER-DISTORT`, `S9-ALPHA-CONVERSION`, and `S9-STYLE-SPANS`
+- [x] Update the AGENTS.md agg_go section so the mandate names the public API that now exists and cites the keep-manual exceptions
+- [x] Add a lightweight guard (lint rule, test, or documented review checklist item) that surfaces new direct per-pixel writes in `internal/engine` so the drift is caught at review time
+  - [x] `TestManualPixelLoopAllowlist` parses production engine files, rejects unreviewed adjacent RGBA writes in loops, verifies allowlisted functions still exist, and documents the syntax-only review fallback
 
 ### Phase S.10: PSD Interop Repair
 

@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	agglib "github.com/cwbudde/agg_go"
 )
@@ -232,6 +231,8 @@ func fillRasterWithMask(dst []byte, width, height int, fillMask *Selection, sele
 	if len(dst) < width*height*4 {
 		return
 	}
+	sourcePixels := make([]byte, width*height*4)
+	mask := agglib.NewAlphaMask(width, height)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			docX := x + dstOriginX
@@ -247,11 +248,19 @@ func fillRasterWithMask(dst []byte, width, height int, fillMask *Selection, sele
 			}
 			idx := (y*width + x) * 4
 			color := colorAt(docX, docY)
-			if coverage < 255 {
-				color[3] = uint8((uint16(color[3]) * uint16(coverage)) / 255)
-			}
-			compositePixelWithBlend(dst[idx:idx+4], color[:], BlendModeNormal, 1, 0)
+			copy(sourcePixels[idx:idx+4], color[:])
+			mask.Pix[y*width+x] = coverage
 		}
+	}
+	destination := agglib.NewImage(dst, width, height, width*4)
+	source := agglib.NewImage(sourcePixels, width, height, width*4)
+	if err := agglib.CompositeImage(
+		destination, source,
+		agglib.Rect{X1: 0, Y1: 0, X2: width, Y2: height},
+		agglib.PointI{},
+		agglib.CompositeOptions{BlendMode: agglib.BlendSrcOver, Opacity: 1, AlphaMode: agglib.AlphaStraight, Mask: &mask},
+	); err != nil {
+		return
 	}
 }
 
@@ -259,28 +268,32 @@ func applyGradientBufferToLayer(layer *PixelLayer, doc *Document, buffer []byte)
 	if layer == nil || len(buffer) < doc.Width*doc.Height*4 {
 		return
 	}
-	lw := layer.Bounds.W
-	lh := layer.Bounds.H
-	for y := 0; y < lh; y++ {
-		for x := 0; x < lw; x++ {
-			docX := x + layer.Bounds.X
-			docY := y + layer.Bounds.Y
-			if docX < 0 || docY < 0 || docX >= doc.Width || docY >= doc.Height {
-				continue
+	docX0 := maxInt(layer.Bounds.X, 0)
+	docY0 := maxInt(layer.Bounds.Y, 0)
+	docX1 := minInt(layer.Bounds.X+layer.Bounds.W, doc.Width)
+	docY1 := minInt(layer.Bounds.Y+layer.Bounds.H, doc.Height)
+	if docX0 >= docX1 || docY0 >= docY1 {
+		return
+	}
+	var mask *agglib.AlphaMask
+	if doc.Selection != nil {
+		selectionMask := agglib.NewAlphaMask(layer.Bounds.W, layer.Bounds.H)
+		for y := docY0; y < docY1; y++ {
+			for x := docX0; x < docX1; x++ {
+				selectionMask.Pix[(y-layer.Bounds.Y)*layer.Bounds.W+x-layer.Bounds.X] = selectionCoverageAt(doc.Selection, x, y)
 			}
-			mask := selectionCoverageAt(doc.Selection, docX, docY)
-			if mask == 0 {
-				continue
-			}
-			srcIdx := (docY*doc.Width + docX) * 4
-			src := buffer[srcIdx : srcIdx+4]
-			if mask < 255 {
-				src = append([]byte(nil), src...)
-				src[3] = uint8((uint16(src[3]) * uint16(mask)) / 255)
-			}
-			dstIdx := (y*lw + x) * 4
-			compositePixelWithBlend(layer.Pixels[dstIdx:dstIdx+4], src, BlendModeNormal, 1, 0)
 		}
+		mask = &selectionMask
+	}
+	destination := agglib.NewImage(layer.Pixels, layer.Bounds.W, layer.Bounds.H, layer.Bounds.W*4)
+	source := agglib.NewImage(buffer, doc.Width, doc.Height, doc.Width*4)
+	if err := agglib.CompositeImage(
+		destination, source,
+		agglib.Rect{X1: docX0, Y1: docY0, X2: docX1, Y2: docY1},
+		agglib.PointI{X: docX0 - layer.Bounds.X, Y: docY0 - layer.Bounds.Y},
+		agglib.CompositeOptions{BlendMode: agglib.BlendSrcOver, Opacity: 1, AlphaMode: agglib.AlphaStraight, Mask: mask},
+	); err != nil {
+		return
 	}
 }
 
@@ -344,86 +357,78 @@ func renderGradientSurface(width, height int, p ApplyGradientPayload, startColor
 		return nil
 	}
 	buffer := make([]byte, width*height*4)
-	lut := buildGradientLUT(p.Stops, startColor, endColor)
-	renderCustomGradient(buffer, width, height, p, lut)
-	if p.Dither {
-		applyGradientDither(buffer, width, height)
+	stops := make([]agglib.GradientStop, 0, len(p.Stops)+2)
+	if len(p.Stops) == 0 {
+		stops = append(
+			stops,
+			agglib.GradientStop{Position: 0, Color: agglib.NewColor(startColor[0], startColor[1], startColor[2], startColor[3])},
+			agglib.GradientStop{Position: 1, Color: agglib.NewColor(endColor[0], endColor[1], endColor[2], endColor[3])},
+		)
+	} else {
+		for _, stop := range p.Stops {
+			color := clampGradientColor(stop.Color)
+			stops = append(stops, agglib.GradientStop{
+				Position: clampGradientPosition(stop.Position),
+				Color:    agglib.NewColor(color[0], color[1], color[2], color[3]),
+			})
+		}
+	}
+	lut, err := agglib.NewGradientLUT(stops, 256)
+	if err != nil {
+		return nil
+	}
+	shape := agglib.GradientShapeLinear
+	end := agglib.Point{X: p.EndX, Y: p.EndY}
+	switch p.Type {
+	case GradientTypeRadial:
+		shape = agglib.GradientShapeRadial
+	case GradientTypeAngle:
+		shape = agglib.GradientShapeAngular
+		// The established engine contract uses End only as the angular radius;
+		// the zero-angle ray remains the positive document X axis.
+		end = agglib.Point{X: p.StartX + math.Hypot(p.EndX-p.StartX, p.EndY-p.StartY), Y: p.StartY}
+	case GradientTypeDiamond:
+		shape = agglib.GradientShapeDiamond
+	case GradientTypeReflected:
+		shape = agglib.GradientShapeReflected
+	}
+	image := agglib.NewImage(buffer, width, height, width*4)
+	if err := agglib.RenderGradient(image, lut, agglib.GradientRenderOptions{
+		Shape:   shape,
+		Start:   agglib.Point{X: p.StartX, Y: p.StartY},
+		End:     end,
+		Reverse: p.Reverse,
+		Dither:  p.Dither,
+	}); err != nil {
+		return nil
 	}
 	return buffer
 }
 
 func buildGradientLUT(stops []GradientStopPayload, startColor, endColor [4]uint8) [256]agglib.Color {
-	gradientStops := make([]GradientStopPayload, 0, len(stops)+2)
+	gradientStops := make([]agglib.GradientStop, 0, len(stops)+2)
 	if len(stops) == 0 {
 		gradientStops = append(
 			gradientStops,
-			GradientStopPayload{Position: 0, Color: startColor},
-			GradientStopPayload{Position: 1, Color: endColor},
+			agglib.GradientStop{Position: 0, Color: agglib.NewColor(startColor[0], startColor[1], startColor[2], startColor[3])},
+			agglib.GradientStop{Position: 1, Color: agglib.NewColor(endColor[0], endColor[1], endColor[2], endColor[3])},
 		)
 	} else {
 		for _, stop := range stops {
-			gradientStops = append(gradientStops, GradientStopPayload{
+			color := clampGradientColor(stop.Color)
+			gradientStops = append(gradientStops, agglib.GradientStop{
 				Position: clampGradientPosition(stop.Position),
-				Color:    clampGradientColor(stop.Color),
+				Color:    agglib.NewColor(color[0], color[1], color[2], color[3]),
 			})
 		}
 	}
-
-	sort.SliceStable(gradientStops, func(i, j int) bool {
-		return gradientStops[i].Position < gradientStops[j].Position
-	})
-	if len(gradientStops) == 1 {
-		gradientStops = append(gradientStops, GradientStopPayload{
-			Position: 1,
-			Color:    gradientStops[0].Color,
-		})
-	}
-
 	var lut [256]agglib.Color
-	if len(gradientStops) == 0 {
+	publicLUT, err := agglib.NewGradientLUT(gradientStops, len(lut))
+	if err != nil {
 		return lut
 	}
-	if len(gradientStops) == 1 {
-		c := gradientStops[0].Color
-		col := agglib.NewColor(c[0], c[1], c[2], c[3])
-		for i := range lut {
-			lut[i] = col
-		}
-		return lut
-	}
-
-	for i := 0; i < 256; i++ {
-		pos := float64(i) / 255.0
-		if pos <= gradientStops[0].Position {
-			c := gradientStops[0].Color
-			lut[i] = agglib.NewColor(c[0], c[1], c[2], c[3])
-			continue
-		}
-		last := gradientStops[len(gradientStops)-1]
-		if pos >= last.Position {
-			c := last.Color
-			lut[i] = agglib.NewColor(c[0], c[1], c[2], c[3])
-			continue
-		}
-		lo, hi := 0, len(gradientStops)-1
-		for hi-lo > 1 {
-			mid := (lo + hi) / 2
-			if gradientStops[mid].Position <= pos {
-				lo = mid
-			} else {
-				hi = mid
-			}
-		}
-		span := gradientStops[hi].Position - gradientStops[lo].Position
-		t := 0.0
-		if span > 0 {
-			t = (pos - gradientStops[lo].Position) / span
-		}
-		l1 := gradientStops[lo].Color
-		l2 := gradientStops[hi].Color
-		c1 := agglib.NewColor(l1[0], l1[1], l1[2], l1[3])
-		c2 := agglib.NewColor(l2[0], l2[1], l2[2], l2[3])
-		lut[i] = c1.Gradient(c2, t)
+	for index := range lut {
+		lut[index] = publicLUT.At(index)
 	}
 	return lut
 }
@@ -447,53 +452,6 @@ func clampGradientColor(color [4]uint8) [4]uint8 {
 	}
 }
 
-func renderCustomGradient(buffer []byte, width, height int, p ApplyGradientPayload, lut [256]agglib.Color) {
-	dx := p.EndX - p.StartX
-	dy := p.EndY - p.StartY
-	length := math.Hypot(dx, dy)
-	if length < 1 {
-		length = 1
-	}
-	ux := dx / length
-	uy := dy / length
-	px := -uy
-	py := ux
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			relX := float64(x) - p.StartX
-			relY := float64(y) - p.StartY
-			var t float64
-			switch p.Type {
-			case GradientTypeRadial:
-				t = math.Hypot(relX, relY) / length
-			case GradientTypeAngle:
-				theta := math.Atan2(relY, relX)
-				t = (theta + math.Pi) / (2 * math.Pi)
-			case GradientTypeDiamond:
-				u := math.Abs(relX*ux + relY*uy)
-				v := math.Abs(relX*px + relY*py)
-				t = (u + v) / length
-			case GradientTypeReflected:
-				proj := (relX*ux + relY*uy) / length
-				proj = proj - math.Floor(proj)
-				t = math.Abs(proj*2 - 1)
-			default:
-				t = (relX*ux + relY*uy) / length
-			}
-			if p.Reverse {
-				t = 1 - t
-			}
-			if t < 0 {
-				t = 0
-			} else if t > 1 {
-				t = 1
-			}
-			idx := (y*width + x) * 4
-			writeGradientPixel(buffer[idx:idx+4], gradientColorAt(lut, t))
-		}
-	}
-}
-
 func gradientColorAt(lut [256]agglib.Color, t float64) [4]uint8 {
 	if t < 0 {
 		t = 0
@@ -508,36 +466,6 @@ func gradientColorAt(lut [256]agglib.Color, t float64) [4]uint8 {
 	}
 	c := lut[index]
 	return [4]uint8{c.R, c.G, c.B, c.A}
-}
-
-func writeGradientPixel(dst []byte, c [4]uint8) {
-	if len(dst) < 4 {
-		return
-	}
-	dst[0] = c[0]
-	dst[1] = c[1]
-	dst[2] = c[2]
-	dst[3] = c[3]
-}
-
-func applyGradientDither(buffer []byte, width, height int) {
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			idx := (y*width + x) * 4
-			noise := uint32(x*1103515245 ^ y*12345)
-			jitter := float64((noise>>24)&0x7) / 255.0
-			for channel := 0; channel < 3; channel++ {
-				value := float64(buffer[idx+channel]) / 255.0
-				value += (jitter - 0.014) * 0.25
-				if value < 0 {
-					value = 0
-				} else if value > 1 {
-					value = 1
-				}
-				buffer[idx+channel] = uint8(math.Round(value * 255))
-			}
-		}
-	}
 }
 
 func sampleSurfaceColorAverage(surface []byte, width, height, x, y, sampleSize int) ([4]uint8, bool) {

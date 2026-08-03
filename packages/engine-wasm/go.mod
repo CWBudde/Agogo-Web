@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	codeberg.org/go-fonts/dejavu v0.4.0
 	github.com/bolom009/go-clipper2 v1.3.0
-	github.com/cwbudde/agg_go v0.3.2
+	github.com/cwbudde/agg_go v0.5.0
 	golang.org/x/image v0.42.0
 )
 

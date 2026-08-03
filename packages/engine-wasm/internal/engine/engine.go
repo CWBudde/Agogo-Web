@@ -659,15 +659,18 @@ type instance struct {
 	// partialViewportUpdateCount counts partial viewport resamples in
 	// renderRaw (content changed in a sub-rect, viewport unchanged).
 	// Test-only instrumentation.
-	partialViewportUpdateCount int64
-	history                    *HistoryStack
-	frameID                    int64
-	pointer                    pointerDragState
-	cachedDocSurface           []byte
-	cachedDocID                string
-	cachedDocContentVersion    int64
-	navigatorCacheKey          navigatorThumbnailKey
-	navigatorCache             *NavigatorThumbnail
+	partialViewportUpdateCount  int64
+	history                     *HistoryStack
+	frameID                     int64
+	pointer                     pointerDragState
+	cachedDocSurface            []byte
+	cachedDocID                 string
+	cachedDocContentVersion     int64
+	cachedPremultDocSurface     []byte
+	cachedPremultDocID          string
+	cachedPremultContentVersion int64
+	navigatorCacheKey           navigatorThumbnailKey
+	navigatorCache              *NavigatorThumbnail
 	// maskEditLayerID tracks which layer's mask is currently being edited.
 	// This is UI state only — not included in history snapshots.
 	maskEditLayerID string

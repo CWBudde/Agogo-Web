@@ -3,6 +3,7 @@ package engine
 import (
 	"unsafe"
 
+	agglib "github.com/cwbudde/agg_go"
 	aggrender "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/agg"
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
@@ -85,6 +86,52 @@ func (inst *instance) dropDocSurfaceCache() {
 	inst.cachedDocSurface = nil
 	inst.cachedDocID = ""
 	inst.cachedDocContentVersion = 0
+	inst.cachedPremultDocSurface = nil
+	inst.cachedPremultDocID = ""
+	inst.cachedPremultContentVersion = 0
+}
+
+func (inst *instance) premultipliedDocumentSurface(doc *Document, straight []byte, dirty *DirtyRect, baseVersion int64) ([]byte, error) {
+	if doc == nil || len(straight) != doc.Width*doc.Height*4 {
+		return nil, nil
+	}
+	if inst.cachedPremultDocID == doc.ID && inst.cachedPremultContentVersion == doc.ContentVersion && len(inst.cachedPremultDocSurface) == len(straight) {
+		return inst.cachedPremultDocSurface, nil
+	}
+	canUpdateRect := dirty != nil &&
+		inst.cachedPremultDocID == doc.ID &&
+		inst.cachedPremultContentVersion == baseVersion &&
+		len(inst.cachedPremultDocSurface) == len(straight)
+	if !canUpdateRect {
+		if len(inst.cachedPremultDocSurface) != len(straight) {
+			inst.cachedPremultDocSurface = make([]byte, len(straight))
+		}
+		copy(inst.cachedPremultDocSurface, straight)
+		image := agglib.NewImage(inst.cachedPremultDocSurface, doc.Width, doc.Height, doc.Width*4)
+		if err := image.Premultiply(); err != nil {
+			return nil, err
+		}
+	} else {
+		x0 := maxInt(dirty.X, 0)
+		y0 := maxInt(dirty.Y, 0)
+		x1 := minInt(dirty.X+dirty.W, doc.Width)
+		y1 := minInt(dirty.Y+dirty.H, doc.Height)
+		if x0 < x1 && y0 < y1 {
+			rowBytes := (x1 - x0) * 4
+			for y := y0; y < y1; y++ {
+				offset := (y*doc.Width + x0) * 4
+				copy(inst.cachedPremultDocSurface[offset:offset+rowBytes], straight[offset:offset+rowBytes])
+			}
+			offset := (y0*doc.Width + x0) * 4
+			image := agglib.NewImage(inst.cachedPremultDocSurface[offset:], x1-x0, y1-y0, doc.Width*4)
+			if err := image.Premultiply(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	inst.cachedPremultDocID = doc.ID
+	inst.cachedPremultContentVersion = doc.ContentVersion
+	return inst.cachedPremultDocSurface, nil
 }
 
 func (inst *instance) render() RenderResult {
@@ -333,7 +380,13 @@ func (inst *instance) tryPartialContentRender(doc *Document, key rawFrameKey, fr
 		start := y*rowBytes + canvasRect.X*4
 		copy(inst.pixels[start:start+canvasRect.W*4], inst.cachedViewportBase[start:start+canvasRect.W*4])
 	}
-	compositeDocumentToViewportClipped(inst.pixels, canvasW, canvasH, doc, vp, surface, &canvasRect)
+	samplingSurface := surface
+	sourceAlpha := agglib.AlphaStraight
+	if premultiplied, premultiplyErr := inst.premultipliedDocumentSurface(doc, surface, &dirtyDoc, prevKey.ContentVersion); premultiplyErr == nil && len(premultiplied) == len(surface) {
+		samplingSurface = premultiplied
+		sourceAlpha = agglib.AlphaPremultiplied
+	}
+	compositeDocumentToViewportClippedAlpha(inst.pixels, canvasW, canvasH, doc, vp, samplingSurface, &canvasRect, sourceAlpha)
 
 	inst.partialViewportUpdateCount++
 	inst.cachedRawFrameKey = key
@@ -533,7 +586,13 @@ func (inst *instance) renderViewportWithCache(doc *Document, documentSurface []b
 	}
 
 	if len(documentSurface) > 0 {
-		compositeDocumentToViewport(inst.pixels, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, documentSurface)
+		samplingSurface := documentSurface
+		sourceAlpha := agglib.AlphaStraight
+		if premultiplied, err := inst.premultipliedDocumentSurface(doc, documentSurface, nil, 0); err == nil && len(premultiplied) == len(documentSurface) {
+			samplingSurface = premultiplied
+			sourceAlpha = agglib.AlphaPremultiplied
+		}
+		compositeDocumentToViewportClippedAlpha(inst.pixels, maxInt(vp.CanvasW, 1), maxInt(vp.CanvasH, 1), doc, vp, samplingSurface, nil, sourceAlpha)
 	}
 
 	return aggrender.RenderViewportOverlays(

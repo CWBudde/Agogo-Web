@@ -2,7 +2,10 @@ package engine
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
+
+	agglib "github.com/cwbudde/agg_go"
 )
 
 func TestHandleFillRespectsSelection(t *testing.T) {
@@ -161,6 +164,103 @@ func TestRenderGradientSurfaceRadial(t *testing.T) {
 	if revCenter[0] != 0 || revCenter[2] != 255 {
 		t.Fatalf("reversed center pixel = %v, want end color [0 0 255 255]", revCenter)
 	}
+}
+
+func TestRenderGradientSurfaceTypesMatchLegacyCoordinates(t *testing.T) {
+	stops := []GradientStopPayload{
+		{Position: 0, Color: [4]uint8{240, 20, 10, 255}},
+		{Position: 0.4, Color: [4]uint8{20, 220, 40, 160}},
+		{Position: 1, Color: [4]uint8{10, 30, 240, 32}},
+	}
+	for _, gradientType := range []GradientType{
+		GradientTypeLinear,
+		GradientTypeRadial,
+		GradientTypeAngle,
+		GradientTypeReflected,
+		GradientTypeDiamond,
+	} {
+		for _, reverse := range []bool{false, true} {
+			p := ApplyGradientPayload{
+				StartX: 2, StartY: 2,
+				EndX: 5, EndY: 3,
+				Type: gradientType, Stops: stops, Reverse: reverse,
+			}
+			got := renderGradientSurface(7, 5, p, [4]uint8{}, [4]uint8{})
+			lut := buildGradientLUT(stops, [4]uint8{}, [4]uint8{})
+			for y := 0; y < 5; y++ {
+				for x := 0; x < 7; x++ {
+					want := legacyGradientPixel(x, y, p, lut)
+					offset := (y*7 + x) * 4
+					for channel := range 4 {
+						delta := int(got[offset+channel]) - int(want[channel])
+						if delta < -4 || delta > 4 {
+							t.Fatalf("type=%s reverse=%v pixel=(%d,%d) channel=%d got=%v want=%v", gradientType, reverse, x, y, channel, got[offset:offset+4], want)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestRenderGradientSurfaceDitherIsDeterministicAndPreservesAlpha(t *testing.T) {
+	payload := ApplyGradientPayload{
+		StartX: 0, StartY: 0, EndX: 31, EndY: 0, Type: GradientTypeLinear,
+		Stops: []GradientStopPayload{
+			{Position: 0, Color: [4]uint8{90, 90, 90, 77}},
+			{Position: 1, Color: [4]uint8{110, 110, 110, 177}},
+		},
+		Dither: true,
+	}
+	first := renderGradientSurface(32, 3, payload, [4]uint8{}, [4]uint8{})
+	second := renderGradientSurface(32, 3, payload, [4]uint8{}, [4]uint8{})
+	if string(first) != string(second) {
+		t.Fatal("dithered gradient is not deterministic")
+	}
+	payload.Dither = false
+	plain := renderGradientSurface(32, 3, payload, [4]uint8{}, [4]uint8{})
+	differentRGB := false
+	for offset := 0; offset < len(first); offset += 4 {
+		if first[offset] != plain[offset] || first[offset+1] != plain[offset+1] || first[offset+2] != plain[offset+2] {
+			differentRGB = true
+		}
+		if first[offset+3] != plain[offset+3] {
+			t.Fatalf("dither changed alpha at pixel %d: got=%d want=%d", offset/4, first[offset+3], plain[offset+3])
+		}
+	}
+	if !differentRGB {
+		t.Fatal("dither did not perturb any RGB channel")
+	}
+}
+
+func legacyGradientPixel(x, y int, p ApplyGradientPayload, lut [256]agglib.Color) [4]uint8 {
+	dx := p.EndX - p.StartX
+	dy := p.EndY - p.StartY
+	length := math.Hypot(dx, dy)
+	if length < 1 {
+		length = 1
+	}
+	ux, uy := dx/length, dy/length
+	relX, relY := float64(x)-p.StartX, float64(y)-p.StartY
+	var value float64
+	switch p.Type {
+	case GradientTypeRadial:
+		value = math.Hypot(relX, relY) / length
+	case GradientTypeAngle:
+		value = (math.Atan2(relY, relX) + math.Pi) / (2 * math.Pi)
+	case GradientTypeDiamond:
+		value = (math.Abs(relX*ux+relY*uy) + math.Abs(relX*-uy+relY*ux)) / length
+	case GradientTypeReflected:
+		projection := (relX*ux + relY*uy) / length
+		projection -= math.Floor(projection)
+		value = math.Abs(projection*2 - 1)
+	default:
+		value = (relX*ux + relY*uy) / length
+	}
+	if p.Reverse {
+		value = 1 - value
+	}
+	return gradientColorAt(lut, value)
 }
 
 func TestSampleMergedColorAverage(t *testing.T) {

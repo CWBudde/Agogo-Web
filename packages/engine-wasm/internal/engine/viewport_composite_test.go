@@ -231,3 +231,89 @@ func BenchmarkCompositeViewportZoom1(b *testing.B) {
 		}
 	})
 }
+
+func TestViewportAffineZoom2Golden(t *testing.T) {
+	doc := &Document{Width: 2, Height: 1}
+	surf := buildRGBASurface(2, 1, [][4]byte{{255, 0, 0, 255}, {0, 255, 0, 255}})
+	canvas := filledCanvas(5, 3, [4]byte{0, 0, 255, 255})
+	compositeDocumentToViewport(canvas, 5, 3, doc, &ViewportState{CenterX: 1, CenterY: 0.5, Zoom: 2}, surf)
+
+	want := []byte{
+		64, 0, 191, 255, 128, 0, 127, 255, 64, 64, 127, 255, 0, 128, 127, 255, 0, 64, 191, 255,
+		128, 0, 127, 255, 255, 0, 0, 255, 128, 128, 0, 255, 0, 255, 0, 255, 0, 128, 127, 255,
+		64, 0, 191, 255, 128, 0, 127, 255, 64, 64, 127, 255, 0, 128, 127, 255, 0, 64, 191, 255,
+	}
+	if !bytesEqual(canvas, want) {
+		t.Fatalf("zoom-2 affine golden mismatch:\n got %v\nwant %v", canvas, want)
+	}
+}
+
+func TestViewportAffineDirtyClipMatchesFullRotatedRender(t *testing.T) {
+	const canvasW, canvasH = 9, 7
+	doc := &Document{Width: 4, Height: 3}
+	surf := make([]byte, doc.Width*doc.Height*4)
+	for i := 0; i < doc.Width*doc.Height; i++ {
+		surf[i*4] = byte(17*i + 11)
+		surf[i*4+1] = byte(29*i + 7)
+		surf[i*4+2] = byte(43*i + 3)
+		surf[i*4+3] = byte(64 + 15*i)
+	}
+	background := [4]byte{23, 37, 53, 255}
+	vp := &ViewportState{CenterX: 2.2, CenterY: 1.35, Zoom: 1.7, Rotation: 27}
+	full := filledCanvas(canvasW, canvasH, background)
+	compositeDocumentToViewport(full, canvasW, canvasH, doc, vp, surf)
+
+	dirty := DirtyRect{X: 2, Y: 1, W: 5, H: 4}
+	clipped := filledCanvas(canvasW, canvasH, background)
+	compositeDocumentToViewportClipped(clipped, canvasW, canvasH, doc, vp, surf, &dirty)
+
+	for y := 0; y < canvasH; y++ {
+		for x := 0; x < canvasW; x++ {
+			i := (y*canvasW + x) * 4
+			inside := x >= dirty.X && x < dirty.X+dirty.W && y >= dirty.Y && y < dirty.Y+dirty.H
+			if inside {
+				if !bytesEqual(clipped[i:i+4], full[i:i+4]) {
+					t.Fatalf("clipped pixel (%d,%d) = %v, full render = %v", x, y, clipped[i:i+4], full[i:i+4])
+				}
+				continue
+			}
+			if !bytesEqual(clipped[i:i+4], background[:]) {
+				t.Fatalf("pixel (%d,%d) outside dirty clip changed to %v", x, y, clipped[i:i+4])
+			}
+		}
+	}
+}
+
+func TestViewportAffineNearestPolicyAtFourTimesZoom(t *testing.T) {
+	const canvasW, canvasH = 8, 3
+	doc := &Document{Width: 2, Height: 1}
+	surf := buildRGBASurface(2, 1, [][4]byte{{255, 0, 0, 255}, {0, 255, 0, 255}})
+	background := [4]byte{0, 0, 255, 255}
+
+	nearest := filledCanvas(canvasW, canvasH, background)
+	compositeDocumentToViewport(nearest, canvasW, canvasH, doc, &ViewportState{CenterX: 1, CenterY: 0.5, Zoom: 4}, surf)
+	for x := 0; x < canvasW; x++ {
+		i := (canvasW + x) * 4
+		want := [4]byte{255, 0, 0, 255}
+		if x >= canvasW/2 {
+			want = [4]byte{0, 255, 0, 255}
+		}
+		if !bytesEqual(nearest[i:i+4], want[:]) {
+			t.Fatalf("nearest center-row pixel %d = %v, want %v", x, nearest[i:i+4], want)
+		}
+	}
+
+	bilinear := filledCanvas(canvasW, canvasH, background)
+	compositeDocumentToViewport(bilinear, canvasW, canvasH, doc, &ViewportState{CenterX: 1.03, CenterY: 0.5, Zoom: 3.99}, surf)
+	foundInterpolated := false
+	for x := 0; x < canvasW; x++ {
+		i := (canvasW + x) * 4
+		if bilinear[i] != 0 && bilinear[i+1] != 0 {
+			foundInterpolated = true
+			break
+		}
+	}
+	if !foundInterpolated {
+		t.Fatal("zoom below 4x did not use bilinear filtering")
+	}
+}

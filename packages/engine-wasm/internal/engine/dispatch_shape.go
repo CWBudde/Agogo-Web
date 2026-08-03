@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 
+	agg "github.com/cwbudde/agg_go"
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 	docpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/document"
 )
@@ -249,8 +250,13 @@ func (inst *instance) drawShape(p DrawShapePayload) error {
 			if err != nil {
 				return err
 			}
-			compositeOver(px.Pixels, rgba, px.Bounds.W, px.Bounds.H)
-			return nil
+			return compositeImageStraight(
+				px.Pixels, px.Bounds.W, px.Bounds.H,
+				rgba, px.Bounds.W, px.Bounds.H,
+				agg.Rect{X2: px.Bounds.W, Y2: px.Bounds.H}, agg.PointI{},
+				BlendModeNormal, 1,
+				nil, agg.PointI{}, nil, offsetDissolveSeed(px.Bounds.X, px.Bounds.Y),
+			)
 		})
 
 	default: // "shape"
@@ -358,34 +364,4 @@ func customShapeHasHandles(point PathPoint) bool {
 	return point.HandleType != HandleCorner ||
 		point.InX != point.X || point.InY != point.Y ||
 		point.OutX != point.X || point.OutY != point.Y
-}
-
-// compositeOver alpha-composites src over dst in-place (both are w*h*4 RGBA).
-func compositeOver(dst, src []byte, w, h int) {
-	n := w * h * 4
-	if len(dst) < n || len(src) < n {
-		return
-	}
-	for i := 0; i < n; i += 4 {
-		sa := uint32(src[i+3])
-		if sa == 0 {
-			continue
-		}
-		if sa == 255 {
-			dst[i] = src[i]
-			dst[i+1] = src[i+1]
-			dst[i+2] = src[i+2]
-			dst[i+3] = 255
-			continue
-		}
-		da := uint32(dst[i+3])
-		outA := sa + da*(255-sa)/255
-		if outA == 0 {
-			continue
-		}
-		dst[i] = uint8((uint32(src[i])*sa + uint32(dst[i])*da*(255-sa)/255) / outA)
-		dst[i+1] = uint8((uint32(src[i+1])*sa + uint32(dst[i+1])*da*(255-sa)/255) / outA)
-		dst[i+2] = uint8((uint32(src[i+2])*sa + uint32(dst[i+2])*da*(255-sa)/255) / outA)
-		dst[i+3] = uint8(outA)
-	}
 }

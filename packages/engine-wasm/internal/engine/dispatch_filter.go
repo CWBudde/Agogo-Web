@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	agg "github.com/cwbudde/agg_go"
 	cmdpkg "github.com/cwbudde/agogo-web/packages/engine-wasm/internal/command"
 )
 
@@ -434,18 +435,20 @@ func (inst *instance) handleFadeFilter(payload FadeFilterPayload) (bool, error) 
 		filtered := append([]byte(nil), pl.Pixels...)
 
 		// Start with original pixels as the base, then composite the filtered
-		// result on top using the requested opacity and blend mode. The
-		// dissolve noise seed must use the same per-pixel convention as layer
-		// compositing (pixelNoiseSeed of document coordinates) — the flat byte
-		// index normalizes to ~0 against 2^32, which made dissolve degenerate
-		// to "always on" for every pixel.
+		// result through agg_go. The seed callback translates layer-local
+		// coordinates back to document space so Fade's Dissolve pattern is
+		// stable across clipping and layer movement.
 		copy(pl.Pixels, orig)
 		lw := pl.Bounds.W
-		for i := 0; i < len(pl.Pixels); i += 4 {
-			px := (i / 4) % lw
-			py := (i / 4) / lw
-			seed := pixelNoiseSeed(pl.Bounds.X+px, pl.Bounds.Y+py)
-			compositePixelWithBlend(pl.Pixels[i:i+4], filtered[i:i+4], blendMode, opacity, seed)
+		lh := pl.Bounds.H
+		if err := compositeImageStraight(
+			pl.Pixels, lw, lh,
+			filtered, lw, lh,
+			agg.Rect{X2: lw, Y2: lh}, agg.PointI{},
+			blendMode, opacity,
+			nil, agg.PointI{}, nil, offsetDissolveSeed(pl.Bounds.X, pl.Bounds.Y),
+		); err != nil {
+			return fmt.Errorf("fade filter composite: %w", err)
 		}
 
 		doc.touchModifiedAtLayer(pl)
