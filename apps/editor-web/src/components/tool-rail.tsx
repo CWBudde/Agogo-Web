@@ -16,35 +16,37 @@ export function ToolRail() {
   const activateTool = useActivateTool();
 
   return (
-    <aside className="editor-chrome editor-toolrail flex min-h-[36rem] flex-col items-center gap-[var(--ui-gap-1)] border-r border-border px-[var(--ui-gap-1)] py-[var(--ui-gap-2)]">
-      {toolItems.map((tool) => {
-        const active = (isPanMode && tool.id === "hand") || activeTool === tool.id;
-        const ToolIcon = tool.Icon;
-        return (
-          <button
-            key={tool.id}
-            type="button"
-            className={[
-              "flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] font-semibold transition focus-visible:outline-none",
-              active
-                ? "bg-cyan-400/14 text-cyan-100"
-                : "bg-transparent text-slate-400 hover:bg-white/6 hover:text-slate-100",
-            ].join(" ")}
-            title={tool.label}
-            aria-label={tool.label}
-            aria-pressed={active}
-            onClick={() => activateTool(tool.id)}
-          >
-            <ToolIcon className="h-4 w-4" />
-          </button>
-        );
-      })}
+    <aside className="editor-chrome editor-toolrail flex min-h-0 flex-col items-center border-r border-border px-1 py-1.5">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto overflow-x-hidden pb-2">
+        {toolItems.map((tool) => {
+          const active = (isPanMode && tool.id === "hand") || activeTool === tool.id;
+          const ToolIcon = tool.Icon;
+          return (
+            <button
+              key={tool.id}
+              type="button"
+              className={[
+                "relative flex h-9 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-md)] transition focus-visible:outline-none",
+                active
+                  ? "bg-accent/16 text-accent shadow-[inset_2px_0_0_hsl(var(--accent)),0_0_18px_hsl(var(--accent)/0.06)]"
+                  : "bg-transparent text-muted-foreground hover:bg-white/8 hover:text-white",
+              ].join(" ")}
+              title={tool.label}
+              aria-label={tool.label}
+              aria-pressed={active}
+              onClick={() => activateTool(tool.id)}
+            >
+              <ToolIcon className="h-[18px] w-[18px]" />
+            </button>
+          );
+        })}
+      </div>
       {/* Foreground / background color swatches */}
-      <div className="relative mt-auto mb-1 flex h-10 w-10 flex-shrink-0 items-end justify-end">
+      <div className="relative mt-1 mb-1 flex h-10 w-10 flex-shrink-0 items-end justify-end">
         {/* Background swatch (behind) */}
         <button
           type="button"
-          className="absolute bottom-0 right-0 h-6 w-6 rounded-sm border border-border"
+          className="absolute right-0 bottom-0 h-6 w-6 rounded-[var(--ui-radius-sm)] border-2 border-panel shadow-md"
           style={{ backgroundColor: rgbaToCss(backgroundColor) }}
           title="Background color"
           aria-label="Background color"
@@ -53,7 +55,7 @@ export function ToolRail() {
         {/* Foreground swatch (front) */}
         <button
           type="button"
-          className="absolute left-0 top-0 h-6 w-6 rounded-sm border border-border"
+          className="absolute top-0 left-0 h-6 w-6 rounded-[var(--ui-radius-sm)] border-2 border-panel shadow-md"
           style={{ backgroundColor: rgbaToCss(foregroundColor) }}
           title="Foreground color"
           aria-label="Foreground color"

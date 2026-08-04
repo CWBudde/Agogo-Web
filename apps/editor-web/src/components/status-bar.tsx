@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { CursorPositionIcon, FileImageIcon, ZoomStatusIcon } from "@/components/editor-icons";
 import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { useCursorState } from "@/state/view-state";
@@ -40,13 +41,19 @@ export function StatusBar({ documentName }: { documentName: string }) {
   }
 
   return (
-    <footer className="editor-footerbar flex h-[28px] items-center justify-between gap-3 border-t border-border px-2 text-[11px] text-muted-foreground/70">
-      <div className="flex items-center gap-2 overflow-hidden">
-        <span className="truncate text-muted-foreground">{documentName}.agp</span>
+    <footer className="editor-footerbar flex h-[30px] shrink-0 items-center justify-between gap-3 border-t border-border px-2.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2.5 overflow-hidden">
+        <span className="flex items-center gap-1.5 truncate text-foreground/90">
+          <FileImageIcon className="h-3.5 w-3.5 shrink-0 text-accent" />
+          {documentName}.agp
+        </span>
         <Separator orientation="vertical" className="h-3 bg-border" />
         <span>{documentSize}</span>
         <Separator orientation="vertical" className="h-3 bg-border" />
-        <span>{cursorText}</span>
+        <span className="flex items-center gap-1.5">
+          <CursorPositionIcon className="h-3.5 w-3.5" />
+          {cursorText}
+        </span>
       </div>
       <div className="relative flex items-center gap-2">
         {zoomMenuOpen && (
@@ -75,11 +82,12 @@ export function StatusBar({ documentName }: { documentName: string }) {
         )}
         <button
           type="button"
-          className="cursor-pointer select-none tabular-nums text-foreground hover:text-white"
+          className="flex cursor-pointer select-none items-center gap-1.5 rounded px-1.5 py-0.5 font-medium tabular-nums text-foreground hover:bg-white/8 hover:text-white"
           onClick={handleZoomClick}
           onDoubleClick={handleZoomDoubleClick}
           title="Click for zoom options · Double-click to reset to 100%"
         >
+          <ZoomStatusIcon className="h-3.5 w-3.5 text-accent" />
           {zoomPercent}
         </button>
       </div>

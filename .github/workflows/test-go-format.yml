@@ -10,9 +10,9 @@ jobs:
   go-format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: packages/engine-wasm/go.mod
           cache-dependency-path: packages/engine-wasm/go.sum
@@ -33,7 +33,7 @@ jobs:
         run: go install mvdan.cc/sh/v3/cmd/shfmt@v3.12.0
 
       - name: Setup just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Check formatting
         run: just check-formatted

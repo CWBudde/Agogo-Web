@@ -10,9 +10,9 @@ jobs:
   go-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: packages/engine-wasm/go.mod
           cache-dependency-path: packages/engine-wasm/go.sum
@@ -36,7 +36,7 @@ jobs:
         working-directory: packages/engine-wasm
 
       - name: Upload coverage profile
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: packages/engine-wasm/coverage.out

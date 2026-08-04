@@ -156,24 +156,29 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
   };
 
   return (
-    <header className="editor-titlebar flex h-[34px] items-center justify-between gap-3 border-b border-border px-2">
+    <header className="editor-titlebar flex h-[42px] shrink-0 items-center justify-between gap-3 border-b border-border px-2.5">
       <div
         ref={menuBarRef}
-        className="flex min-w-0 flex-nowrap items-center gap-3 overflow-visible"
+        className="flex min-w-0 flex-nowrap items-center gap-4 overflow-visible"
       >
-        <div className="flex shrink-0 items-center gap-2 pr-3">
-          <div className="flex h-5 w-5 items-center justify-center rounded-[var(--ui-radius-sm)] bg-cyan-400/95 text-[11px] font-black text-slate-950">
+        <div className="flex shrink-0 items-center gap-2.5 pr-3">
+          <div className="flex h-7 w-7 items-center justify-center rounded-[var(--ui-radius-md)] bg-[linear-gradient(135deg,hsl(var(--accent)),hsl(var(--highlight)))] text-[13px] font-black text-slate-950 shadow-[0_0_18px_hsl(var(--accent)/0.18)]">
             A
           </div>
-          <span className="font-serif text-[12px] font-semibold italic tracking-[0.01em] text-white">
-            Agogo Studio
-          </span>
+          <div className="leading-none">
+            <span className="block text-[13px] font-semibold tracking-[0.01em] text-white">
+              Agogo
+            </span>
+            <span className="mt-1 block text-[9px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+              Studio
+            </span>
+          </div>
         </div>
 
         <div
           role="menubar"
           aria-label="Application menu"
-          className="flex min-w-0 flex-nowrap items-center gap-1 border-l border-white/8 pl-3"
+          className="flex min-w-0 flex-nowrap items-center gap-0.5 border-l border-white/10 pl-3"
           onKeyDown={handleMenubarKeyDown}
         >
           {menuItems.map((menu, menuIndex) => {
@@ -185,8 +190,10 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
                   role="menuitem"
                   tabIndex={menuIndex === menubarFocusIndex ? 0 : -1}
                   className={[
-                    "px-1.5 py-1 text-[12px] transition focus-visible:bg-white/6 focus-visible:outline-none",
-                    isOpen ? "text-white" : "text-slate-400 hover:text-slate-100",
+                    "rounded-[var(--ui-radius-sm)] px-2 py-1.5 text-[12px] transition focus-visible:bg-white/8 focus-visible:outline-none",
+                    isOpen
+                      ? "bg-white/8 text-white"
+                      : "text-muted-foreground hover:bg-white/5 hover:text-white",
                   ].join(" ")}
                   aria-expanded={isOpen}
                   aria-haspopup="menu"
@@ -219,29 +226,40 @@ export function MenuBar({ io }: { io: MenuActionIO }) {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        <Button variant="ghost" size="sm" onClick={io.openProjectPicker}>
-          <OpenFolderIcon className="mr-1.5 h-3.5 w-3.5" />
-          Open
+        <Button variant="ghost" size="sm" title="Open file" onClick={io.openProjectPicker}>
+          <OpenFolderIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">Open</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => io.saveDocument("archive")}>
-          <SaveIcon className="mr-1.5 h-3.5 w-3.5" />
-          Save
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Save document"
+          onClick={() => io.saveDocument("archive")}
+        >
+          <SaveIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">Save</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={openNewDocumentDialog}>
-          <NewDocumentIcon className="mr-1.5 h-3.5 w-3.5" />
-          New
+        <Button variant="ghost" size="sm" title="New document" onClick={openNewDocumentDialog}>
+          <NewDocumentIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">New</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => engine.fitToView()}>
-          <FitScreenIcon className="mr-1.5 h-3.5 w-3.5" />
-          Fit
+        <Button variant="ghost" size="sm" title="Fit to screen" onClick={() => engine.fitToView()}>
+          <FitScreenIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">Fit</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => engine.undo()} disabled={!canUndo}>
-          <UndoIcon className="mr-1.5 h-3.5 w-3.5" />
-          Undo
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Undo"
+          onClick={() => engine.undo()}
+          disabled={!canUndo}
+        >
+          <UndoIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">Undo</span>
         </Button>
-        <Button size="sm" onClick={() => engine.redo()} disabled={!canRedo}>
-          <RedoIcon className="mr-1.5 h-3.5 w-3.5" />
-          Redo
+        <Button size="sm" title="Redo" onClick={() => engine.redo()} disabled={!canRedo}>
+          <RedoIcon className="h-3.5 w-3.5 xl:mr-1.5" />
+          <span className="hidden xl:inline">Redo</span>
         </Button>
       </div>
     </header>

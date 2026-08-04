@@ -1,5 +1,6 @@
 import { CommandID } from "@agogo/proto";
 import { useEffect } from "react";
+import { FileImageIcon } from "@/components/editor-icons";
 import { useEngine } from "@/wasm/context";
 import { useUiMeta } from "@/wasm/use-engine-render";
 
@@ -40,7 +41,7 @@ export function DocumentTabs() {
     <div
       role="tablist"
       aria-label="Open documents"
-      className="editor-chrome flex min-h-8 overflow-x-auto border-b border-border bg-panel"
+      className="editor-chrome flex min-h-9 shrink-0 overflow-x-auto border-b border-border bg-panel-soft"
     >
       {documents.map((document) => (
         <div
@@ -48,8 +49,10 @@ export function DocumentTabs() {
           role="tab"
           aria-selected={document.active}
           tabIndex={document.active ? 0 : -1}
-          className={`group flex min-w-32 max-w-64 items-center border-r border-border px-2 text-xs ${
-            document.active ? "bg-background text-foreground" : "bg-panel text-muted-foreground"
+          className={`group relative flex min-w-36 max-w-64 items-center gap-2 border-r border-border px-3 text-xs transition ${
+            document.active
+              ? "bg-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-accent"
+              : "bg-panel text-muted-foreground hover:bg-panel-strong hover:text-foreground"
           }`}
           onClick={() => {
             if (!document.active) {
@@ -69,7 +72,8 @@ export function DocumentTabs() {
             }
           }}
         >
-          <span className="truncate">
+          <FileImageIcon className="h-3.5 w-3.5 shrink-0 text-accent/80" />
+          <span className="truncate font-medium">
             {document.name}
             {document.modified ? " •" : ""}
           </span>

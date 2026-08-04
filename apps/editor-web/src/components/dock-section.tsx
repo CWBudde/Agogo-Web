@@ -24,11 +24,13 @@ export function DockSection({
   children: ReactNode;
 }) {
   return (
-    <section className={className}>
-      <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
-        <h2 className="text-[12px] font-medium text-slate-100">{title}</h2>
+    <section
+      className={["flex min-h-0 flex-col overflow-hidden", className].filter(Boolean).join(" ")}
+    >
+      <div className="flex min-h-9 items-center border-b border-border bg-black/10 px-3 py-2">
+        <h2 className="text-[12px] font-semibold tracking-[0.01em] text-foreground">{title}</h2>
       </div>
-      <div className="h-[calc(100%-33px)] min-h-0 p-[var(--ui-gap-2)]">{children}</div>
+      <div className="min-h-0 flex-1 overflow-auto p-1.5">{children}</div>
     </section>
   );
 }

@@ -357,3 +357,114 @@ export function DirectSelectIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+export function FileImageIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 3.5h8l4 4v13H6z" />
+      <path d="M14 3.5v4h4" />
+      <circle cx="10" cy="11" r="1.4" />
+      <path d="m8 18 3.2-3.2 2.1 2.1 1.4-1.4 3.3 3.3" />
+    </IconBase>
+  );
+}
+
+export function CursorPositionIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 3v3" />
+      <path d="M12 18v3" />
+      <path d="M3 12h3" />
+      <path d="M18 12h3" />
+      <circle cx="12" cy="12" r="3.5" />
+    </IconBase>
+  );
+}
+
+export function ZoomStatusIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="10.5" cy="10.5" r="5.5" />
+      <path d="m15 15 5 5" />
+    </IconBase>
+  );
+}
+
+export function AdjustmentsIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none" opacity="0.7" />
+    </IconBase>
+  );
+}
+
+export function StylesIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m12 3 1.5 4.2L18 9l-4.2 1.7L12 15l-1.8-4.3L6 9l4.5-1.8z" />
+      <path d="m18.5 14 .8 2.2 2.2.8-2.2.9-.8 2.1-.9-2.1-2.1-.9 2.1-.8z" />
+      <path d="m5 14 .7 1.8 1.8.7-1.8.7L5 19l-.8-1.8-1.7-.7 1.7-.7z" />
+    </IconBase>
+  );
+}
+
+export function PaletteIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 4a8 8 0 1 0 0 16h1.3c1.1 0 1.7-1.2 1.1-2.1-.7-1.1.1-2.4 1.4-2.4H18a2 2 0 0 0 2-2A9.1 9.1 0 0 0 12 4Z" />
+      <circle cx="8" cy="10" r="1" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="7.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="14" r="1" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+export function SwatchesIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
+    </IconBase>
+  );
+}
+
+export function ChannelsIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="9" cy="10" r="5" />
+      <circle cx="15" cy="10" r="5" />
+      <circle cx="12" cy="15" r="5" />
+    </IconBase>
+  );
+}
+
+export function NavigatorIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9z" />
+    </IconBase>
+  );
+}
+
+export function CollapsePanelIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m14 7-5 5 5 5" />
+      <path d="M19 5v14" />
+    </IconBase>
+  );
+}
+
+export function ExpandPanelIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m10 7 5 5-5 5" />
+      <path d="M5 5v14" />
+    </IconBase>
+  );
+}

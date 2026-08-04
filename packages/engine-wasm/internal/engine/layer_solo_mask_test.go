@@ -121,7 +121,7 @@ func TestLayerMaskDensityFeatherRenderCacheMetaCloneAndArchive(t *testing.T) {
 	doc.ActiveLayerID = layer.ID()
 
 	effective := effectiveRasterMask(layer.Mask())
-	if effective.Data[0] <= 127 || effective.Data[0] >= 255 || effective.Data[1] <= effective.Data[0] {
+	if effective.Data[0] <= 127 || effective.Data[0] == 255 || effective.Data[1] <= effective.Data[0] {
 		t.Fatalf("unexpected feather+density coverage %v", effective.Data)
 	}
 	if got := layer.Mask().Data; got[0] != 0 || got[1] != 255 || got[2] != 0 {

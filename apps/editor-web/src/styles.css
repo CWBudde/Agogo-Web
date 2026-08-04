@@ -2,25 +2,26 @@
 
 :root {
   color-scheme: dark;
-  --background: 220 18% 9%;
-  --foreground: 210 24% 93%;
-  --panel: 220 14% 15%;
-  --panel-strong: 220 12% 18%;
-  --panel-soft: 220 11% 13%;
-  --chrome: 220 13% 17%;
-  --titlebar: 220 14% 14%;
-  --chrome-strong: 220 12% 20%;
-  --canvas-stage: 220 15% 10%;
-  --muted: 220 10% 21%;
-  --muted-foreground: 216 10% 66%;
-  --border: 220 11% 24%;
-  --ring: 197 92% 54%;
-  --accent: 197 92% 54%;
-  --accent-foreground: 220 20% 8%;
+  --background: 224 29% 8%;
+  --foreground: 213 32% 96%;
+  --panel: 223 22% 14%;
+  --panel-strong: 222 20% 18%;
+  --panel-soft: 225 25% 11%;
+  --chrome: 224 23% 12%;
+  --titlebar: 225 30% 8%;
+  --chrome-strong: 221 19% 21%;
+  --canvas-stage: 225 29% 7%;
+  --muted: 221 17% 24%;
+  --muted-foreground: 215 18% 75%;
+  --border: 220 17% 29%;
+  --ring: 188 94% 57%;
+  --accent: 188 94% 57%;
+  --accent-foreground: 225 34% 7%;
+  --highlight: 265 89% 70%;
   --success: 157 74% 47%;
   --warning: 39 100% 62%;
-  --radius-panel: 3px;
-  --radius-control: 2px;
+  --radius-panel: 8px;
+  --radius-control: 6px;
   --ui-gap-1: 2px;
   --ui-gap-2: 4px;
   --ui-gap-3: 6px;
@@ -31,10 +32,10 @@
   --ui-h-sm: 28px;
   --ui-h-md: 32px;
   --ui-h-lg: 36px;
-  --ui-radius-sm: 2px;
-  --ui-radius-md: 3px;
-  --ui-radius-lg: 4px;
-  --shadow-elevated: 0 8px 20px rgba(0, 0, 0, 0.24);
+  --ui-radius-sm: 4px;
+  --ui-radius-md: 6px;
+  --ui-radius-lg: 8px;
+  --shadow-elevated: 0 18px 50px rgba(0, 0, 0, 0.42);
 }
 
 .light {
@@ -68,6 +69,7 @@
   --color-ring: hsl(var(--ring));
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-highlight: hsl(var(--highlight));
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
   --font-sans:
@@ -89,11 +91,33 @@
   }
 
   body {
-    @apply min-h-screen bg-background font-sans text-foreground;
+    @apply min-h-screen overflow-hidden bg-background font-sans text-foreground;
   }
 
   button {
     @apply select-none;
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.3);
+    color: hsl(var(--foreground));
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.32);
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.48);
+    background-clip: padding-box;
   }
 
   :where(button, input, select, [role="treeitem"]):focus-visible {
@@ -109,8 +133,8 @@
 
 .editor-checkerboard {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .editor-chrome {
@@ -118,7 +142,10 @@
 }
 
 .editor-titlebar {
-  background: linear-gradient(180deg, hsl(var(--titlebar)), hsl(var(--chrome)));
+  background:
+    linear-gradient(90deg, hsl(var(--accent) / 0.05), transparent 26%),
+    linear-gradient(180deg, hsl(var(--titlebar)), hsl(var(--chrome)));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .editor-footerbar {
@@ -126,24 +153,21 @@
 }
 
 .editor-toolrail {
-  background: linear-gradient(
-    180deg,
-    hsl(var(--chrome)),
-    hsl(var(--panel-soft))
-  );
+  background:
+    linear-gradient(180deg, hsl(var(--accent) / 0.035), transparent 30%),
+    linear-gradient(180deg, hsl(var(--chrome)), hsl(var(--panel-soft)));
 }
 
 .editor-panel {
-  background: linear-gradient(
-    180deg,
-    hsl(var(--panel)),
-    hsl(var(--panel-soft))
-  );
+  background:
+    linear-gradient(135deg, hsl(var(--highlight) / 0.025), transparent 38%),
+    linear-gradient(180deg, hsl(var(--panel)), hsl(var(--panel-soft)));
 }
 
 .editor-stage {
   background:
-    radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 28%),
+    radial-gradient(circle at 25% 0%, hsl(var(--accent) / 0.12), transparent 34%),
+    radial-gradient(circle at 78% 14%, hsl(var(--highlight) / 0.08), transparent 28%),
     hsl(var(--canvas-stage));
 }
 
@@ -157,7 +181,7 @@
     hsl(var(--panel-strong)),
     hsl(var(--panel))
   );
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid hsl(var(--border));
   box-shadow: var(--shadow-elevated);
 }
 

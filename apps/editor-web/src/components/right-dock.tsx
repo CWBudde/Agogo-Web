@@ -9,6 +9,22 @@ import {
 import { ChannelsPanel } from "@/components/channels-panel";
 import { CompactRange } from "@/components/compact-range";
 import { type AuxPanel, DockSection, dockTitle } from "@/components/dock-section";
+import {
+  AdjustmentsIcon,
+  BrushToolIcon,
+  ChannelsIcon,
+  CollapsePanelIcon,
+  ExpandPanelIcon,
+  InfoIcon,
+  NavigatorIcon,
+  PaletteIcon,
+  PenToolIcon,
+  ShapeToolIcon,
+  SlidersIcon,
+  StylesIcon,
+  SwatchesIcon,
+  UndoIcon,
+} from "@/components/editor-icons";
 import { InfoPanel } from "@/components/info-panel";
 import { LayersPanel } from "@/components/layers-panel";
 import { NavigatorPreview } from "@/components/navigator-preview";
@@ -33,6 +49,21 @@ import { useEngine } from "@/wasm/context";
 import { useEngineRender } from "@/wasm/use-engine-render";
 
 const MAX_SWATCHES = 96;
+
+const dockItems = [
+  { id: "properties", label: "Properties", Icon: SlidersIcon },
+  { id: "info", label: "Info", Icon: InfoIcon },
+  { id: "adjustments", label: "Adjustments", Icon: AdjustmentsIcon },
+  { id: "styles", label: "Styles", Icon: StylesIcon },
+  { id: "brush", label: "Brush", Icon: BrushToolIcon },
+  { id: "color", label: "Color", Icon: PaletteIcon },
+  { id: "swatches", label: "Swatches", Icon: SwatchesIcon },
+  { id: "channels", label: "Channels", Icon: ChannelsIcon },
+  { id: "paths", label: "Paths", Icon: PenToolIcon },
+  { id: "shapes", label: "Shapes", Icon: ShapeToolIcon },
+  { id: "history", label: "History", Icon: UndoIcon },
+  { id: "navigator", label: "Navigator", Icon: NavigatorIcon },
+] satisfies ReadonlyArray<{ id: AuxPanel; label: string; Icon: typeof SlidersIcon }>;
 
 interface RightDockProps {
   draft: CreateDocumentCommand;
@@ -187,7 +218,7 @@ export function RightDock({
   const setActiveColor = (next: Rgba) => applyColorToTarget(colorPickerTarget, next);
 
   return (
-    <aside className="relative min-h-[36rem]">
+    <aside className="relative min-h-0">
       <div
         className="absolute inset-y-[var(--ui-gap-2)] left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize"
         onPointerDown={(event) => {
@@ -209,72 +240,70 @@ export function RightDock({
       />
 
       {panelCollapsed ? (
-        <div className="editor-panel flex h-full flex-col items-center gap-[var(--ui-gap-1)] border-l border-border px-[var(--ui-gap-1)] py-[var(--ui-gap-2)]">
+        <div className="editor-panel flex h-full min-h-0 flex-col items-center gap-0.5 overflow-y-auto border-l border-border px-1 py-1.5">
           <Button
             variant="ghost"
             size="icon"
-            className="text-[11px]"
+            className="mb-1 h-8 w-8 text-accent"
             aria-label="Expand panel"
             onClick={() => setPanelCollapsed(false)}
           >
-            »
+            <ExpandPanelIcon className="h-4 w-4" />
           </Button>
-          {["P", "C", "H", "N", "L"].map((label) => (
-            <div
-              key={label}
-              className="flex h-8 w-8 items-center justify-center rounded-[1px] text-[11px] text-slate-400"
+          {dockItems.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={[
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-md)] transition",
+                activeAuxPanel === id
+                  ? "bg-accent/15 text-accent"
+                  : "text-muted-foreground hover:bg-white/8 hover:text-white",
+              ].join(" ")}
+              title={label}
+              aria-label={`Open ${label} panel`}
+              onClick={() => {
+                setActiveAuxPanel(id);
+                setPanelCollapsed(false);
+              }}
             >
-              {label}
-            </div>
+              <Icon className="h-4 w-4" />
+            </button>
           ))}
         </div>
       ) : (
         <div className="editor-panel flex h-full flex-col overflow-hidden border-l border-border">
-          <div className="border-b border-border px-[var(--ui-gap-2)] py-[var(--ui-gap-2)]">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-[var(--ui-gap-1)] overflow-x-auto pb-1">
-                {[
-                  ["properties", "Properties"],
-                  ["info", "Info"],
-                  ["adjustments", "Adjust"],
-                  ["styles", "Styles"],
-                  ["brush", "Brush"],
-                  ["color", "Color"],
-                  ["swatches", "Swatches"],
-                  ["channels", "Channels"],
-                  ["paths", "Paths"],
-                  ["shapes", "Shapes"],
-                  ["history", "History"],
-                  ["navigator", "Navigator"],
-                ].map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={[
-                      "rounded-[1px] border px-2 py-1 text-[11px] transition focus-visible:outline-none",
-                      activeAuxPanel === id
-                        ? "border-white/12 bg-panel-soft text-slate-100"
-                        : "border-transparent text-slate-400 hover:border-white/8 hover:bg-white/5 hover:text-slate-200",
-                    ].join(" ")}
-                    onClick={() => setActiveAuxPanel(id as AuxPanel)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-[11px]"
-                aria-label="Collapse panel"
-                onClick={() => setPanelCollapsed(true)}
+          <div className="grid grid-cols-7 gap-1 border-b border-border bg-black/10 p-1.5">
+            {dockItems.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={[
+                  "relative flex h-8 items-center justify-center rounded-[var(--ui-radius-md)] border transition focus-visible:outline-none",
+                  activeAuxPanel === id
+                    ? "border-accent/35 bg-accent/14 text-accent shadow-[0_0_14px_hsl(var(--accent)/0.05)]"
+                    : "border-transparent text-muted-foreground hover:border-white/10 hover:bg-white/7 hover:text-white",
+                ].join(" ")}
+                title={label}
+                aria-label={`Show ${label} panel`}
+                aria-pressed={activeAuxPanel === id}
+                onClick={() => setActiveAuxPanel(id)}
               >
-                «
-              </Button>
-            </div>
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-full text-muted-foreground"
+              aria-label="Collapse panel"
+              onClick={() => setPanelCollapsed(true)}
+            >
+              <CollapsePanelIcon className="h-4 w-4" />
+            </Button>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-rows-[minmax(15rem,18rem)_minmax(0,1fr)]">
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(14rem,18rem)_minmax(0,1fr)]">
             <DockSection title={dockTitle(activeAuxPanel)}>
               {activeAuxPanel === "properties" ? (
                 <AdjPropertiesPanel

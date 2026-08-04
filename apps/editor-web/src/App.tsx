@@ -20,6 +20,7 @@ import { ModifyDialog, type ModifyKind } from "@/components/dialogs/modify-dialo
 import { NewDocumentDialog } from "@/components/dialogs/new-document-dialog";
 import { OpenRecentDialog } from "@/components/dialogs/open-recent-dialog";
 import { SaveSelectionDialog } from "@/components/dialogs/save-selection-dialog";
+import { DocumentTabs } from "@/components/document-tabs";
 import { EngineLoadErrorScreen } from "@/components/engine-load-error";
 import { FilterDialogHost } from "@/components/filters/filter-dialog-host";
 import { GradientEditorDialog } from "@/components/gradient-editor";
@@ -37,7 +38,6 @@ import {
 import { ToolRail } from "@/components/tool-rail";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { DocumentTabs } from "@/components/document-tabs";
 import { ToastViewport } from "@/components/ui/toast";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
@@ -233,7 +233,7 @@ export default function App() {
   const setActiveColor = (next: Rgba) => applyColorToTarget(colorPickerTarget, next);
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#202329_0%,#171a1f_100%)] text-slate-100">
+    <div className="h-screen overflow-hidden bg-background text-foreground">
       <input
         ref={documentIo.brushPresetInputRef}
         type="file"
@@ -263,8 +263,8 @@ export default function App() {
         onChange={documentIo.handleProjectInputChange}
       />
 
-      <div className="mx-auto min-h-screen max-w-[1920px] px-0">
-        <div className="flex min-h-screen flex-col bg-[#1d2026]">
+      <div className="mx-auto h-full max-w-[1920px] px-0">
+        <div className="flex h-full min-h-0 flex-col bg-background">
           <MenuBar io={menuIO} />
 
           {documentIo.hasAutosave && engine.status === "ready" ? (
@@ -318,12 +318,12 @@ export default function App() {
           <section
             className="grid min-h-0 flex-1"
             style={{
-              gridTemplateColumns: `46px minmax(0,1fr) ${panelCollapsed ? "34px" : `${panelWidth}px`}`,
+              gridTemplateColumns: `52px minmax(0,1fr) ${panelCollapsed ? "44px" : `${panelWidth}px`}`,
             }}
           >
             <ToolRail />
 
-            <main className="editor-stage flex min-w-0 min-h-[36rem] flex-col p-[var(--ui-gap-2)]">
+            <main className="editor-stage flex min-h-0 min-w-0 flex-col p-[var(--ui-gap-2)]">
               <section
                 className={`min-h-0 flex-1 pt-[var(--ui-gap-2)]${documentIo.isDragOver && hasDocument ? " ring-2 ring-inset ring-blue-500" : ""}`}
                 aria-label="Canvas drop zone"
