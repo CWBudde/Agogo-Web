@@ -530,6 +530,207 @@ func TestCompareRecordsNilExpectationAssertsNothing(t *testing.T) {
 	assertClean(t, CompareRecords(sampleExpectation(), []RecordView{{Name: "anything"}}))
 }
 
+// reexportRecordCase is the closed-folder scenario in miniature: the writer
+// re-opens a closed folder because the engine model cannot store the flag, and
+// only the record leg can see it.
+func reexportRecordCase() (Expectation, []RecordView) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{
+		{Index: 0, Name: strPtr("Open Folder"), SectionType: intPtr(1)},
+		{Index: 1, Name: strPtr("Closed Folder"), SectionType: intPtr(2)},
+	}
+	exp.Writer = &WriterExpect{
+		Format: "psd",
+		Expect: "lossy",
+		Lossy:  []string{"psdRecords[1].sectionType"},
+	}
+	records := []RecordView{
+		{Name: "Open Folder", SectionType: 1},
+		{Name: "Closed Folder", SectionType: 1},
+	}
+	return exp, records
+}
+
+// TestCompareReexportRecordsAppliesLossyAllowlist is the assertion the writer
+// harness leans on: the record-scope fields the engine model cannot carry are
+// compared against the EXTERNAL expectation, with the reviewed losses excused
+// and everything else still asserted.
+func TestCompareReexportRecordsAppliesLossyAllowlist(t *testing.T) {
+	exp, records := reexportRecordCase()
+	assertClean(t, CompareReexportRecords(exp, records))
+
+	// The same input without the allowlist must fail, or the allowlist is
+	// excusing nothing and the test above is vacuous.
+	if len(CompareRecords(exp, records)) == 0 {
+		t.Fatal("CompareRecords must still report the lossy path; the fixture proves nothing otherwise")
+	}
+}
+
+func TestCompareReexportRecordsStillAssertsUnlistedFields(t *testing.T) {
+	exp, records := reexportRecordCase()
+	records[0].SectionType = 2
+
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[0].sectionType"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+// TestCompareReexportRecordsReportsStaleLossy closes the loop the other way: a
+// writer fix that makes an allowlisted path match must fail the suite, so the
+// allowlist cannot outlive the defect it documents.
+func TestCompareReexportRecordsReportsStaleLossy(t *testing.T) {
+	exp, records := reexportRecordCase()
+	records[1].SectionType = 2
+
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[1].sectionType"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, "psdRecords[1].sectionType").Detail, "stale") {
+		t.Error("a matched lossy path should be reported as a stale allowlist entry")
+	}
+}
+
+// TestCompareRecordsIgnoresLossyAllowlist keeps the reader leg strict: the
+// allowlist excuses what the WRITER loses, and must never soften the assertion
+// on the fixture as it was authored.
+func TestCompareRecordsIgnoresLossyAllowlist(t *testing.T) {
+	exp, records := reexportRecordCase()
+	want := []string{"psdRecords[1].sectionType"}
+	if got := paths(CompareRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+// TestCompareRecordsAssertsRawBlendKey pins the raw four-character key. The
+// normalised blendMode maps every unrecognised key onto "normal", so a writer
+// emitting the wrong key for the right mode passes on blendMode alone.
+func TestCompareRecordsAssertsRawBlendKey(t *testing.T) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{
+		{Index: 0, BlendMode: strPtr("multiply"), PSDBlendKey: strPtr("mul ")},
+	}
+	assertClean(t, CompareRecords(exp, []RecordView{{BlendMode: "multiply", BlendKey: "mul "}}))
+
+	// Right mode, wrong key: blendMode alone would not catch this.
+	mismatches := CompareRecords(exp, []RecordView{{BlendMode: "multiply", BlendKey: "mul"}})
+	want := []string{"psdRecords[0].psdBlendKey"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	// The padding must be visible, or the failure message reads "mul" vs "mul".
+	if got := findMismatch(t, mismatches, "psdRecords[0].psdBlendKey"); got.Want != `"mul "` || got.Got != `"mul"` {
+		t.Errorf("want/got = %s/%s, want the keys quoted so trailing spaces show", got.Want, got.Got)
+	}
+}
+
+// TestCompareReexportAllReportsUnusedLossy is the guard on the allowlist
+// itself: an entry that addresses no assertion excuses nothing and can never be
+// reported stale, so it would sit there looking like a reviewed exemption.
+func TestCompareReexportAllReportsUnusedLossy(t *testing.T) {
+	exp, records := reexportRecordCase()
+	exp.Writer.Lossy = append(exp.Writer.Lossy, "psdRecords[1].sectionTyp", "layers[99].name")
+
+	mismatches := CompareReexportAll(exp, sampleActual(), records)
+	want := []string{"psdRecords[1].sectionTyp", "layers[99].name"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, "layers[99].name").Detail, "excuses nothing") {
+		t.Error("an unused lossy path should say that it excuses nothing")
+	}
+}
+
+// TestCompareReexportAllAcceptsPathsEitherLegAsserts is why the two legs must
+// share one pass: split apart, the document leg would call every psdRecords
+// entry unused and the record leg every layers entry unused.
+func TestCompareReexportAllAcceptsPathsEitherLegAsserts(t *testing.T) {
+	exp, records := reexportRecordCase()
+	exp.Layers = &[]LayerExpect{{Name: strPtr("wrong")}, {Name: strPtr("Group A")}}
+	exp.Writer.Lossy = append(exp.Writer.Lossy, "layers[0].name")
+
+	// layers[0].name is asserted by the document leg, psdRecords[1].sectionType
+	// by the record leg; neither may be reported unused.
+	assertClean(t, CompareReexportAll(exp, sampleActual(), records))
+}
+
+// channelCase allowlists the ordered channelIds path, the way every fixture
+// does: psdexport emits its own channel order and always writes alpha.
+func channelCase(ids []int) (Expectation, []RecordView) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{{Index: 0, ChannelIDs: intsPtr([]int{-1, 0, 1, 2, -2})}}
+	exp.Writer = &WriterExpect{
+		Format: "psd", Expect: "lossy",
+		Lossy: []string{"psdRecords[0].channelIds"},
+	}
+	return exp, []RecordView{{ChannelIDs: ids}}
+}
+
+// TestChannelIDAllowlistExcusesOrderOnly is the invariant the allowlist must not
+// be able to swallow. Allowlisting a path suppresses the WHOLE assertion, so the
+// ordered channelIds entry alone would also excuse a dropped channel — which is
+// exactly what the sidecars claim is still caught.
+func TestChannelIDAllowlistExcusesOrderOnly(t *testing.T) {
+	// Reordered, plus the alpha psdexport always adds: excused.
+	exp, records := channelCase([]int{0, 1, 2, -1, -2})
+	assertClean(t, CompareReexportRecords(exp, records))
+
+	// The same allowlist must NOT excuse a dropped user mask.
+	exp, records = channelCase([]int{0, 1, 2, -1})
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[0].channelIds.preserved"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, want[0]).Got, "missing [-2]") {
+		t.Error("the failure should name the channel that went missing")
+	}
+
+	// Nor a corrupted ID, even when the count is unchanged.
+	exp, records = channelCase([]int{0, 1, 7, -1, -2})
+	if got := paths(CompareReexportRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+// TestChannelIDSetToleratesOnlyAddedAlpha pins the one gain psdexport is allowed:
+// a flattened source with no alpha gets one, because the engine model is RGBA.
+// Only the re-export leg may tolerate it — the reader leg stays exact, which
+// TestChannelIDAllowlistIsWriterOnly below checks.
+func TestChannelIDSetToleratesOnlyAddedAlpha(t *testing.T) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{{Index: 0, ChannelIDs: intsPtr([]int{0, 1, 2})}}
+	exp.Writer = &WriterExpect{
+		Format: "psd", Expect: "lossy",
+		Lossy: []string{"psdRecords[0].channelIds"},
+	}
+	assertClean(t, CompareReexportRecords(exp, []RecordView{{ChannelIDs: []int{0, 1, 2, -1}}}))
+
+	// Any other gained channel is not excused.
+	mismatches := CompareReexportRecords(exp, []RecordView{{ChannelIDs: []int{0, 1, 2, -1, -3}}})
+	want := []string{"psdRecords[0].channelIds.preserved"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, want[0]).Got, "unexpected [-3]") {
+		t.Error("a gained non-alpha channel should be reported")
+	}
+}
+
+// TestChannelIDAllowlistIsWriterOnly keeps the reader honest: the fixture as
+// authored must match exactly, order included. The allowlist describes what
+// Agogo's WRITER does, and must never soften the reader's assertion.
+func TestChannelIDAllowlistIsWriterOnly(t *testing.T) {
+	exp, records := channelCase([]int{0, 1, 2, -1, -2})
+	want := []string{"psdRecords[0].channelIds"}
+	if got := paths(CompareRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
 func TestMismatchString(t *testing.T) {
 	cases := []struct {
 		mismatch Mismatch

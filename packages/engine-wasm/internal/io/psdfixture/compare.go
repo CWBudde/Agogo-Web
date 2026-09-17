@@ -39,6 +39,8 @@ type RecordView struct {
 	SectionType int
 	PassThrough bool
 	BlendMode   string
+	// BlendKey is the raw four-character PSD key, trailing spaces included.
+	BlendKey string
 	// Opacity is in [0,1]; sidecars store the 0..255 byte and this package
 	// converts at compare time.
 	Opacity           float64
@@ -104,13 +106,41 @@ func CompareReexport(exp Expectation, actual Actual) []Mismatch {
 // CompareRecords checks the flat PSD layer records against the psdRecords
 // scope. Records are compared positionally, in file order.
 func CompareRecords(exp Expectation, records []RecordView) []Mismatch {
+	return compareRecords(exp, records, false)
+}
+
+// CompareReexportRecords checks the flat layer records of a document Agogo
+// WROTE against the same external psdRecords expectation the reader is held to.
+//
+// This is the only assertion that can catch a writer which drops record-level
+// detail: the section-divider type, the mask rectangle and default fill, and
+// the channel IDs never reach the engine model, so CompareReexport — which only
+// sees the reconstructed model — passes whatever the writer does with them.
+// Paths on the reviewed writer.lossy allowlist are not asserted, and a lossy
+// path that unexpectedly matched is reported so the allowlist cannot go stale.
+func CompareReexportRecords(exp Expectation, records []RecordView) []Mismatch {
+	return compareRecords(exp, records, true)
+}
+
+func compareRecords(exp Expectation, records []RecordView, reexport bool) []Mismatch {
 	if exp.Records == nil {
 		return nil
 	}
-	c := newCollector(exp, false)
+	c := newCollector(exp, reexport)
+	compareRecordsInto(c, exp, records)
+	if reexport {
+		c.reportStaleLossy()
+	}
+	return c.out
+}
+
+func compareRecordsInto(c *collector, exp Expectation, records []RecordView) {
+	if exp.Records == nil {
+		return
+	}
 	want := *exp.Records
 	if len(want) != len(records) {
-		c.add(Mismatch{
+		c.addStructural(Mismatch{
 			Path: "psdRecords",
 			Want: strconv.Itoa(len(want)) + " records",
 			Got:  strconv.Itoa(len(records)) + " records",
@@ -119,16 +149,23 @@ func CompareRecords(exp Expectation, records []RecordView) []Mismatch {
 	for i := range want {
 		path := "psdRecords[" + strconv.Itoa(i) + "]"
 		if i >= len(records) {
-			c.add(Mismatch{Path: path, Want: recordLabel(want[i]), Got: "<absent>"})
+			c.addStructural(Mismatch{Path: path, Want: recordLabel(want[i]), Got: "<absent>"})
 			continue
 		}
 		compareRecord(c, path, want[i], i, records[i])
 	}
-	return c.out
 }
 
 func compareImport(exp Expectation, actual Actual, reexport bool) []Mismatch {
 	c := newCollector(exp, reexport)
+	compareImportInto(c, exp, actual)
+	if reexport {
+		c.reportStaleLossy()
+	}
+	return c.out
+}
+
+func compareImportInto(c *collector, exp Expectation, actual Actual) {
 	c.treeDiff = func() string {
 		if exp.Layers == nil {
 			return ""
@@ -144,15 +181,27 @@ func compareImport(exp Expectation, actual Actual, reexport bool) []Mismatch {
 	compareLayerPixels(c, exp.LayerPixels, actual)
 	compareMaskSamples(c, exp.MaskSamples, actual)
 	compareCompositePixels(c, exp.CompositePixels, actual)
+}
 
-	if reexport {
-		for _, path := range c.staleLossy {
-			c.add(Mismatch{
-				Path:   path,
-				Detail: "listed in writer.lossy but matched on re-export; the allowlist is stale, remove this path",
-			})
-		}
-	}
+// CompareReexportAll is the whole writer check: the reconstructed document AND
+// the flat layer records, judged together against the external expectation.
+//
+// The writer harness calls this rather than the two legs separately, because
+// only a single pass over both can account for the ENTIRE writer.lossy
+// allowlist. Split across two calls, each leg sees paths it never asserts —
+// the document leg never touches psdRecords[...], the record leg never touches
+// layers[...] — so neither can tell a path it merely does not own from a path
+// that addresses nothing at all. Together they can, and a path that addresses
+// nothing is reported: a typo, or an entry outliving the field it excused,
+// silently excuses nothing while looking like a reviewed exemption.
+//
+// Pass nil records when the sidecar does not assert the psdRecords scope.
+func CompareReexportAll(exp Expectation, actual Actual, records []RecordView) []Mismatch {
+	c := newCollector(exp, true)
+	compareImportInto(c, exp, actual)
+	compareRecordsInto(c, exp, records)
+	c.reportStaleLossy()
+	c.reportUnusedLossy(exp)
 	return c.out
 }
 
@@ -160,16 +209,24 @@ func compareImport(exp Expectation, actual Actual, reexport bool) []Mismatch {
 // re-export lossy allowlist. Every assertion — passing or failing — goes through
 // emit, because detecting a stale allowlist entry needs the passes too.
 type collector struct {
-	out        []Mismatch
-	gaps       map[string]KnownGap
-	lossy      map[string]struct{}
+	out   []Mismatch
+	gaps  map[string]KnownGap
+	lossy map[string]struct{}
+	// staleLossy holds lossy paths whose assertion PASSED: the writer no longer
+	// loses them and the entry should go.
 	staleLossy []string
-	treeDiff   func() string
-	diffTaken  bool
+	// usedLossy holds every lossy path an assertion was attempted on, passing or
+	// failing. A lossy path missing from it addresses nothing in this sidecar.
+	usedLossy map[string]struct{}
+	treeDiff  func() string
+	diffTaken bool
 }
 
 func newCollector(exp Expectation, reexport bool) *collector {
-	c := &collector{gaps: make(map[string]KnownGap, len(exp.KnownGaps))}
+	c := &collector{
+		gaps:      make(map[string]KnownGap, len(exp.KnownGaps)),
+		usedLossy: make(map[string]struct{}),
+	}
 	for _, gap := range exp.KnownGaps {
 		c.gaps[gap.Path] = gap
 	}
@@ -186,18 +243,60 @@ func (c *collector) add(m Mismatch) {
 	c.out = append(c.out, m)
 }
 
+// reportStaleLossy turns every lossy path that actually matched into a failure.
+// An allowlist entry for a path the writer now reproduces is the same kind of
+// lie as a missing assertion, so it is reported rather than tolerated.
+// reportUnusedLossy fails every writer.lossy path that no assertion in this
+// comparison ever reached. Such an entry looks like a reviewed exemption and is
+// inert: it excuses nothing, and because nothing asserts it, it can never be
+// reported stale either. Only a pass covering both legs can judge this, so it
+// runs from CompareReexportAll alone.
+func (c *collector) reportUnusedLossy(exp Expectation) {
+	if exp.Writer == nil {
+		return
+	}
+	for _, path := range exp.Writer.Lossy {
+		if _, used := c.usedLossy[path]; used {
+			continue
+		}
+		c.add(Mismatch{
+			Path:   path,
+			Detail: "listed in writer.lossy but no assertion addresses this path; it excuses nothing and can never be reported stale - fix the path or remove the entry",
+		})
+	}
+}
+
+func (c *collector) reportStaleLossy() {
+	for _, path := range c.staleLossy {
+		c.add(Mismatch{
+			Path:   path,
+			Detail: "listed in writer.lossy but matched on re-export; the allowlist is stale, remove this path",
+		})
+	}
+}
+
+// isLossy reports whether the path is allowlisted, and records that an
+// assertion on it was reached. Every caller is about to assert the path, so
+// asking the question IS the evidence that the entry addresses something.
 func (c *collector) isLossy(path string) bool {
 	if c.lossy == nil {
 		return false
 	}
-	_, ok := c.lossy[path]
-	return ok
+	if _, ok := c.lossy[path]; !ok {
+		return false
+	}
+	c.usedLossy[path] = struct{}{}
+	return true
 }
 
 // emit records one assertion. A known gap on the path replaces the assertion
 // entirely; a lossy path on a re-export suppresses it and tracks the pass.
 func (c *collector) emit(path string, ok bool, want, got string) {
 	if gap, isGap := c.gaps[path]; isGap {
+		// A known gap overrides the allowlist, but the path is still reachable,
+		// so the lossy entry is redundant rather than dead. Record it as used;
+		// reporting it as addressing nothing would be wrong and confusing.
+		c.isLossy(path)
 		c.emitGap(path, gap, got)
 		return
 	}
@@ -205,6 +304,20 @@ func (c *collector) emit(path string, ok bool, want, got string) {
 		if ok {
 			c.staleLossy = append(c.staleLossy, path)
 		}
+		return
+	}
+	if !ok {
+		c.add(Mismatch{Path: path, Want: want, Got: got})
+	}
+}
+
+// emitStrict records an assertion that writer.lossy must never be able to
+// suppress. It is for invariants a reviewed exemption has no business excusing:
+// an allowlist entry justifies a known DIFFERENCE, never the loss of the data
+// the difference is a spelling of.
+func (c *collector) emitStrict(path string, ok bool, want, got string) {
+	if gap, isGap := c.gaps[path]; isGap {
+		c.emitGap(path, gap, got)
 		return
 	}
 	if !ok {
@@ -399,6 +512,7 @@ func compareRecord(c *collector, path string, exp RecordExpect, slot int, record
 	if exp.ChannelIDs != nil {
 		want := *exp.ChannelIDs
 		c.emit(path+".channelIds", equalInts(want, record.ChannelIDs), fmtInts(want), fmtInts(record.ChannelIDs))
+		compareChannelIDSet(c, path+".channelIds.preserved", want, record.ChannelIDs)
 	}
 	if exp.Opacity255 != nil {
 		compareOpacity(c, path+".opacity255", *exp.Opacity255, record.Opacity)
@@ -412,11 +526,80 @@ func compareRecord(c *collector, path string, exp RecordExpect, slot int, record
 	if exp.BlendMode != nil {
 		c.emit(path+".blendMode", *exp.BlendMode == record.BlendMode, *exp.BlendMode, record.BlendMode)
 	}
+	if exp.PSDBlendKey != nil {
+		c.emit(path+".psdBlendKey", *exp.PSDBlendKey == record.BlendKey, quoteKey(*exp.PSDBlendKey), quoteKey(record.BlendKey))
+	}
 	if exp.UnsupportedBlocks != nil {
 		want := *exp.UnsupportedBlocks
 		c.emit(path+".unsupportedBlocks", equalStrings(want, record.UnsupportedBlocks), fmtList(want), fmtList(record.UnsupportedBlocks))
 	}
 	compareRecordMask(c, path+".mask", exp.Mask, record)
+}
+
+// addedAlphaID is the only channel psdexport may introduce that the source file
+// did not have: the engine model is RGBA, so a flattened source without alpha
+// gains one on write.
+const addedAlphaID = -1
+
+// compareChannelIDSet asserts what the channel allowlist must never excuse: that
+// every channel the source had is still there, and that the only one gained is
+// alpha.
+//
+// The ordered channelIds assertion above is allowlistable, because psdexport
+// emits a fixed order and the PSD spec does not prescribe one. But allowlisting
+// a path suppresses the WHOLE assertion, so on its own it would also excuse a
+// dropped -2 user mask or a corrupted ID — the exact regressions the sidecars
+// claim are still caught. This path is emitted strictly, so no writer.lossy
+// entry can reach it.
+func compareChannelIDSet(c *collector, path string, want, got []int) {
+	present := make(map[int]int, len(got))
+	for _, id := range got {
+		present[id]++
+	}
+	expected := make(map[int]int, len(want))
+	for _, id := range want {
+		expected[id]++
+	}
+
+	var missing, gained []int
+	for _, id := range want {
+		if expected[id] > present[id] {
+			expected[id]--
+			missing = append(missing, id)
+		}
+	}
+	for _, id := range got {
+		if id == addedAlphaID {
+			continue
+		}
+		if present[id] > countInt(want, id) {
+			present[id]--
+			gained = append(gained, id)
+		}
+	}
+
+	var detail []string
+	if len(missing) > 0 {
+		detail = append(detail, "missing "+fmtInts(missing))
+	}
+	if len(gained) > 0 {
+		detail = append(detail, "unexpected "+fmtInts(gained))
+	}
+	if len(detail) == 0 {
+		c.emitStrict(path, true, "", "")
+		return
+	}
+	c.emitStrict(path, false, fmtInts(want)+" preserved", fmtInts(got)+" ("+strings.Join(detail, ", ")+")")
+}
+
+func countInt(values []int, want int) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }
 
 func compareRecordMask(c *collector, path string, exp *MaskExpect, record RecordView) {
@@ -663,6 +846,11 @@ func recordLabel(exp RecordExpect) string {
 	}
 	return "record " + strconv.Itoa(exp.Index)
 }
+
+// quoteKey renders a raw blend key in quotes. The keys are space-padded to four
+// characters, so an unquoted "mul " and "mul" would look identical in a failure
+// message and hide the exact defect this assertion exists to catch.
+func quoteKey(value string) string { return strconv.Quote(value) }
 
 func fmtInt(value int) string { return strconv.Itoa(value) }
 

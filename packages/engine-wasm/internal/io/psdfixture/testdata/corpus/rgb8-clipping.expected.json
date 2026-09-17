@@ -204,15 +204,22 @@
   "writer": {
     "format": "psd",
     "expect": "lossy",
-    "lossy": ["layers[2].bounds", "layerPixels[5]"],
+    "lossy": [
+      "layers[2].bounds",
+      "layerPixels[5]",
+      "psdRecords[0].channelIds",
+      "psdRecords[1].channelIds",
+      "psdRecords[2].channelIds",
+      "psdRecords[2].bounds"
+    ],
+    "lossyReason": "PLAN.md S.10.3: SavePSD hard-clips a clipped layer's stored bounds to the intersection with its clip base - (8,6) 18x14 is re-exported as (8,9) 11x11 - so pixels outside the base are destroyed on save. Photoshop keeps them; moving the base there brings the hidden content back. Verified by reading both the fixture and _dump/rgb8-clipping.reexport.psd with psd-tools. PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2) or with no alpha channel at all, so every re-exported record's channelIds differ in order and the flattened records gain a -1. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data. Allowlisting a path suppresses the WHOLE assertion, so this entry on its own would also excuse a dropped -2 user mask or a corrupted ID; it does not, because the ID set is asserted separately at psdRecords[N].channelIds.preserved, which is emitted strictly and which no writer.lossy entry can reach. That path permits exactly one gained channel, the alpha psdexport always writes, and nothing else. psd-tools 1.19.0 and ImageMagick 6.9.12-98 both read the re-export correctly. psdRecords[2].bounds is the record-level face of layers[2].bounds, already listed here; it needs its own entry because the record leg reads bounds from the raw layer record rather than from the reconstructed model.",
     "externalVerification": {
       "tool": "psd-tools",
       "toolVersion": "1.19.0",
       "verifiedOn": "2026-09-16",
       "result": "partial",
       "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. Field-level losses are listed in writer.lossy with writer.lossyReason. See testdata/VERIFICATION.md."
-    },
-    "lossyReason": "PLAN.md S.10.3: SavePSD hard-clips a clipped layer's stored bounds to the intersection with its clip base - (8,6) 18x14 is re-exported as (8,9) 11x11 - so pixels outside the base are destroyed on save. Photoshop keeps them; moving the base there brings the hidden content back. Verified by reading both the fixture and _dump/rgb8-clipping.reexport.psd with psd-tools."
+    }
   },
   "fuzz": {
     "seed": true

@@ -194,8 +194,9 @@ type LayerExpect struct {
 	Bounds *BoundsExpect `json:"bounds"`
 
 	BlendMode *string `json:"blendMode"`
-	// PSDBlendKey is the raw four-character PSD key. Documentation only; it is
-	// never asserted, because the engine model does not keep it.
+	// PSDBlendKey is the raw four-character PSD key. Documentation only in this
+	// scope; the engine model does not keep it, so it is asserted on
+	// RecordExpect instead.
 	PSDBlendKey string `json:"psdBlendKey"`
 
 	Opacity255     *int  `json:"opacity255"`
@@ -239,8 +240,13 @@ type RecordExpect struct {
 	Visible     *bool         `json:"visible"`
 	Clipping    *bool         `json:"clipping"`
 
-	BlendMode   *string `json:"blendMode"`
-	PSDBlendKey string  `json:"psdBlendKey"`
+	BlendMode *string `json:"blendMode"`
+	// PSDBlendKey is the raw four-character key, trailing spaces significant
+	// ("mul ", not "mul"). It is asserted here and nowhere else: BlendMode is
+	// the normalised form and maps every unrecognised key onto "normal", so a
+	// writer that emitted the wrong key for the right mode would pass on
+	// BlendMode alone.
+	PSDBlendKey *string `json:"psdBlendKey"`
 
 	Mask              *MaskExpect `json:"mask"`
 	UnsupportedBlocks *[]string   `json:"unsupportedBlocks"`

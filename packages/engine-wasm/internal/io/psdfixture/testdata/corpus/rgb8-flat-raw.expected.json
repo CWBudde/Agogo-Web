@@ -144,7 +144,8 @@
   "writer": {
     "format": "psd",
     "expect": "lossy",
-    "lossy": [],
+    "lossy": ["psdRecords[0].channelIds"],
+    "lossyReason": "PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2) or with no alpha channel at all, so every re-exported record's channelIds differ in order and the flattened records gain a -1. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data. Allowlisting a path suppresses the WHOLE assertion, so this entry on its own would also excuse a dropped -2 user mask or a corrupted ID; it does not, because the ID set is asserted separately at psdRecords[N].channelIds.preserved, which is emitted strictly and which no writer.lossy entry can reach. That path permits exactly one gained channel, the alpha psdexport always writes, and nothing else. psd-tools 1.19.0 and ImageMagick 6.9.12-98 both read the re-export correctly.",
     "externalVerification": {
       "tool": "psd-tools",
       "toolVersion": "1.19.0",

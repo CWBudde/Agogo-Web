@@ -135,13 +135,18 @@ type TextLayerMeta struct {
 }
 
 type LayerRecord struct {
-	Name              string
-	Bounds            model.LayerBounds
-	Channels          []ChannelInfo
-	Opacity           float64
-	Visible           bool
-	ClipToBelow       bool
-	BlendMode         model.BlendMode
+	Name        string
+	Bounds      model.LayerBounds
+	Channels    []ChannelInfo
+	Opacity     float64
+	Visible     bool
+	ClipToBelow bool
+	BlendMode   model.BlendMode
+	// BlendKey is the raw four-character PSD key exactly as read, trailing
+	// spaces included ("mul ", "lum "). BlendMode is the normalised form and
+	// collapses every unknown key onto Normal, so only this field can hold the
+	// writer to the key it was given.
+	BlendKey          string
 	LayerID           uint32
 	LayerColorTag     string
 	SectionType       uint32
