@@ -151,10 +151,6 @@ Most fixtures carry a `writer.lossy` allowlist with a `writer.lossyReason`. The
 harness fails if an unlisted field differs **and** if a listed field starts
 matching, so neither a regression nor a fix can land unnoticed:
 
-- **`rgb8-group-closed-folder`** — the open (`lsct` 1) / closed (`lsct` 2) folder
-  distinction is parsed correctly but lost at import, because the engine model has
-  nowhere to store expanded state, so `psdexport` re-opens the closed folder. This
-  is the open S.10.3 item; the record leg is what makes it fail rather than pass.
 - **every fixture** — `psdexport` emits layer channels in its own fixed order
   (`0,1,2,-1`; gray `0,-1`) and always emits an alpha channel, because the engine
   model is RGBA. Fixtures authored with alpha first, or with no alpha at all,

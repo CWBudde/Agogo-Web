@@ -1741,12 +1741,18 @@ function collectCollapsedGroups(layers: LayerNodeMeta[], output: Record<string, 
 }
 
 // sameCollapsedGroups compares two derived collapse maps by content.
+//
+// The Object.hasOwn check is what makes equal-length-but-disjoint key sets
+// compare unequal. It is load-bearing only if a value can be undefined -- today
+// collectCollapsedGroups always writes a boolean, so a[key] !== b[key] already
+// catches a key missing from b. Relying on that is correct by coincidence
+// rather than by construction, so the membership test is explicit.
 function sameCollapsedGroups(a: Record<string, boolean>, b: Record<string, boolean>) {
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) {
     return false;
   }
-  return keys.every((key) => a[key] === b[key]);
+  return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key]);
 }
 
 function collectLayerOrder(
