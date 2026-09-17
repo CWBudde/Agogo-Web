@@ -181,7 +181,7 @@ instead of like a synthetic one.
 Each fixture is a function `fixture_<id_with_underscores>`, which is what
 `provenance.generatedBy` points at.
 
-### Five pytoshop 1.2.1 defects, all worked around in the script
+### Six pytoshop 1.2.1 defects, all worked around in the script
 
 These are defects in the *writer*. Each workaround makes pytoshop emit what Photoshop
 emits; none of them is a concession to a particular reader. They are numbered in the
@@ -225,6 +225,13 @@ script and commented where they are patched.
    wraparound, **reset at every row boundary**. (`decompress_zip_prediction` has the
    same `.flatten()` bug on the way back, which is one more reason the round trip is
    judged by psd-tools and not by pytoshop.)
+
+6. **`GenericTaggedBlock.data`'s setter validates and then never assigns.** It
+   checks `isinstance(val, bytes)` and falls off the end without touching
+   `self._data`, so `block.data = payload` leaves the block *empty* — a fixture that
+   looks right in the generator and asserts nothing in the file, the same shape of
+   trap as defect 4. The payload goes through the constructor instead, and
+   `_fill_opacity_block` fails the run if it did not stick.
 
 Defects 2 and 5 are both proven by round trip rather than by inspection: the same
 layer stack written raw, RLE, ZIP and ZIP-with-prediction must decode to identical

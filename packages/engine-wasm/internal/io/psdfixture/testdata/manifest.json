@@ -86,8 +86,7 @@
     },
     {
       "id": "fill-opacity.partial",
-      "title": "Fill opacity below 255 (iOpa)",
-      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. iOpa is Photoshop-only, and Agogo neither reads nor writes it, so the gap is two-sided."
+      "title": "Fill opacity below 255 (iOpa)"
     },
     {
       "id": "size.psb",
@@ -259,6 +258,13 @@
       "capabilities": ["layer.hidden", "opacity.partial"],
       "bytes": 7492,
       "sha256": "140d275d6dfea50fec5656849a17be3e74b06858c3173c085eb55e09a2851608"
+    },
+    {
+      "id": "rgb8-fill-opacity",
+      "file": "rgb8-fill-opacity.psd",
+      "capabilities": ["fill-opacity.partial"],
+      "bytes": 7522,
+      "sha256": "b90e59edfbcfa46963d369d88e5afb5f53a4c1b714d6fe23041fc3b825edf8d4"
     },
     {
       "id": "rgb8-rle-layers",

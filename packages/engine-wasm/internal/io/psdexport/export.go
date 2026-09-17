@@ -360,6 +360,25 @@ func buildLayerExtraBlocks(layer model.LayerNode) []psdio.ExportTaggedBlock {
 		return nil
 	}
 	blocks := make([]psdio.ExportTaggedBlock, 0, 4)
+	// iOpa is written only when the layer is not fully opaque: absence means
+	// 255 to every reader this corpus is checked against, and an all-255 block
+	// on every layer of every file would be unobservable churn. The condition
+	// is on the ROUNDED byte, so 0.9999 writes nothing while 0 still writes a
+	// block.
+	//
+	// Four bytes, not one. The value is a single byte, but psd-tools reads it
+	// as "B3x" and only falls back to a bare byte on failure, and it writes the
+	// four-byte form itself - so a one-byte block is accepted with a logged
+	// error while four is accepted silently. An even length also keeps this
+	// block clear of the layer-record padding disagreement described on
+	// WriteAdditionalLayerInfoBlock.
+	if fill := psdio.UnitOpacity(layer.FillOpacity()); fill != 255 {
+		blocks = append(blocks, psdio.ExportTaggedBlock{
+			Signature: "8BIM",
+			Key:       "iOpa",
+			Payload:   []byte{fill, 0, 0, 0},
+		})
+	}
 	if payload := psdio.BuildLayerEffectsPayload(layer.StyleStack()); len(payload) > 0 {
 		blocks = append(blocks, psdio.ExportTaggedBlock{
 			Signature: "8BIM",

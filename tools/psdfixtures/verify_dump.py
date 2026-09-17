@@ -30,6 +30,7 @@ from typing import Any
 try:
     import psd_tools
     from psd_tools import PSDImage
+    from psd_tools.constants import Tag
 except ImportError as exc:  # pragma: no cover
     sys.exit(f"error: {exc}. Install with: pip install psd-tools")
 
@@ -64,12 +65,27 @@ def _describe_mask(layer: Any) -> str:
     )
 
 
+def _fill_opacity(layer: Any) -> int:
+    """Fill opacity byte from the iOpa tagged block; 255 when absent.
+
+    Nothing is caught here on purpose. An unreadable block, or a psd-tools that
+    no longer knows this tag, must fail the run loudly - swallowing it would
+    print fill=255 for a file whose fill opacity was never verified at all,
+    which is indistinguishable from the answer this script exists to check.
+    """
+    blocks = getattr(layer, "tagged_blocks", None)
+    if blocks is None:
+        return 255
+    value = blocks.get_data(Tag.BLEND_FILL_OPACITY, None)
+    return 255 if value is None else int(value)
+
+
 def print_tree(layer: Any, depth: int = 0) -> None:
     pad = "  " * (depth + 1)
     kind = "group" if layer.is_group() else str(getattr(layer, "kind", "?"))
     print(
         f"{pad}- {layer.name!r} kind={kind} blend={_blend_key(layer)!r} "
-        f"opacity={layer.opacity} visible={layer.visible} "
+        f"opacity={layer.opacity} fill={_fill_opacity(layer)} visible={layer.visible} "
         f"bounds={(layer.left, layer.top, layer.right, layer.bottom)} "
         f"{_describe_mask(layer)}"
     )

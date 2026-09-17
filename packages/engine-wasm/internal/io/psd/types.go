@@ -135,10 +135,14 @@ type TextLayerMeta struct {
 }
 
 type LayerRecord struct {
-	Name        string
-	Bounds      model.LayerBounds
-	Channels    []ChannelInfo
-	Opacity     float64
+	Name     string
+	Bounds   model.LayerBounds
+	Channels []ChannelInfo
+	Opacity  float64
+	// FillOpacity is the iOpa tagged block as a 0..1 unit value, spelled the
+	// same way as Opacity above. 1 when the block is absent, which is what its
+	// absence means in the format.
+	FillOpacity float64
 	Visible     bool
 	ClipToBelow bool
 	BlendMode   model.BlendMode

@@ -34,6 +34,7 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		group := model.NewGroupLayer(name)
 		group.SetVisible(record.Visible)
 		group.SetOpacity(record.Opacity)
+		group.SetFillOpacity(record.FillOpacity)
 		group.SetBlendMode(record.BlendMode)
 		group.SetClipToBelow(record.ClipToBelow)
 		group.Isolated = !record.PassThrough
@@ -75,6 +76,7 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		}
 		layer := model.NewPixelLayer(name, record.Bounds, rgba)
 		layer.SetOpacity(record.Opacity)
+		layer.SetFillOpacity(record.FillOpacity)
 		layer.SetVisible(record.Visible)
 		layer.SetBlendMode(record.BlendMode)
 		layer.SetClipToBelow(record.ClipToBelow)
