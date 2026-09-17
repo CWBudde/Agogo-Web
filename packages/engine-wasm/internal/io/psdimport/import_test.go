@@ -133,3 +133,43 @@ func pixelRecord(name string, value byte) psdio.LayerRecord {
 		},
 	}
 }
+
+// TestBuildLayerNodesPreservesFolderOpenClosedState pins the lsct 1 vs lsct 2
+// distinction. Before PLAN.md S.10.3 both funnelled down one popStack path and
+// the flag was discarded, so an open and a closed folder imported identically.
+func TestBuildLayerNodesPreservesFolderOpenClosedState(t *testing.T) {
+	header := psdio.Header{Width: 1, Height: 1, Depth: 8, ColorMode: psdio.ColorModeRGB}
+	layers := []psdio.LayerRecord{
+		{SectionType: psdio.LayerSectionBoundingDivider},
+		pixelRecord("Open child", 10),
+		{Name: "Open", SectionType: psdio.LayerSectionOpenFolder, Visible: true, Opacity: 1, BlendMode: model.BlendModeNormal},
+		{SectionType: psdio.LayerSectionBoundingDivider},
+		pixelRecord("Closed child", 20),
+		{Name: "Closed", SectionType: psdio.LayerSectionClosedFolder, Visible: true, Opacity: 1, BlendMode: model.BlendModeNormal},
+	}
+
+	nodes, warnings, err := BuildLayerNodes(header, layers)
+	if err != nil {
+		t.Fatalf("BuildLayerNodes: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("root node count = %d, want 2", len(nodes))
+	}
+	openGroup, ok := nodes[0].(*model.GroupLayer)
+	if !ok {
+		t.Fatalf("node 0 type = %T, want *model.GroupLayer", nodes[0])
+	}
+	closedGroup, ok := nodes[1].(*model.GroupLayer)
+	if !ok {
+		t.Fatalf("node 1 type = %T, want *model.GroupLayer", nodes[1])
+	}
+	if !openGroup.Expanded {
+		t.Errorf("group %q imported from lsct 1 must be expanded", openGroup.Name())
+	}
+	if closedGroup.Expanded {
+		t.Errorf("group %q imported from lsct 2 must be collapsed", closedGroup.Name())
+	}
+}

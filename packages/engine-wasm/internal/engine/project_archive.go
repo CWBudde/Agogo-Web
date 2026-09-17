@@ -86,6 +86,15 @@ func buildProjectLayerArchive(layer LayerNode) projectLayerArchive {
 	}
 	if group, ok := layer.(*GroupLayer); ok {
 		archive.Isolated = group.Isolated
+		// Expanded is archived as a *bool, not a bool with `omitempty`: the
+		// model default is TRUE, so `omitempty` would drop exactly the common
+		// case and read it back as collapsed. A pointer also keeps the archive
+		// key spelled the same way as the model field (no inverted "collapsed"
+		// flag to mis-read), and nil unambiguously means "written before this
+		// field existed" — which the reader resolves to expanded. That is why
+		// ArchiveVersion stays at 1.
+		expanded := group.Expanded
+		archive.Expanded = &expanded
 		if group.Artboard != nil {
 			bounds := group.Artboard.Bounds
 			background := group.Artboard.Background
@@ -254,6 +263,11 @@ func projectLayerArchiveToLayerNode(archive projectLayerArchive) (LayerNode, err
 	case LayerTypeGroup:
 		group := NewGroupLayer(archive.Name)
 		group.Isolated = archive.Isolated
+		// nil = archive predates the field; NewGroupLayer's default (expanded)
+		// is the right answer for those.
+		if archive.Expanded != nil {
+			group.Expanded = *archive.Expanded
+		}
 		if archive.IsArtboard {
 			background := docpkg.DefaultArtboardBackground()
 			if archive.ArtboardBG != nil {

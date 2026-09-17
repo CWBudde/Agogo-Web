@@ -470,4 +470,51 @@ describe("LayersPanel", () => {
       }),
     );
   });
+  it("renders group collapse from the engine meta and dispatches SetGroupExpanded on toggle", () => {
+    const engine = createEngine();
+    const child = makeLayer("layer-child", "Inside Group");
+    const makeGroup = (expanded: boolean) =>
+      makeLayer("layer-group", "Folder", {
+        layerType: "group",
+        adjustmentKind: undefined,
+        params: undefined,
+        expanded,
+        children: [child],
+      });
+
+    const renderPanel = (group: LayerNodeMeta) => (
+      <LayersPanel
+        engine={engine}
+        layers={[group]}
+        activeLayerId={group.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[group.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />
+    );
+
+    const { rerender } = render(renderPanel(makeGroup(true)));
+
+    // expanded === true in the meta: the child row is visible and the chevron
+    // offers to collapse.
+    expect(screen.queryByText("Inside Group")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "v" }));
+    expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.SetGroupExpanded, {
+      layerId: "layer-group",
+      expanded: false,
+    });
+
+    // The panel keeps no local collapse state: the engine's next meta drives it.
+    rerender(renderPanel(makeGroup(false)));
+    expect(screen.queryByText("Inside Group")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    expect(engine.dispatchCommand).toHaveBeenLastCalledWith(CommandID.SetGroupExpanded, {
+      layerId: "layer-group",
+      expanded: true,
+    });
+  });
 });

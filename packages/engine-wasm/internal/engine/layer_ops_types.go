@@ -113,6 +113,11 @@ type SetLayerClipToBelowPayload struct {
 	ClipToBelow bool   `json:"clipToBelow"`
 }
 
+type SetGroupExpandedPayload struct {
+	LayerID  string `json:"layerId"`
+	Expanded bool   `json:"expanded"`
+}
+
 type SetActiveLayerPayload struct {
 	LayerID string `json:"layerId"`
 }

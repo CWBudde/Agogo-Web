@@ -459,6 +459,11 @@ func compareLayerNode(c *collector, path string, exp LayerExpect, node model.Lay
 		got := isGroup && group.Isolated
 		c.emit(path+".isolated", isGroup && group.Isolated == *exp.Isolated, fmtBool(*exp.Isolated), fmtBool(got))
 	}
+	if exp.Expanded != nil {
+		group, isGroup := node.(*model.GroupLayer)
+		got := isGroup && group.Expanded
+		c.emit(path+".expanded", isGroup && group.Expanded == *exp.Expanded, fmtBool(*exp.Expanded), fmtBool(got))
+	}
 	if exp.StyleKinds != nil {
 		want := *exp.StyleKinds
 		got := styleKinds(node)

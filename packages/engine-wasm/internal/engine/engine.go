@@ -124,6 +124,7 @@ const (
 	commandSetArtboard               = 0x0129
 	commandSoloLayerVisibility       = 0x012b
 	commandSetLayerMaskProperties    = 0x012c
+	commandSetGroupExpanded          = 0x012d
 	commandImportAbrBrushLibrary     = 0x0419
 	commandApplyFilter               = 0x0500
 	commandReapplyFilter             = 0x0501

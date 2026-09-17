@@ -69,6 +69,9 @@ export enum CommandID {
   SoloLayerVisibility = 0x012b,
   SetLayerMaskProperties = 0x012c,
 
+  // Phase S.10.3: group open/closed state (PSD lsct 1 vs 2)
+  SetGroupExpanded = 0x012d,
+
   // Phase 3: Selection
   NewSelection = 0x0200,
   SelectAll = 0x0201,
@@ -742,6 +745,11 @@ export interface SetLayerMaskEnabledCommand {
 export interface SetLayerClipToBelowCommand {
   layerId: string;
   clipToBelow: boolean;
+}
+
+export interface SetGroupExpandedCommand {
+  layerId: string;
+  expanded: boolean;
 }
 
 export interface SetActiveLayerCommand {

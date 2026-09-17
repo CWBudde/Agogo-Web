@@ -49,3 +49,48 @@ func TestNewGroupRecordWritesIsolatedBlendMode(t *testing.T) {
 		t.Fatalf("blend key = %q, want multiply", record.BlendKey)
 	}
 }
+
+// TestBuildLayerRecordsWritesTheGroupOpenClosedFlag guards against the writer
+// re-opening every folder: appendLayerRecords used to hardcode
+// LayerSectionOpenFolder, so a closed folder silently became lsct 1 on export.
+// The bounding divider stays lsct 3 either way.
+func TestBuildLayerRecordsWritesTheGroupOpenClosedFlag(t *testing.T) {
+	newFolder := func(name string, expanded bool) *model.GroupLayer {
+		group := model.NewGroupLayer(name)
+		group.Isolated = true
+		group.Expanded = expanded
+		group.SetChildren([]model.LayerNode{
+			model.NewPixelLayer(name+" child", model.LayerBounds{W: 1, H: 1}, []byte{1, 2, 3, 255}),
+		})
+		return group
+	}
+
+	records, err := buildLayerRecords(Params{Layers: []model.LayerNode{
+		newFolder("Open", true),
+		newFolder("Closed", false),
+	}}, false)
+	if err != nil {
+		t.Fatalf("buildLayerRecords: %v", err)
+	}
+
+	sectionTypes := map[string]uint32{}
+	dividers := 0
+	for _, record := range records {
+		if record.SectionType == psdio.LayerSectionBoundingDivider {
+			dividers++
+			continue
+		}
+		if record.SectionType != psdio.LayerSectionNormal {
+			sectionTypes[record.Name] = record.SectionType
+		}
+	}
+	if dividers != 2 {
+		t.Fatalf("bounding divider count = %d, want 2", dividers)
+	}
+	if got := sectionTypes["Open"]; got != psdio.LayerSectionOpenFolder {
+		t.Errorf("Open folder section type = %d, want %d", got, psdio.LayerSectionOpenFolder)
+	}
+	if got := sectionTypes["Closed"]; got != psdio.LayerSectionClosedFolder {
+		t.Errorf("Closed folder section type = %d, want %d", got, psdio.LayerSectionClosedFolder)
+	}
+}

@@ -153,7 +153,7 @@ func layerTreeEqualSkipPixels(a, b LayerNode) bool {
 		return left.Bounds == right.Bounds && len(left.Pixels) == len(right.Pixels)
 	case *GroupLayer:
 		right, ok := b.(*GroupLayer)
-		if !ok || !layerCommonFieldsEqual(a, b) || left.Isolated != right.Isolated || !model.LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
+		if !ok || !layerCommonFieldsEqual(a, b) || left.Isolated != right.Isolated || left.Expanded != right.Expanded || !model.LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
 			return false
 		}
 		switch {

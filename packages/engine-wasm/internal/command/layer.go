@@ -44,6 +44,7 @@ const (
 	commandSetVectorMaskPath         int32 = 0x012a
 	commandSoloLayerVisibility       int32 = 0x012b
 	commandSetLayerMaskProperties    int32 = 0x012c
+	commandSetGroupExpanded          int32 = 0x012d
 )
 
 type LayerAddPayload struct {
@@ -142,6 +143,11 @@ type LayerClipPayload struct {
 	ClipToBelow bool   `json:"clipToBelow"`
 }
 
+type LayerGroupExpandedPayload struct {
+	LayerID  string `json:"layerId"`
+	Expanded bool   `json:"expanded"`
+}
+
 type LayerNamePayload struct {
 	LayerID string `json:"layerId"`
 	Name    string `json:"name"`
@@ -235,6 +241,7 @@ type LayerDeps struct {
 	SetLayerMaskEnabled       func(LayerMaskEnabledPayload) error
 	SetLayerMaskProperties    func(LayerMaskPropertiesPayload) error
 	SetLayerClipToBelow       func(LayerClipPayload) error
+	SetGroupExpanded          func(LayerGroupExpandedPayload) error
 	SetActiveLayer            func(layerID string) error
 	SetLayerName              func(LayerNamePayload) error
 	AddVectorMask             func(LayerAddVectorMaskPayload) error
@@ -367,6 +374,12 @@ func DispatchLayer(commandID int32, payloadJSON string, deps LayerDeps) (bool, e
 			return true, err
 		}
 		return true, deps.SetLayerClipToBelow(payload)
+	case commandSetGroupExpanded:
+		var payload LayerGroupExpandedPayload
+		if err := deps.Decode(payloadJSON, &payload); err != nil {
+			return true, err
+		}
+		return true, deps.SetGroupExpanded(payload)
 	case commandSetActiveLayer:
 		var payload layerIDPayload
 		if err := deps.Decode(payloadJSON, &payload); err != nil {
