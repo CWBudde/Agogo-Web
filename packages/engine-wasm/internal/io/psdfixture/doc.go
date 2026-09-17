@@ -36,4 +36,12 @@
 //
 // Corollary: no non-test file may import "testing" or accept a *testing.T.
 // Comparison returns []Mismatch and the caller turns those into t.Errorf.
+//
+// The seam that turns a parsed PSD into a RecordView therefore lives OUTSIDE
+// this package, in internal/io/psdfixture/psdrecords, which may import both. It
+// has two callers that must not drift apart: internal/io/psd holds the reader to
+// the psdRecords scope, and internal/engine holds the writer's re-export to the
+// same scope. Only the latter can catch a writer that mangles a section-divider
+// type, a mask rectangle or a channel ID, because none of those reaches the
+// engine model that CompareReexport sees.
 package psdfixture

@@ -250,16 +250,21 @@
       "layerPixels[5]",
       "layerPixels[6]",
       "layerPixels[7]",
-      "compositePixels[5]"
+      "compositePixels[5]",
+      "psdRecords[0].channelIds",
+      "psdRecords[1].channelIds",
+      "psdRecords[1].bounds",
+      "psdRecords[1].mask.rect",
+      "psdRecords[1].mask.inverted"
     ],
+    "lossyReason": "PLAN.md S.10.4: re-export shrinks the masked layer to the mask rect - (4,3) 24x18 becomes (10,7) 12x8 - because an inverted mask leaves only that region opaque and the writer trims to the opaque bounding box. The layer's own pixels outside the mask rect are lost, so the mask stops being non-destructive. PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2) or with no alpha channel at all, so every re-exported record's channelIds differ in order and the flattened records gain a -1. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data: the set of IDs is otherwise unchanged, the -2 user mask channel included. psd-tools 1.19.0 and ImageMagick 6.9.12-98 both read the re-export correctly. psdRecords[1].bounds is the record-level face of layers[1].bounds, already listed here; it needs its own entry because the record leg reads bounds from the raw layer record rather than from the reconstructed model. PLAN.md S.10.4: psdRecords[1].mask.rect - psdimport rasterizes the layer mask into a document-sized buffer and discards the mask rectangle, so the re-export stores a full-canvas mask rect instead of the original (10,7) 12x8. The mask still attenuates the layer; only its stored extent is widened. PLAN.md S.10.4: psdRecords[1].mask.inverted - psdimport folds the invert flag into the rasterized mask, so the re-export writes an equivalent non-inverted mask and the flag reads false.",
     "externalVerification": {
       "tool": "psd-tools",
       "toolVersion": "1.19.0",
       "verifiedOn": "2026-09-16",
       "result": "partial",
       "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. Field-level losses are listed in writer.lossy with writer.lossyReason. See testdata/VERIFICATION.md."
-    },
-    "lossyReason": "PLAN.md S.10.4: re-export shrinks the masked layer to the mask rect - (4,3) 24x18 becomes (10,7) 12x8 - because an inverted mask leaves only that region opaque and the writer trims to the opaque bounding box. The layer's own pixels outside the mask rect are lost, so the mask stops being non-destructive."
+    }
   },
   "fuzz": {
     "seed": true

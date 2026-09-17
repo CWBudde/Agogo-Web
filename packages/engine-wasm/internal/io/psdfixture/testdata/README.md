@@ -121,9 +121,19 @@ not obliged to agree pixel-for-pixel, and asserting agreement there would pin
 Agogo to psd-tools' arithmetic rather than to the file. Per-layer rasters are
 still asserted via `layerPixels`, which is unambiguous.
 
+### The writer is checked at two levels
+
+The re-export is re-read and compared twice: once as a reconstructed document
+(`CompareReexport`) and once as flat layer records (`CompareReexportRecords`).
+The second leg is not redundant. Section-divider types, mask rectangles, mask
+default fill and channel IDs never reach the engine model, so the document leg
+compares a view that never held them — a writer could corrupt every one of them
+and stay green. The record leg reparses the re-exported bytes and holds them to
+the same externally derived `psdRecords` expectation the reader is held to.
+
 ### Known writer losses, recorded rather than hidden
 
-Three fixtures carry a `writer.lossy` allowlist with a `writer.lossyReason`. The
+Most fixtures carry a `writer.lossy` allowlist with a `writer.lossyReason`. The
 harness fails if an unlisted field differs **and** if a listed field starts
 matching, so neither a regression nor a fix can land unnoticed:
 
@@ -134,11 +144,22 @@ matching, so neither a regression nor a fix can land unnoticed:
   inverted mask stops being non-destructive (S.10.4).
 - **`rgb8-layer-mask-offset`** — mask attenuation is not bit-exact across a round
   trip (S.10.4).
-
-`rgb8-group-closed-folder` contains both an open (`lsct` 1) and a closed (`lsct` 2)
-folder. The parser reads the distinction correctly — `psdRecords` asserts it — but
-the engine model has nowhere to store expanded state, so it is lost at import. That
-is the open S.10.3 item, now backed by a file rather than by a plan entry.
+- **`rgb8-group-closed-folder`** — the open (`lsct` 1) / closed (`lsct` 2) folder
+  distinction is parsed correctly but lost at import, because the engine model has
+  nowhere to store expanded state, so `psdexport` re-opens the closed folder. This
+  is the open S.10.3 item; the record leg is what makes it fail rather than pass.
+- **every fixture** — `psdexport` emits layer channels in its own fixed order
+  (`0,1,2,-1`; gray `0,-1`) and always emits an alpha channel, because the engine
+  model is RGBA. Fixtures authored with alpha first, or with no alpha at all,
+  therefore differ on `channelIds`. The PSD spec does not prescribe channel order
+  and readers key on the ID, so this is a spelling difference rather than lost
+  data; it is allowlisted per record so that a genuinely dropped channel — a
+  missing `-2` user mask, say — still fails (S.10.2).
+- **`rgb8-mask-disabled`, `rgb8-layer-mask-offset`, `rgb8-mask-inverted`** —
+  `psdimport` rasterizes the layer mask to document size and discards the mask
+  rectangle, so the re-export stores a full-canvas `mask.rect`; on
+  `rgb8-mask-inverted` the invert flag is folded into the raster and comes back
+  `false` (S.10.4).
 
 ### Permanently deferred without Photoshop
 

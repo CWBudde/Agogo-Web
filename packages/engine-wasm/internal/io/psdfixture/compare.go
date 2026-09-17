@@ -104,13 +104,30 @@ func CompareReexport(exp Expectation, actual Actual) []Mismatch {
 // CompareRecords checks the flat PSD layer records against the psdRecords
 // scope. Records are compared positionally, in file order.
 func CompareRecords(exp Expectation, records []RecordView) []Mismatch {
+	return compareRecords(exp, records, false)
+}
+
+// CompareReexportRecords checks the flat layer records of a document Agogo
+// WROTE against the same external psdRecords expectation the reader is held to.
+//
+// This is the only assertion that can catch a writer which drops record-level
+// detail: the section-divider type, the mask rectangle and default fill, and
+// the channel IDs never reach the engine model, so CompareReexport — which only
+// sees the reconstructed model — passes whatever the writer does with them.
+// Paths on the reviewed writer.lossy allowlist are not asserted, and a lossy
+// path that unexpectedly matched is reported so the allowlist cannot go stale.
+func CompareReexportRecords(exp Expectation, records []RecordView) []Mismatch {
+	return compareRecords(exp, records, true)
+}
+
+func compareRecords(exp Expectation, records []RecordView, reexport bool) []Mismatch {
 	if exp.Records == nil {
 		return nil
 	}
-	c := newCollector(exp, false)
+	c := newCollector(exp, reexport)
 	want := *exp.Records
 	if len(want) != len(records) {
-		c.add(Mismatch{
+		c.addStructural(Mismatch{
 			Path: "psdRecords",
 			Want: strconv.Itoa(len(want)) + " records",
 			Got:  strconv.Itoa(len(records)) + " records",
@@ -119,10 +136,13 @@ func CompareRecords(exp Expectation, records []RecordView) []Mismatch {
 	for i := range want {
 		path := "psdRecords[" + strconv.Itoa(i) + "]"
 		if i >= len(records) {
-			c.add(Mismatch{Path: path, Want: recordLabel(want[i]), Got: "<absent>"})
+			c.addStructural(Mismatch{Path: path, Want: recordLabel(want[i]), Got: "<absent>"})
 			continue
 		}
 		compareRecord(c, path, want[i], i, records[i])
+	}
+	if reexport {
+		c.reportStaleLossy()
 	}
 	return c.out
 }
@@ -146,12 +166,7 @@ func compareImport(exp Expectation, actual Actual, reexport bool) []Mismatch {
 	compareCompositePixels(c, exp.CompositePixels, actual)
 
 	if reexport {
-		for _, path := range c.staleLossy {
-			c.add(Mismatch{
-				Path:   path,
-				Detail: "listed in writer.lossy but matched on re-export; the allowlist is stale, remove this path",
-			})
-		}
+		c.reportStaleLossy()
 	}
 	return c.out
 }
@@ -184,6 +199,18 @@ func newCollector(exp Expectation, reexport bool) *collector {
 
 func (c *collector) add(m Mismatch) {
 	c.out = append(c.out, m)
+}
+
+// reportStaleLossy turns every lossy path that actually matched into a failure.
+// An allowlist entry for a path the writer now reproduces is the same kind of
+// lie as a missing assertion, so it is reported rather than tolerated.
+func (c *collector) reportStaleLossy() {
+	for _, path := range c.staleLossy {
+		c.add(Mismatch{
+			Path:   path,
+			Detail: "listed in writer.lossy but matched on re-export; the allowlist is stale, remove this path",
+		})
+	}
 }
 
 func (c *collector) isLossy(path string) bool {

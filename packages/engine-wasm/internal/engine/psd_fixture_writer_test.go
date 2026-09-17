@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psdfixture"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psdfixture/psdrecords"
 )
 
 // TestPSDFixtureReexportSurvivesSelfReimport is the writer half of the honest
@@ -16,6 +17,12 @@ import (
 //     latter and does not in the former;
 //  2. the AgogoProject bypass stays disabled, because SavePSD always embeds a
 //     project archive and reading it back would restore the vacuity.
+//
+// The re-export is checked at BOTH levels. The reconstructed document catches
+// what the engine model carries; the flat layer records catch what it does not —
+// section-divider types, mask rectangles and default fills, channel IDs. Without
+// the record leg a writer could corrupt every one of those and still be green,
+// because the model the comparison sees never held them in the first place.
 //
 // The re-exported bytes are also dumped for external verification, since "opens
 // in a reader that is not Agogo's own" cannot be asserted from inside Go.
@@ -61,6 +68,17 @@ func TestPSDFixtureReexportSurvivesSelfReimport(t *testing.T) {
 				t.Fatalf("reimport of re-export: %v", err)
 			}
 			for _, mismatch := range psdfixture.CompareReexport(fixture.Spec, actualFromDocument(reexported, roundTripped, warnings, fixture.Spec)) {
+				t.Errorf("%s", mismatch)
+			}
+
+			if !fixture.Spec.Asserts(psdfixture.ScopePSDRecords) {
+				return
+			}
+			records, err := psdrecords.Parse(reexported)
+			if err != nil {
+				t.Fatalf("reparse re-export into records: %v", err)
+			}
+			for _, mismatch := range psdfixture.CompareReexportRecords(fixture.Spec, records) {
 				t.Errorf("%s", mismatch)
 			}
 		})

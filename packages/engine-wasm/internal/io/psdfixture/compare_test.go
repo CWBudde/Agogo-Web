@@ -530,6 +530,81 @@ func TestCompareRecordsNilExpectationAssertsNothing(t *testing.T) {
 	assertClean(t, CompareRecords(sampleExpectation(), []RecordView{{Name: "anything"}}))
 }
 
+// reexportRecordCase is the closed-folder scenario in miniature: the writer
+// re-opens a closed folder because the engine model cannot store the flag, and
+// only the record leg can see it.
+func reexportRecordCase() (Expectation, []RecordView) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{
+		{Index: 0, Name: strPtr("Open Folder"), SectionType: intPtr(1)},
+		{Index: 1, Name: strPtr("Closed Folder"), SectionType: intPtr(2)},
+	}
+	exp.Writer = &WriterExpect{
+		Format: "psd",
+		Expect: "lossy",
+		Lossy:  []string{"psdRecords[1].sectionType"},
+	}
+	records := []RecordView{
+		{Name: "Open Folder", SectionType: 1},
+		{Name: "Closed Folder", SectionType: 1},
+	}
+	return exp, records
+}
+
+// TestCompareReexportRecordsAppliesLossyAllowlist is the assertion the writer
+// harness leans on: the record-scope fields the engine model cannot carry are
+// compared against the EXTERNAL expectation, with the reviewed losses excused
+// and everything else still asserted.
+func TestCompareReexportRecordsAppliesLossyAllowlist(t *testing.T) {
+	exp, records := reexportRecordCase()
+	assertClean(t, CompareReexportRecords(exp, records))
+
+	// The same input without the allowlist must fail, or the allowlist is
+	// excusing nothing and the test above is vacuous.
+	if len(CompareRecords(exp, records)) == 0 {
+		t.Fatal("CompareRecords must still report the lossy path; the fixture proves nothing otherwise")
+	}
+}
+
+func TestCompareReexportRecordsStillAssertsUnlistedFields(t *testing.T) {
+	exp, records := reexportRecordCase()
+	records[0].SectionType = 2
+
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[0].sectionType"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+// TestCompareReexportRecordsReportsStaleLossy closes the loop the other way: a
+// writer fix that makes an allowlisted path match must fail the suite, so the
+// allowlist cannot outlive the defect it documents.
+func TestCompareReexportRecordsReportsStaleLossy(t *testing.T) {
+	exp, records := reexportRecordCase()
+	records[1].SectionType = 2
+
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[1].sectionType"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, "psdRecords[1].sectionType").Detail, "stale") {
+		t.Error("a matched lossy path should be reported as a stale allowlist entry")
+	}
+}
+
+// TestCompareRecordsIgnoresLossyAllowlist keeps the reader leg strict: the
+// allowlist excuses what the WRITER loses, and must never soften the assertion
+// on the fixture as it was authored.
+func TestCompareRecordsIgnoresLossyAllowlist(t *testing.T) {
+	exp, records := reexportRecordCase()
+	want := []string{"psdRecords[1].sectionType"}
+	if got := paths(CompareRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
 func TestMismatchString(t *testing.T) {
 	cases := []struct {
 		mismatch Mismatch

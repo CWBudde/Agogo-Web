@@ -1,9 +1,13 @@
-package psd
+// This file is in package psd_test, not package psd: the record view it needs
+// is built by internal/io/psdfixture/psdrecords, which imports this package, and
+// an in-package test file importing it would close an import cycle.
+package psd_test
 
 import (
 	"testing"
 
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psdfixture"
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/psdfixture/psdrecords"
 )
 
 // TestPSDFixtureCorpusParsesToExternallyDerivedRecords asserts the psdRecords
@@ -23,44 +27,13 @@ func TestPSDFixtureCorpusParsesToExternallyDerivedRecords(t *testing.T) {
 		t.Run(fixture.ID, func(t *testing.T) {
 			t.Parallel()
 
-			result, parseErr := Parse(fixture.Data)
+			records, parseErr := psdrecords.Parse(fixture.Data)
 			if parseErr != nil {
 				t.Fatalf("Parse: %v", parseErr)
 			}
-			for _, mismatch := range psdfixture.CompareRecords(fixture.Spec, recordViews(result.Layers)) {
+			for _, mismatch := range psdfixture.CompareRecords(fixture.Spec, records) {
 				t.Errorf("%s", mismatch)
 			}
 		})
 	}
-}
-
-// recordViews converts parsed layer records into the neutral view psdfixture
-// compares against. psdfixture cannot import this package: internal/io/psd's own
-// tests live in package psd, so the dependency would be a cycle.
-func recordViews(layers []LayerRecord) []psdfixture.RecordView {
-	views := make([]psdfixture.RecordView, 0, len(layers))
-	for _, layer := range layers {
-		channelIDs := make([]int, 0, len(layer.Channels))
-		for _, channel := range layer.Channels {
-			channelIDs = append(channelIDs, int(channel.ID))
-		}
-		views = append(views, psdfixture.RecordView{
-			Name:              layer.Name,
-			SectionType:       int(layer.SectionType),
-			PassThrough:       layer.PassThrough,
-			BlendMode:         string(layer.BlendMode),
-			Opacity:           layer.Opacity,
-			Visible:           layer.Visible,
-			ClipToBelow:       layer.ClipToBelow,
-			Bounds:            layer.Bounds,
-			ChannelIDs:        channelIDs,
-			HasMask:           layer.HasLayerMask,
-			MaskEnabled:       layer.LayerMaskEnabled,
-			MaskBounds:        layer.LayerMaskBounds,
-			MaskDefault:       int(layer.LayerMaskDefault),
-			MaskInverted:      layer.LayerMaskInverted,
-			UnsupportedBlocks: layer.UnsupportedBlocks,
-		})
-	}
-	return views
 }

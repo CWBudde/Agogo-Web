@@ -140,12 +140,18 @@ def _flag(obj: Any, *names: str) -> bool | None:
 
 
 def _to_u8(value: Any) -> int:
-    """Clamp a psd-tools float (0..1) or int (0..255) channel to a 0..255 int."""
+    """Clamp a psd-tools channel sample to a 0..255 int.
+
+    The scale is decided by the sample's TYPE, never by its value. An integer
+    sample is already a 0..255 code, so ``np.uint8(1)`` stays 1; a float sample
+    from ``layer.numpy()`` is normalised, so ``1.0`` becomes 255. Deciding by
+    value instead would silently promote the integer 1 to 255 and bake a false
+    expectation into the sidecar.
+    """
+    if isinstance(value, (bool, int, np.integer)):
+        return max(0, min(255, int(value)))
     number = float(value)
-    if number <= 1.0 and not float(number).is_integer():
-        number *= 255.0
-    elif 0.0 <= number <= 1.0:
-        # Exactly 0.0 or 1.0 from a float array is still normalised data.
+    if 0.0 <= number <= 1.0:
         number *= 255.0
     return max(0, min(255, int(round(number))))
 
