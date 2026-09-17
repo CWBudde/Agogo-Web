@@ -105,8 +105,8 @@ fixture is a release blocker exactly like the GPC dependency in
 
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
-no fixture can currently exist for it. 23 fixtures cover 27 of 30 capabilities in
-about 125 KB of binaries.
+no fixture can currently exist for it. 26 fixtures cover 28 of 30 capabilities in
+about 141 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ about 125 KB of binaries.
 | Blending | All 27 modes, in both directions | — |
 | Opacity | Layer opacity below 255, fill opacity (`iOpa`) below 255 and at 0 | — |
 | Container | PSD, PSB, exactly on the 30000 px PSD limit | — |
-| Layer kinds | Pixel, group | Adjustment, live text, layer effects |
+| Layer kinds | Pixel, group, adjustment (12 block types) | Live text, layer effects |
 
 ### Cross-implementation differences that are NOT asserted
 
@@ -226,19 +226,37 @@ These are not oversights. No available generator can produce them, so the manife
 carries a `deferred` reference into `PLAN.md` instead of a fixture, and the suite
 does not pretend the area is tested:
 
-- **`layer.adjustment`, `layer.text`, `layer.effects`** — no available writer emits
-  live adjustment layers, a `TySh` text layer with engine data, or `lfx2`/`lrFX`
-  effects (S.10.7).
+- **`layer.text`** — a live text layer needs a `TySh` block whose payload is
+  Photoshop's *engine data*: a nested, undocumented text-engine dump that the
+  format spec does not describe and that no third-party writer emits. The
+  descriptor around it is writable by hand; the engine data is not (S.10.7).
+- **`layer.effects`** — `lfx2` is an Action Descriptor and so is writable in
+  principle, but the engine's S.5 style model has no contour, glow technique,
+  glow source or gradient-type field, so a fixture could be written before there
+  is anything to assert it against. This one is waiting on the *reader*, not on a
+  generator (S.10.7).
 
-Closing any of these needs a licensed, redistributable Photoshop-authored file.
-Dropping one in is cheap: generate nothing, run `derive_expectations.py`, add a
-manifest entry, clear the `deferred` field. Until one exists, this repository does
-not claim Photoshop compatibility in those areas.
+Note what those two reasons are NOT: "only Photoshop can write it". Each names
+the specific thing that is missing, so that it can be re-checked rather than
+inherited. Until they are closed, this repository does not claim Photoshop
+compatibility in those areas.
 
-Two entries have already left this list because their stated reason turned out to
-be false, which is the lesson worth keeping: a `deferred` entry is a claim about
-the world, it is as falsifiable as any assertion in the corpus, and it should be
-re-checked rather than inherited.
+Three entries have already left this list because their stated reason turned out
+to be false, which is the lesson worth keeping: a `deferred` entry is a claim
+about the world, it is as falsifiable as any assertion in the corpus, and it
+should be re-checked rather than inherited.
+
+`layer.adjustment` sat here on the grounds that it "needs a Photoshop-authored
+file. No available writer emits live adjustment layers (levl/curv/hue2 and
+friends)". That described pytoshop's typed convenience classes, not the world:
+`GenericTaggedBlock` writes any tagged block, and a Photoshop-shaped adjustment
+layer is a layer record with an empty rect, no colour channels and the block.
+The payloads are hand-built from the spec in `generate_pytoshop.py` — which keeps
+generator and deriver independent, since psd-tools could produce them in two
+lines but is the tool that has to *check* them. psd-tools reads all three
+fixtures back as native `Levels`, `Curves`, `HueSaturation`, `ColorBalance`,
+`ChannelMixer`, `SelectiveColor`, `Threshold`, `Posterize`, `Invert`,
+`PhotoFilter`, `BlackAndWhite` and `BrightnessContrast` layers (S.10.7).
 
 `compression.zip` and `compression.zip-prediction` sat here on the grounds that
 "pytoshop offers raw and RLE only". `pytoshop.codecs.compress_zip` is pure `zlib`

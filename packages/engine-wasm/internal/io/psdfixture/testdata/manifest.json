@@ -63,18 +63,17 @@
     },
     {
       "id": "layer.adjustment",
-      "title": "Adjustment layer with real parameters",
-      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits live adjustment layers (levl/curv/hue2 and friends)."
+      "title": "Adjustment layers with real parameters"
     },
     {
       "id": "layer.text",
       "title": "Live text layer with a TySh descriptor",
-      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits a TySh text layer with its engine data."
+      "deferred": "PLAN.md S.10.7: a TySh block's payload is Photoshop's undocumented text-engine data. The descriptor around it is writable by hand; the engine data is not, and no third-party writer emits it."
     },
     {
       "id": "layer.effects",
       "title": "Layer effects / styles (lfx2)",
-      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits lfx2/lrFX layer effects."
+      "deferred": "PLAN.md S.10.7: lfx2 is an Action Descriptor and is writable, but the engine's S.5 style model has no contour, glow technique, glow source or gradient-type field, so there is nothing to assert a fixture against yet. Waiting on the reader, not on a generator."
     },
     {
       "id": "layer.hidden",
@@ -286,6 +285,33 @@
       "capabilities": ["compression.zip-prediction"],
       "bytes": 1637,
       "sha256": "622956149e107856cf48332bb244845e650ba423d902162abb20442cdfa03333"
+    },
+    {
+      "id": "rgb8-adjustment-core",
+      "file": "rgb8-adjustment-core.psd",
+      "capabilities": [
+        "layer.adjustment",
+        "colormode.rgb8",
+        "compression.raw",
+        "mask.offset-rect",
+        "clipping.mask"
+      ],
+      "bytes": 6678,
+      "sha256": "5558e817fcb8f13bf92d63e4d8343abe48b43b3bb89ce96ccda3351287061346"
+    },
+    {
+      "id": "rgb8-adjustment-binary",
+      "file": "rgb8-adjustment-binary.psd",
+      "capabilities": ["layer.adjustment", "colormode.rgb8", "compression.raw"],
+      "bytes": 6586,
+      "sha256": "451133d38438091d8b23965958c61d754f11833013a509d9b2f513b653bb9db5"
+    },
+    {
+      "id": "rgb8-adjustment-descriptor",
+      "file": "rgb8-adjustment-descriptor.psd",
+      "capabilities": ["layer.adjustment", "colormode.rgb8", "compression.raw"],
+      "bytes": 6126,
+      "sha256": "d0e27d586be58eab97e480bf47b4dbb448f21c90f5be819e2be0a2b7cd0e9bbe"
     }
   ]
 }

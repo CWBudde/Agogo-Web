@@ -1,0 +1,407 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-adjustment-core",
+  "file": "rgb8-adjustment-core.psd",
+  "description": "32x24 RGB/8, Levels, Curves and Hue/Saturation adjustment layers with non-default parameters; Levels also carries a mask, clipping, opacity 160 and Multiply.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_adjustment_core",
+    "generatedOn": "2026-09-17",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-17",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": [
+      "The levl block sets the composite record plus red, green and blue; the engine holds one set of level values, so only the composite maps and the rest is warned about.",
+      "Curves sets a composite curve and a red curve, so a reader that discards the curv channel bitmap fails here."
+    ]
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [
+    "layer \"Levels\": levl per-channel level records has no engine equivalent and was not imported"
+  ],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Hue Saturation",
+      "name": "Hue Saturation",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "huesat",
+      "adjustmentParams": {
+        "hueShift": 25,
+        "saturation": -30,
+        "lightness": 10,
+        "colorize": false,
+        "reds": {
+          "hueShift": 12,
+          "saturation": -5,
+          "lightness": 3
+        },
+        "yellows": {
+          "hueShift": -8,
+          "saturation": 20,
+          "lightness": 0
+        },
+        "greens": {
+          "hueShift": 0,
+          "saturation": 0,
+          "lightness": -12
+        },
+        "cyans": {
+          "hueShift": 5,
+          "saturation": 5,
+          "lightness": 5
+        },
+        "blues": {
+          "hueShift": -20,
+          "saturation": 0,
+          "lightness": 0
+        },
+        "magentas": {
+          "hueShift": 0,
+          "saturation": -30,
+          "lightness": 15
+        }
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Curves",
+      "name": "Curves",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "curves",
+      "adjustmentParams": {
+        "points": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 128,
+            "y": 90
+          },
+          {
+            "x": 255,
+            "y": 255
+          }
+        ],
+        "redPoints": [
+          {
+            "x": 0,
+            "y": 12
+          },
+          {
+            "x": 128,
+            "y": 200
+          },
+          {
+            "x": 255,
+            "y": 255
+          }
+        ]
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Levels",
+      "name": "Levels",
+      "type": "adjustment",
+      "blendMode": "multiply",
+      "psdBlendKey": "mul ",
+      "opacity255": 160,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": true,
+      "adjustmentKind": "levels",
+      "adjustmentParams": {
+        "channel": "rgb",
+        "inputBlack": 10,
+        "inputWhite": 245,
+        "outputBlack": 5,
+        "outputWhite": 250,
+        "gamma": 1.2
+      },
+      "mask": {
+        "present": true,
+        "enabled": true
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Hue Saturation",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Curves",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "Levels",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [-2],
+      "opacity255": 160,
+      "visible": false,
+      "clipping": true,
+      "blendMode": "multiply",
+      "psdBlendKey": "mul ",
+      "mask": {
+        "present": true,
+        "enabled": true,
+        "rect": {
+          "x": 6,
+          "y": 5,
+          "w": 20,
+          "h": 12
+        },
+        "defaultFill": 255,
+        "inverted": false
+      }
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 23,
+      "rgba": [221, 221, 0, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 16,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [
+      "layers[1].type",
+      "layers[1].adjustmentKind",
+      "layers[1].adjustmentParams.hueShift",
+      "layers[1].adjustmentParams.saturation",
+      "layers[1].adjustmentParams.lightness",
+      "layers[1].adjustmentParams.colorize",
+      "layers[1].adjustmentParams.reds",
+      "layers[1].adjustmentParams.yellows",
+      "layers[1].adjustmentParams.greens",
+      "layers[1].adjustmentParams.cyans",
+      "layers[1].adjustmentParams.blues",
+      "layers[1].adjustmentParams.magentas",
+      "layers[2].type",
+      "layers[2].adjustmentKind",
+      "layers[2].adjustmentParams.points",
+      "layers[2].adjustmentParams.redPoints",
+      "layers[3].type",
+      "layers[3].adjustmentKind",
+      "layers[3].adjustmentParams.channel",
+      "layers[3].adjustmentParams.gamma",
+      "layers[3].adjustmentParams.inputBlack",
+      "layers[3].adjustmentParams.inputWhite",
+      "layers[3].adjustmentParams.outputBlack",
+      "layers[3].adjustmentParams.outputWhite",
+      "warnings",
+      "psdRecords[0].channelIds",
+      "psdRecords[3].mask.rect"
+    ],
+    "lossyReason": "PLAN.md S.10.7: psdexport cannot yet write a native adjustment block. It emits the private AgAJ JSON block instead, so a re-exported adjustment layer reads back as a pixel layer with no adjustmentKind and no parameters, and the import warnings change accordingly. Native adjustment EXPORT is the open half of S.10.7; this batch did the read side. The channelIds and mask.rect entries are the long-standing S.10.2 writer differences: psdexport emits channels in its own fixed order and rasterizes a mask to document bounds.",
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-17",
+      "result": "partial",
+      "notes": "psd-tools reads every re-exported record back: the Levels layer keeps opacity 160, blend key `mul `, its mask and the cleared visible flag. The adjustments themselves read as kind=pixel, because psdexport writes AgAJ rather than levl/curv/hue2 (PLAN.md S.10.7, native export still open). See VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

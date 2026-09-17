@@ -1,0 +1,554 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-adjustment-binary",
+  "file": "rgb8-adjustment-binary.psd",
+  "description": "32x24 RGB/8, the remaining binary adjustment blocks one layer each: Color Balance, Channel Mixer, Selective Color, Threshold, Posterize, Invert, Photo Filter.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_adjustment_binary",
+    "generatedOn": "2026-09-17",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-17",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": [
+      "The mixr block carries a constant term; the engine's channel mixer has source weights only, so the constant is warned about rather than folded into a weight.",
+      "Threshold and Posterize are a single padded uint16 and Invert has no payload at all; they are here because a parser that requires a non-empty payload breaks on exactly these three."
+    ]
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [
+    "layer \"Channel Mixer\": mixr constant term has no engine equivalent and was not imported"
+  ],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Photo Filter",
+      "name": "Photo Filter",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "photo-filter",
+      "adjustmentParams": {
+        "color": [233, 116, 38, 255],
+        "density": 35,
+        "preserveLuminosity": true
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Invert",
+      "name": "Invert",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "invert",
+      "adjustmentParams": {},
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Posterize",
+      "name": "Posterize",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "posterize",
+      "adjustmentParams": {
+        "levels": 6
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Threshold",
+      "name": "Threshold",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "threshold",
+      "adjustmentParams": {
+        "threshold": 96
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Selective Color",
+      "name": "Selective Color",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "selective-color",
+      "adjustmentParams": {
+        "mode": "absolute",
+        "reds": {
+          "cyanRed": 10,
+          "magentaGreen": -20,
+          "yellowBlue": 30,
+          "black": -5
+        },
+        "yellows": {
+          "cyanRed": -15,
+          "magentaGreen": 25,
+          "yellowBlue": 0,
+          "black": 10
+        },
+        "greens": {
+          "cyanRed": 5,
+          "magentaGreen": 5,
+          "yellowBlue": -40,
+          "black": 0
+        },
+        "cyans": {
+          "cyanRed": 0,
+          "magentaGreen": -10,
+          "yellowBlue": 20,
+          "black": 15
+        },
+        "blues": {
+          "cyanRed": 30,
+          "magentaGreen": 0,
+          "yellowBlue": -25,
+          "black": -10
+        },
+        "magentas": {
+          "cyanRed": -5,
+          "magentaGreen": 40,
+          "yellowBlue": 0,
+          "black": 5
+        },
+        "whites": {
+          "cyanRed": 0,
+          "magentaGreen": 0,
+          "yellowBlue": 0,
+          "black": 20
+        },
+        "neutrals": {
+          "cyanRed": 10,
+          "magentaGreen": 10,
+          "yellowBlue": 10,
+          "black": -10
+        },
+        "blacks": {
+          "cyanRed": 0,
+          "magentaGreen": 0,
+          "yellowBlue": 0,
+          "black": 35
+        }
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Channel Mixer",
+      "name": "Channel Mixer",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "channel-mixer",
+      "adjustmentParams": {
+        "monochrome": false,
+        "red": [80, 10, 10]
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Color Balance",
+      "name": "Color Balance",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "color-balance",
+      "adjustmentParams": {
+        "shadows": {
+          "cyanRed": 20,
+          "magentaGreen": -10,
+          "yellowBlue": 5
+        },
+        "midtones": {
+          "cyanRed": -15,
+          "magentaGreen": 25,
+          "yellowBlue": 0
+        },
+        "highlights": {
+          "cyanRed": 0,
+          "magentaGreen": 5,
+          "yellowBlue": -30
+        },
+        "preserveLuminosity": true
+      },
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Photo Filter",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Invert",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "Posterize",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 4,
+      "name": "Threshold",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 5,
+      "name": "Selective Color",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 6,
+      "name": "Channel Mixer",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 7,
+      "name": "Color Balance",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 23,
+      "rgba": [221, 221, 0, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 16,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [
+      "layers[1].type",
+      "layers[1].adjustmentKind",
+      "layers[1].adjustmentParams.color",
+      "layers[1].adjustmentParams.density",
+      "layers[1].adjustmentParams.preserveLuminosity",
+      "layers[2].type",
+      "layers[2].adjustmentKind",
+      "layers[3].type",
+      "layers[3].adjustmentKind",
+      "layers[3].adjustmentParams.levels",
+      "layers[4].type",
+      "layers[4].adjustmentKind",
+      "layers[4].adjustmentParams.threshold",
+      "layers[5].type",
+      "layers[5].adjustmentKind",
+      "layers[5].adjustmentParams.mode",
+      "layers[5].adjustmentParams.reds",
+      "layers[5].adjustmentParams.yellows",
+      "layers[5].adjustmentParams.greens",
+      "layers[5].adjustmentParams.cyans",
+      "layers[5].adjustmentParams.blues",
+      "layers[5].adjustmentParams.magentas",
+      "layers[5].adjustmentParams.whites",
+      "layers[5].adjustmentParams.neutrals",
+      "layers[5].adjustmentParams.blacks",
+      "layers[6].type",
+      "layers[6].adjustmentKind",
+      "layers[6].adjustmentParams.monochrome",
+      "layers[6].adjustmentParams.red",
+      "layers[7].type",
+      "layers[7].adjustmentKind",
+      "layers[7].adjustmentParams.shadows",
+      "layers[7].adjustmentParams.midtones",
+      "layers[7].adjustmentParams.highlights",
+      "layers[7].adjustmentParams.preserveLuminosity",
+      "warnings",
+      "psdRecords[0].channelIds"
+    ],
+    "lossyReason": "PLAN.md S.10.7: psdexport cannot yet write a native adjustment block. It emits the private AgAJ JSON block instead, so a re-exported adjustment layer reads back as a pixel layer with no adjustmentKind and no parameters, and the import warnings change accordingly. Native adjustment EXPORT is the open half of S.10.7; this batch did the read side. The channelIds and mask.rect entries are the long-standing S.10.2 writer differences: psdexport emits channels in its own fixed order and rasterizes a mask to document bounds.",
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-17",
+      "result": "partial",
+      "notes": "psd-tools reads every re-exported record back; the adjustments read as kind=pixel for the same writer gap. See VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}
