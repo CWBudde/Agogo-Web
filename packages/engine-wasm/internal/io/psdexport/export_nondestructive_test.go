@@ -226,3 +226,37 @@ func TestStyledAndBlendIfLayersStillFlatten(t *testing.T) {
 		}
 	}
 }
+
+// A styled layer is still flattened through RenderLayer, and that raster
+// already has the layer's opacity, mask, clip AND fill opacity baked in - while
+// the record goes on restating every one of them, so each is applied a second
+// time on re-read. iOpa is written here anyway, deliberately: suppressing it
+// alone would leave fill opacity right while plain opacity stayed doubled. The
+// whole set has to be neutralised together, or styles need a real PSD encoding
+// so nothing flattens. Recorded under PLAN.md S.10.1; this test pins the
+// current choice so it cannot drift silently.
+func TestStyledLayerStillWritesFillOpacityOverTheFlattenedRaster(t *testing.T) {
+	opaque := model.LayerBounds{X: 2, Y: 2, W: 4, H: 4}
+	bounds := model.LayerBounds{X: 0, Y: 0, W: 16, H: 16}
+
+	styled := model.NewPixelLayer("Styled", bounds, gradientPixels(bounds))
+	styled.SetStyleStack([]model.LayerStyle{{Kind: "dropShadow", Enabled: true}})
+	styled.SetFillOpacity(128.0 / 255.0)
+
+	records, err := buildLayerRecords(Params{
+		Width:       testDocW,
+		Height:      testDocH,
+		Layers:      []model.LayerNode{styled},
+		RenderLayer: croppingRenderLayer(opaque),
+	}, false)
+	if err != nil {
+		t.Fatalf("buildLayerRecords: %v", err)
+	}
+	if records[0].Bounds != opaque {
+		t.Fatalf("bounds = %+v, want the flattened %+v", records[0].Bounds, opaque)
+	}
+	block := findTaggedBlock(records[0], "iOpa")
+	if block == nil || !bytes.Equal(block.Payload, []byte{128, 0, 0, 0}) {
+		t.Fatalf("iOpa block = %v, want [128 0 0 0]", block)
+	}
+}

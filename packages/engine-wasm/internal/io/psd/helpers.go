@@ -529,14 +529,32 @@ func WriteImageResource(out *bytes.Buffer, resourceID uint16, name string, paylo
 	}
 }
 
+// WriteAdditionalLayerInfoBlock writes one tagged block into a layer record's
+// extra data. The payload is written verbatim, with NO pad byte after an odd
+// length.
+//
+// The spec's "rounded up to an even byte count" applies to image resource
+// blocks (see WriteImageResource above, which does pad); inside a layer record
+// no reader we can check agrees with it. Measured 2026-09-17 on a file with a
+// one-byte iOpa block written both ways: psd-tools 1.19.0 reads the unpadded
+// form and dies on the padded one ("Invalid signature b'\x008BI'", then an
+// invalid channel ID), and ImageMagick 6.9.12 refuses the padded file outright
+// ("maximum channels exceeded"). Both accept the unpadded form. psd-tools
+// itself writes layer-record blocks unpadded (padding=1 at
+// psd/layer_and_mask.py:647), as does pytoshop.
+//
+// This padding used to be unconditional, and it was not theoretical: Agogo's
+// own AgAJ block carries a JSON payload of arbitrary length, so an adjustment
+// layer produced a 63-byte block plus a pad byte. That one survived psd-tools
+// only because AgAJ happened to be the record's LAST block, so the stray byte
+// ended the block loop instead of being read as the next signature. Every
+// other block Agogo writes happens to be even-length (luni, lsct, iOpa), which
+// is why no fixture caught this. See PLAN.md S.10.6.
 func WriteAdditionalLayerInfoBlock(out *bytes.Buffer, signature, key string, payload []byte) {
 	writeString(out, signature)
 	writeString(out, key)
 	writeUint32(out, uint32(len(payload)))
 	out.Write(payload)
-	if len(payload)%2 != 0 {
-		out.WriteByte(0)
-	}
 }
 
 func EncodeUnicodeString(value string) []byte {

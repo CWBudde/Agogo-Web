@@ -304,10 +304,11 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 			W: int(width),
 			H: int(height),
 		},
-		Opacity:   1,
-		Visible:   true,
-		BlendMode: model.BlendModeNormal,
-		Channels:  make([]ChannelInfo, 0, int(channelCount)),
+		Opacity:     1,
+		FillOpacity: 1,
+		Visible:     true,
+		BlendMode:   model.BlendModeNormal,
+		Channels:    make([]ChannelInfo, 0, int(channelCount)),
 	}
 	// Every layer's channel image data lives after the layer records in this
 	// same section, so neither one channel nor a layer's total may declare more
@@ -430,9 +431,7 @@ func parseLayerRecordExtra(reader *bytes.Reader, record *LayerRecord, psb bool) 
 			return err
 		}
 		if length%2 != 0 {
-			if _, err := reader.ReadByte(); err != nil {
-				return err
-			}
+			skipOddLengthBlockPadding(reader)
 		}
 		if err := parseLayerAdditionalInfo(signature, key, payload, record); err != nil {
 			record.MetadataWarnings = append(record.MetadataWarnings, fmt.Sprintf("metadata %s: %v", key, err))
@@ -443,6 +442,32 @@ func parseLayerRecordExtra(reader *bytes.Reader, record *LayerRecord, psb bool) 
 
 func ParseLayerExtraData(data []byte, record *LayerRecord) error {
 	return parseLayerRecordExtra(bytes.NewReader(data), record, false)
+}
+
+// skipOddLengthBlockPadding consumes the pad byte after an odd-length tagged
+// block, but only when one is actually there.
+//
+// Writers disagree about this. Agogo used to pad (see
+// WriteAdditionalLayerInfoBlock, which no longer does), while pytoshop and
+// psd-tools write layer-record blocks unpadded, and Photoshop files are found
+// both ways because most blocks are even-length anyway. Consuming a byte
+// unconditionally desynchronised the loop on an unpadded file - the next
+// signature read as "BIMl" - and an unpadded block that ended a record made
+// ReadByte fail and the whole record error out.
+//
+// One byte disambiguates it. A pad byte is 0x00, and the only thing that may
+// legally follow a block is another block's signature - "8BIM" or "8B64",
+// neither of which starts with 0x00. So a zero here is padding and anything
+// else is the next signature, put back unread.
+func skipOddLengthBlockPadding(reader *bytes.Reader) {
+	pad, err := reader.ReadByte()
+	if err != nil {
+		// Nothing followed the block: an unpadded block ending the record.
+		return
+	}
+	if pad != 0 {
+		_ = reader.UnreadByte()
+	}
 }
 
 func parseLayerMaskData(payload []byte, record *LayerRecord) {
@@ -502,6 +527,20 @@ func parseLayerAdditionalInfo(_ string, key string, payload []byte, record *Laye
 		return nil
 	case "lclr":
 		record.LayerColorTag = ParseLayerColorTag(payload)
+		return nil
+	case "iOpa":
+		// Fill opacity: one byte, but psd-tools reads and writes it as a byte
+		// plus three pad bytes ("B3x", psd/base.py ByteElement) and only falls
+		// back to a bare byte when that fails, so a length of 1, 2 or 4 all
+		// occur in the wild. Read the first byte and ignore the rest.
+		//
+		// A zero-length payload leaves the record opaque rather than making it
+		// invisible, and stays silent like the lsct/lclr/lyid cases below: a
+		// truncated block is not worth a warning that every fixture's golden
+		// warning set would then have to carry.
+		if len(payload) >= 1 {
+			record.FillOpacity = float64(payload[0]) / 255.0
+		}
 		return nil
 	case "lsct":
 		if len(payload) >= 4 {

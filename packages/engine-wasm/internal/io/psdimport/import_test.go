@@ -173,3 +173,48 @@ func TestBuildLayerNodesPreservesFolderOpenClosedState(t *testing.T) {
 		t.Errorf("group %q imported from lsct 2 must be collapsed", closedGroup.Name())
 	}
 }
+
+// Fill opacity is a compositing parameter like Opacity, so it must reach the
+// model on both the raster and the group path. PLAN.md S.10.7.
+func TestBuildLayerNodesPreservesFillOpacity(t *testing.T) {
+	header := psdio.Header{Width: 1, Height: 1, Depth: 8, ColorMode: psdio.ColorModeRGB}
+	half := pixelRecord("Half fill", 10)
+	half.FillOpacity = 128.0 / 255.0
+	plain := pixelRecord("Plain", 20)
+	plain.FillOpacity = 1
+
+	layers := []psdio.LayerRecord{
+		{SectionType: psdio.LayerSectionBoundingDivider},
+		half,
+		{
+			Name: "Group", SectionType: psdio.LayerSectionOpenFolder, Visible: true,
+			Opacity: 1, FillOpacity: 64.0 / 255.0, BlendMode: model.BlendModeNormal,
+		},
+		plain,
+	}
+
+	nodes, warnings, err := BuildLayerNodes(header, layers)
+	if err != nil {
+		t.Fatalf("BuildLayerNodes: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("root node count = %d, want 2", len(nodes))
+	}
+
+	group, ok := nodes[0].(*model.GroupLayer)
+	if !ok {
+		t.Fatalf("node 0 type = %T, want *model.GroupLayer", nodes[0])
+	}
+	if got, want := group.FillOpacity(), 64.0/255.0; got != want {
+		t.Errorf("group fill opacity = %v, want %v", got, want)
+	}
+	if got, want := group.Children()[0].FillOpacity(), 128.0/255.0; got != want {
+		t.Errorf("child fill opacity = %v, want %v", got, want)
+	}
+	if got := nodes[1].FillOpacity(); got != 1 {
+		t.Errorf("layer without an iOpa block has fill opacity %v, want 1", got)
+	}
+}
