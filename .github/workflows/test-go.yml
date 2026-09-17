@@ -103,6 +103,10 @@ jobs:
         run: go test -run '^$' -fuzz '^FuzzParseTextLayerMetadata$' -fuzztime=30s ./internal/io/psd/
         working-directory: packages/engine-wasm
 
+      - name: Fuzz ParseAdjustmentBlock
+        run: go test -run '^$' -fuzz '^FuzzParseAdjustmentBlock$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
       - name: Fuzz descriptor Parse
         run: go test -run '^$' -fuzz '^FuzzParse$' -fuzztime=30s ./internal/io/descriptor/
         working-directory: packages/engine-wasm
