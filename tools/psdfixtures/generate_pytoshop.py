@@ -423,6 +423,34 @@ class ImageNode:
 
 
 @dataclass
+class AdjustmentNode:
+    """A live adjustment layer: tagged blocks and no pixels.
+
+    Photoshop writes an adjustment layer as a layer record with an EMPTY rect and
+    no colour channels; the adjustment lives entirely in its tagged blocks. That
+    shape is the point of the fixture — an importer that assumes every non-group
+    record has a raster fails on it.
+
+    `visible` defaults to False on purpose. The composite stored in a PSD is a
+    flattened preview, and this generator computes that preview itself from the
+    layer stack; it does not implement Photoshop's adjustment maths. A VISIBLE
+    adjustment would therefore produce a preview contradicting the layer stack,
+    which is the one thing this generator must never do (see
+    _visible_images_bottom_to_top). Hidden, the two agree, and the block, the
+    parameters and the record's own flags are still asserted in full.
+    """
+
+    name: str
+    blocks: list  # [(four-character key, payload bytes)], in write order
+    blend_mode: bytes = enums.BlendMode.normal
+    opacity: int = 255
+    visible: bool = False
+    clipping: bool = False
+    mask: MaskSpec | None = None
+    fill_opacity: int = 255
+
+
+@dataclass
 class GroupNode:
     name: str
     children: list = field(default_factory=list)
@@ -513,6 +541,250 @@ def _fill_opacity_block(value: int) -> tagged_block.GenericTaggedBlock:
     return block
 
 
+# ══ adjustment payloads ═══════════════════════════════════════════════════════
+#
+# Hand-built from the format spec, deliberately. psd-tools could produce these
+# structures in a couple of lines, but psd-tools is the DERIVER: if it wrote the
+# bytes as well as read them, the sidecars would assert nothing but its own
+# self-consistency. Writing them here from the spec keeps generator and deriver
+# two independent implementations, and a layout error shows up as psd-tools
+# refusing to parse rather than as a fixture that agrees with itself.
+#
+# Several of these structures are padded to a 4-byte boundary, which is what
+# Photoshop writes and what psd-tools' own writers emit. Every payload below is
+# even-length as a result, so none of them meets the layer-record padding
+# disagreement documented in testdata/README.md.
+
+
+def _pad4(payload: bytes) -> bytes:
+    return payload + b"\x00" * (-len(payload) % 4)
+
+
+def _levl(records: Sequence[tuple[int, int, int, int, int]]) -> bytes:
+    """levl: version 2, then exactly 29 level records of five uint16.
+
+    Record order is composite, red, green, blue, then unused. Gamma is a short
+    from 10..999 standing for 0.1..9.99, so 120 means 1.2.
+    """
+    out = struct.pack(">H", 2)
+    table = list(records) + [(0, 255, 0, 255, 100)] * (29 - len(records))
+    if len(table) != 29:
+        die(f"levl needs at most 29 records, got {len(records)}")
+    for floor, ceiling, out_floor, out_ceiling, gamma in table:
+        out += struct.pack(">5H", floor, ceiling, out_floor, out_ceiling, gamma)
+    return _pad4(out)
+
+
+def _curv(channels: dict[int, Sequence[tuple[int, int]]]) -> bytes:
+    """curv: version 1, a channel bitmap, then per channel (y, x) point pairs.
+
+    Version 4 drops the bitmap and with it the channel identity, so version 1 is
+    the only form that can carry a per-channel curve. Photoshop follows the
+    bitmapped section with a 'Crv ' extra marker repeating each curve with an
+    explicit channel id; psd-tools logs "Failed to read CurvesExtraMarker" when
+    it is absent, so it is written here too.
+    """
+    out = struct.pack(">BHI", 0, 1, sum(1 << channel for channel in channels))
+    for _, points in sorted(channels.items()):
+        out += struct.pack(">H", len(points))
+        for y, x in points:
+            out += struct.pack(">2H", y, x)
+    out += struct.pack(">4sHI", b"Crv ", 4, len(channels))
+    for channel, points in sorted(channels.items()):
+        out += struct.pack(">2H", channel, len(points))
+        for y, x in points:
+            out += struct.pack(">2H", y, x)
+    return _pad4(out)
+
+
+def _hue2(
+    master: tuple[int, int, int],
+    items: Sequence[tuple[tuple[int, int, int, int], tuple[int, int, int]]],
+    colorization: tuple[int, int, int] = (0, 0, 0),
+    enable: int = 1,
+) -> bytes:
+    """hue2: version 2, the colorize triple, the master triple, then six ranges.
+
+    Each range is four int16 hue edges followed by its own hue/saturation/
+    lightness triple. The six are reds, yellows, greens, cyans, blues, magentas.
+    """
+    if len(items) != 6:
+        die(f"hue2 needs exactly 6 ranges, got {len(items)}")
+    out = struct.pack(">HBx", 2, enable)
+    out += struct.pack(">3h", *colorization)
+    out += struct.pack(">3h", *master)
+    for edges, settings in items:
+        out += struct.pack(">4h", *edges)
+        out += struct.pack(">3h", *settings)
+    return _pad4(out)
+
+
+def _brit(brightness: int, contrast: int, mean: int = 127, lab_only: int = 0) -> bytes:
+    """brit: the OBSOLETE brightness/contrast block, written for old readers.
+
+    psd-tools maps its BrightnessContrast layer to CgEd and marks this tag
+    obsolete. Photoshop still writes both, so a faithful fixture carries both and
+    the live values belong in the descriptor - see _cged.
+    """
+    return struct.pack(">3HBx", brightness & 0xFFFF, contrast & 0xFFFF, mean, lab_only)
+
+
+def _blnc(
+    shadows: tuple[int, int, int],
+    midtones: tuple[int, int, int],
+    highlights: tuple[int, int, int],
+    luminosity: int = 0,
+) -> bytes:
+    """blnc: three tone triples of int16 (cyan-red, magenta-green, yellow-blue)."""
+    out = struct.pack(">3h", *shadows)
+    out += struct.pack(">3h", *midtones)
+    out += struct.pack(">3h", *highlights)
+    out += struct.pack(">B", luminosity)
+    return _pad4(out)
+
+
+def _mixr(monochrome: int, data: Sequence[int]) -> bytes:
+    """mixr: version, the monochrome flag, then five int16 for ONE output row.
+
+    Four of the five are the source weights in percent and the fifth is the
+    constant. Photoshop repeats the block per output channel.
+    """
+    if len(data) != 5:
+        die(f"mixr needs 5 values, got {len(data)}")
+    return struct.pack(">2H", 1, monochrome) + struct.pack(">5h", *data)
+
+
+def _selc(method: int, plates: Sequence[tuple[int, int, int, int]]) -> bytes:
+    """selc: version, the relative/absolute method, then ten CMYK plates.
+
+    The ten are reds, yellows, greens, cyans, blues, magentas, whites, neutrals,
+    blacks - with one unused leading plate.
+    """
+    if len(plates) != 10:
+        die(f"selc needs 10 plates, got {len(plates)}")
+    out = struct.pack(">2H", 1, method)
+    for plate in plates:
+        out += struct.pack(">4h", *plate)
+    return out
+
+
+def _thrs(level: int) -> bytes:
+    """thrs: one uint16 level, padded to four bytes."""
+    return struct.pack(">H2x", level)
+
+
+def _post(levels: int) -> bytes:
+    """post: one uint16 level count, padded to four bytes."""
+    return struct.pack(">H2x", levels)
+
+
+def _nvrt() -> bytes:
+    """nvrt: no payload at all. Invert has nothing to configure."""
+    return b""
+
+
+def _phfl(
+    color_space: int,
+    components: tuple[int, int, int, int],
+    density: int,
+    luminosity: int,
+) -> bytes:
+    """phfl version 2: a colour space, four uint16 components, density, luminosity.
+
+    Version 3 stores XYZ instead. Version 2 is the widely written one and is the
+    form psd-tools emits.
+    """
+    out = struct.pack(">H", 2)
+    out += struct.pack(">H4H", color_space, *components)
+    out += struct.pack(">IB", density, luminosity)
+    return _pad4(out)
+
+
+# ── descriptor-valued blocks ──────────────────────────────────────────────────
+
+
+def _descriptor_unicode(text: str) -> bytes:
+    """A descriptor unicode string: a character count INCLUDING the NUL, then UTF-16BE."""
+    return struct.pack(">I", len(text) + 1) + text.encode("utf-16-be") + b"\x00\x00"
+
+
+def _length_and_key(key: str) -> bytes:
+    """The length-or-4CC form: a zero length means a bare four-character key follows."""
+    raw = key.encode("ascii")
+    if len(raw) == 4:
+        return b"\x00\x00\x00\x00" + raw
+    return struct.pack(">I", len(raw)) + raw
+
+
+def _descriptor(class_id: str, items: Sequence[tuple[str, bytes]], name: str = "") -> bytes:
+    out = _descriptor_unicode(name) + _length_and_key(class_id)
+    out += struct.pack(">I", len(items))
+    for key, value in items:
+        out += _length_and_key(key) + value
+    return out
+
+
+def _v_long(value: int) -> bytes:
+    return b"long" + struct.pack(">i", value)
+
+
+def _v_bool(value: bool) -> bytes:
+    return b"bool" + struct.pack(">B", 1 if value else 0)
+
+
+def _descriptor_block(class_id: str, items: Sequence[tuple[str, bytes]]) -> bytes:
+    """A descriptor-valued tagged block: uint32 version 16, then the descriptor."""
+    return struct.pack(">I", 16) + _descriptor(class_id, items)
+
+
+def _blwh(
+    reds: int, yellows: int, greens: int, cyans: int, blues: int, magentas: int,
+    use_tint: bool = False,
+) -> bytes:
+    """blwh: the black-and-white mix, as a descriptor of six long percentages."""
+    return _descriptor_block(
+        "null",
+        [
+            ("Rd  ", _v_long(reds)),
+            ("Yllw", _v_long(yellows)),
+            ("Grn ", _v_long(greens)),
+            ("Cyn ", _v_long(cyans)),
+            ("Bl  ", _v_long(blues)),
+            ("Mgnt", _v_long(magentas)),
+            ("useTint", _v_bool(use_tint)),
+        ],
+    )
+
+
+def _cged(
+    brightness: int, contrast: int, mean: int = 127,
+    lab: bool = False, use_legacy: bool = False,
+) -> bytes:
+    """CgEd: the LIVE brightness/contrast values, which `brit` no longer carries."""
+    return _descriptor_block(
+        "null",
+        [
+            ("Vrsn", _v_long(1)),
+            ("Brgh", _v_long(brightness)),
+            ("Cntr", _v_long(contrast)),
+            ("means", _v_long(mean)),
+            ("Lab ", _v_bool(lab)),
+            ("useLegacy", _v_bool(use_legacy)),
+        ],
+    )
+
+
+def _adjustment_block(code: str, payload: bytes) -> tagged_block.GenericTaggedBlock:
+    """One adjustment tagged block, with defect 6's post-construction check."""
+    raw = code.encode("ascii")
+    if len(raw) != 4:
+        die(f"tagged block key {code!r} is not four characters")
+    block = tagged_block.GenericTaggedBlock(code=raw, data=payload)
+    if block.data != payload:
+        die(f"pytoshop dropped the {code} payload — see defect 6 above")
+    return block
+
+
 def _image_record(node: ImageNode, compression: int, layer_id: int) -> layers.LayerRecord:
     channels = _channels(node.pixels, compression)
     mask_block = _apply_mask(node.name, node.mask, channels, compression)
@@ -535,6 +807,32 @@ def _image_record(node: ImageNode, compression: int, layer_id: int) -> layers.La
     )
     if node.fill_opacity != 255:
         record.blocks.insert(1, _fill_opacity_block(node.fill_opacity))
+    record.mask = mask_block
+    return record
+
+
+def _adjustment_record(
+    node: AdjustmentNode, compression: int, layer_id: int
+) -> layers.LayerRecord:
+    """An adjustment layer record: empty rect, no colour channels, blocks only."""
+    channels: "OrderedDict[int, layers.ChannelImageData]" = OrderedDict()
+    mask_block = _apply_mask(node.name, node.mask, channels, compression)
+
+    blocks = [tagged_block.UnicodeLayerName(name=node.name)]
+    if node.fill_opacity != 255:
+        blocks.append(_fill_opacity_block(node.fill_opacity))
+    blocks.append(tagged_block.LayerId(id=layer_id))
+    blocks.extend(_adjustment_block(code, payload) for code, payload in node.blocks)
+
+    record = _LayerRecord(
+        name=node.name,
+        blend_mode=node.blend_mode,
+        opacity=node.opacity,
+        visible=node.visible,
+        clipping=node.clipping,
+        channels=channels,
+        blocks=blocks,
+    )
     record.mask = mask_block
     return record
 
@@ -590,12 +888,14 @@ def _group_records(
 
 
 def _flatten(
-    nodes: Sequence[ImageNode | GroupNode], compression: int, next_id: Callable[[], int]
+    nodes: Sequence[ImageNode | AdjustmentNode | GroupNode], compression: int, next_id: Callable[[], int]
 ) -> list[layers.LayerRecord]:
     records: list[layers.LayerRecord] = []
     for node in nodes:
         if isinstance(node, GroupNode):
             records.extend(_group_records(node, compression, next_id))
+        elif isinstance(node, AdjustmentNode):
+            records.append(_adjustment_record(node, compression, next_id()))
         else:
             records.append(_image_record(node, compression, next_id()))
     return records
@@ -605,7 +905,7 @@ def _flatten(
 
 
 def _visible_images_bottom_to_top(
-    nodes: Sequence[ImageNode | GroupNode],
+    nodes: Sequence[ImageNode | AdjustmentNode | GroupNode],
     width: int = CANVAS_W,
     height: int = CANVAS_H,
     inherited: np.ndarray | None = None,
@@ -638,6 +938,19 @@ def _visible_images_bottom_to_top(
                     combined = np.full((height, width), 255.0, dtype=np.float32)
                 combined = combined * factor
             out.extend(_visible_images_bottom_to_top(node.children, width, height, combined))
+        elif isinstance(node, AdjustmentNode):
+            # An adjustment layer contributes no pixels of its own, and this
+            # generator does not implement Photoshop's adjustment maths, so it
+            # cannot contribute the change it would make to the layers below
+            # either. AdjustmentNode.visible therefore defaults to False and
+            # this arm refuses the case where it is not - silently compositing
+            # around a visible adjustment would store a preview that contradicts
+            # the layer stack.
+            if node.visible:
+                die(
+                    f"adjustment layer {node.name!r} is visible; the stored composite "
+                    "cannot represent it (see AdjustmentNode's docstring)"
+                )
         elif node.visible:
             out.append((node, inherited))
     return out
@@ -693,7 +1006,7 @@ def _effective_alpha(
 
 
 def _composite(
-    nodes: Sequence[ImageNode | GroupNode], width: int, height: int
+    nodes: Sequence[ImageNode | AdjustmentNode | GroupNode], width: int, height: int
 ) -> np.ndarray:
     """A plain source-over flatten of the visible layers, as the stored preview.
 
@@ -724,7 +1037,7 @@ def _composite(
 
 
 def build_psd(
-    nodes: Sequence[ImageNode | GroupNode],
+    nodes: Sequence[ImageNode | AdjustmentNode | GroupNode],
     *,
     width: int = CANVAS_W,
     height: int = CANVAS_H,
@@ -923,7 +1236,7 @@ def fixture_rgb8_blend_modes(out: Path) -> Path:
     per_row = CANVAS_W // tile_w  # 5
     swatches = [TEAL, VIOLET, ORANGE, CHALK, SLATE]
 
-    nodes: list[ImageNode | GroupNode] = []
+    nodes: list[ImageNode | AdjustmentNode | GroupNode] = []
     for index, (name, key) in enumerate(_BLEND_MODES):
         column = index % per_row
         row = index // per_row
@@ -1018,7 +1331,7 @@ def _masked_stack(
     disabled: bool = False,
     inverted: bool = False,
     layer_name: str = "Masked",
-) -> list[ImageNode | GroupNode]:
+) -> list[ImageNode | AdjustmentNode | GroupNode]:
     """A masked layer whose mask rect is offset from, and smaller than, the layer.
 
     Layer rect  (3,4)-(21,28)  = 24x18 at (4,3)
@@ -1265,7 +1578,7 @@ def fixture_rgb8_rle_layers(out: Path) -> Path:
     return _emit(out, "rgb8-rle-layers", nodes, compression=enums.Compression.rle)
 
 
-def _zip_stack(prefix: str) -> list[ImageNode | GroupNode]:
+def _zip_stack(prefix: str) -> list[ImageNode | AdjustmentNode | GroupNode]:
     """The layer stack both ZIP fixtures share, so the two differ ONLY in the codec.
 
     Same geometry, same pixels: whatever the two sidecars disagree about is the
@@ -1328,7 +1641,7 @@ def fixture_rgb8_zip_prediction_layers(out: Path) -> Path:
 def _emit(
     out: Path,
     fixture_id: str,
-    nodes: Sequence[ImageNode | GroupNode],
+    nodes: Sequence[ImageNode | AdjustmentNode | GroupNode],
     *,
     compression: int = enums.Compression.raw,
     composite_compression: int | None = None,
@@ -1338,6 +1651,164 @@ def _emit(
     size = write_psd(psd, path)
     print(f"  {path.name:<28} {size:>8} bytes")
     return path
+
+
+def fixture_rgb8_adjustment_core(out: Path) -> Path:
+    """Levels, Curves and Hue/Saturation — the three richest binary blocks.
+
+    Every value is deliberately off its default, so a reader that recognises the
+    block but ignores its payload produces identity parameters and fails. The
+    Levels layer additionally carries an offset mask, a clipping flag, a non-255
+    opacity and a non-normal blend mode: an adjustment layer is a layer record
+    like any other, and an importer that special-cases it must not drop the
+    fields every other record gets.
+
+    Curves sets a per-channel curve as well as the composite one, because the
+    composite-only case cannot distinguish a reader that keeps channel identity
+    from one that discards it.
+    """
+    nodes = [
+        AdjustmentNode(
+            name="Levels",
+            blocks=[
+                (
+                    "levl",
+                    _levl(
+                        [
+                            (10, 245, 5, 250, 120),  # composite: gamma 1.20
+                            (20, 235, 0, 255, 90),  # red:       gamma 0.90
+                            (0, 255, 10, 240, 100),  # green
+                            (35, 220, 0, 255, 145),  # blue:      gamma 1.45
+                        ]
+                    ),
+                )
+            ],
+            opacity=160,
+            blend_mode=enums.BlendMode.multiply,
+            clipping=True,
+            mask=MaskSpec(
+                top=5, left=6, bottom=17, right=26, data=mask_ramp(20, 12),
+                default_color=True,
+            ),
+        ),
+        AdjustmentNode(
+            name="Curves",
+            blocks=[
+                (
+                    "curv",
+                    _curv(
+                        {
+                            0: [(0, 0), (90, 128), (255, 255)],  # composite
+                            1: [(12, 0), (200, 128), (255, 255)],  # red
+                        }
+                    ),
+                )
+            ],
+        ),
+        AdjustmentNode(
+            name="Hue Saturation",
+            blocks=[
+                (
+                    "hue2",
+                    _hue2(
+                        master=(25, -30, 10),
+                        items=[
+                            ((315, 345, 15, 45), (12, -5, 3)),  # reds
+                            ((15, 45, 75, 105), (-8, 20, 0)),  # yellows
+                            ((75, 105, 135, 165), (0, 0, -12)),  # greens
+                            ((135, 165, 195, 225), (5, 5, 5)),  # cyans
+                            ((195, 225, 255, 285), (-20, 0, 0)),  # blues
+                            ((255, 285, 315, 345), (0, -30, 15)),  # magentas
+                        ],
+                    ),
+                )
+            ],
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-adjustment-core", nodes)
+
+
+def fixture_rgb8_adjustment_binary(out: Path) -> Path:
+    """The remaining binary adjustment blocks, one layer each.
+
+    Threshold, Posterize and Invert are the degenerate shapes worth pinning
+    beside the others: two of them are a single padded uint16 and the third has
+    no payload at all, so a parser that requires a non-empty payload, or that
+    reads a length before a value, breaks here and nowhere else.
+    """
+    nodes = [
+        AdjustmentNode(
+            name="Color Balance",
+            blocks=[("blnc", _blnc((20, -10, 5), (-15, 25, 0), (0, 5, -30), luminosity=1))],
+        ),
+        AdjustmentNode(
+            name="Channel Mixer",
+            blocks=[("mixr", _mixr(0, (80, 10, 10, 0, 5)))],
+        ),
+        AdjustmentNode(
+            name="Selective Color",
+            blocks=[
+                (
+                    "selc",
+                    _selc(
+                        1,  # absolute
+                        [
+                            (0, 0, 0, 0),  # unused leading plate
+                            (10, -20, 30, -5),  # reds
+                            (-15, 25, 0, 10),  # yellows
+                            (5, 5, -40, 0),  # greens
+                            (0, -10, 20, 15),  # cyans
+                            (30, 0, -25, -10),  # blues
+                            (-5, 40, 0, 5),  # magentas
+                            (0, 0, 0, 20),  # whites
+                            (10, 10, 10, -10),  # neutrals
+                            (0, 0, 0, 35),  # blacks
+                        ],
+                    ),
+                )
+            ],
+        ),
+        AdjustmentNode(name="Threshold", blocks=[("thrs", _thrs(96))]),
+        AdjustmentNode(name="Posterize", blocks=[("post", _post(6))]),
+        AdjustmentNode(name="Invert", blocks=[("nvrt", _nvrt())]),
+        AdjustmentNode(
+            name="Photo Filter",
+            # Colour space 0 is RGB; the four components are R, G, B and an
+            # unused slot, each 0..65535. This is a warming filter.
+            blocks=[("phfl", _phfl(0, (60000, 30000, 10000, 0), 35, 1))],
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-adjustment-binary", nodes)
+
+
+def fixture_rgb8_adjustment_descriptor(out: Path) -> Path:
+    """The two adjustments Photoshop stores as Action Descriptors.
+
+    Black & White is descriptor-only. Brightness/Contrast is the interesting one:
+    psd-tools marks the `brit` tag obsolete and maps its BrightnessContrast layer
+    to `CgEd`, so Photoshop writes BOTH — the legacy block for old readers and
+    the descriptor with the live values. This layer carries both, with
+    DIFFERENT numbers in each, so a reader that takes the legacy block when the
+    descriptor is present is distinguishable from one that prefers the
+    descriptor. `brit` says +11/-7; `CgEd`, which wins, says +30/-20.
+    """
+    nodes = [
+        AdjustmentNode(
+            name="Black and White",
+            blocks=[("blwh", _blwh(40, 60, 40, 60, 20, 80))],
+        ),
+        AdjustmentNode(
+            name="Brightness Contrast",
+            blocks=[
+                ("brit", _brit(11, -7)),
+                ("CgEd", _cged(30, -20)),
+            ],
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-adjustment-descriptor", nodes)
 
 
 FIXTURES: "OrderedDict[str, Callable[[Path], Path]]" = OrderedDict(
@@ -1359,6 +1830,9 @@ FIXTURES: "OrderedDict[str, Callable[[Path], Path]]" = OrderedDict(
         ("rgb8-rle-layers", fixture_rgb8_rle_layers),
         ("rgb8-zip-layers", fixture_rgb8_zip_layers),
         ("rgb8-zip-prediction-layers", fixture_rgb8_zip_prediction_layers),
+        ("rgb8-adjustment-core", fixture_rgb8_adjustment_core),
+        ("rgb8-adjustment-binary", fixture_rgb8_adjustment_binary),
+        ("rgb8-adjustment-descriptor", fixture_rgb8_adjustment_descriptor),
     ]
 )
 

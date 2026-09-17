@@ -299,6 +299,160 @@ def _layer_type(layer: Any) -> str:
     return "adjustment"
 
 
+# ── adjustment parameters ─────────────────────────────────────────────────────
+#
+# The mapping from a parsed PSD adjustment onto the engine's JSON parameter
+# vocabulary, written here from the format spec and the engine's documented
+# field names. It is deliberately a SECOND implementation of the same mapping
+# the Go importer performs: the hard rule at the top of this file applies, so
+# nothing below may consult Agogo. When the two disagree, that is the finding.
+#
+# Ranges follow the engine's own conventions (internal/engine/adjustments_core.go):
+# levels in 0..255 with a real-valued gamma, hue shifts in degrees, saturation
+# and lightness in -100..100, channel-mixer weights and selective-colour plates
+# in percent, photo-filter density in percent.
+
+_HUE_BUCKETS = ("reds", "yellows", "greens", "cyans", "blues", "magentas")
+
+# selc stores ten plates; the first is unused and the rest are these, in order.
+_SELECTIVE_BUCKETS = (
+    "reds", "yellows", "greens", "cyans", "blues", "magentas",
+    "whites", "neutrals", "blacks",
+)
+
+# The curv channel bitmap: bit 0 is the composite curve, 1..3 are R, G and B.
+_CURVE_KEYS = {0: "points", 1: "redPoints", 2: "greenPoints", 3: "bluePoints"}
+
+
+def _points(raw: Any) -> list[dict[str, int]]:
+    """PSD stores a curve point as (output, input); the engine stores {x, y}."""
+    return [{"x": int(x), "y": int(y)} for y, x in raw]
+
+
+def _adjustment(layer: Any) -> tuple[str, dict[str, Any]] | None:
+    """(engine adjustment kind, engine params) for an adjustment layer, or None."""
+    kind = str(getattr(layer, "kind", "") or "")
+    data = getattr(layer, "_data", None)
+
+    if kind == "levels":
+        # The engine carries ONE set of level values and a channel selector; PSD
+        # carries 29 records, composite first. Only the composite record has an
+        # engine home, which is why the importer warns about the rest.
+        record = data[0]
+        return "levels", {
+            "channel": "rgb",
+            "inputBlack": int(record.input_floor),
+            "inputWhite": int(record.input_ceiling),
+            "outputBlack": int(record.output_floor),
+            "outputWhite": int(record.output_ceiling),
+            # A short from 10..999 standing for 0.1..9.99.
+            "gamma": round(int(record.gamma) / 100.0, 4),
+        }
+
+    if kind == "curves":
+        params: dict[str, Any] = {}
+        channels = [index for index in range(4) if data.count_map & (1 << index)]
+        for slot, points in zip(channels, data.data):
+            params[_CURVE_KEYS[slot]] = _points(points)
+        return "curves", params
+
+    if kind == "huesaturation":
+        hue, saturation, lightness = data.master
+        params = {
+            "hueShift": int(hue),
+            "saturation": int(saturation),
+            "lightness": int(lightness),
+            "colorize": bool(data.enable == 0),
+        }
+        for name, item in zip(_HUE_BUCKETS, data.items):
+            bucket_hue, bucket_sat, bucket_light = item[1]
+            if bucket_hue or bucket_sat or bucket_light:
+                params[name] = {
+                    "hueShift": int(bucket_hue),
+                    "saturation": int(bucket_sat),
+                    "lightness": int(bucket_light),
+                }
+        return "huesat", params
+
+    if kind == "colorbalance":
+        tone = lambda values: dict(  # noqa: E731 - a local, three-key shape
+            zip(("cyanRed", "magentaGreen", "yellowBlue"), (int(v) for v in values))
+        )
+        return "color-balance", {
+            "shadows": tone(data.shadows),
+            "midtones": tone(data.midtones),
+            "highlights": tone(data.highlights),
+            "preserveLuminosity": bool(data.luminosity),
+        }
+
+    if kind == "channelmixer":
+        # psd-tools surfaces five int16 for ONE output row - four source weights
+        # in percent and a constant - and hands the rest back as `unknown`. The
+        # engine has a row per output channel and no constant at all, so only
+        # the red row maps and the constant is reported as lost.
+        red = [int(v) for v in data.data[:3]]
+        return "channel-mixer", {
+            "monochrome": bool(data.monochrome),
+            "red": red,
+        }
+
+    if kind == "selectivecolor":
+        params = {"mode": "absolute" if int(data.method) else "relative"}
+        for name, plate in zip(_SELECTIVE_BUCKETS, data.data[1:]):
+            cyan, magenta, yellow, black = (int(v) for v in plate)
+            if cyan or magenta or yellow or black:
+                params[name] = {
+                    "cyanRed": cyan,
+                    "magentaGreen": magenta,
+                    "yellowBlue": yellow,
+                    "black": black,
+                }
+        return "selective-color", params
+
+    if kind == "threshold":
+        return "threshold", {"threshold": int(data)}
+
+    if kind == "posterize":
+        return "posterize", {"levels": int(data)}
+
+    if kind == "invert":
+        return "invert", {}
+
+    if kind == "photofilter":
+        # Colour space 0 is RGB and its components are 16-bit; the engine wants
+        # straight 8-bit RGBA. Density is already a percentage.
+        components = tuple(int(v) for v in (data.color_components or ()))
+        colour = [component // 257 for component in components[:3]] + [255]
+        return "photo-filter", {
+            "color": colour,
+            "density": int(data.density),
+            "preserveLuminosity": bool(data.luminosity),
+        }
+
+    if kind == "blackandwhite":
+        get = lambda key, default=0: int(data.get(key.encode("ascii"), default))  # noqa: E731
+        return "black-white", {
+            "reds": get("Rd  "),
+            "yellows": get("Yllw"),
+            "greens": get("Grn "),
+            "cyans": get("Cyn "),
+            "blues": get("Bl  "),
+            "magentas": get("Mgnt"),
+            "tint": bool(data.get(b"useTint", False)),
+        }
+
+    if kind == "brightnesscontrast":
+        # psd-tools reads these off CgEd, the descriptor block; the legacy
+        # `brit` block is obsolete and psd-tools ignores it. The engine agrees.
+        return "brightness-contrast", {
+            "brightness": int(layer.brightness),
+            "contrast": int(layer.contrast),
+            "legacy": bool(layer.use_legacy),
+        }
+
+    return None
+
+
 def _mask_summary(layer_or_record: Any, *, record: bool) -> dict[str, Any]:
     """Mask description.
 
@@ -361,6 +515,10 @@ def build_layer_node(layer: Any, parent_path: str) -> dict[str, Any]:
         # A PSD group blending as "pass" is a pass-through group; anything else
         # (normally "norm") is an isolated group.
         node["isolated"] = blend_key != "pass"
+    else:
+        adjustment = _adjustment(layer)
+        if adjustment is not None:
+            node["adjustmentKind"], node["adjustmentParams"] = adjustment
 
     node["mask"] = _mask_summary(layer, record=False)
 
@@ -719,22 +877,39 @@ def build_sidecar(args: argparse.Namespace, psd: PSDImage, filename: str) -> dic
         # golden warning set is a human decision. [] means "must import clean";
         # a reviewer must confirm that against an actual import before this
         # fixture is added to the corpus.
-        "warnings": [],
+        #
+        # --warning supplies the non-empty case. It is a flag rather than a hand
+        # edit of the generated JSON so that regenerating a fixture cannot
+        # silently drop the reviewed warnings and turn a fixture that asserts a
+        # diagnostic into one that asserts clean import.
+        "warnings": list(args.warning),
         "layers": layers,
     }
     sidecar |= optional_data
 
     if args.writer_format:
+        if args.lossy and not args.lossy_reason:
+            sys.exit("error: --lossy requires --lossy-reason (a PLAN.md reference)")
         sidecar["writer"] = {
             "format": args.writer_format,
             "expect": args.writer_expect,
-            "lossy": [],
+            # Like `warnings`, the allowlist is a reviewed human decision that
+            # psd-tools cannot derive - it is a statement about Agogo's WRITER,
+            # which this script may not look at. Supplying it on the command
+            # line keeps regeneration from silently emptying it.
+            "lossy": list(args.lossy),
+            **({"lossyReason": args.lossy_reason} if args.lossy_reason else {}),
             "externalVerification": {
                 "tool": "psd-tools",
                 "toolVersion": psd_tools.__version__,
                 "verifiedOn": today,
-                "result": "pending",
-                "notes": "run `just fixtures-verify` (tools/psdfixtures/verify_dump.py)",
+                # "pending" is the honest default: it is a claim about a check
+                # that has not run. Promote it with --verification-result only
+                # after `just fixtures-verify` actually passed, and record the
+                # outcome in VERIFICATION.md at the same time.
+                "result": args.verification_result,
+                "notes": args.verification_notes
+                or "run `just fixtures-verify` (tools/psdfixtures/verify_dump.py)",
             },
         }
 
@@ -863,6 +1038,45 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         metavar="TEXT",
         help="note for expectationSource.manualChecks, repeatable",
+    )
+    parser.add_argument(
+        "--verification-result",
+        default="pending",
+        choices=("pending", "pass", "partial", "fail"),
+        help=(
+            "writer.externalVerification.result. Leave at the default until "
+            "`just fixtures-verify` has actually run against this fixture"
+        ),
+    )
+    parser.add_argument(
+        "--verification-notes",
+        default=None,
+        metavar="TEXT",
+        help="what the external reader saw, for writer.externalVerification.notes",
+    )
+    parser.add_argument(
+        "--lossy",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="a writer.lossy allowlist path, repeatable; requires --lossy-reason",
+    )
+    parser.add_argument(
+        "--lossy-reason",
+        default=None,
+        metavar="TEXT",
+        help="why the --lossy paths differ, with a PLAN.md reference",
+    )
+    parser.add_argument(
+        "--warning",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help=(
+            "an import warning this fixture must produce, repeatable. psd-tools "
+            "cannot derive these, so they are a reviewed human decision; the "
+            "default of none means the fixture must import clean"
+        ),
     )
     parser.add_argument(
         "--expect-import-error",
