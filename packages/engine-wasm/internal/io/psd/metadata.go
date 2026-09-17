@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/descriptor"
 	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/model"
 )
 
@@ -379,10 +380,7 @@ func parseTextLayerMetadata(key string, payload []byte, record *LayerRecord) err
 					if descriptorVersion, err := readUint32From(reader); err == nil {
 						meta.DescriptorVersion = descriptorVersion
 						meta.HasDescriptor = true
-						if text, _, err := ParseDescriptorTextValue(payload[len(payload)-reader.Len():], map[string]struct{}{
-							"Txt ": {},
-							"text": {},
-						}); err == nil && text != "" {
+						if text, ok := textFromTxLrDescriptor(payload[len(payload)-reader.Len():]); ok {
 							meta.ParsedText = text
 							return nil
 						}
@@ -406,63 +404,27 @@ func parseTextLayerMetadata(key string, payload []byte, record *LayerRecord) err
 	return nil
 }
 
-func ParseDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (string, int, error) {
-	reader := bytes.NewReader(data)
-	if _, err := parseUnicodeStringFromReader(reader); err != nil {
-		return "", 0, err
-	}
-	if _, err := parseDescriptorID(reader); err != nil {
-		return "", 0, err
-	}
-	itemCount, err := readUint32From(reader)
+// textFromTxLrDescriptor returns the string of a TxLr descriptor's text item.
+//
+// It reads the whole descriptor rather than scanning for one key, which is the
+// behaviour change that matters: the previous reader understood only TEXT,
+// bool, doub and long and errored on everything else, so any real Photoshop
+// text layer - which carries Objc, enum and tdta values - bailed out before
+// reaching the text and fell through to the flatten path.
+func textFromTxLrDescriptor(data []byte) (string, bool) {
+	d, _, err := descriptor.Parse(data, descriptorLimits())
 	if err != nil {
-		return "", 0, err
+		return "", false
 	}
-	// Reject impossible counts up front, the same way the layer and channel
-	// count guards do. The bound must be the true minimum encoded item size or
-	// it rejects valid input: parseDescriptorID accepts a 4-byte length
-	// followed by that many bytes, so a one-character key is 5 bytes, not the
-	// 8 of the length==0 classID form. With the 4-byte value type that is 9
-	// bytes minimum per item. (A payload follows — 1 byte for the smallest,
-	// "bool" — but the guard stays conservative and does not count it, so a
-	// future zero-payload value type cannot turn this into a false rejection.)
-	const minDescriptorItemSize = 9
-	if uint64(itemCount) > uint64(reader.Len()/minDescriptorItemSize) {
-		return "", 0, fmt.Errorf("descriptor item count %d exceeds remaining input %d", itemCount, reader.Len())
-	}
-	for i := uint32(0); i < itemCount; i++ {
-		key, err := parseDescriptorID(reader)
-		if err != nil {
-			return "", 0, err
-		}
-		valueType, err := readStringFrom(reader, 4)
-		if err != nil {
-			return "", 0, err
-		}
-		switch valueType {
-		case "TEXT":
-			text, err := parseUnicodeStringFromReader(reader)
-			if err != nil {
-				return "", 0, err
+	for _, key := range []string{"Txt ", "text"} {
+		if v, ok := d.Get(key); ok && v.Type == descriptor.TypeText {
+			if text := v.Text(); text != "" {
+				return text, true
 			}
-			if _, ok := targetKeys[key]; ok {
-				return text, len(data) - reader.Len(), nil
-			}
-		case "bool":
-			if _, err := reader.ReadByte(); err != nil {
-				return "", 0, err
-			}
-		case "doub":
-			if _, err := readBytesFrom(reader, 8); err != nil {
-				return "", 0, err
-			}
-		case "long":
-			if _, err := readBytesFrom(reader, 4); err != nil {
-				return "", 0, err
-			}
-		default:
-			return "", 0, fmt.Errorf("unsupported descriptor value type %q", valueType)
 		}
 	}
-	return "", len(data) - reader.Len(), nil
+	return "", false
 }
+
+// descriptorLimits is the single bound every PSD descriptor read shares.
+func descriptorLimits() descriptor.Limits { return descriptor.DefaultLimits() }

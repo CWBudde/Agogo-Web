@@ -113,13 +113,24 @@ func FuzzParseLayerAndMaskInfo(f *testing.F) {
 	})
 }
 
-func FuzzParseDescriptorTextValue(f *testing.F) {
+// FuzzParseTextLayerMetadata replaces the old FuzzParseDescriptorTextValue.
+// The descriptor parser it used to target now lives in internal/io/descriptor
+// and is fuzzed there; what is left here, and is the more useful surface, is
+// the TySh envelope that wraps it - the transform, the two versions and the
+// trailing bounds, none of which the descriptor package sees.
+//
+// Still seeded synthetically: a TySh payload only exists inside a text layer,
+// and the text-layer fixture is deferred (PLAN.md S.10.7). Add a seed extractor
+// when one lands.
+func FuzzParseTextLayerMetadata(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0})
-	// Not seeded from the corpus: a descriptor payload only exists inside a text
-	// layer, and text-layer fixtures are deferred (PLAN.md S.10.7 - GIMP
-	// rasterizes text on PSD export). Add a seed extractor when one lands.
+	f.Add([]byte{0, 1})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _, _ = ParseDescriptorTextValue(data, map[string]struct{}{"Txt ": {}})
+		record := &LayerRecord{}
+		_ = parseTextLayerMetadata("TySh", data, record)
+		if record.Text == nil {
+			t.Fatal("parseTextLayerMetadata must always record the block")
+		}
 	})
 }
 

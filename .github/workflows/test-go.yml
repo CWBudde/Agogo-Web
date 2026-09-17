@@ -99,8 +99,12 @@ jobs:
         run: go test -run '^$' -fuzz '^FuzzParseCompositeImageData$' -fuzztime=30s ./internal/io/psd/
         working-directory: packages/engine-wasm
 
-      - name: Fuzz ParseDescriptorTextValue
-        run: go test -run '^$' -fuzz '^FuzzParseDescriptorTextValue$' -fuzztime=30s ./internal/io/psd/
+      - name: Fuzz ParseTextLayerMetadata
+        run: go test -run '^$' -fuzz '^FuzzParseTextLayerMetadata$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz descriptor Parse
+        run: go test -run '^$' -fuzz '^FuzzParse$' -fuzztime=30s ./internal/io/descriptor/
         working-directory: packages/engine-wasm
 
       # A crasher is written to testdata/fuzz/<Target>/ next to the package.

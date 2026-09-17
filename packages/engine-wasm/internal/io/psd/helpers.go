@@ -326,20 +326,6 @@ func parseUnicodeStringFromReader(reader *bytes.Reader) (string, error) {
 	return string(utf16.Decode(chars)), nil
 }
 
-func parseDescriptorID(reader *bytes.Reader) (string, error) {
-	length, err := readUint32From(reader)
-	if err != nil {
-		return "", err
-	}
-	if length == 0 {
-		return readStringFrom(reader, 4)
-	}
-	if int(length) > reader.Len() {
-		return "", fmt.Errorf("invalid descriptor id length %d", length)
-	}
-	return readStringFrom(reader, int(length))
-}
-
 func BuildResolutionInfo(resolution float64) []byte {
 	dpi := resolution
 	if dpi <= 0 {

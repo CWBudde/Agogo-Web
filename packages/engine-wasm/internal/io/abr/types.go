@@ -1,6 +1,10 @@
 package abr
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/cwbudde/agogo-web/packages/engine-wasm/internal/io/descriptor"
+)
 
 var (
 	// ErrMalformed identifies structurally invalid or truncated input.
@@ -70,38 +74,13 @@ type SampledBrush struct {
 	Pixels      []byte
 }
 
-// Descriptor is an Adobe Action Descriptor. It is the representation used by
-// v6/v7 ABR files for computed brushes and preset metadata.
-type Descriptor struct {
-	Name    string
-	ClassID string
-	Items   []Item
-}
-
-// Item is a named value in a Descriptor.
-type Item struct {
-	Key   string
-	Value Value
-}
-
-// Value is a typed Action Descriptor value. Only the field corresponding to
-// Type is populated.
-type Value struct {
-	Type    string
-	Bool    bool
-	Integer int32
-	Float   float64
-	String  string
-	Unit    string
-	Enum    EnumValue
-	ClassID string
-	Object  *Descriptor
-	List    []Value
-	Data    []byte
-}
-
-// EnumValue stores an Action Descriptor enumeration type and value.
-type EnumValue struct {
-	Type  string
-	Value string
-}
+// Descriptor, Item, Value and EnumValue are the shared Action Descriptor model
+// from internal/io/descriptor. They are aliases rather than distinct types so
+// that ABR callers keep working with the same values the PSD side parses, and
+// so that moving the parser out did not become a churn of every consumer.
+type (
+	Descriptor = descriptor.Descriptor
+	Item       = descriptor.Item
+	Value      = descriptor.Value
+	EnumValue  = descriptor.EnumValue
+)
