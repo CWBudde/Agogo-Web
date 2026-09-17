@@ -605,6 +605,58 @@ func TestCompareRecordsIgnoresLossyAllowlist(t *testing.T) {
 	}
 }
 
+// TestCompareRecordsAssertsRawBlendKey pins the raw four-character key. The
+// normalised blendMode maps every unrecognised key onto "normal", so a writer
+// emitting the wrong key for the right mode passes on blendMode alone.
+func TestCompareRecordsAssertsRawBlendKey(t *testing.T) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{
+		{Index: 0, BlendMode: strPtr("multiply"), PSDBlendKey: strPtr("mul ")},
+	}
+	assertClean(t, CompareRecords(exp, []RecordView{{BlendMode: "multiply", BlendKey: "mul "}}))
+
+	// Right mode, wrong key: blendMode alone would not catch this.
+	mismatches := CompareRecords(exp, []RecordView{{BlendMode: "multiply", BlendKey: "mul"}})
+	want := []string{"psdRecords[0].psdBlendKey"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	// The padding must be visible, or the failure message reads "mul" vs "mul".
+	if got := findMismatch(t, mismatches, "psdRecords[0].psdBlendKey"); got.Want != `"mul "` || got.Got != `"mul"` {
+		t.Errorf("want/got = %s/%s, want the keys quoted so trailing spaces show", got.Want, got.Got)
+	}
+}
+
+// TestCompareReexportAllReportsUnusedLossy is the guard on the allowlist
+// itself: an entry that addresses no assertion excuses nothing and can never be
+// reported stale, so it would sit there looking like a reviewed exemption.
+func TestCompareReexportAllReportsUnusedLossy(t *testing.T) {
+	exp, records := reexportRecordCase()
+	exp.Writer.Lossy = append(exp.Writer.Lossy, "psdRecords[1].sectionTyp", "layers[99].name")
+
+	mismatches := CompareReexportAll(exp, sampleActual(), records)
+	want := []string{"psdRecords[1].sectionTyp", "layers[99].name"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, "layers[99].name").Detail, "excuses nothing") {
+		t.Error("an unused lossy path should say that it excuses nothing")
+	}
+}
+
+// TestCompareReexportAllAcceptsPathsEitherLegAsserts is why the two legs must
+// share one pass: split apart, the document leg would call every psdRecords
+// entry unused and the record leg every layers entry unused.
+func TestCompareReexportAllAcceptsPathsEitherLegAsserts(t *testing.T) {
+	exp, records := reexportRecordCase()
+	exp.Layers = &[]LayerExpect{{Name: strPtr("wrong")}, {Name: strPtr("Group A")}}
+	exp.Writer.Lossy = append(exp.Writer.Lossy, "layers[0].name")
+
+	// layers[0].name is asserted by the document leg, psdRecords[1].sectionType
+	// by the record leg; neither may be reported unused.
+	assertClean(t, CompareReexportAll(exp, sampleActual(), records))
+}
+
 func TestMismatchString(t *testing.T) {
 	cases := []struct {
 		mismatch Mismatch

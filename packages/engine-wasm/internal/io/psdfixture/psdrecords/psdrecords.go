@@ -31,6 +31,7 @@ func Views(layers []psd.LayerRecord) []psdfixture.RecordView {
 			SectionType:       int(layer.SectionType),
 			PassThrough:       layer.PassThrough,
 			BlendMode:         string(layer.BlendMode),
+			BlendKey:          layer.BlendKey,
 			Opacity:           layer.Opacity,
 			Visible:           layer.Visible,
 			ClipToBelow:       layer.ClipToBelow,

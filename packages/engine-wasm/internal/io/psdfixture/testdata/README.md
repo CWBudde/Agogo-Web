@@ -126,10 +126,24 @@ still asserted via `layerPixels`, which is unambiguous.
 The re-export is re-read and compared twice: once as a reconstructed document
 (`CompareReexport`) and once as flat layer records (`CompareReexportRecords`).
 The second leg is not redundant. Section-divider types, mask rectangles, mask
-default fill and channel IDs never reach the engine model, so the document leg
-compares a view that never held them — a writer could corrupt every one of them
-and stay green. The record leg reparses the re-exported bytes and holds them to
-the same externally derived `psdRecords` expectation the reader is held to.
+default fill, channel IDs and raw blend keys never reach the engine model, so the
+document leg compares a view that never held them — a writer could corrupt every
+one of them and stay green. The record leg reparses the re-exported bytes and
+holds them to the same externally derived `psdRecords` expectation the reader is
+held to.
+
+Both legs run in a **single** `CompareReexportAll` pass, which is what lets the
+harness account for the whole `writer.lossy` allowlist at once. Split across two
+calls, each leg sees paths it never asserts — the document leg never touches
+`psdRecords[...]`, the record leg never touches `layers[...]` — so neither could
+tell a path it merely does not own from a path that addresses nothing at all. A
+path addressing nothing is now a failure: it excuses nothing, and since nothing
+asserts it, it could never be reported stale either, so it would sit in the
+sidecar looking like a reviewed exemption.
+
+`psdBlendKey` is asserted here and nowhere else. The normalised `blendMode` maps
+every unrecognised key onto `normal`, and `norm` and `pass` both map to Normal,
+so a writer emitting one for the other passes every model-scope assertion.
 
 ### Known writer losses, recorded rather than hidden
 
@@ -155,6 +169,11 @@ matching, so neither a regression nor a fix can land unnoticed:
   and readers key on the ID, so this is a spelling difference rather than lost
   data; it is allowlisted per record so that a genuinely dropped channel — a
   missing `-2` user mask, say — still fails (S.10.2).
+- **`rgb8-nested-groups`, `rgb8-group-passthrough`, `rgb8-group-closed-folder`** —
+  the hidden `</Layer group>` bounding divider (`lsct` 3) is re-exported with blend
+  key `pass`, where the fixtures carry `norm`. Which one Photoshop writes is *not
+  established* — no Photoshop-authored file is available to check — so it is
+  recorded rather than changed on a guess (S.10.3).
 - **`rgb8-mask-disabled`, `rgb8-layer-mask-offset`, `rgb8-mask-inverted`** —
   `psdimport` rasterizes the layer mask to document size and discards the mask
   rectangle, so the re-export stores a full-canvas `mask.rect`; on

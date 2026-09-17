@@ -324,6 +324,7 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 		return record, err
 	}
 	var knownBlendMode bool
+	record.BlendKey = blendKey
 	record.BlendMode, knownBlendMode = mapBlendMode(blendKey)
 	record.PassThrough = blendKey == "pass"
 	if !knownBlendMode {

@@ -18,11 +18,14 @@ import (
 //  2. the AgogoProject bypass stays disabled, because SavePSD always embeds a
 //     project archive and reading it back would restore the vacuity.
 //
-// The re-export is checked at BOTH levels. The reconstructed document catches
-// what the engine model carries; the flat layer records catch what it does not —
-// section-divider types, mask rectangles and default fills, channel IDs. Without
-// the record leg a writer could corrupt every one of those and still be green,
-// because the model the comparison sees never held them in the first place.
+// The re-export is checked at BOTH levels, in one CompareReexportAll pass. The
+// reconstructed document catches what the engine model carries; the flat layer
+// records catch what it does not — section-divider types, mask rectangles and
+// default fills, channel IDs, raw blend keys. Without the record leg a writer
+// could corrupt every one of those and still be green, because the model the
+// comparison sees never held them in the first place. The single pass is what
+// lets the harness account for the whole writer.lossy allowlist at once and
+// reject an entry that addresses nothing.
 //
 // The re-exported bytes are also dumped for external verification, since "opens
 // in a reader that is not Agogo's own" cannot be asserted from inside Go.
@@ -67,18 +70,16 @@ func TestPSDFixtureReexportSurvivesSelfReimport(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reimport of re-export: %v", err)
 			}
-			for _, mismatch := range psdfixture.CompareReexport(fixture.Spec, actualFromDocument(reexported, roundTripped, warnings, fixture.Spec)) {
-				t.Errorf("%s", mismatch)
+			var records []psdfixture.RecordView
+			if fixture.Spec.Asserts(psdfixture.ScopePSDRecords) {
+				records, err = psdrecords.Parse(reexported)
+				if err != nil {
+					t.Fatalf("reparse re-export into records: %v", err)
+				}
 			}
 
-			if !fixture.Spec.Asserts(psdfixture.ScopePSDRecords) {
-				return
-			}
-			records, err := psdrecords.Parse(reexported)
-			if err != nil {
-				t.Fatalf("reparse re-export into records: %v", err)
-			}
-			for _, mismatch := range psdfixture.CompareReexportRecords(fixture.Spec, records) {
+			actual := actualFromDocument(reexported, roundTripped, warnings, fixture.Spec)
+			for _, mismatch := range psdfixture.CompareReexportAll(fixture.Spec, actual, records) {
 				t.Errorf("%s", mismatch)
 			}
 		})
