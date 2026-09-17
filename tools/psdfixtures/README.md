@@ -22,11 +22,33 @@ Verified on 2026-09-16, on the machine this was authored on:
 
 | Tool | Version | Path | Role |
 | ---- | ------- | ---- | ---- |
-| psd-tools | 1.19.0 | `pip install psd-tools` | reads fixtures, derives expectations |
+| psd-tools | 1.19.0 | `requirements.txt` | reads fixtures, derives expectations |
 | Python | 3.12.4 (anaconda) | `/home/christian/anaconda3/bin/python3` | runs the scripts |
-| pytoshop | 1.2.1 | `pip install pytoshop` | writes layered fixtures |
+| pytoshop | 1.2.1 | `requirements.txt` | writes layered fixtures |
 | ImageMagick | 6.9.12-98 Q16 | `/usr/bin/convert` | writes flat fixtures |
 | GIMP | 3.2.6 (snap 561) | `/snap/bin/gimp` | **abandoned** as a writer, see below |
+
+Re-verified on 2026-09-17 on CPython 3.11.15 (GCC 13.3.0), where the whole pinned
+set installs cleanly and **regenerates every committed layered fixture byte for
+byte**. That reproduction is the real check on this table: if the versions drift in
+a way that matters, the bytes move.
+
+## Setting the toolchain up
+
+```bash
+just fixtures-setup                    # -> .venv-psdfixtures/ (gitignored)
+.venv-psdfixtures/bin/python tools/psdfixtures/generate_pytoshop.py --out .fixtures-out
+```
+
+`requirements.txt` pins the whole tree, transitives included, because a corpus is
+only reproducible if its writer and its deriver are. Nothing in `just ci`,
+`just test` or `go test` touches any of it — the fixtures and sidecars are
+committed, so this is a maintenance toolchain, not a build dependency.
+
+Use a **virtualenv**, not the system interpreter: pytoshop has no wheel and builds
+from its sdist, and that build fails against a Debian-patched system `setuptools`
+with `AttributeError: install_layout`. It also has an undeclared dependency on
+`six`, which is why `requirements.txt` lists it explicitly.
 
 ## Files
 
@@ -37,6 +59,7 @@ Verified on 2026-09-16, on the machine this was authored on:
 | `generate_gimp.scm` | superseded by `generate_pytoshop.py`; kept only as a GIMP reference |
 | `generate_gimp.sh` | driver for the above — superseded |
 | `derive_expectations.py` | reads a fixture with psd-tools, emits `<id>.expected.json` |
+| `requirements.txt` | the pinned Python toolchain; `just fixtures-setup` installs it |
 | `verify_dump.py` | re-reads Agogo-*written* PSDs with psd-tools (+ optional `identify`) |
 
 ## ImageMagick: the layered-writer defect
@@ -132,9 +155,9 @@ it is given — but the rule stands for any writer.)
 ## pytoshop: the layered writer
 
 ```bash
-tools/psdfixtures/generate_pytoshop.py --out /tmp/fx            # all fixtures
-tools/psdfixtures/generate_pytoshop.py --out /tmp/fx --only rgb8-clipping
-tools/psdfixtures/generate_pytoshop.py --list
+.venv-psdfixtures/bin/python tools/psdfixtures/generate_pytoshop.py --out /tmp/fx
+.venv-psdfixtures/bin/python tools/psdfixtures/generate_pytoshop.py --out /tmp/fx --only rgb8-clipping
+.venv-psdfixtures/bin/python tools/psdfixtures/generate_pytoshop.py --list
 ```
 
 pytoshop writes layer records directly, so it reaches the structures GIMP's exporter
@@ -148,15 +171,17 @@ folds a group mask into every descendant's alpha. An empty `children` list produ
 genuinely childless group: a bounding divider immediately followed by its folder
 record.
 
-Installing pytoshop needs one extra step: it has an undeclared dependency on `six`,
-so `pip install pytoshop six` — and install it into a venv, because building its
-extension against a Debian-patched system `setuptools` fails with
-`AttributeError: install_layout`.
+**Layer and composite compression are separate knobs.** `build_psd` takes
+`compression` for the layer channels and `composite_compression` for
+`core.ImageData`, defaulting the second to the first. They are split because
+Photoshop writes the merged composite raw or RLE and **never** ZIP, so the ZIP
+fixtures pass `composite_compression=rle` and end up shaped like a real document
+instead of like a synthetic one.
 
 Each fixture is a function `fixture_<id_with_underscores>`, which is what
 `provenance.generatedBy` points at.
 
-### Four pytoshop 1.2.1 defects, all worked around in the script
+### Five pytoshop 1.2.1 defects, all worked around in the script
 
 These are defects in the *writer*. Each workaround makes pytoshop emit what Photoshop
 emits; none of them is a concession to a particular reader. They are numbered in the
@@ -186,6 +211,24 @@ script and commented where they are patched.
    and the mask channel never reaches the file, and (b) orders the mask channel ahead
    of transparency and colour. The script preserves insertion order and builds the
    channel dict complete before constructing the record.
+5. **ZIP-with-prediction writes unpredicted data, twice over.** `compress_zip` is
+   fine — pure `zlib`, no `packbits`, so ZIP layer channels work out of the box and
+   the corpus's old claim that "pytoshop offers raw and RLE only" was simply false.
+   `compress_zip_prediction` is the broken one: it calls the absent
+   `packbits.encode_prediction_8bit` (defect 2 again, so `NameError`), *and* passes
+   the row as `row.flatten()` — a copy — while the encoder mutates in place, so even
+   a built extension would write the untouched row. Shimming the encoder alone would
+   therefore produce a file labelled `zip_prediction` carrying plain ZIP bytes, which
+   asserts nothing; the script replaces the compressor outright. It patches
+   `codecs.compressors[...]`, not the module-level name, because `compress_image`
+   dispatches through the dict. The predictor is a per-row uint8 delta with
+   wraparound, **reset at every row boundary**. (`decompress_zip_prediction` has the
+   same `.flatten()` bug on the way back, which is one more reason the round trip is
+   judged by psd-tools and not by pytoshop.)
+
+Defects 2 and 5 are both proven by round trip rather than by inspection: the same
+layer stack written raw, RLE, ZIP and ZIP-with-prediction must decode to identical
+arrays under psd-tools, a reader this repository does not own.
 
 Fixtures are painted with non-uniform content on purpose — the right-hand column is
 darkened a step and its alpha nudged down — so that no channel row is a single
@@ -209,22 +252,23 @@ constant-row code path out of the picture as a side effect.
 2. **Generate into a scratch directory** — never straight into the committed corpus:
 
    ```bash
-   just fixtures-generate /tmp/fx
+   PY=.venv-psdfixtures/bin/python                 # see "Setting the toolchain up"
+   just fixtures-generate /tmp/fx "$PY"
    # or: tools/psdfixtures/generate_imagemagick.sh /tmp/fx rgb8-flat-rle
-   # or: tools/psdfixtures/generate_pytoshop.py --out /tmp/fx --only rgb8-clipping
+   # or: "$PY" tools/psdfixtures/generate_pytoshop.py --out /tmp/fx --only rgb8-clipping
    ```
 
 3. **Confirm the file is valid** before deriving anything from it:
 
    ```bash
    xxd /tmp/fx/my-fixture.psd | grep -o '8BIM....'   # expect norm, never mron
-   python3 -c "from psd_tools import PSDImage; print(PSDImage.open('/tmp/fx/my-fixture.psd'))"
+   "$PY" -c "from psd_tools import PSDImage; print(PSDImage.open('/tmp/fx/my-fixture.psd'))"
    ```
 
 4. **Derive the sidecar:**
 
    ```bash
-   python3 tools/psdfixtures/derive_expectations.py /tmp/fx/my-fixture.psd \
+   "$PY" tools/psdfixtures/derive_expectations.py /tmp/fx/my-fixture.psd \
        --id my-fixture --out /tmp/fx \
        --source-tool ImageMagick --source-tool-version 6.9.12-98 \
        --generated-by 'tools/psdfixtures/generate_imagemagick.sh#fixture_my_fixture' \
@@ -281,8 +325,9 @@ every file there with psd-tools — and, with `--identify`, with ImageMagick as 
 independent implementation:
 
 ```bash
-just fixtures-verify
-# or: python3 tools/psdfixtures/verify_dump.py <dir> --identify
+just fixtures-verify                                      # add a second argument
+just fixtures-verify <dir> .venv-psdfixtures/bin/python   # to use the pinned venv
+# or: .venv-psdfixtures/bin/python tools/psdfixtures/verify_dump.py <dir> --identify
 ```
 
 It exits non-zero if psd-tools cannot parse a file at all, which would mean Agogo

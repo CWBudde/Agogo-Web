@@ -29,6 +29,8 @@ asserts the `writer` scope must have a row below.
 | `rgb8-mask-larger-than-layer` | psd-tools | 1.19.0 | 2026-09-17 | pass | The layer keeps its own (8,6) 14x12 bounds under a 24x20 mask; only the stored mask rect and default fill are widened. |
 | `rgb8-group-mask` | psd-tools | 1.19.0 | 2026-09-17 | pass | The mask stays on the group's opening record and still attenuates both children; only the stored mask rect and default fill are widened. |
 | `rgb8-rle-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Three RLE-compressed layers re-open with correct bounds and pixels. |
+| `rgb8-zip-layers` | psd-tools | 1.19.0 | 2026-09-17 | pass | Three ZIP-compressed layer channels decode and re-open with correct bounds and pixels. The re-export is not itself ZIP — `psdexport` picks its own channel compression — so this row verifies the decoder leg, not a ZIP writer. ImageMagick was not available in this environment. |
+| `rgb8-zip-prediction-layers` | psd-tools | 1.19.0 | 2026-09-17 | pass | Same three layers under ZIP-with-prediction. The predictor resets at every row boundary; a decoder that carries the running sum across rows disagrees on 736 of 768 bytes of the first channel, including the sampled bottom-row pixels, so this fixture is not vacuous. ImageMagick was not available in this environment. |
 
 ## How these rows were produced
 

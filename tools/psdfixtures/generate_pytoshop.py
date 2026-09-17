@@ -28,9 +28,9 @@ sidecar's ``provenance.generatedBy`` can point at it precisely, e.g.
 
     "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_nested_groups"
 
-Four pytoshop 1.2.1 defects are worked around at the top of this file. They are
+Five pytoshop 1.2.1 defects are worked around at the top of this file. They are
 defects in the writer, not in any reader: see ``_encode_unicode_string_no_nul``,
-``_PackBits``, ``_AbsentLayerMask`` and ``_LayerRecord``.
+``_PackBits``, ``_AbsentLayerMask``, ``_LayerRecord`` and ``_ZipPrediction``.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import struct
 import sys
+import zlib
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,7 +70,7 @@ def log(message: str) -> None:
 
 # ══ pytoshop defect workarounds ═══════════════════════════════════════════════
 #
-# All four are verified against pytoshop 1.2.1. Each one makes pytoshop emit what
+# All five are verified against pytoshop 1.2.1. Each one makes pytoshop emit what
 # Photoshop emits; none of them is a concession to any particular reader.
 
 
@@ -213,6 +214,69 @@ class _LayerRecord(layers.LayerRecord):
             if not isinstance(val, layers.ChannelImageData):
                 raise ValueError("Each channel must be a ChannelImageData instance")
         self._channels = value if isinstance(value, OrderedDict) else OrderedDict(value)
+
+
+# Defect 5 — ZIP-with-prediction writes UNPREDICTED data, for two separate reasons.
+#
+# `codecs.compress_zip` needs none of this: it is pure zlib (`zlib.compress` /
+# `zlib.compressobj`) and never touches the missing `packbits` extension, so ZIP
+# layer channels work out of the box. `compress_zip_prediction` is the broken one,
+# and it is broken twice over:
+#
+#   * it reaches for `packbits.encode_prediction_8bit`, which is absent for the same
+#     reason RLE is (defect 2), so the call raises `NameError`;
+#   * and even with the extension built it would be a no-op, because the row is
+#     passed as `row.flatten()`. `flatten()` ALWAYS copies, the Cython encoder
+#     mutates its argument in place, and the copy is then discarded — the row that
+#     actually reaches `compressor.compress(row)` is the untouched original. (The
+#     decoder, `decompress_zip_prediction`, has the identical `.flatten()` bug.)
+#
+# So a shimmed encoder alone would still emit a file labelled `zip_prediction`
+# carrying plain ZIP bytes — a fixture that silently asserts nothing. Replace the
+# compressor outright instead.
+#
+# The predictor itself is trivial and is specified by the format, not by pytoshop:
+# a horizontal uint8 delta, `out[i] = in[i] - in[i-1]` with wraparound, RESET AT
+# EVERY ROW BOUNDARY so the first byte of each row is stored verbatim. The reset is
+# the whole point of the fixture — a decoder that runs one cumulative sum across the
+# entire plane instead of per row decodes row 0 correctly and every later row wrong.
+#
+# Correctness is proven by round trip, exactly as for defect 2: the same fixture
+# written raw and written zip-with-prediction must decode to identical arrays under
+# psd-tools, which is a reader this repository does not own.
+class _ZipPrediction:
+    """The 8-bit horizontal predictor pytoshop cannot apply."""
+
+    @staticmethod
+    def encode_row(row: np.ndarray) -> np.ndarray:
+        """One row's uint8 deltas, with wraparound; the first byte stays verbatim."""
+        row = np.ascontiguousarray(row, dtype=np.uint8)
+        out = np.empty_like(row)
+        out[0] = row[0]
+        if row.shape[0] > 1:
+            # uint8 subtraction wraps in numpy, which is the wraparound the format
+            # requires; do the whole tail at once rather than byte by byte.
+            out[1:] = row[1:] - row[:-1]
+        return out
+
+    @staticmethod
+    def compress(fd, image, depth, version) -> None:  # noqa: ANN001 - codecs signature
+        """Replacement for codecs.compress_zip_prediction: predict per row, then zlib."""
+        if depth != 8:
+            die(f"the zip-prediction workaround only implements 8-bit, got depth {depth}")
+        rows = np.atleast_2d(np.ascontiguousarray(image, dtype=np.uint8))
+        compressor = zlib.compressobj()
+        for row in rows:
+            fd.write(compressor.compress(_ZipPrediction.encode_row(row).tobytes()))
+        fd.write(compressor.flush())
+
+
+# codecs.compress_image dispatches through the `compressors` DICT, not through the
+# module-level name, so rebinding `pytoshop.codecs.compress_zip_prediction` alone
+# would be silently ignored. Patch the dict entry, and the name too for anything
+# that reads it directly.
+pytoshop.codecs.compress_zip_prediction = _ZipPrediction.compress  # type: ignore[assignment]
+pytoshop.codecs.compressors[enums.Compression.zip_prediction] = _ZipPrediction.compress
 
 
 # ══ canvas and palette ════════════════════════════════════════════════════════
@@ -615,7 +679,18 @@ def build_psd(
     width: int = CANVAS_W,
     height: int = CANVAS_H,
     compression: int = enums.Compression.raw,
+    composite_compression: int | None = None,
 ) -> core.PsdFile:
+    """Assemble the file. `compression` is the LAYER channels; the composite is separate.
+
+    Photoshop compresses the merged composite with raw or RLE and never with ZIP, so
+    the two are not one knob. `composite_compression` defaults to `compression`,
+    which keeps every pre-existing fixture byte-identical; a ZIP fixture passes RLE
+    here so the file it produces is shaped the way a real document is.
+    """
+    if composite_compression is None:
+        composite_compression = compression
+
     counter = {"next": 1}
 
     def next_id() -> int:
@@ -641,8 +716,8 @@ def build_psd(
         image_resources=image_resources.ImageResources(
             blocks=[image_resources.LayersGroupInfo(group_ids=[0] * len(records))]
         ),
-        image_data=core.ImageData(channels=composite, compression=compression),
-        compression=compression,
+        image_data=core.ImageData(channels=composite, compression=composite_compression),
+        compression=composite_compression,
     )
 
 
@@ -1102,15 +1177,76 @@ def fixture_rgb8_rle_layers(out: Path) -> Path:
     return _emit(out, "rgb8-rle-layers", nodes, compression=enums.Compression.rle)
 
 
+def _zip_stack(prefix: str) -> list[ImageNode | GroupNode]:
+    """The layer stack both ZIP fixtures share, so the two differ ONLY in the codec.
+
+    Same geometry, same pixels: whatever the two sidecars disagree about is the
+    prediction step and nothing else.
+    """
+    return [
+        ImageNode(
+            name=f"{prefix} Top",
+            top=2,
+            left=13,
+            pixels=quadrants(17, 11, ORANGE, CHALK, VIOLET, TEAL),
+        ),
+        ImageNode(
+            name=f"{prefix} Middle",
+            top=10,
+            left=2,
+            pixels=bands(18, 12, [TEAL, SLATE, ORANGE]),
+        ),
+        background(f"{prefix} Background"),
+    ]
+
+
+def fixture_rgb8_zip_layers(out: Path) -> Path:
+    """Layer channels compressed with ZIP (zlib, no prediction); RLE composite.
+
+    pytoshop's `compress_zip` is plain zlib and needs no workaround, so this is
+    reachable without a Photoshop-authored file — which is what the manifest used to
+    claim was impossible. The composite deliberately stays RLE: Photoshop writes the
+    merged image raw or RLE and never ZIP, so a ZIP composite would be a shape no
+    real document has.
+    """
+    return _emit(
+        out,
+        "rgb8-zip-layers",
+        _zip_stack("Zip"),
+        compression=enums.Compression.zip,
+        composite_compression=enums.Compression.rle,
+    )
+
+
+def fixture_rgb8_zip_prediction_layers(out: Path) -> Path:
+    """Layer channels compressed with ZIP + the 8-bit horizontal predictor.
+
+    Identical pixels to `rgb8-zip-layers`, so the pair isolates the predictor. The
+    predictor RESETS at every row boundary (see defect 5), which is the property a
+    decoder most easily gets wrong: carry the running sum across the row break and
+    row 0 still decodes correctly while every row after it is wrong. The painted
+    content is non-uniform in both axes precisely so that such a decoder cannot
+    accidentally agree.
+    """
+    return _emit(
+        out,
+        "rgb8-zip-prediction-layers",
+        _zip_stack("Zip Pred"),
+        compression=enums.Compression.zip_prediction,
+        composite_compression=enums.Compression.rle,
+    )
+
+
 def _emit(
     out: Path,
     fixture_id: str,
     nodes: Sequence[ImageNode | GroupNode],
     *,
     compression: int = enums.Compression.raw,
+    composite_compression: int | None = None,
 ) -> Path:
     path = out / f"{fixture_id}.psd"
-    psd = build_psd(nodes, compression=compression)
+    psd = build_psd(nodes, compression=compression, composite_compression=composite_compression)
     size = write_psd(psd, path)
     print(f"  {path.name:<28} {size:>8} bytes")
     return path
@@ -1132,6 +1268,8 @@ FIXTURES: "OrderedDict[str, Callable[[Path], Path]]" = OrderedDict(
         ("rgb8-group-mask", fixture_rgb8_group_mask),
         ("rgb8-mask-larger-than-layer", fixture_rgb8_mask_larger_than_layer),
         ("rgb8-rle-layers", fixture_rgb8_rle_layers),
+        ("rgb8-zip-layers", fixture_rgb8_zip_layers),
+        ("rgb8-zip-prediction-layers", fixture_rgb8_zip_prediction_layers),
     ]
 )
 

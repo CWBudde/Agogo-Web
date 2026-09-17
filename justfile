@@ -103,22 +103,38 @@ ci: check-formatted test lint check-tidy build
 
 # ── PSD fixtures ──────────────────────────────────────────────────────────────
 #
-# Tooling lives in tools/psdfixtures/ and needs Python + psd-tools (and, for
-# generation, ImageMagick and GIMP). These recipes are DELIBERATELY not part of
-# `test` or `ci`: `just ci` and `go test` must stay Go-only and must never
-# acquire a Python dependency. The fixture binaries and their sidecars are
-# committed, so regenerating them is a maintenance task, not a build step.
+# Tooling lives in tools/psdfixtures/ and needs Python + psd-tools + pytoshop
+# (and, for the flat fixtures, ImageMagick). Run `just fixtures-setup` once to
+# build the pinned venv from tools/psdfixtures/requirements.txt, then pass its
+# interpreter to the recipes below, e.g.
+#
+#     just fixtures-generate .fixtures-out .venv-psdfixtures/bin/python
+#
+# These recipes are DELIBERATELY not part of `test` or `ci`: `just ci` and
+# `go test` must stay Go-only and must never acquire a Python dependency. The
+# fixture binaries and their sidecars are committed, so regenerating them is a
+# maintenance task, not a build step — and fixtures-setup is therefore not a
+# prerequisite of anything.
+
+# Create the pinned Python venv the fixture scripts need (once, not per build)
+fixtures-setup venv=".venv-psdfixtures":
+    python3 -m venv {{ venv }}
+    {{ venv }}/bin/python -m pip install --upgrade pip
+    {{ venv }}/bin/python -m pip install -r tools/psdfixtures/requirements.txt
+    @{{ venv }}/bin/python -c "import pytoshop, psd_tools; print('pytoshop', pytoshop.__version__, '/ psd-tools', psd_tools.__version__)"
+    @echo "Run the fixture scripts with {{ venv }}/bin/python, e.g."
+    @echo "  {{ venv }}/bin/python tools/psdfixtures/generate_pytoshop.py --out .fixtures-out"
 
 # Generate PSD fixture binaries into a scratch directory (not the committed corpus)
-fixtures-generate outdir=".fixtures-out":
+fixtures-generate outdir=".fixtures-out" python="python3":
     tools/psdfixtures/generate_imagemagick.sh {{ outdir }}
-    python3 tools/psdfixtures/generate_pytoshop.py --out {{ outdir }}
+    {{ python }} tools/psdfixtures/generate_pytoshop.py --out {{ outdir }}
     @echo "Fixtures written to {{ outdir }} (ImageMagick: flat; pytoshop: layered)."
     @echo "Then derive sidecars with tools/psdfixtures/derive_expectations.py."
 
 # Re-read Agogo-written PSDs with psd-tools, an independent reader
-fixtures-verify dir="packages/engine-wasm/internal/io/psdfixture/_dump":
-    python3 tools/psdfixtures/verify_dump.py {{ dir }} --identify
+fixtures-verify dir="packages/engine-wasm/internal/io/psdfixture/_dump" python="python3":
+    {{ python }} tools/psdfixtures/verify_dump.py {{ dir }} --identify
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 

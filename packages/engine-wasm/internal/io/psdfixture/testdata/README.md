@@ -95,14 +95,14 @@ fixture is a release blocker exactly like the GPC dependency in
 
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
-no fixture can currently exist for it. 20 fixtures cover 24 of 30 capabilities in
-about 115 KB of binaries.
+no fixture can currently exist for it. 22 fixtures cover 26 of 30 capabilities in
+about 118 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |
 | Colour mode | RGB/8, Grayscale/8 | CMYK, Lab, indexed, duotone are outside the engine's scope |
 | Bit depth | 8 | 16 bpc is asserted to be *rejected explicitly* rather than mis-read |
-| Compression | Raw, RLE on the composite, RLE on layer channels | ZIP and ZIP-with-prediction |
+| Compression | Raw, RLE on the composite, RLE on layer channels, ZIP layer channels, ZIP-with-prediction layer channels | — |
 | Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping, empty groups, clipping across a group boundary | — |
 | Masks | Offset rectangle, disabled, inverted, default fill 255, larger than its layer, on a group | Vector and real-mask parameter blocks |
 | Blending | All 27 modes, in both directions | — |
@@ -220,8 +220,6 @@ These are not oversights. No available generator can produce them, so the manife
 carries a `deferred` reference into `PLAN.md` instead of a fixture, and the suite
 does not pretend the area is tested:
 
-- **`compression.zip`, `compression.zip-prediction`** — neither ImageMagick nor
-  pytoshop emits ZIP layer channels; pytoshop offers raw and RLE only (S.10.2).
 - **`layer.adjustment`, `layer.text`, `layer.effects`** — no available writer emits
   live adjustment layers, a `TySh` text layer with engine data, or `lfx2`/`lrFX`
   effects (S.10.7).
@@ -232,3 +230,12 @@ Closing any of these needs a licensed, redistributable Photoshop-authored file.
 Dropping one in is cheap: generate nothing, run `derive_expectations.py`, add a
 manifest entry, clear the `deferred` field. Until one exists, this repository does
 not claim Photoshop compatibility in those areas.
+
+`compression.zip` and `compression.zip-prediction` used to sit on this list, on
+the stated grounds that "pytoshop offers raw and RLE only". That was simply wrong.
+`pytoshop.codecs.compress_zip` is pure `zlib` and needs no workaround at all, and
+the predictor is a fifteen-line per-row delta that the generator now supplies the
+same way it supplies PackBits. Both are covered by real fixtures as of S.10.2. The
+lesson is worth keeping: a `deferred` entry is a claim about the world, it is as
+falsifiable as any assertion in the corpus, and it should be re-checked rather
+than inherited.
