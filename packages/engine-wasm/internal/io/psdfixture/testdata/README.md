@@ -33,7 +33,7 @@ corpus/<id>.expected.json  the sidecar (schema: ../schema.go)
 | Tool | Version | Used for | Constraints |
 | --- | --- | --- | --- |
 | ImageMagick | 6.9.12-98 | **Flat fixtures only** — a command producing exactly one image | Its *layered* writer is broken: as soon as the command produces more than one image it byte-swaps blend keys (`mron` for `norm`) and psd-tools rejects the file outright. Verified both ways; never use it for a layer stack. Note "flat" still yields one real layer record, named `L1`. |
-| pytoshop | 1.2.1 | **All layered fixtures** — groups, dividers, masks, clipping, blend modes, opacity, hidden layers | Writes layer records directly, so it reaches structures no exporter exposes. Three defects are worked around in `generate_pytoshop.py`; see below. |
+| pytoshop | 1.2.1 | **All layered fixtures** — groups, dividers, masks, clipping, blend modes, opacity, hidden layers | Writes layer records directly, so it reaches structures no exporter exposes. Six defects are worked around in `generate_pytoshop.py`; see below. |
 | GIMP | 3.2.6 | **Nothing.** `generate_gimp.*` is kept only as a reference | Every `gimp-file-save` call hangs — PSD and PNG, `/mnt` and `$HOME`, 3-arg and 4-arg — and hung instances ignore SIGTERM. Superseded by pytoshop. |
 
 ### pytoshop defects worked around in the generator
@@ -57,6 +57,16 @@ wrong rather than obviously broken.
    mask channel after construction silently did nothing and the mask data never
    reached the file — with no error anywhere. The channel dict is now built
    complete before the record is constructed.
+5. **`compress_zip_prediction` discards its own prediction.** It passes each row as
+   `row.flatten()`, which copies, while the real encoder mutates in place — so a
+   file labelled `zip_prediction` would have carried plain ZIP bytes and asserted
+   nothing. The compressor is replaced in `codecs.compressors`, not just rebound by
+   name, because `compress_image` dispatches through the dict.
+6. **`GenericTaggedBlock.data`'s setter never assigns.** It validates
+   `isinstance(val, bytes)` and falls off the end, so `block.data = payload` writes
+   an *empty* block that looks right in the generator and asserts nothing in the
+   file. The payload goes through the constructor, and `_fill_opacity_block` checks
+   that it stuck.
 
 Neither generator is Photoshop, and that bounds what the corpus can cover — see
 *Permanently deferred* below.
@@ -95,8 +105,8 @@ fixture is a release blocker exactly like the GPC dependency in
 
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
-no fixture can currently exist for it. 22 fixtures cover 26 of 30 capabilities in
-about 118 KB of binaries.
+no fixture can currently exist for it. 23 fixtures cover 27 of 30 capabilities in
+about 125 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |
@@ -106,7 +116,7 @@ about 118 KB of binaries.
 | Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping, empty groups, clipping across a group boundary | — |
 | Masks | Offset rectangle, disabled, inverted, default fill 255, larger than its layer, on a group | Vector and real-mask parameter blocks |
 | Blending | All 27 modes, in both directions | — |
-| Opacity | Layer opacity below 255 | Fill opacity (`iOpa`) |
+| Opacity | Layer opacity below 255, fill opacity (`iOpa`) below 255 and at 0 | — |
 | Container | PSD, PSB, exactly on the 30000 px PSD limit | — |
 | Layer kinds | Pixel, group | Adjustment, live text, layer effects |
 
@@ -219,19 +229,24 @@ does not pretend the area is tested:
 - **`layer.adjustment`, `layer.text`, `layer.effects`** — no available writer emits
   live adjustment layers, a `TySh` text layer with engine data, or `lfx2`/`lrFX`
   effects (S.10.7).
-- **`fill-opacity.partial`** — `iOpa` is Photoshop-only, *and* Agogo neither reads
-  nor writes it, so the gap is two-sided (S.10.7).
 
 Closing any of these needs a licensed, redistributable Photoshop-authored file.
 Dropping one in is cheap: generate nothing, run `derive_expectations.py`, add a
 manifest entry, clear the `deferred` field. Until one exists, this repository does
 not claim Photoshop compatibility in those areas.
 
-`compression.zip` and `compression.zip-prediction` used to sit on this list, on
-the stated grounds that "pytoshop offers raw and RLE only". That was simply wrong.
-`pytoshop.codecs.compress_zip` is pure `zlib` and needs no workaround at all, and
-the predictor is a fifteen-line per-row delta that the generator now supplies the
-same way it supplies PackBits. Both are covered by real fixtures as of S.10.2. The
-lesson is worth keeping: a `deferred` entry is a claim about the world, it is as
-falsifiable as any assertion in the corpus, and it should be re-checked rather
-than inherited.
+Two entries have already left this list because their stated reason turned out to
+be false, which is the lesson worth keeping: a `deferred` entry is a claim about
+the world, it is as falsifiable as any assertion in the corpus, and it should be
+re-checked rather than inherited.
+
+`compression.zip` and `compression.zip-prediction` sat here on the grounds that
+"pytoshop offers raw and RLE only". `pytoshop.codecs.compress_zip` is pure `zlib`
+and needs no workaround at all, and the predictor is a fifteen-line per-row delta
+the generator now supplies the same way it supplies PackBits (S.10.2).
+
+`fill-opacity.partial` sat here on the grounds that "`iOpa` is Photoshop-only, and
+Agogo neither reads nor writes it, so the gap is two-sided". Photoshop-only it is
+not: `GenericTaggedBlock` writes the block in three lines, and the second half of
+the reason was a description of the engine gap this corpus exists to expose, not a
+reason to leave it unexposed. `rgb8-fill-opacity` covers it as of S.10.7.

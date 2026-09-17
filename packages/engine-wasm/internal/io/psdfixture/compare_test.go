@@ -318,7 +318,7 @@ func TestKnownGapSuppressesTheNormalAssertion(t *testing.T) {
 		Path:   "layers[0].fillOpacity255",
 		Want:   json.RawMessage(`128`),
 		Actual: json.RawMessage(`255`),
-		Reason: "PLAN.md S.10.7: the iOpa tagged block is not parsed",
+		Reason: "documented gap",
 	}}
 
 	// The engine reports 255, which is what the gap records, so nothing fires.
@@ -332,7 +332,7 @@ func TestKnownGapFailsWhenTheGapCloses(t *testing.T) {
 		Path:   "layers[0].fillOpacity255",
 		Want:   json.RawMessage(`128`),
 		Actual: json.RawMessage(`255`),
-		Reason: "PLAN.md S.10.7: the iOpa tagged block is not parsed",
+		Reason: "documented gap",
 	}}
 
 	actual := sampleActual()

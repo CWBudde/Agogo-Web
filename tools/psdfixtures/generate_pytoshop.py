@@ -28,9 +28,10 @@ sidecar's ``provenance.generatedBy`` can point at it precisely, e.g.
 
     "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_nested_groups"
 
-Five pytoshop 1.2.1 defects are worked around at the top of this file. They are
-defects in the writer, not in any reader: see ``_encode_unicode_string_no_nul``,
-``_PackBits``, ``_AbsentLayerMask``, ``_LayerRecord`` and ``_ZipPrediction``.
+Six pytoshop 1.2.1 defects are worked around here. They are defects in the
+writer, not in any reader: see ``_encode_unicode_string_no_nul``, ``_PackBits``,
+``_AbsentLayerMask``, ``_LayerRecord`` and ``_ZipPrediction`` at the top of this
+file, and ``_fill_opacity_block`` further down.
 """
 
 from __future__ import annotations
@@ -70,8 +71,9 @@ def log(message: str) -> None:
 
 # ══ pytoshop defect workarounds ═══════════════════════════════════════════════
 #
-# All five are verified against pytoshop 1.2.1. Each one makes pytoshop emit what
-# Photoshop emits; none of them is a concession to any particular reader.
+# All six are verified against pytoshop 1.2.1. Each one makes pytoshop emit what
+# Photoshop emits; none of them is a concession to any particular reader. Five
+# live here; defect 6 is at its only call site, ``_fill_opacity_block``.
 
 
 # Defect 1 — `luni` layer names carry a NUL and count it.
@@ -399,6 +401,9 @@ class ImageNode:
     visible: bool = True
     clipping: bool = False
     mask: MaskSpec | None = None
+    # Fill opacity (the iOpa tagged block). 255 writes no block at all, which is
+    # what its absence means in the format.
+    fill_opacity: int = 255
 
     @property
     def height(self) -> int:
@@ -426,6 +431,7 @@ class GroupNode:
     visible: bool = True
     closed: bool = False
     clipping: bool = False
+    fill_opacity: int = 255
     # A group carries its mask on the OPENING (lsct 1/2) record, never on the
     # bounding divider. The mask attenuates the whole group's result, so the
     # composite folds it into every descendant's alpha.
@@ -481,6 +487,28 @@ def _apply_mask(
         invert_layer_mask_when_blending=spec.inverted,
     )
 
+# Defect 6 — `GenericTaggedBlock.data`'s setter validates and then never assigns.
+#
+# `tagged_block.py:183-186` checks `isinstance(val, bytes)` and falls off the end
+# without touching `self._data`, so `block.data = payload` silently writes an
+# EMPTY block: a fixture that looks right in the generator and asserts nothing in
+# the file. Pass the payload to the constructor, and check that it stuck.
+def _fill_opacity_block(value: int) -> tagged_block.GenericTaggedBlock:
+    """The iOpa block, as psd-tools writes it: the byte plus three pad bytes.
+
+    psd-tools reads iOpa as "B3x" (a byte and three pad bytes) and only falls
+    back to a bare byte after logging a read error, and it writes the four-byte
+    form itself. Four bytes is therefore the representative shape, and being even
+    it also sidesteps the layer-record padding disagreement entirely.
+    """
+    if not 0 <= value <= 255:
+        die(f"fill opacity {value} is not a byte")
+    payload = bytes([value, 0, 0, 0])
+    block = tagged_block.GenericTaggedBlock(code=b"iOpa", data=payload)
+    if block.data != payload:
+        die("pytoshop dropped the iOpa payload — see defect 6 above")
+    return block
+
 
 def _image_record(node: ImageNode, compression: int, layer_id: int) -> layers.LayerRecord:
     channels = _channels(node.pixels, compression)
@@ -502,6 +530,8 @@ def _image_record(node: ImageNode, compression: int, layer_id: int) -> layers.La
             tagged_block.LayerId(id=layer_id),
         ],
     )
+    if node.fill_opacity != 255:
+        record.blocks.insert(1, _fill_opacity_block(node.fill_opacity))
     record.mask = mask_block
     return record
 
@@ -535,6 +565,8 @@ def _group_records(
             tagged_block.LayerId(id=header_id),
         ],
     )
+    if node.fill_opacity != 255:
+        header.blocks.insert(1, _fill_opacity_block(node.fill_opacity))
     header.mask = header_mask
 
     records = [header]
@@ -639,7 +671,7 @@ def _effective_alpha(
     if inherited is not None:
         alpha *= inherited / 255.0
 
-    return alpha * (node.opacity / 255.0)
+    return alpha * (node.opacity / 255.0) * (node.fill_opacity / 255.0)
 
 
 def _composite(
@@ -923,6 +955,44 @@ def fixture_rgb8_opacity_hidden(out: Path) -> Path:
         background(),
     ]
     return _emit(out, "rgb8-opacity-hidden", nodes)
+
+
+def fixture_rgb8_fill_opacity(out: Path) -> Path:
+    """Fill opacity (iOpa) at 128 and at 0, beside a layer carrying no block.
+
+    Layer opacity stays 255 on the partially filled layer so the two opacities
+    are distinguishable: a reader that maps iOpa onto plain opacity, or plain
+    opacity onto iOpa, fails here rather than passing by coincidence. The
+    unblocked layer proves that an absent block reads as 255 and not as 0.
+
+    No group, mask or clip: psd-tools applies a group's fill opacity when
+    compositing and Agogo does not, so a group here would fail compositePixels
+    on a renderer difference that has nothing to do with the block being read.
+    """
+    nodes = [
+        ImageNode(
+            name="No Fill Block",
+            top=2,
+            left=17,
+            pixels=quadrants(13, 9, CHALK, VIOLET, TEAL, ORANGE),
+        ),
+        ImageNode(
+            name="Empty Fill",
+            top=13,
+            left=4,
+            pixels=quadrants(15, 9, ORANGE, TEAL, VIOLET, CHALK),
+            fill_opacity=0,
+        ),
+        ImageNode(
+            name="Half Fill",
+            top=3,
+            left=2,
+            pixels=quadrants(12, 10, VIOLET, ORANGE, CHALK, TEAL),
+            fill_opacity=128,
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-fill-opacity", nodes)
 
 
 def _masked_stack(
@@ -1259,6 +1329,7 @@ FIXTURES: "OrderedDict[str, Callable[[Path], Path]]" = OrderedDict(
         ("rgb8-group-closed-folder", fixture_rgb8_group_closed_folder),
         ("rgb8-blend-modes", fixture_rgb8_blend_modes),
         ("rgb8-opacity-hidden", fixture_rgb8_opacity_hidden),
+        ("rgb8-fill-opacity", fixture_rgb8_fill_opacity),
         ("rgb8-layer-mask-offset", fixture_rgb8_layer_mask_offset),
         ("rgb8-mask-disabled", fixture_rgb8_mask_disabled),
         ("rgb8-mask-inverted", fixture_rgb8_mask_inverted),

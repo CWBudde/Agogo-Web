@@ -64,12 +64,26 @@ def _describe_mask(layer: Any) -> str:
     )
 
 
+def _fill_opacity(layer: Any) -> int:
+    """Fill opacity byte from the iOpa tagged block; 255 when absent."""
+    try:
+        from psd_tools.constants import Tag
+
+        blocks = getattr(layer, "tagged_blocks", None)
+        if blocks is None:
+            return 255
+        value = blocks.get_data(Tag.BLEND_FILL_OPACITY, None)
+    except Exception:
+        return 255
+    return 255 if value is None else int(value)
+
+
 def print_tree(layer: Any, depth: int = 0) -> None:
     pad = "  " * (depth + 1)
     kind = "group" if layer.is_group() else str(getattr(layer, "kind", "?"))
     print(
         f"{pad}- {layer.name!r} kind={kind} blend={_blend_key(layer)!r} "
-        f"opacity={layer.opacity} visible={layer.visible} "
+        f"opacity={layer.opacity} fill={_fill_opacity(layer)} visible={layer.visible} "
         f"bounds={(layer.left, layer.top, layer.right, layer.bottom)} "
         f"{_describe_mask(layer)}"
     )
