@@ -1,0 +1,350 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-group-mask",
+  "file": "rgb8-group-mask.psd",
+  "description": "32x24 RGB/8; a raster mask on a group, attenuating both of its children.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_group_mask",
+    "generatedOn": "2026-09-17",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-17",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Masked Group",
+      "name": "Masked Group",
+      "type": "group",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "isolated": true,
+      "mask": {
+        "present": true,
+        "enabled": true
+      },
+      "children": [
+        {
+          "path": "Masked Group/Group Child Bottom",
+          "name": "Group Child Bottom",
+          "type": "pixel",
+          "bounds": {
+            "x": 14,
+            "y": 11,
+            "w": 13,
+            "h": 10
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": false,
+          "mask": {
+            "present": false
+          }
+        },
+        {
+          "path": "Masked Group/Group Child Top",
+          "name": "Group Child Top",
+          "type": "pixel",
+          "bounds": {
+            "x": 5,
+            "y": 3,
+            "w": 12,
+            "h": 9
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": false,
+          "mask": {
+            "present": false
+          }
+        }
+      ]
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "</Layer group>",
+      "sectionType": 3,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Group Child Bottom",
+      "sectionType": 0,
+      "bounds": {
+        "x": 14,
+        "y": 11,
+        "w": 13,
+        "h": 10
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "Group Child Top",
+      "sectionType": 0,
+      "bounds": {
+        "x": 5,
+        "y": 3,
+        "w": 12,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 4,
+      "name": "Masked Group",
+      "sectionType": 1,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [-2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "passThrough": false,
+      "mask": {
+        "present": true,
+        "enabled": true,
+        "rect": {
+          "x": 6,
+          "y": 4,
+          "w": 18,
+          "h": 14
+        },
+        "defaultFill": 0,
+        "inverted": false
+      }
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Group/Group Child Bottom",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Group/Group Child Bottom",
+      "space": "layer",
+      "x": 12,
+      "y": 0,
+      "rgba": [34, 51, 68, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Group/Group Child Top",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Group/Group Child Top",
+      "space": "layer",
+      "x": 11,
+      "y": 0,
+      "rgba": [223, 223, 215, 254],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 8,
+      "y": 6,
+      "rgba": [98, 106, 157, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [218, 175, 183, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 24,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [127, 63, 192, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [
+      "psdRecords[0].channelIds",
+      "psdRecords[2].channelIds",
+      "psdRecords[3].channelIds",
+      "psdRecords[1].psdBlendKey",
+      "psdRecords[4].mask.rect",
+      "psdRecords[4].mask.defaultFill"
+    ],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-17",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py re-read the Agogo re-export with psd-tools 1.19.0; the file was accepted and reported the expected structure. ImageMagick was not installed in this environment, so this row rests on one independent reader rather than two. See testdata/VERIFICATION.md. The mask stays on the group's opening record and still attenuates both children; only the stored mask rect and default fill are widened."
+    },
+    "lossyReason": "PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2), so every re-exported record's channelIds differ in order. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data. Allowlisting a path suppresses the WHOLE assertion, so this entry on its own would also excuse a dropped -2 user mask or a corrupted ID; it does not, because the ID set is asserted separately at psdRecords[N].channelIds.preserved, which is emitted strictly and which no writer.lossy entry can reach. That path permits exactly one gained channel, the alpha psdexport always writes, and nothing else. psd-tools 1.19.0 reads the re-export correctly; ImageMagick was not installed in this environment, so this fixture rests on one independent reader rather than two (see testdata/VERIFICATION.md). PLAN.md S.10.3: psdBlendKey on the hidden `</Layer group>` bounding dividers (lsct 3) - psdexport's newGroupEndRecord hardcodes the divider's blend key to `pass`, while this fixture's writer emitted `norm`. Which one Photoshop writes is NOT established: no Photoshop-authored file is available to check against, and the spec does not prescribe it. The field is inert - readers identify the record by lsct 3 - so it is recorded rather than changed on a guess. PLAN.md S.10.4: psdimport rasterizes the layer mask into a document-sized buffer and discards the mask rectangle and its default fill, so the re-export stores a full-canvas mask.rect with defaultFill 255 instead of the original rect and fill. The mask still attenuates exactly the same pixels - the discarded default fill is folded into the rasterized mask - so only the stored extent and fill byte differ, not the coverage."
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

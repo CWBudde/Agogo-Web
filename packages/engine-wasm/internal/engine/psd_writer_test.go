@@ -291,3 +291,133 @@ func parsePSDExportedLayers(t *testing.T, data []byte) []psdLayerRecord {
 	}
 	return layers
 }
+
+// A masked or clipped layer must reach the file with its own pixels intact.
+// PSD keeps the mask as the -2 channel and the clip as the record's clipping
+// byte and re-evaluates both when compositing, so baking them into the stored
+// raster destroyed content and attenuated the survivors twice (PLAN.md
+// S.10.3/S.10.4).
+func TestSavePSDKeepsMaskedAndClippedLayerPixelsIntact(t *testing.T) {
+	doc := testDocumentFixture("nd", "non-destructive", 16, 16)
+
+	base := NewPixelLayer("Base", LayerBounds{X: 0, Y: 0, W: 6, H: 6}, makeSolidPixels(6, 6, 10, 20, 30, 255))
+
+	clipped := NewPixelLayer("Clipped", LayerBounds{X: 0, Y: 0, W: 16, H: 16}, makeSolidPixels(16, 16, 40, 50, 60, 255))
+	clipped.SetClipToBelow(true)
+
+	maskData := make([]byte, 16*16)
+	for y := 2; y < 6; y++ {
+		for x := 2; x < 6; x++ {
+			maskData[y*16+x] = 255
+		}
+	}
+	masked := NewPixelLayer("Masked", LayerBounds{X: 0, Y: 0, W: 16, H: 16}, makeSolidPixels(16, 16, 70, 80, 90, 255))
+	masked.SetMask(&LayerMask{Enabled: true, Width: 16, Height: 16, Data: maskData})
+
+	doc.ensureLayerRoot().SetChildren([]LayerNode{base, clipped, masked})
+
+	data, err := SavePSD(doc)
+	if err != nil {
+		t.Fatalf("SavePSD: %v", err)
+	}
+	reloaded, warnings, err := LoadPSDWithOptions(data, PSDLoadOptions{IgnoreEmbeddedProject: true})
+	if err != nil {
+		t.Fatalf("LoadPSDWithOptions: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected import warnings: %v", warnings)
+	}
+
+	byName := map[string]*PixelLayer{}
+	for _, node := range reloaded.ensureLayerRoot().Children() {
+		if pixel, ok := node.(*PixelLayer); ok {
+			byName[pixel.Name()] = pixel
+		}
+	}
+
+	for _, name := range []string{"Clipped", "Masked"} {
+		layer, ok := byName[name]
+		if !ok {
+			t.Fatalf("layer %q missing after the round trip", name)
+		}
+		want := LayerBounds{X: 0, Y: 0, W: 16, H: 16}
+		if layer.Bounds != want {
+			// Fatal, not Errorf: the pixel assertions below index the full
+			// 16x16 raster and would panic on a cropped one.
+			t.Fatalf("%s bounds = %+v, want %+v; the writer cropped the layer", name, layer.Bounds, want)
+		}
+	}
+
+	// The clip base covers only 6x6, so a pixel well outside it proves the
+	// clipped layer's own content survived rather than being cut to the base.
+	if got := byName["Clipped"].Pixels[(12*16+12)*4+3]; got != 255 {
+		t.Errorf("clipped layer alpha at (12,12) = %d, want 255; pixels outside the clip base were destroyed", got)
+	}
+	if !byName["Clipped"].ClipToBelow() {
+		t.Errorf("clipping flag was lost, so the reader will never re-apply the clip")
+	}
+
+	// The mask must attenuate once, at composite time - not be pre-multiplied
+	// into the stored raster and then applied again from the -2 channel.
+	masked2 := byName["Masked"]
+	if got := masked2.Pixels[(12*16+12)*4+3]; got != 255 {
+		t.Errorf("masked layer alpha at (12,12) = %d, want 255; the mask was baked into the pixels", got)
+	}
+	if got := masked2.Pixels[(4*16+4)*4]; got != 70 {
+		t.Errorf("masked layer red at (4,4) = %d, want 70 (unattenuated)", got)
+	}
+	if masked2.Mask() == nil {
+		t.Fatalf("mask was not written as the -2 channel")
+	}
+	if got := masked2.Mask().Data[4*16+4]; got != 255 {
+		t.Errorf("mask coverage at (4,4) = %d, want 255", got)
+	}
+	if got := masked2.Mask().Data[12*16+12]; got != 0 {
+		t.Errorf("mask coverage at (12,12) = %d, want 0", got)
+	}
+}
+
+// Vector masks have no LayerMask of their own, so before the S.10.3/S.10.4 fix
+// they were neither baked into the exported raster nor written as a channel:
+// they simply vanished. ResolveMask routes the engine's effective coverage -
+// raster mask, vector mask, density and feather - into the -2 channel.
+func TestSavePSDWritesVectorMaskCoverage(t *testing.T) {
+	doc := testDocumentFixture("vm", "vector-mask", 16, 16)
+	layer := NewPixelLayer("VectorMasked", LayerBounds{W: 16, H: 16}, makeSolidPixels(16, 16, 200, 200, 200, 255))
+	layer.SetVectorMask(&Path{Subpaths: []Subpath{{
+		Closed: true,
+		Points: []PathPoint{
+			{X: 2, Y: 2, InX: 2, InY: 2, OutX: 2, OutY: 2},
+			{X: 12, Y: 2, InX: 12, InY: 2, OutX: 12, OutY: 2},
+			{X: 12, Y: 10, InX: 12, InY: 10, OutX: 12, OutY: 10},
+			{X: 2, Y: 10, InX: 2, InY: 10, OutX: 2, OutY: 10},
+		},
+	}}})
+	doc.ensureLayerRoot().SetChildren([]LayerNode{layer})
+
+	data, err := SavePSD(doc)
+	if err != nil {
+		t.Fatalf("SavePSD: %v", err)
+	}
+	reloaded, warnings, err := LoadPSDWithOptions(data, PSDLoadOptions{IgnoreEmbeddedProject: true})
+	if err != nil {
+		t.Fatalf("LoadPSDWithOptions: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected import warnings: %v", warnings)
+	}
+	children := reloaded.ensureLayerRoot().Children()
+	if len(children) != 1 {
+		t.Fatalf("layer count = %d, want 1", len(children))
+	}
+	mask := children[0].Mask()
+	if mask == nil {
+		t.Fatalf("vector mask coverage did not reach the PSD at all")
+	}
+	if got := mask.Data[5*16+5]; got != 255 {
+		t.Errorf("coverage inside the vector mask at (5,5) = %d, want 255", got)
+	}
+	if got := mask.Data[14*16+14]; got != 0 {
+		t.Errorf("coverage outside the vector mask at (14,14) = %d, want 0", got)
+	}
+}

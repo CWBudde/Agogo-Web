@@ -19,6 +19,23 @@ type Params struct {
 	Layers          []model.LayerNode
 	RenderLayer     func(model.LayerNode) ([]byte, error)
 	RenderComposite func() []byte
+	// ResolveMask returns the mask that actually attenuates the layer on
+	// screen: the raster mask intersected with the vector mask, with density
+	// and feather applied. PSD carries a single -2 user-mask channel, so that
+	// resolved coverage is what has to be written; the raw LayerMask alone
+	// would silently drop vector masks, density and feather. Optional - when
+	// nil the layer's own mask is used verbatim.
+	ResolveMask func(model.LayerNode) *model.LayerMask
+}
+
+func resolveLayerMask(params Params, layer model.LayerNode) *model.LayerMask {
+	if layer == nil {
+		return nil
+	}
+	if params.ResolveMask != nil {
+		return params.ResolveMask(layer)
+	}
+	return layer.Mask()
 }
 
 func Export(params Params) ([]byte, error) {
@@ -99,8 +116,9 @@ func appendLayerRecords(records *[]psdio.ExportLayerRecord, params Params, psb b
 			if err := appendLayerRecords(records, params, psb, group.Children()); err != nil {
 				return err
 			}
-			folderRecord := newGroupRecord(group, psdio.LayerSectionOpenFolder)
-			channels, err := encodeLayerChannels(params.ColorMode, psb, model.LayerBounds{}, nil, group.Mask())
+			groupMask := resolveLayerMask(params, group)
+			folderRecord := newGroupRecord(group, psdio.LayerSectionOpenFolder, groupMask)
+			channels, err := encodeLayerChannels(params.ColorMode, psb, model.LayerBounds{}, nil, groupMask)
 			if err != nil {
 				return fmt.Errorf("encode group %q mask: %w", group.Name(), err)
 			}
@@ -117,7 +135,7 @@ func appendLayerRecords(records *[]psdio.ExportLayerRecord, params Params, psb b
 	return nil
 }
 
-func newGroupRecord(group *model.GroupLayer, sectionType uint32) psdio.ExportLayerRecord {
+func newGroupRecord(group *model.GroupLayer, sectionType uint32, mask *model.LayerMask) psdio.ExportLayerRecord {
 	blendKey := psdio.BlendKey(group.BlendMode())
 	if !group.Isolated {
 		blendKey = "pass"
@@ -129,13 +147,13 @@ func newGroupRecord(group *model.GroupLayer, sectionType uint32) psdio.ExportLay
 		ClipToBelow: group.ClipToBelow(),
 		BlendKey:    blendKey,
 		SectionType: sectionType,
-		Mask:        model.CloneLayerMask(group.Mask()),
+		Mask:        model.CloneLayerMask(mask),
 		ExtraBlocks: buildLayerExtraBlocks(group),
 	}
 }
 
 func newGroupEndRecord(group *model.GroupLayer) psdio.ExportLayerRecord {
-	record := newGroupRecord(group, psdio.LayerSectionBoundingDivider)
+	record := newGroupRecord(group, psdio.LayerSectionBoundingDivider, nil)
 	record.Name = "</Layer group>"
 	record.BlendKey = "pass"
 	record.Mask = nil
@@ -148,7 +166,8 @@ func newRasterRecord(params Params, psb bool, layer model.LayerNode) (psdio.Expo
 	if err != nil {
 		return psdio.ExportLayerRecord{}, fmt.Errorf("export layer %q: %w", layer.Name(), err)
 	}
-	channels, err := encodeLayerChannels(params.ColorMode, psb, bounds, pixels, layer.Mask())
+	mask := resolveLayerMask(params, layer)
+	channels, err := encodeLayerChannels(params.ColorMode, psb, bounds, pixels, mask)
 	if err != nil {
 		return psdio.ExportLayerRecord{}, fmt.Errorf("encode layer %q: %w", layer.Name(), err)
 	}
@@ -159,7 +178,7 @@ func newRasterRecord(params Params, psb bool, layer model.LayerNode) (psdio.Expo
 		Visible:     layer.Visible(),
 		ClipToBelow: layer.ClipToBelow(),
 		BlendKey:    psdio.BlendKey(layer.BlendMode()),
-		Mask:        model.CloneLayerMask(layer.Mask()),
+		Mask:        model.CloneLayerMask(mask),
 		Channels:    channels,
 		ExtraBlocks: buildLayerExtraBlocks(layer),
 	}, nil
@@ -168,15 +187,15 @@ func newRasterRecord(params Params, psb bool, layer model.LayerNode) (psdio.Expo
 func exportLayerRaster(params Params, layer model.LayerNode) (model.LayerBounds, []byte, error) {
 	switch typed := layer.(type) {
 	case *model.PixelLayer:
-		if canUseNativeLayerRaster(typed.Bounds, typed.Pixels, typed.StyleStack(), typed.Mask(), typed.ClipToBelow(), typed.BlendIf()) {
+		if canUseNativeLayerRaster(typed.Bounds, typed.Pixels, typed.StyleStack(), typed.BlendIf()) {
 			return typed.Bounds, append([]byte(nil), typed.Pixels...), nil
 		}
 	case *model.TextLayer:
-		if canUseNativeLayerRaster(typed.Bounds, typed.CachedRaster, typed.StyleStack(), typed.Mask(), typed.ClipToBelow(), typed.BlendIf()) {
+		if canUseNativeLayerRaster(typed.Bounds, typed.CachedRaster, typed.StyleStack(), typed.BlendIf()) {
 			return typed.Bounds, append([]byte(nil), typed.CachedRaster...), nil
 		}
 	case *model.VectorLayer:
-		if canUseNativeLayerRaster(typed.Bounds, typed.CachedRaster, typed.StyleStack(), typed.Mask(), typed.ClipToBelow(), typed.BlendIf()) {
+		if canUseNativeLayerRaster(typed.Bounds, typed.CachedRaster, typed.StyleStack(), typed.BlendIf()) {
 			return typed.Bounds, append([]byte(nil), typed.CachedRaster...), nil
 		}
 	case *model.AdjustmentLayer:
@@ -202,14 +221,31 @@ func exportLayerRaster(params Params, layer model.LayerNode) (model.LayerBounds,
 	}
 }
 
-func canUseNativeLayerRaster(bounds model.LayerBounds, raster []byte, styles []model.LayerStyle, mask *model.LayerMask, clipToBelow bool, blendIf *model.BlendIfConfig) bool {
+// canUseNativeLayerRaster reports whether the layer's own stored pixels can be
+// written verbatim, instead of flattening the layer through RenderLayer and
+// cropping the result to its opaque bounding box.
+//
+// A mask and a clipping flag deliberately do NOT disqualify a layer. PSD stores
+// both alongside the raster - the mask as the -2 channel, the clip as the
+// record's clipping byte - and re-applies them when compositing. Flattening
+// them into the pixels first multiplied the layer's alpha by the mask and by
+// the clip base, and the crop then discarded every pixel that had become
+// transparent: a clipped layer lost everything outside its base, and an
+// inverted mask shrank the layer to the mask rect. Both are applied a second
+// time on re-read, so the round trip also darkened masked pixels. See PLAN.md
+// S.10.3/S.10.4.
+//
+// Layer styles and BlendIf still disqualify a layer, because Agogo's style
+// stack and blending ranges have no faithful PSD encoding yet - flattening is
+// currently the only way their effect reaches the file at all.
+func canUseNativeLayerRaster(bounds model.LayerBounds, raster []byte, styles []model.LayerStyle, blendIf *model.BlendIfConfig) bool {
 	if bounds.W <= 0 || bounds.H <= 0 {
 		return false
 	}
 	if len(raster) != bounds.W*bounds.H*4 {
 		return false
 	}
-	if hasAnyEnabledLayerStyleEntry(styles) || mask != nil || clipToBelow || !blendIfIsIdentity(blendIf) {
+	if hasAnyEnabledLayerStyleEntry(styles) || !blendIfIsIdentity(blendIf) {
 		return false
 	}
 	return true

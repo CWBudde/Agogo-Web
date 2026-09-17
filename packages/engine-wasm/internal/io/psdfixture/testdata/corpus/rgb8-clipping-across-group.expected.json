@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-clipping-across-group",
+  "file": "rgb8-clipping-across-group.psd",
+  "description": "32x24 RGB/8; a clipped layer at the bottom of a group whose only candidate base lies outside it, plus an in-group clip pair as the control.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_clipping_across_group",
+    "generatedOn": "2026-09-17",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-17",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": [
+      "compositePixels is deliberately NOT asserted for this fixture, for the same reason as rgb8-clipping: the sidecar's composite samples come from psd-tools re-rendering the layer stack, and psd-tools' composite() does not apply clipping. At (24,12) - inside 'In-Group Clipped' but outside 'In-Group Base' - psd-tools reports the clipped layer's own colour while Agogo correctly reports the background. Agogo is right there, so asserting agreement would pin Agogo to psd-tools' arithmetic rather than to the file. Structure and per-layer rasters are still asserted, which is what this fixture exists for."
+    ]
+  },
+  "assert": ["document", "tree", "warnings", "psdRecords", "layerPixels", "writer"],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Outside Base",
+      "name": "Outside Base",
+      "type": "pixel",
+      "bounds": {
+        "x": 1,
+        "y": 4,
+        "w": 11,
+        "h": 8
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Inner Group",
+      "name": "Inner Group",
+      "type": "group",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "isolated": true,
+      "mask": {
+        "present": false
+      },
+      "children": [
+        {
+          "path": "Inner Group/In-Group Base",
+          "name": "In-Group Base",
+          "type": "pixel",
+          "bounds": {
+            "x": 13,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": false,
+          "mask": {
+            "present": false
+          }
+        },
+        {
+          "path": "Inner Group/In-Group Clipped",
+          "name": "In-Group Clipped",
+          "type": "pixel",
+          "bounds": {
+            "x": 16,
+            "y": 12,
+            "w": 13,
+            "h": 9
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": true,
+          "mask": {
+            "present": false
+          }
+        }
+      ]
+    },
+    {
+      "path": "Boundary Group",
+      "name": "Boundary Group",
+      "type": "group",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "isolated": true,
+      "mask": {
+        "present": false
+      },
+      "children": [
+        {
+          "path": "Boundary Group/Boundary Clipped",
+          "name": "Boundary Clipped",
+          "type": "pixel",
+          "bounds": {
+            "x": 3,
+            "y": 2,
+            "w": 13,
+            "h": 9
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": true,
+          "mask": {
+            "present": false
+          }
+        }
+      ]
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Outside Base",
+      "sectionType": 0,
+      "bounds": {
+        "x": 1,
+        "y": 4,
+        "w": 11,
+        "h": 8
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "</Layer group>",
+      "sectionType": 3,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "In-Group Base",
+      "sectionType": 0,
+      "bounds": {
+        "x": 13,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 4,
+      "name": "In-Group Clipped",
+      "sectionType": 0,
+      "bounds": {
+        "x": 16,
+        "y": 12,
+        "w": 13,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": true,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 5,
+      "name": "Inner Group",
+      "sectionType": 1,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "passThrough": false,
+      "mask": null
+    },
+    {
+      "index": 6,
+      "name": "</Layer group>",
+      "sectionType": 3,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 7,
+      "name": "Boundary Clipped",
+      "sectionType": 0,
+      "bounds": {
+        "x": 3,
+        "y": 2,
+        "w": 13,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": true,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 8,
+      "name": "Boundary Group",
+      "sectionType": 1,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "passThrough": false,
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Outside Base",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 68, 85, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Inner Group/In-Group Base",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Inner Group/In-Group Clipped",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Boundary Group/Boundary Clipped",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [
+      "psdRecords[0].channelIds",
+      "psdRecords[1].channelIds",
+      "psdRecords[3].channelIds",
+      "psdRecords[4].channelIds",
+      "psdRecords[7].channelIds",
+      "psdRecords[2].psdBlendKey",
+      "psdRecords[6].psdBlendKey",
+      "psdRecords[7].clipping"
+    ],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-17",
+      "result": "partial",
+      "notes": "tools/psdfixtures/verify_dump.py re-read the Agogo re-export with psd-tools 1.19.0; the file was accepted and reported the expected structure. ImageMagick was not installed in this environment, so this row rests on one independent reader rather than two. See testdata/VERIFICATION.md. Structure and nesting survive, but the boundary-clipped layer's clipping byte is not reproduced - see writer.lossyReason and the knownGaps entry."
+    },
+    "lossyReason": "PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2), so every re-exported record's channelIds differ in order. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data. Allowlisting a path suppresses the WHOLE assertion, so this entry on its own would also excuse a dropped -2 user mask or a corrupted ID; it does not, because the ID set is asserted separately at psdRecords[N].channelIds.preserved, which is emitted strictly and which no writer.lossy entry can reach. That path permits exactly one gained channel, the alpha psdexport always writes, and nothing else. psd-tools 1.19.0 reads the re-export correctly; ImageMagick was not installed in this environment, so this fixture rests on one independent reader rather than two (see testdata/VERIFICATION.md). PLAN.md S.10.3: psdBlendKey on the hidden `</Layer group>` bounding dividers (lsct 3) - psdexport's newGroupEndRecord hardcodes the divider's blend key to `pass`, while this fixture's writer emitted `norm`. Which one Photoshop writes is NOT established: no Photoshop-authored file is available to check against, and the spec does not prescribe it. The field is inert - readers identify the record by lsct 3 - so it is recorded rather than changed on a guess. PLAN.md S.10.3: psdRecords[7].clipping - the record-level face of the layers[...].clipToBelow known gap below. normalizeGroupClipping clears ClipToBelow for a layer with no clip base among its siblings, so the re-export writes clipping=0 where the fixture has clipping=1."
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": [
+    {
+      "path": "layers[3].children[0].clipToBelow",
+      "want": true,
+      "actual": false,
+      "reason": "PLAN.md S.10.3: clipping does not cross a group boundary, and 'Boundary Clipped' is the only layer in its group, so it has no clip base among its siblings. The parser reads the record's clipping byte correctly (asserted at record scope against the original file), but normalizeGroupClipping (internal/engine/layer_ops.go) then clears ClipToBelow for any layer whose base index resolves to -1, because a clip with no base is meaningless in the engine model. Photoshop keeps the byte set, so moving a layer underneath re-establishes the clip; in Agogo the flag is gone and the intent is lost. Recorded rather than fixed: preserving a dormant clip flag means giving the model a place to keep it, which is S.10.3 work in its own right."
+    }
+  ]
+}

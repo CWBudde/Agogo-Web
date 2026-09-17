@@ -20,10 +20,14 @@ asserts the `writer` scope must have a row below.
 | `rgb8-group-closed-folder` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Both folders re-open as groups. The open/closed flag itself is NOT preserved - see the S.10.3 note in README.md. |
 | `rgb8-blend-modes` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | All 27 blend keys survive the write and read back byte-exact, trailing spaces included (`mul `, `idiv`, `dkCl`, `smud`, `fsub`, `fdiv`, `hue `, `sat `, `colr`, `lum `). |
 | `rgb8-opacity-hidden` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Opacity 128/64 and the cleared visible flag all survive; `identify` lists each layer at its own offset. |
-| `rgb8-layer-mask-offset` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | partial | Structure survives; mask attenuation is not bit-exact across the round trip (see writer.lossyReason). |
-| `rgb8-mask-disabled` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | The mask-disabled flag survives. |
-| `rgb8-mask-inverted` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | partial | The layer is trimmed to the mask rect on export, losing pixels outside it (see writer.lossyReason). |
-| `rgb8-clipping` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | partial | The clipping flag survives, but the clipped layer's bounds are cut to the clip base, destroying pixels (see writer.lossyReason). |
+| `rgb8-layer-mask-offset` | psd-tools | 1.19.0 | 2026-09-17 | partial | Re-verified after the S.10.3/S.10.4 writer fix: the layer keeps its full (4,3) 24x18 bounds and the mask now round-trips bit-exact (the sampled blue reads 144, not the 92 this row previously recorded). Remaining loss is the stored `mask.rect`, which import widens to full canvas. ImageMagick was not available in the re-verification environment. |
+| `rgb8-mask-disabled` | psd-tools | 1.19.0 | 2026-09-17 | pass | The mask-disabled flag survives. Re-verified after the S.10.3/S.10.4 writer fix, which changed this file's raster (the mask is no longer baked into the pixels). ImageMagick was not available in the re-verification environment. |
+| `rgb8-mask-inverted` | psd-tools | 1.19.0 | 2026-09-17 | partial | Re-verified after the S.10.3/S.10.4 writer fix: the layer keeps its full (4,3) 24x18 bounds instead of being trimmed to (10,7) 12x8, so the mask is non-destructive again. Remaining losses are the stored `mask.rect` and the folded invert flag, both import-side. ImageMagick was not available in the re-verification environment. |
+| `rgb8-clipping` | psd-tools | 1.19.0 | 2026-09-17 | partial | Re-verified after the S.10.3/S.10.4 writer fix: the clipped layer keeps its full (8,6) 18x14 bounds instead of being cut to (8,9) 11x11, so no pixels are destroyed. Remaining loss is channel order only. ImageMagick was not available in the re-verification environment. |
+| `rgb8-group-empty` | psd-tools | 1.19.0 | 2026-09-17 | pass | The childless group survives as a group with no children, and the populated group beside it is unaffected. |
+| `rgb8-clipping-across-group` | psd-tools | 1.19.0 | 2026-09-17 | partial | Nesting and the in-group clip pair survive. The boundary-clipped layer's clipping byte does not: it has no base among its siblings, so the engine clears the flag (knownGaps entry + writer.lossy). |
+| `rgb8-mask-larger-than-layer` | psd-tools | 1.19.0 | 2026-09-17 | pass | The layer keeps its own (8,6) 14x12 bounds under a 24x20 mask; only the stored mask rect and default fill are widened. |
+| `rgb8-group-mask` | psd-tools | 1.19.0 | 2026-09-17 | pass | The mask stays on the group's opening record and still attenuates both children; only the stored mask rect and default fill are widened. |
 | `rgb8-rle-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Three RLE-compressed layers re-open with correct bounds and pixels. |
 
 ## How these rows were produced
@@ -38,6 +42,14 @@ uploaded as a CI artifact); `just fixtures-verify` re-reads them with psd-tools 
 via `--identify`, with ImageMagick as a second independent implementation. The last
 run reported `15/15 file(s) parsed` - every file Agogo wrote was accepted by a reader
 that is not Agogo's own.
+
+The 2026-09-17 rows cover two things: the four fixtures whose re-export bytes the
+S.10.3/S.10.4 writer fix changed, and the four fixtures added in the same change.
+That run used psd-tools 1.19.0 only (`19/19 file(s) parsed`): ImageMagick was not
+installed in that environment, so those eight rows rest on one independent reader
+rather than two until `just fixtures-verify --identify` is run again somewhere that
+has it. The eleven rows still dated 2026-09-16 cover fixtures the change did not
+touch.
 
 `partial` means the file opens correctly and its structure is right, but a specific
 field is knowingly not reproduced. Each one is listed in that fixture's

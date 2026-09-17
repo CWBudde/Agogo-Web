@@ -95,16 +95,16 @@ fixture is a release blocker exactly like the GPC dependency in
 
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
-no fixture can currently exist for it. 16 fixtures cover 20 of 26 capabilities in
-about 85 KB of binaries.
+no fixture can currently exist for it. 20 fixtures cover 24 of 30 capabilities in
+about 115 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |
 | Colour mode | RGB/8, Grayscale/8 | CMYK, Lab, indexed, duotone are outside the engine's scope |
 | Bit depth | 8 | 16 bpc is asserted to be *rejected explicitly* rather than mis-read |
 | Compression | Raw, RLE on the composite, RLE on layer channels | ZIP and ZIP-with-prediction |
-| Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping | — |
-| Masks | Offset rectangle, disabled, inverted, default fill 255 | Vector and real-mask parameter blocks |
+| Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping, empty groups, clipping across a group boundary | — |
+| Masks | Offset rectangle, disabled, inverted, default fill 255, larger than its layer, on a group | Vector and real-mask parameter blocks |
 | Blending | All 27 modes, in both directions | — |
 | Opacity | Layer opacity below 255 | Fill opacity (`iOpa`) |
 | Container | PSD, PSB, exactly on the 30000 px PSD limit | — |
@@ -112,8 +112,8 @@ about 85 KB of binaries.
 
 ### Cross-implementation differences that are NOT asserted
 
-`rgb8-blend-modes` and `rgb8-clipping` deliberately do **not** assert
-`compositePixels`. Those samples come from psd-tools re-rendering the layer stack,
+`rgb8-blend-modes`, `rgb8-clipping` and `rgb8-clipping-across-group` deliberately do
+**not** assert `compositePixels`. Those samples come from psd-tools re-rendering the layer stack,
 and Agogo renders it too — two different renderers. Where the stack is plain
 source-over they agree, and every other fixture asserts `compositePixels` and
 passes. These two exist precisely to exercise semantics where two renderers are
@@ -151,13 +151,6 @@ Most fixtures carry a `writer.lossy` allowlist with a `writer.lossyReason`. The
 harness fails if an unlisted field differs **and** if a listed field starts
 matching, so neither a regression nor a fix can land unnoticed:
 
-- **`rgb8-clipping`** — `SavePSD` hard-clips a clipped layer's stored bounds to
-  the intersection with its clip base ((8,6) 18x14 becomes (8,9) 11x11), so pixels
-  outside the base are destroyed on save. Photoshop keeps them (S.10.3).
-- **`rgb8-mask-inverted`** — re-export trims the layer to the mask rect, so an
-  inverted mask stops being non-destructive (S.10.4).
-- **`rgb8-layer-mask-offset`** — mask attenuation is not bit-exact across a round
-  trip (S.10.4).
 - **`rgb8-group-closed-folder`** — the open (`lsct` 1) / closed (`lsct` 2) folder
   distinction is parsed correctly but lost at import, because the engine model has
   nowhere to store expanded state, so `psdexport` re-opens the closed folder. This
@@ -182,7 +175,44 @@ matching, so neither a regression nor a fix can land unnoticed:
   `psdimport` rasterizes the layer mask to document size and discards the mask
   rectangle, so the re-export stores a full-canvas `mask.rect`; on
   `rgb8-mask-inverted` the invert flag is folded into the raster and comes back
-  `false` (S.10.4).
+  `false` (S.10.4). `rgb8-mask-larger-than-layer` and `rgb8-group-mask` add the
+  default-fill byte to the same entry: they are authored with fill 0, and the
+  rasterized mask folds it in, so the re-export stores 255.
+- **`rgb8-clipping-across-group`** — clipping does not cross a group boundary, so
+  the boundary-clipped layer has no base among its siblings and
+  `normalizeGroupClipping` clears its `ClipToBelow`. Photoshop keeps the byte set,
+  so moving a layer underneath re-establishes the clip; in Agogo the intent is
+  gone. Recorded as a `knownGaps` entry on the model path plus a `writer.lossy`
+  entry on the record's `clipping` field (S.10.3).
+
+### Losses the corpus found and that are now fixed
+
+Three entries have been removed from the allowlists, because the defects they
+excused are gone. They are recorded here because the corpus is what exposed them,
+and because the harness now fails if any of them comes back:
+
+- **`rgb8-clipping`** — `SavePSD` hard-clipped a clipped layer's stored bounds to
+  the intersection with its clip base ((8,6) 18x14 became (8,9) 11x11), destroying
+  every pixel outside the base.
+- **`rgb8-mask-inverted`** — re-export trimmed the layer to the mask rect ((4,3)
+  24x18 became (10,7) 12x8), so an inverted mask stopped being non-destructive.
+- **`rgb8-layer-mask-offset`** — mask attenuation was not bit-exact across a round
+  trip (a sampled blue 144 came back as 92).
+
+A fourth loss surfaced while fixing them and is fixed too: a **vector mask** was
+dropped from the export entirely. It sets `VectorMask` rather than `LayerMask`, so
+the writer saw no mask at all, wrote the raw pixels and emitted no `-2` channel. No
+fixture can cover it — no available generator emits a vector mask — so it is pinned
+by `TestSavePSDWritesVectorMaskCoverage` in `internal/engine/psd_writer_test.go`.
+
+The first three were the same defect. `psdexport` treated a mask or a clipping flag as
+something it had to flatten into the stored raster, then cropped the result to its
+opaque bounding box — while *also* writing the mask as the `-2` channel and
+setting the record's clipping byte, so both were applied a second time on re-read.
+PSD carries masks and clipping alongside the raster and re-evaluates them when
+compositing, so the layer's own pixels are now written verbatim and only layer
+styles and BlendIf — which have no faithful PSD encoding yet — are still
+flattened (S.10.3, S.10.4).
 
 ### Permanently deferred without Photoshop
 

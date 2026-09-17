@@ -44,7 +44,7 @@ func TestNewGroupRecordWritesIsolatedBlendMode(t *testing.T) {
 	group.Isolated = true
 	group.SetBlendMode(model.BlendModeMultiply)
 
-	record := newGroupRecord(group, psdio.LayerSectionClosedFolder)
+	record := newGroupRecord(group, psdio.LayerSectionClosedFolder, nil)
 	if record.BlendKey != psdio.BlendKey(model.BlendModeMultiply) {
 		t.Fatalf("blend key = %q, want multiply", record.BlendKey)
 	}
