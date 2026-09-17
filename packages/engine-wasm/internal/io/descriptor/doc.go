@@ -1,6 +1,6 @@
-// Package descriptor reads and writes Adobe Action Descriptors, the key/value
-// structure Photoshop embeds in ABR brush libraries and in PSD tagged blocks
-// such as lfx2 (layer effects) and TySh (text layers).
+// Package descriptor reads Adobe Action Descriptors, the key/value structure
+// Photoshop embeds in ABR brush libraries and in PSD tagged blocks such as
+// lfx2 (layer effects) and TySh (text layers).
 //
 // The wire format is the same in both files, so this package is shared rather
 // than duplicated: internal/io/abr and internal/io/psd both parse it, and a
@@ -18,7 +18,7 @@
 // # Trailing NUL
 //
 // Photoshop NUL-terminates TEXT values and counts the terminator in the
-// character count. Value.String keeps the bytes verbatim so that
-// Write(Parse(x)) is byte-identical on Photoshop-authored input; callers that
-// want the string a user would recognise call Value.Text.
+// character count. Value.String keeps the bytes verbatim, so a parsed value
+// still carries what the file held and can be re-emitted unchanged; callers
+// that want the string a user would recognise call Value.Text.
 package descriptor
