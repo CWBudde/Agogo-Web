@@ -37,6 +37,10 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		group.SetBlendMode(record.BlendMode)
 		group.SetClipToBelow(record.ClipToBelow)
 		group.Isolated = !record.PassThrough
+		// lsct 1 (open folder) vs lsct 2 (closed folder). popStack is only
+		// reached for those two section types, so anything that is not an open
+		// folder is a closed one.
+		group.Expanded = record.SectionType == psdio.LayerSectionOpenFolder
 		group.SetMask(buildLayerMask(header, record))
 		group.SetChildren(children)
 		top := len(stacks) - 1

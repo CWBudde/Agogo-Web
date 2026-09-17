@@ -134,7 +134,24 @@ export function LayersPanel({
   selectedLayerIds,
   onSelectedLayerIdsChange,
 }: LayersPanelProps) {
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // Group expansion is engine-owned document state (PSD lsct 1 vs 2, also
+  // persisted in .agp), so the collapsed map is DERIVED from the layer meta
+  // instead of being local component state. Remounting the panel no longer
+  // re-opens every folder, and a toggle round-trips through the engine like
+  // every other layer property this panel edits.
+  //
+  // The previous map is reused whenever the derived content is unchanged: a
+  // viewport-only commit hands down a brand-new `layers` array with the same
+  // node identities, and a fresh object here would defeat the memoized rows.
+  const collapsedGroupsRef = useRef<Record<string, boolean>>({});
+  const collapsedGroups = useMemo(() => {
+    const next = collectCollapsedGroups(layers);
+    if (sameCollapsedGroups(collapsedGroupsRef.current, next)) {
+      return collapsedGroupsRef.current;
+    }
+    collapsedGroupsRef.current = next;
+    return next;
+  }, [layers]);
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
@@ -195,6 +212,7 @@ export function LayersPanel({
   // change per render from this ref instead of closing over them directly.
   const latestRef = useRef({
     layers,
+    collapsedGroups,
     displayOrder,
     selectedLayerIds,
     selectedIdSet,
@@ -208,6 +226,7 @@ export function LayersPanel({
   });
   latestRef.current = {
     layers,
+    collapsedGroups,
     displayOrder,
     selectedLayerIds,
     selectedIdSet,
@@ -560,12 +579,16 @@ export function LayersPanel({
     [moveLayer],
   );
 
-  const handleToggleGroup = useCallback((layerId: string) => {
-    setCollapsedGroups((current) => ({
-      ...current,
-      [layerId]: !current[layerId],
-    }));
-  }, []);
+  const handleToggleGroup = useCallback(
+    (layerId: string) => {
+      const isCurrentlyCollapsed = latestRef.current.collapsedGroups[layerId] === true;
+      engine.dispatchCommand(CommandID.SetGroupExpanded, {
+        layerId,
+        expanded: isCurrentlyCollapsed,
+      });
+    },
+    [engine],
+  );
 
   const handleToggleVisibility = useCallback(
     (layerId: string, visible: boolean, solo: boolean) => {
@@ -1700,6 +1723,36 @@ function RangeField({
       </div>
     </label>
   );
+}
+
+// collectCollapsedGroups flattens the engine's per-group `expanded` flag into
+// the id-keyed map the tree rows and collectLayerOrder consume. A group whose
+// meta predates the flag (expanded === undefined) counts as expanded, matching
+// the engine's own default for a newly created group.
+function collectCollapsedGroups(layers: LayerNodeMeta[], output: Record<string, boolean> = {}) {
+  for (const layer of layers) {
+    if (layer.layerType !== "group") {
+      continue;
+    }
+    output[layer.id] = layer.expanded === false;
+    collectCollapsedGroups(layer.children ?? [], output);
+  }
+  return output;
+}
+
+// sameCollapsedGroups compares two derived collapse maps by content.
+//
+// The Object.hasOwn check is what makes equal-length-but-disjoint key sets
+// compare unequal. It is load-bearing only if a value can be undefined -- today
+// collectCollapsedGroups always writes a boolean, so a[key] !== b[key] already
+// catches a key missing from b. Relying on that is correct by coincidence
+// rather than by construction, so the membership test is explicit.
+function sameCollapsedGroups(a: Record<string, boolean>, b: Record<string, boolean>) {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) {
+    return false;
+  }
+  return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key]);
 }
 
 function collectLayerOrder(

@@ -80,11 +80,22 @@ func (inst *instance) restoreSnapshot(state snapshot) error {
 		return inst.manager.SetActiveID("")
 	}
 
+	// Group expansion is document state but is deliberately NOT undoable (see
+	// Document.SetGroupExpanded), yet it rides inside the Document a snapshot
+	// captures wholesale. Grab the live flags before the replace so collapsing
+	// a folder and then undoing an unrelated edit does not re-open it.
+	liveExpansion := inst.captureStoredGroupExpansion(state.Document.ID)
+
 	// Replace only the snapshot's document. If it was closed since the snapshot
 	// was taken, Replace re-inserts it (appended to the document order).
 	if err := inst.manager.Replace(state.Document); err != nil {
 		return err
 	}
+
+	// Must run after Replace, never before: snapshots hold direct pointers into
+	// history, so mutating state.Document itself would rewrite the snapshot.
+	// Replace clones on store, and this reaches that fresh clone.
+	inst.applyStoredGroupExpansion(state.Document.ID, liveExpansion)
 
 	id := state.DocumentID
 	if id == "" {

@@ -178,6 +178,22 @@ func (inst *instance) dispatchLayerCommand(commandID int32, payloadJSON string) 
 				return doc.SetLayerClipToBelow(payload.LayerID, payload.ClipToBelow)
 			})
 		},
+		// Group expansion is view chrome that happens to live in the document
+		// (it must survive .agp and PSD round trips), so it follows the
+		// SetActiveLayer pattern rather than executeDocCommand: mutate the
+		// active document and store it, WITHOUT pushing a history entry.
+		// Photoshop likewise does not put "twirl a folder open" on the undo
+		// stack, and an undoable expansion would bury real edits under noise.
+		SetGroupExpanded: func(payload cmdpkg.LayerGroupExpandedPayload) error {
+			doc := inst.manager.Active()
+			if doc == nil {
+				return fmt.Errorf("no active document")
+			}
+			if err := doc.SetGroupExpanded(payload.LayerID, payload.Expanded); err != nil {
+				return err
+			}
+			return inst.manager.ReplaceActive(doc)
+		},
 		SetActiveLayer: func(layerID string) error {
 			doc := inst.manager.Active()
 			if doc == nil {

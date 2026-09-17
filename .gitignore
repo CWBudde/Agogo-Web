@@ -17,9 +17,10 @@ packages/engine-wasm/coverage.html
 # underscore keeps the directory invisible to the go tool and to go:embed.
 packages/engine-wasm/internal/io/psdfixture/_dump/
 
-# Fixture tooling scratch output
+# Fixture tooling scratch output and its pinned venv (`just fixtures-setup`)
 __pycache__/
 .fixtures-out/
+.venv-psdfixtures/
 
 # ── OS / Editor ──────────────────────────────────────────────────────────────
 .DS_Store

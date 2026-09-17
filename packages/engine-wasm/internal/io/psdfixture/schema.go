@@ -209,6 +209,11 @@ type LayerExpect struct {
 	// a "Pass Through" group is not.
 	Isolated *bool `json:"isolated"`
 
+	// Expanded applies to groups only: the section divider's open/closed flag
+	// (lsct 1 vs lsct 2). Optional, so the sidecars written before the engine
+	// model carried the flag stay valid under DisallowUnknownFields.
+	Expanded *bool `json:"expanded"`
+
 	Mask       *MaskExpect    `json:"mask"`
 	StyleKinds *[]string      `json:"styleKinds"`
 	Children   *[]LayerExpect `json:"children"`

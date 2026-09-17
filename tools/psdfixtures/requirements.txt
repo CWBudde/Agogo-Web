@@ -1,0 +1,37 @@
+# Python toolchain for the PSD fixture corpus (PLAN.md S.10.1/S.10.2).
+#
+# NOT a build dependency. `just ci`, `just test` and `go test` stay Go-only and
+# must never acquire a Python dependency; the fixture binaries and their sidecars
+# are committed, so this file is only needed when REGENERATING them.
+#
+#     just fixtures-setup      # creates .venv-psdfixtures/ from this file
+#
+# Fully pinned, transitives included, because the corpus is only reproducible if
+# the writer and the deriver are. Regenerating the committed layered fixtures with
+# these exact versions reproduces them byte for byte — that is the check to run
+# after changing anything here.
+#
+# Verified on 2026-09-17 with CPython 3.11.15 (GCC 13.3.0) on Linux. pytoshop has
+# no wheel and is built from its sdist, which needs a C compiler and cython; the
+# build works against a stock setuptools. Against a DEBIAN-PATCHED system
+# setuptools it fails with `AttributeError: install_layout`, which is why this
+# installs into a virtualenv rather than system-wide.
+#
+# Two things that look like they should matter and do not:
+#   - pytoshop's `packbits` Cython extension is NOT built by this install, and is
+#     not meant to be. generate_pytoshop.py works around its absence (defects 2
+#     and 5); building it would change which code path the generator takes.
+#   - `six` is an UNDECLARED pytoshop dependency. It is listed here explicitly
+#     because nothing else will pull it in.
+
+# Writers and readers used directly by the scripts.
+psd-tools==1.19.0
+pytoshop==1.2.1
+six==1.17.0
+
+# Transitive, pinned for reproducibility.
+attrs==26.1.0
+cython==3.3.0
+numpy==2.4.6
+pillow==12.3.0
+typing-extensions==4.16.0

@@ -17,7 +17,7 @@ asserts the `writer` scope must have a row below.
 | `depth16-rejected` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | n/a | Negative fixture: the engine refuses it, so there is no re-export to verify. psd-tools reads the 16-bit original fine, which is what makes the refusal a policy rather than a parse failure. |
 | `rgb8-nested-groups` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Two-level nesting and the bounding/open divider pairing survive the round trip. |
 | `rgb8-group-passthrough` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | The pass-through group is re-emitted with blend key `pass`; the isolated one stays `norm`. |
-| `rgb8-group-closed-folder` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Both folders re-open as groups. The open/closed flag itself is NOT preserved - see the S.10.3 note in README.md. |
+| `rgb8-group-closed-folder` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Both folders re-open as groups, and the open/closed flag survives: `GroupLayer.Expanded` carries `lsct` 1 vs 2 through import and export (S.10.3, closed 2026-09-18). Asserted at record scope by the fixture. |
 | `rgb8-blend-modes` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | All 27 blend keys survive the write and read back byte-exact, trailing spaces included (`mul `, `idiv`, `dkCl`, `smud`, `fsub`, `fdiv`, `hue `, `sat `, `colr`, `lum `). |
 | `rgb8-opacity-hidden` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Opacity 128/64 and the cleared visible flag all survive; `identify` lists each layer at its own offset. |
 | `rgb8-layer-mask-offset` | psd-tools | 1.19.0 | 2026-09-17 | partial | Re-verified after the S.10.3/S.10.4 writer fix: the layer keeps its full (4,3) 24x18 bounds and the mask now round-trips bit-exact (the sampled blue reads 144, not the 92 this row previously recorded). Remaining loss is the stored `mask.rect`, which import widens to full canvas. ImageMagick was not available in the re-verification environment. |
@@ -29,6 +29,8 @@ asserts the `writer` scope must have a row below.
 | `rgb8-mask-larger-than-layer` | psd-tools | 1.19.0 | 2026-09-17 | pass | The layer keeps its own (8,6) 14x12 bounds under a 24x20 mask; only the stored mask rect and default fill are widened. |
 | `rgb8-group-mask` | psd-tools | 1.19.0 | 2026-09-17 | pass | The mask stays on the group's opening record and still attenuates both children; only the stored mask rect and default fill are widened. |
 | `rgb8-rle-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Three RLE-compressed layers re-open with correct bounds and pixels. |
+| `rgb8-zip-layers` | psd-tools | 1.19.0 | 2026-09-17 | pass | Three ZIP-compressed layer channels decode and re-open with correct bounds and pixels. The re-export is not itself ZIP — `psdexport` picks its own channel compression — so this row verifies the decoder leg, not a ZIP writer. ImageMagick was not available in this environment. |
+| `rgb8-zip-prediction-layers` | psd-tools | 1.19.0 | 2026-09-17 | pass | Same three layers under ZIP-with-prediction. The predictor resets at every row boundary; a decoder that carries the running sum across rows disagrees on 736 of 768 bytes of the first channel, including the sampled bottom-row pixels, so this fixture is not vacuous. ImageMagick was not available in this environment. |
 
 ## How these rows were produced
 

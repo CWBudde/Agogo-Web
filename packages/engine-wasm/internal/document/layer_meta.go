@@ -28,6 +28,7 @@ type LayerNodeMeta struct {
 	StyleStack        []model.LayerStyle   `json:"styleStack,omitempty"`
 	BlendIf           *model.BlendIfConfig `json:"blendIf,omitempty"`
 	Isolated          bool                 `json:"isolated,omitempty"`
+	Expanded          *bool                `json:"expanded,omitempty"` // group open/closed (PSD lsct 1 vs 2); nil on non-groups
 	IsArtboard        bool                 `json:"isArtboard,omitempty"`
 	ArtboardBounds    *model.LayerBounds   `json:"artboardBounds,omitempty"`
 	ArtboardBG        *[4]uint8            `json:"artboardBackground,omitempty"`
@@ -107,6 +108,8 @@ func BuildLayerNodeMeta(layer model.LayerNode) LayerNodeMeta {
 	}
 	if group, ok := layer.(*model.GroupLayer); ok {
 		meta.Isolated = group.Isolated
+		expanded := group.Expanded
+		meta.Expanded = &expanded
 		if group.Artboard != nil {
 			bounds := group.Artboard.Bounds
 			background := group.Artboard.Background

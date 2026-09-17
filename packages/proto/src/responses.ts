@@ -206,6 +206,8 @@ export interface LayerNodeMeta {
   maskFeather?: number;
   hasVectorMask: boolean;
   isolated?: boolean;
+  /** Group open/closed state (PSD lsct 1 vs 2). Present on group nodes only. */
+  expanded?: boolean;
   isArtboard?: boolean;
   artboardBounds?: DirtyRect;
   artboardBackground?: [number, number, number, number];

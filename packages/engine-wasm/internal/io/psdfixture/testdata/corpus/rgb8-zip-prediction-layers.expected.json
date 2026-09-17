@@ -1,0 +1,328 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-zip-prediction-layers",
+  "file": "rgb8-zip-prediction-layers.psd",
+  "description": "32x24 RGB/8; same layers as rgb8-zip-layers but ZIP with the 8-bit horizontal predictor, which resets at every row boundary; RLE composite.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_zip_prediction_layers",
+    "generatedOn": "2026-09-17",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-17",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Zip Pred Background",
+      "name": "Zip Pred Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Zip Pred Middle",
+      "name": "Zip Pred Middle",
+      "type": "pixel",
+      "bounds": {
+        "x": 2,
+        "y": 10,
+        "w": 18,
+        "h": 12
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Zip Pred Top",
+      "name": "Zip Pred Top",
+      "type": "pixel",
+      "bounds": {
+        "x": 13,
+        "y": 2,
+        "w": 17,
+        "h": 11
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Zip Pred Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Zip Pred Middle",
+      "sectionType": 0,
+      "bounds": {
+        "x": 2,
+        "y": 10,
+        "w": 18,
+        "h": 12
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Zip Pred Top",
+      "sectionType": 0,
+      "bounds": {
+        "x": 13,
+        "y": 2,
+        "w": 17,
+        "h": 11
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Zip Pred Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Background",
+      "space": "layer",
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Background",
+      "space": "layer",
+      "x": 31,
+      "y": 23,
+      "rgba": [221, 221, 0, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Middle",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Middle",
+      "space": "layer",
+      "x": 17,
+      "y": 0,
+      "rgba": [17, 153, 153, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Middle",
+      "space": "layer",
+      "x": 0,
+      "y": 11,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Middle",
+      "space": "layer",
+      "x": 17,
+      "y": 11,
+      "rgba": [221, 102, 0, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Top",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Top",
+      "space": "layer",
+      "x": 16,
+      "y": 0,
+      "rgba": [223, 223, 215, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Top",
+      "space": "layer",
+      "x": 0,
+      "y": 10,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Zip Pred Top",
+      "space": "layer",
+      "x": 16,
+      "y": 10,
+      "rgba": [17, 153, 153, 254],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 24,
+      "y": 6,
+      "rgba": [240, 240, 232, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 8,
+      "y": 12,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 24,
+      "y": 18,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": ["psdRecords[0].channelIds", "psdRecords[1].channelIds", "psdRecords[2].channelIds"],
+    "lossyReason": "PLAN.md S.10.2: psdexport emits layer channels in its own fixed order (0,1,2,-1; gray 0,-1) and always emits an alpha channel, because the engine model is RGBA. This fixture was authored with alpha first (-1,0,1,2), so every re-exported record's channelIds differ in order. The PSD spec does not prescribe channel order and readers key on the ID, so this is a spelling difference rather than lost data. Allowlisting a path suppresses the WHOLE assertion, so this entry on its own would also excuse a dropped -2 user mask or a corrupted ID; it does not, because the ID set is asserted separately at psdRecords[N].channelIds.preserved, which is emitted strictly and which no writer.lossy entry can reach. That path permits exactly one gained channel, the alpha psdexport always writes, and nothing else. The re-export is also not re-compressed with ZIP — psdexport chooses its own channel compression, which is why this fixture proves the ZIP DECODERS and not a ZIP writer.",
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-17",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py re-read the Agogo re-export with psd-tools 1.19.0; it accepted the file and reported the expected structure. ImageMagick was not available on the machine this fixture was derived on, so the --identify leg did not run. See testdata/VERIFICATION.md."
+    }
+  },
+  "knownGaps": []
+}

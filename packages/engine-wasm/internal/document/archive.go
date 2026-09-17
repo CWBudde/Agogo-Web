@@ -85,6 +85,7 @@ type ProjectLayerArchive struct {
 	StyleStack        []model.LayerStyle    `json:"styleStack,omitempty"`
 	BlendIf           *model.BlendIfConfig  `json:"blendIf,omitempty"`
 	Isolated          bool                  `json:"isolated,omitempty"`
+	Expanded          *bool                 `json:"expanded,omitempty"` // group open/closed; nil = archive predates the field, read as expanded
 	IsArtboard        bool                  `json:"isArtboard,omitempty"`
 	ArtboardBounds    *model.LayerBounds    `json:"artboardBounds,omitempty"`
 	ArtboardBG        *[4]uint8             `json:"artboardBackground,omitempty"`

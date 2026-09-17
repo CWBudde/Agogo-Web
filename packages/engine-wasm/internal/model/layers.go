@@ -699,8 +699,17 @@ func (l *VectorLayer) Clone() LayerNode {
 
 type GroupLayer struct {
 	layerBase
-	children       []LayerNode
-	Isolated       bool                     `json:"isolated"`
+	children []LayerNode
+	Isolated bool `json:"isolated"`
+	// Expanded mirrors the PSD "section divider" open/closed flag (lsct 1 vs
+	// lsct 2): true is an open folder, false a closed one. It lives on
+	// GroupLayer rather than layerBase because only groups have it, and it is
+	// document state rather than view state — it survives PSD import/export
+	// and the project archive.
+	//
+	// The zero value is false, so groups MUST be built with NewGroupLayer,
+	// which defaults it to true (Photoshop's default is the open folder).
+	Expanded       bool                     `json:"expanded"`
 	Artboard       *ArtboardData            `json:"artboard,omitempty"`
 	VisibilitySolo LayerVisibilitySoloState `json:"-"`
 }
@@ -737,7 +746,7 @@ func LayerVisibilitySoloStateEqual(a, b LayerVisibilitySoloState) bool {
 }
 
 func NewGroupLayer(name string) *GroupLayer {
-	return &GroupLayer{layerBase: newLayerBase(name)}
+	return &GroupLayer{layerBase: newLayerBase(name), Expanded: true}
 }
 
 func (l *GroupLayer) LayerType() LayerType {
@@ -763,6 +772,7 @@ func (l *GroupLayer) Clone() LayerNode {
 	clone := &GroupLayer{
 		layerBase:      l.cloneBase(),
 		Isolated:       l.Isolated,
+		Expanded:       l.Expanded,
 		Artboard:       CloneArtboard(l.Artboard),
 		VisibilitySolo: CloneLayerVisibilitySoloState(l.VisibilitySolo),
 	}
@@ -955,7 +965,7 @@ func LayerTreeEqual(a, b LayerNode) bool {
 		}
 	case *GroupLayer:
 		right, ok := b.(*GroupLayer)
-		if !ok || left.Isolated != right.Isolated || !LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
+		if !ok || left.Isolated != right.Isolated || left.Expanded != right.Expanded || !LayerVisibilitySoloStateEqual(left.VisibilitySolo, right.VisibilitySolo) {
 			return false
 		}
 		switch {

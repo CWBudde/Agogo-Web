@@ -117,7 +117,11 @@ func appendLayerRecords(records *[]psdio.ExportLayerRecord, params Params, psb b
 				return err
 			}
 			groupMask := resolveLayerMask(params, group)
-			folderRecord := newGroupRecord(group, psdio.LayerSectionOpenFolder, groupMask)
+			sectionType := uint32(psdio.LayerSectionClosedFolder)
+			if group.Expanded {
+				sectionType = psdio.LayerSectionOpenFolder
+			}
+			folderRecord := newGroupRecord(group, sectionType, groupMask)
 			channels, err := encodeLayerChannels(params.ColorMode, psb, model.LayerBounds{}, nil, groupMask)
 			if err != nil {
 				return fmt.Errorf("encode group %q mask: %w", group.Name(), err)

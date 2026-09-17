@@ -19,13 +19,11 @@
     },
     {
       "id": "compression.zip",
-      "title": "ZIP channel data without prediction",
-      "deferred": "PLAN.md S.10.2: needs a Photoshop-authored file. Neither ImageMagick nor pytoshop emits ZIP-compressed layer channels; pytoshop offers raw and RLE only."
+      "title": "ZIP channel data without prediction"
     },
     {
       "id": "compression.zip-prediction",
-      "title": "ZIP channel data with prediction",
-      "deferred": "PLAN.md S.10.2: needs a Photoshop-authored file. No available writer emits ZIP-with-prediction channels."
+      "title": "ZIP channel data with prediction"
     },
     {
       "id": "structure.nested-groups",
@@ -268,6 +266,20 @@
       "capabilities": ["compression.rle-layer-channels"],
       "bytes": 2516,
       "sha256": "29195dd03a81d03f2961fed63618d48085d929d8d917d1244d7372a9e4962ee9"
+    },
+    {
+      "id": "rgb8-zip-layers",
+      "file": "rgb8-zip-layers.psd",
+      "capabilities": ["compression.zip"],
+      "bytes": 1624,
+      "sha256": "5c76327fa75ef67c17afc57625b1450bd31d2d1c05281afaadba4aab6cc361fe"
+    },
+    {
+      "id": "rgb8-zip-prediction-layers",
+      "file": "rgb8-zip-prediction-layers.psd",
+      "capabilities": ["compression.zip-prediction"],
+      "bytes": 1637,
+      "sha256": "622956149e107856cf48332bb244845e650ba423d902162abb20442cdfa03333"
     }
   ]
 }

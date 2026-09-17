@@ -470,4 +470,103 @@ describe("LayersPanel", () => {
       }),
     );
   });
+  it("renders group collapse from the engine meta and dispatches SetGroupExpanded on toggle", () => {
+    const engine = createEngine();
+    const child = makeLayer("layer-child", "Inside Group");
+    const makeGroup = (expanded: boolean) =>
+      makeLayer("layer-group", "Folder", {
+        layerType: "group",
+        adjustmentKind: undefined,
+        params: undefined,
+        expanded,
+        children: [child],
+      });
+
+    const renderPanel = (group: LayerNodeMeta) => (
+      <LayersPanel
+        engine={engine}
+        layers={[group]}
+        activeLayerId={group.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[group.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />
+    );
+
+    const { rerender } = render(renderPanel(makeGroup(true)));
+
+    // expanded === true in the meta: the child row is visible and the chevron
+    // offers to collapse.
+    expect(screen.queryByText("Inside Group")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "v" }));
+    expect(engine.dispatchCommand).toHaveBeenCalledWith(CommandID.SetGroupExpanded, {
+      layerId: "layer-group",
+      expanded: false,
+    });
+
+    // The panel keeps no local collapse state: the engine's next meta drives it.
+    rerender(renderPanel(makeGroup(false)));
+    expect(screen.queryByText("Inside Group")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    expect(engine.dispatchCommand).toHaveBeenLastCalledWith(CommandID.SetGroupExpanded, {
+      layerId: "layer-group",
+      expanded: true,
+    });
+  });
+
+  // The derived collapse map is memoized behind a content compare so the
+  // memoized rows survive viewport-only commits. Swapping the tree for a
+  // DIFFERENT group keeps the map the same size while sharing no ids, which is
+  // exactly the shape a length-plus-values compare can wave through. If the
+  // stale map were reused, the new collapsed group would render expanded and
+  // its chevron would dispatch the wrong value.
+  it("does not reuse the cached collapse map when the groups are replaced wholesale", () => {
+    const engine = createEngine();
+
+    const renderPanel = (group: LayerNodeMeta) => (
+      <LayersPanel
+        engine={engine}
+        layers={[group]}
+        activeLayerId={group.id}
+        maskEditLayerId={null}
+        documentWidth={640}
+        documentHeight={480}
+        thumbnails={{}}
+        selectedLayerIds={[group.id]}
+        onSelectedLayerIdsChange={vi.fn()}
+      />
+    );
+
+    const groupOne = makeLayer("group-one", "First Folder", {
+      layerType: "group",
+      adjustmentKind: undefined,
+      params: undefined,
+      expanded: true,
+      children: [makeLayer("child-one", "Inside First")],
+    });
+    const groupTwo = makeLayer("group-two", "Second Folder", {
+      layerType: "group",
+      adjustmentKind: undefined,
+      params: undefined,
+      expanded: false,
+      children: [makeLayer("child-two", "Inside Second")],
+    });
+
+    const { rerender } = render(renderPanel(groupOne));
+    expect(screen.queryByText("Inside First")).not.toBeNull();
+
+    // Same number of groups, no overlapping ids, and the new one is collapsed.
+    rerender(renderPanel(groupTwo));
+    expect(screen.queryByText("Inside Second")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    expect(engine.dispatchCommand).toHaveBeenLastCalledWith(CommandID.SetGroupExpanded, {
+      layerId: "group-two",
+      expanded: true,
+    });
+  });
 });
