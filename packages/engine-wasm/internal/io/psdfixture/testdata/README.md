@@ -167,8 +167,12 @@ matching, so neither a regression nor a fix can land unnoticed:
   model is RGBA. Fixtures authored with alpha first, or with no alpha at all,
   therefore differ on `channelIds`. The PSD spec does not prescribe channel order
   and readers key on the ID, so this is a spelling difference rather than lost
-  data; it is allowlisted per record so that a genuinely dropped channel — a
-  missing `-2` user mask, say — still fails (S.10.2).
+  data (S.10.2). Allowlisting a path suppresses the *whole* assertion, so this
+  entry alone would also excuse a dropped `-2` user mask or a corrupted ID. It
+  does not, because the ID set is asserted separately at
+  `psdRecords[N].channelIds.preserved`, which is emitted strictly and which no
+  `writer.lossy` entry can reach — it permits exactly one gained channel, the
+  alpha `psdexport` always writes, and nothing else.
 - **`rgb8-nested-groups`, `rgb8-group-passthrough`, `rgb8-group-closed-folder`** —
   the hidden `</Layer group>` bounding divider (`lsct` 3) is re-exported with blend
   key `pass`, where the fixtures carry `norm`. Which one Photoshop writes is *not

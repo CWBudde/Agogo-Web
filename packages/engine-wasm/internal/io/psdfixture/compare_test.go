@@ -657,6 +657,80 @@ func TestCompareReexportAllAcceptsPathsEitherLegAsserts(t *testing.T) {
 	assertClean(t, CompareReexportAll(exp, sampleActual(), records))
 }
 
+// channelCase allowlists the ordered channelIds path, the way every fixture
+// does: psdexport emits its own channel order and always writes alpha.
+func channelCase(ids []int) (Expectation, []RecordView) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{{Index: 0, ChannelIDs: intsPtr([]int{-1, 0, 1, 2, -2})}}
+	exp.Writer = &WriterExpect{
+		Format: "psd", Expect: "lossy",
+		Lossy: []string{"psdRecords[0].channelIds"},
+	}
+	return exp, []RecordView{{ChannelIDs: ids}}
+}
+
+// TestChannelIDAllowlistExcusesOrderOnly is the invariant the allowlist must not
+// be able to swallow. Allowlisting a path suppresses the WHOLE assertion, so the
+// ordered channelIds entry alone would also excuse a dropped channel — which is
+// exactly what the sidecars claim is still caught.
+func TestChannelIDAllowlistExcusesOrderOnly(t *testing.T) {
+	// Reordered, plus the alpha psdexport always adds: excused.
+	exp, records := channelCase([]int{0, 1, 2, -1, -2})
+	assertClean(t, CompareReexportRecords(exp, records))
+
+	// The same allowlist must NOT excuse a dropped user mask.
+	exp, records = channelCase([]int{0, 1, 2, -1})
+	mismatches := CompareReexportRecords(exp, records)
+	want := []string{"psdRecords[0].channelIds.preserved"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, want[0]).Got, "missing [-2]") {
+		t.Error("the failure should name the channel that went missing")
+	}
+
+	// Nor a corrupted ID, even when the count is unchanged.
+	exp, records = channelCase([]int{0, 1, 7, -1, -2})
+	if got := paths(CompareReexportRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+// TestChannelIDSetToleratesOnlyAddedAlpha pins the one gain psdexport is allowed:
+// a flattened source with no alpha gets one, because the engine model is RGBA.
+// Only the re-export leg may tolerate it — the reader leg stays exact, which
+// TestChannelIDAllowlistIsWriterOnly below checks.
+func TestChannelIDSetToleratesOnlyAddedAlpha(t *testing.T) {
+	exp := sampleExpectation()
+	exp.Records = &[]RecordExpect{{Index: 0, ChannelIDs: intsPtr([]int{0, 1, 2})}}
+	exp.Writer = &WriterExpect{
+		Format: "psd", Expect: "lossy",
+		Lossy: []string{"psdRecords[0].channelIds"},
+	}
+	assertClean(t, CompareReexportRecords(exp, []RecordView{{ChannelIDs: []int{0, 1, 2, -1}}}))
+
+	// Any other gained channel is not excused.
+	mismatches := CompareReexportRecords(exp, []RecordView{{ChannelIDs: []int{0, 1, 2, -1, -3}}})
+	want := []string{"psdRecords[0].channelIds.preserved"}
+	if got := paths(mismatches); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+	if !strings.Contains(findMismatch(t, mismatches, want[0]).Got, "unexpected [-3]") {
+		t.Error("a gained non-alpha channel should be reported")
+	}
+}
+
+// TestChannelIDAllowlistIsWriterOnly keeps the reader honest: the fixture as
+// authored must match exactly, order included. The allowlist describes what
+// Agogo's WRITER does, and must never soften the reader's assertion.
+func TestChannelIDAllowlistIsWriterOnly(t *testing.T) {
+	exp, records := channelCase([]int{0, 1, 2, -1, -2})
+	want := []string{"psdRecords[0].channelIds"}
+	if got := paths(CompareRecords(exp, records)); !equalStrings(got, want) {
+		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
 func TestMismatchString(t *testing.T) {
 	cases := []struct {
 		mismatch Mismatch

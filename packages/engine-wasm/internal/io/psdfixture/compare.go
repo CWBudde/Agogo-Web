@@ -311,6 +311,20 @@ func (c *collector) emit(path string, ok bool, want, got string) {
 	}
 }
 
+// emitStrict records an assertion that writer.lossy must never be able to
+// suppress. It is for invariants a reviewed exemption has no business excusing:
+// an allowlist entry justifies a known DIFFERENCE, never the loss of the data
+// the difference is a spelling of.
+func (c *collector) emitStrict(path string, ok bool, want, got string) {
+	if gap, isGap := c.gaps[path]; isGap {
+		c.emitGap(path, gap, got)
+		return
+	}
+	if !ok {
+		c.add(Mismatch{Path: path, Want: want, Got: got})
+	}
+}
+
 func (c *collector) emitGap(path string, gap KnownGap, got string) {
 	gapActual := formatRaw(gap.Actual)
 	if got == gapActual {
@@ -498,6 +512,7 @@ func compareRecord(c *collector, path string, exp RecordExpect, slot int, record
 	if exp.ChannelIDs != nil {
 		want := *exp.ChannelIDs
 		c.emit(path+".channelIds", equalInts(want, record.ChannelIDs), fmtInts(want), fmtInts(record.ChannelIDs))
+		compareChannelIDSet(c, path+".channelIds.preserved", want, record.ChannelIDs)
 	}
 	if exp.Opacity255 != nil {
 		compareOpacity(c, path+".opacity255", *exp.Opacity255, record.Opacity)
@@ -519,6 +534,72 @@ func compareRecord(c *collector, path string, exp RecordExpect, slot int, record
 		c.emit(path+".unsupportedBlocks", equalStrings(want, record.UnsupportedBlocks), fmtList(want), fmtList(record.UnsupportedBlocks))
 	}
 	compareRecordMask(c, path+".mask", exp.Mask, record)
+}
+
+// addedAlphaID is the only channel psdexport may introduce that the source file
+// did not have: the engine model is RGBA, so a flattened source without alpha
+// gains one on write.
+const addedAlphaID = -1
+
+// compareChannelIDSet asserts what the channel allowlist must never excuse: that
+// every channel the source had is still there, and that the only one gained is
+// alpha.
+//
+// The ordered channelIds assertion above is allowlistable, because psdexport
+// emits a fixed order and the PSD spec does not prescribe one. But allowlisting
+// a path suppresses the WHOLE assertion, so on its own it would also excuse a
+// dropped -2 user mask or a corrupted ID — the exact regressions the sidecars
+// claim are still caught. This path is emitted strictly, so no writer.lossy
+// entry can reach it.
+func compareChannelIDSet(c *collector, path string, want, got []int) {
+	present := make(map[int]int, len(got))
+	for _, id := range got {
+		present[id]++
+	}
+	expected := make(map[int]int, len(want))
+	for _, id := range want {
+		expected[id]++
+	}
+
+	var missing, gained []int
+	for _, id := range want {
+		if expected[id] > present[id] {
+			expected[id]--
+			missing = append(missing, id)
+		}
+	}
+	for _, id := range got {
+		if id == addedAlphaID {
+			continue
+		}
+		if present[id] > countInt(want, id) {
+			present[id]--
+			gained = append(gained, id)
+		}
+	}
+
+	var detail []string
+	if len(missing) > 0 {
+		detail = append(detail, "missing "+fmtInts(missing))
+	}
+	if len(gained) > 0 {
+		detail = append(detail, "unexpected "+fmtInts(gained))
+	}
+	if len(detail) == 0 {
+		c.emitStrict(path, true, "", "")
+		return
+	}
+	c.emitStrict(path, false, fmtInts(want)+" preserved", fmtInts(got)+" ("+strings.Join(detail, ", ")+")")
+}
+
+func countInt(values []int, want int) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }
 
 func compareRecordMask(c *collector, path string, exp *MaskExpect, record RecordView) {
