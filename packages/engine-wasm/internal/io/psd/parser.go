@@ -440,6 +440,13 @@ func parseLayerRecordExtra(reader *bytes.Reader, record *LayerRecord, psb bool) 
 	return nil
 }
 
+// ParseLayerExtraData parses one layer record's extra-data section into an
+// existing record. It only ever *overwrites* what the section actually carries,
+// so the caller owns every format default for what the section may omit -
+// Opacity, FillOpacity, Visible and BlendMode all live in the fixed part of the
+// record, and a zero-value LayerRecord means a fully transparent, invisible
+// layer rather than the default one. parseLayerRecord establishes them before
+// it gets here; anything else calling this directly has to do the same.
 func ParseLayerExtraData(data []byte, record *LayerRecord) error {
 	return parseLayerRecordExtra(bytes.NewReader(data), record, false)
 }

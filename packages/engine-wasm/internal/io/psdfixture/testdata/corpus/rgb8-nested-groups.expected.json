@@ -381,7 +381,7 @@
       "toolVersion": "1.19.0",
       "verifiedOn": "2026-09-16",
       "result": "pass",
-      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. See testdata/VERIFICATION.md."
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0, which accepted the file and reported the expected structure. ImageMagick 6.9.12-98 refuses it with `improper image header` at psd.c/ReadPSDLayersInternal/1781, as it refuses the pytoshop-authored source fixture too - a group divider record carries no channels - so this row rests on psd-tools alone. See testdata/VERIFICATION.md."
     }
   },
   "fuzz": {

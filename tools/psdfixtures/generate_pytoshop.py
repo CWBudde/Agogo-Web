@@ -431,6 +431,9 @@ class GroupNode:
     visible: bool = True
     closed: bool = False
     clipping: bool = False
+    # Fill opacity (the iOpa tagged block) on the group's OPENING record, never
+    # on the bounding divider. Like the group mask it attenuates the whole
+    # group's result, so the composite folds it into every descendant's alpha.
     fill_opacity: int = 255
     # A group carries its mask on the OPENING (lsct 1/2) record, never on the
     # bounding divider. The mask attenuates the whole group's result, so the
@@ -607,7 +610,16 @@ def _visible_images_bottom_to_top(
     height: int = CANVAS_H,
     inherited: np.ndarray | None = None,
 ) -> list[tuple[ImageNode, np.ndarray | None]]:
-    """Visible image layers bottom-to-top, each paired with its inherited group mask."""
+    """Visible image layers bottom-to-top, each paired with its inherited coverage.
+
+    A group contributes three things to everything inside it: its mask, its
+    opacity and its fill opacity. All three attenuate the group's whole result,
+    so they fold into one inherited coverage plane and multiply into each
+    descendant's alpha exactly like the descendant's own mask would. Carrying
+    the mask alone would let a group-opacity or group-fill fixture write the
+    block while the stored composite ignored it - a preview contradicting the
+    layer stack, which is the one thing this generator must never produce.
+    """
     out: list[tuple[ImageNode, np.ndarray | None]] = []
     for node in reversed(list(nodes)):
         if isinstance(node, GroupNode):
@@ -620,6 +632,11 @@ def _visible_images_bottom_to_top(
                 combined = plane
             else:
                 combined = inherited * plane / 255.0
+            factor = (node.opacity / 255.0) * (node.fill_opacity / 255.0)
+            if factor != 1.0:
+                if combined is None:
+                    combined = np.full((height, width), 255.0, dtype=np.float32)
+                combined = combined * factor
             out.extend(_visible_images_bottom_to_top(node.children, width, height, combined))
         elif node.visible:
             out.append((node, inherited))
@@ -649,9 +666,10 @@ def _effective_alpha(
 ) -> np.ndarray:
     """Layer alpha over the whole canvas, with the layer mask and opacity folded in.
 
-    `inherited` is the coverage contributed by enclosing group masks, already
-    expanded to the canvas. A group mask attenuates everything inside the group,
-    so it multiplies in exactly like the layer's own mask.
+    `inherited` is the coverage contributed by the enclosing groups - their
+    masks, opacity and fill opacity - already expanded to the canvas. All of it
+    attenuates everything inside the group, so it multiplies in exactly like the
+    layer's own mask.
     """
     alpha = np.zeros((height, width), dtype=np.float32)
     top = max(0, node.top)
