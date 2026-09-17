@@ -216,3 +216,70 @@ func TestSetGroupExpandedCommandIsNotUndoable(t *testing.T) {
 		t.Fatal("SetGroupExpanded on an unknown layer should fail")
 	}
 }
+
+// TestUndoDoesNotResurrectGroupExpansion pins the interaction between the two
+// halves of the design decision above. Expansion is deliberately not undoable,
+// but it is real document state, so it rides inside the Document that history
+// snapshots capture wholesale. Without carrying the live flags across a
+// restore, this sequence silently re-opens a folder the user just collapsed:
+//
+//  1. add a group (expanded), 2. make a real edit — the snapshot captures
+//     expanded=true, 3. collapse the group (no history entry),
+//  4. undo the edit — the whole document is replaced by the snapshot.
+//
+// Redo has the same shape, which is why both directions are asserted.
+func TestUndoDoesNotResurrectGroupExpansion(t *testing.T) {
+	h := initWithDefaultDoc(t)
+	defer Free(h)
+
+	added, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{LayerType: LayerTypeGroup, Name: "Folder"}))
+	if err != nil {
+		t.Fatalf("add group layer: %v", err)
+	}
+	groupID := added.UIMeta.ActiveLayerID
+
+	// A real, undoable edit taken while the folder is still open, so the
+	// snapshot it records carries expanded=true.
+	if _, err := DispatchCommand(h, commandAddLayer, mustJSON(t, AddLayerPayload{
+		LayerType: LayerTypePixel,
+		Name:      "Edit",
+		Bounds:    LayerBounds{X: 0, Y: 0, W: 4, H: 4},
+	})); err != nil {
+		t.Fatalf("add pixel layer: %v", err)
+	}
+
+	if _, err := DispatchCommand(h, commandSetGroupExpanded, mustJSON(t, map[string]any{
+		"layerId":  groupID,
+		"expanded": false,
+	})); err != nil {
+		t.Fatalf("dispatch SetGroupExpanded: %v", err)
+	}
+
+	inst := instances[h]
+	expansionOf := func(t *testing.T, when string) bool {
+		t.Helper()
+		group, ok := inst.manager.Active().findLayer(groupID).(*GroupLayer)
+		if !ok {
+			t.Fatalf("group %q missing %s", groupID, when)
+		}
+		return group.Expanded
+	}
+
+	if expansionOf(t, "after collapsing") {
+		t.Fatal("precondition: the group should be collapsed before the undo")
+	}
+
+	if _, err := DispatchCommand(h, commandUndo, "{}"); err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if expansionOf(t, "after undo") {
+		t.Fatal("undo re-opened a folder the user had collapsed: expansion must not travel with history snapshots")
+	}
+
+	if _, err := DispatchCommand(h, commandRedo, "{}"); err != nil {
+		t.Fatalf("redo: %v", err)
+	}
+	if expansionOf(t, "after redo") {
+		t.Fatal("redo restored stale expansion state")
+	}
+}

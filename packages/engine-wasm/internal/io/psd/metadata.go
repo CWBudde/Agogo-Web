@@ -418,10 +418,16 @@ func ParseDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (stri
 	if err != nil {
 		return "", 0, err
 	}
-	// Every item needs at least a 4-byte key length, a 4-byte key and a 4-byte
-	// value type before any payload. Reject impossible counts up front, the
-	// same way the layer and channel count guards do.
-	if uint64(itemCount) > uint64(reader.Len()/12) {
+	// Reject impossible counts up front, the same way the layer and channel
+	// count guards do. The bound must be the true minimum encoded item size or
+	// it rejects valid input: parseDescriptorID accepts a 4-byte length
+	// followed by that many bytes, so a one-character key is 5 bytes, not the
+	// 8 of the length==0 classID form. With the 4-byte value type that is 9
+	// bytes minimum per item. (A payload follows — 1 byte for the smallest,
+	// "bool" — but the guard stays conservative and does not count it, so a
+	// future zero-payload value type cannot turn this into a false rejection.)
+	const minDescriptorItemSize = 9
+	if uint64(itemCount) > uint64(reader.Len()/minDescriptorItemSize) {
 		return "", 0, fmt.Errorf("descriptor item count %d exceeds remaining input %d", itemCount, reader.Len())
 	}
 	for i := uint32(0); i < itemCount; i++ {
