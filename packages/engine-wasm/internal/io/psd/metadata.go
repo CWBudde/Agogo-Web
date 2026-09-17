@@ -418,6 +418,12 @@ func ParseDescriptorTextValue(data []byte, targetKeys map[string]struct{}) (stri
 	if err != nil {
 		return "", 0, err
 	}
+	// Every item needs at least a 4-byte key length, a 4-byte key and a 4-byte
+	// value type before any payload. Reject impossible counts up front, the
+	// same way the layer and channel count guards do.
+	if uint64(itemCount) > uint64(reader.Len()/12) {
+		return "", 0, fmt.Errorf("descriptor item count %d exceeds remaining input %d", itemCount, reader.Len())
+	}
 	for i := uint32(0); i < itemCount; i++ {
 		key, err := parseDescriptorID(reader)
 		if err != nil {

@@ -289,18 +289,32 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 	if channelCount > PSDMaxChannels || int(channelCount) > reader.Len()/6 {
 		return LayerRecord{}, fmt.Errorf("invalid layer channel count %d", channelCount)
 	}
+	// Corner coordinates are raw int32s; subtract in int64 so a hostile record
+	// cannot wrap the extents, and reject anything past the format limits
+	// before the geometry reaches a channel allocation.
+	width := int64(right) - int64(left)
+	height := int64(bottom) - int64(top)
+	if err := validateLayerGeometry(width, height, psb); err != nil {
+		return LayerRecord{}, err
+	}
 	record := LayerRecord{
 		Bounds: model.LayerBounds{
 			X: int(left),
 			Y: int(top),
-			W: int(right - left),
-			H: int(bottom - top),
+			W: int(width),
+			H: int(height),
 		},
 		Opacity:   1,
 		Visible:   true,
 		BlendMode: model.BlendModeNormal,
 		Channels:  make([]ChannelInfo, 0, int(channelCount)),
 	}
+	// Every layer's channel image data lives after the layer records in this
+	// same section, so neither one channel nor a layer's total may declare more
+	// bytes than remain. Snapshot the limit before the channel table is read so
+	// the bound does not tighten as it is consumed.
+	sectionRemaining := uint64(reader.Len())
+	var channelBytes uint64
 	for i := 0; i < int(channelCount); i++ {
 		id, err := readInt16From(reader)
 		if err != nil {
@@ -309,6 +323,13 @@ func parseLayerRecord(reader *bytes.Reader, psb bool) (LayerRecord, error) {
 		length, err := readSectionLengthFrom(reader, psb)
 		if err != nil {
 			return record, err
+		}
+		if length > sectionRemaining {
+			return record, fmt.Errorf("layer channel %d length %d exceeds remaining layer data %d", id, length, sectionRemaining)
+		}
+		channelBytes += length
+		if channelBytes > sectionRemaining {
+			return record, fmt.Errorf("layer channel data length %d exceeds remaining layer data %d", channelBytes, sectionRemaining)
 		}
 		record.Channels = append(record.Channels, ChannelInfo{ID: id, Length: length})
 	}

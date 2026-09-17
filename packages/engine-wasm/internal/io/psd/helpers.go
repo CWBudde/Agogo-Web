@@ -214,11 +214,19 @@ func ParseLayerColorTag(payload []byte) string {
 	}
 }
 
+// readBytesFrom allocates only after the requested length has been checked
+// against the reader's remaining input. Every reader in this package is a
+// *bytes.Reader, so a reader that cannot report its remaining length is a
+// programming error rather than a case to degrade into an unbounded read.
 func readBytesFrom(r io.Reader, n int) ([]byte, error) {
 	if n < 0 {
 		return nil, fmt.Errorf("invalid read length %d", n)
 	}
-	if remaining, ok := r.(interface{ Len() int }); ok && n > remaining.Len() {
+	remaining, ok := r.(interface{ Len() int })
+	if !ok {
+		return nil, fmt.Errorf("cannot bound read length %d: reader does not report remaining input", n)
+	}
+	if n > remaining.Len() {
 		return nil, fmt.Errorf("read length %d exceeds remaining input %d", n, remaining.Len())
 	}
 	buf := make([]byte, n)
@@ -266,6 +274,11 @@ func readInt32From(r io.Reader) (int32, error) {
 	return value, err
 }
 
+// readSectionLengthFrom reads a raw, file-controlled section length (32-bit for
+// PSD, 64-bit for PSB). It deliberately performs no bounding of its own: the
+// value is untrusted and every caller must validate it against the remaining
+// input before it reaches an allocation, either by passing it to readBytes /
+// readBytesFrom (which bound it) or by checking it explicitly.
 func readSectionLengthFrom(r io.Reader, psb bool) (uint64, error) {
 	if psb {
 		var value uint64

@@ -35,7 +35,14 @@ func (p *Parser) ParseCompositeImageData(header Header) ([]byte, error) {
 			}
 		}
 	case CompressionRLE:
-		counts := make([]int, header.Channels*header.Height)
+		// The row-count table is fully described by the header, so its size is
+		// attacker-controlled before a single count byte is read. Bound it by
+		// the input that could actually hold it.
+		rowCount := header.Channels * header.Height
+		if rowCount > p.r.Len()/rleCountSize(header.PSB) {
+			return nil, fmt.Errorf("composite RLE row count %d exceeds remaining input %d", rowCount, p.r.Len())
+		}
+		counts := make([]int, rowCount)
 		for i := range counts {
 			if header.PSB {
 				value, err := p.readUint32()
@@ -87,6 +94,18 @@ func (p *Parser) ParseCompositeImageData(header Header) ([]byte, error) {
 }
 
 func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64, width, height int) ([]byte, error) {
+	// Layer and mask geometry comes straight off the wire as int32 corner
+	// coordinates; validate it before it sizes anything.
+	if err := validateLayerGeometry(int64(width), int64(height), psb); err != nil {
+		return nil, err
+	}
+	pixelCount, err := checkedPixelCount(width, height)
+	if err != nil {
+		return nil, err
+	}
+	if declaredLength > uint64(reader.Len()) {
+		return nil, fmt.Errorf("channel length %d exceeds remaining input %d", declaredLength, reader.Len())
+	}
 	data, err := readBytesFrom(reader, int(declaredLength))
 	if err != nil {
 		return nil, err
@@ -98,10 +117,14 @@ func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64
 	}
 	switch compression {
 	case CompressionRaw:
-		return readBytesFrom(channelReader, width*height)
+		return readBytesFrom(channelReader, pixelCount)
 	case CompressionRLE:
 		if width <= 0 || height <= 0 {
 			return nil, nil
+		}
+		// One row count per row, before any of them is read.
+		if height > channelReader.Len()/rleCountSize(psb) {
+			return nil, fmt.Errorf("RLE row count %d exceeds remaining channel data %d", height, channelReader.Len())
 		}
 		counts := make([]int, height)
 		for i := range counts {
@@ -119,7 +142,10 @@ func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64
 				counts[i] = int(value)
 			}
 		}
-		decoded := make([]byte, 0, width*height)
+		// PackBits expands at most 128 bytes out of every 2 input bytes, so the
+		// encoded remainder caps what the rows can decode to. Reserve the
+		// smaller of that and the validated pixel count.
+		decoded := make([]byte, 0, min(pixelCount, channelReader.Len()*64))
 		for _, count := range counts {
 			rowData, err := readBytesFrom(channelReader, count)
 			if err != nil {
@@ -131,8 +157,8 @@ func parseChannelImageData(reader *bytes.Reader, psb bool, declaredLength uint64
 			}
 			decoded = append(decoded, row...)
 		}
-		if len(decoded) != width*height {
-			return nil, fmt.Errorf("decoded RLE channel length %d, want %d", len(decoded), width*height)
+		if len(decoded) != pixelCount {
+			return nil, fmt.Errorf("decoded RLE channel length %d, want %d", len(decoded), pixelCount)
 		}
 		return decoded, nil
 	case CompressionZip, CompressionZipPrediction:
@@ -208,6 +234,30 @@ func decodeZipPayload(data []byte, expectedLen int) ([]byte, error) {
 		return nil, fmt.Errorf("decoded zip payload exceeds expected length %d", expectedLen)
 	}
 	return decoded, nil
+}
+
+// validateLayerGeometry rejects layer or mask extents that cannot describe a
+// decodable plane, before they are used to size an allocation. Extents are
+// taken as int64 because they are derived from int32 corner subtractions that
+// can otherwise wrap.
+func validateLayerGeometry(width, height int64, psb bool) error {
+	maxDimension := int64(PSDMaxDimension)
+	if psb {
+		maxDimension = int64(PSBMaxDimension)
+	}
+	if width < 0 || height < 0 || width > maxDimension || height > maxDimension {
+		return fmt.Errorf("invalid layer dimensions %dx%d (maximum %d)", width, height, maxDimension)
+	}
+	_, err := checkedPixelCount(int(width), int(height))
+	return err
+}
+
+// rleCountSize is the width of one entry in an RLE row-count table.
+func rleCountSize(psb bool) int {
+	if psb {
+		return 4
+	}
+	return 2
 }
 
 func checkedPixelCount(width, height int) (int, error) {
