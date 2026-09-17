@@ -72,6 +72,7 @@ func TestParseRejectsEveryTruncationOfValidMinimalPSD(t *testing.T) {
 func FuzzParse(f *testing.F) {
 	f.Add(validMinimalPSD())
 	f.Add([]byte("8BPS"))
+	addWholeFileSeeds(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = Parse(data)
 	})
@@ -80,6 +81,9 @@ func FuzzParse(f *testing.F) {
 func FuzzDecodePackBits(f *testing.F) {
 	f.Add([]byte{0, 'A'}, uint16(1))
 	f.Add([]byte{0x80}, uint16(0))
+	// Not seeded from the corpus while every fixture is RAW-compressed; the
+	// pathological-run coverage in compression_test.go carries this target until
+	// an RLE fixture lands (PLAN.md S.10.2).
 	f.Fuzz(func(t *testing.T, data []byte, expected uint16) {
 		_, _ = DecodePackBits(data, int(expected%4096))
 	})
@@ -87,6 +91,7 @@ func FuzzDecodePackBits(f *testing.F) {
 
 func FuzzParseLayerExtraData(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	addSectionSeeds(f, extractFirstLayerExtraData)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		record := LayerRecord{}
 		_ = ParseLayerExtraData(data, &record)
@@ -95,6 +100,10 @@ func FuzzParseLayerExtraData(f *testing.F) {
 
 func FuzzParseLayerAndMaskInfo(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0})
+	// The fixture sections belong to larger documents than the 1x1 header below.
+	// That mismatch is deliberate: a section paired with the wrong header is
+	// exactly the hostile shape this target exists to reject safely.
+	addSectionSeeds(f, extractLayerAndMaskSection)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		parser := NewParser(data)
 		_, _ = parser.ParseLayerAndMaskInfo(Header{
@@ -105,6 +114,9 @@ func FuzzParseLayerAndMaskInfo(f *testing.F) {
 
 func FuzzParseDescriptorTextValue(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0})
+	// Not seeded from the corpus: a descriptor payload only exists inside a text
+	// layer, and text-layer fixtures are deferred (PLAN.md S.10.7 - GIMP
+	// rasterizes text on PSD export). Add a seed extractor when one lands.
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _, _ = ParseDescriptorTextValue(data, map[string]struct{}{"Txt ": {}})
 	})
@@ -112,6 +124,8 @@ func FuzzParseDescriptorTextValue(f *testing.F) {
 
 func FuzzParseCompositeImageData(f *testing.F) {
 	f.Add([]byte{0, CompressionRaw, 1, 2, 3})
+	// As above: the seeded sections do not match the 1x1 header, on purpose.
+	addSectionSeeds(f, extractCompositeSection)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		parser := NewParser(data)
 		_, _ = parser.ParseCompositeImageData(Header{

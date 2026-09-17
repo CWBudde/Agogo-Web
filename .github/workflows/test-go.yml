@@ -40,3 +40,15 @@ jobs:
         with:
           name: go-coverage
           path: packages/engine-wasm/coverage.out
+
+      # The PSD fixture writer harness re-exports every fixture into _dump/ so the
+      # bytes Agogo writes can be opened by a reader that is not Agogo's own.
+      # That check cannot run here (it needs psd-tools), so publish the files and
+      # let a reviewer run `just fixtures-verify` or open them in Photoshop.
+      - name: Upload re-exported PSD fixtures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: psd-fixture-reexports
+          path: packages/engine-wasm/internal/io/psdfixture/_dump
+          if-no-files-found: ignore

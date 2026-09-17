@@ -101,6 +101,25 @@ build: wasm-build fe-build
 # Run all CI checks
 ci: check-formatted test lint check-tidy build
 
+# ── PSD fixtures ──────────────────────────────────────────────────────────────
+#
+# Tooling lives in tools/psdfixtures/ and needs Python + psd-tools (and, for
+# generation, ImageMagick and GIMP). These recipes are DELIBERATELY not part of
+# `test` or `ci`: `just ci` and `go test` must stay Go-only and must never
+# acquire a Python dependency. The fixture binaries and their sidecars are
+# committed, so regenerating them is a maintenance task, not a build step.
+
+# Generate PSD fixture binaries into a scratch directory (not the committed corpus)
+fixtures-generate outdir=".fixtures-out":
+    tools/psdfixtures/generate_imagemagick.sh {{ outdir }}
+    python3 tools/psdfixtures/generate_pytoshop.py --out {{ outdir }}
+    @echo "Fixtures written to {{ outdir }} (ImageMagick: flat; pytoshop: layered)."
+    @echo "Then derive sidecars with tools/psdfixtures/derive_expectations.py."
+
+# Re-read Agogo-written PSDs with psd-tools, an independent reader
+fixtures-verify dir="packages/engine-wasm/internal/io/psdfixture/_dump":
+    python3 tools/psdfixtures/verify_dump.py {{ dir }} --identify
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 # Remove all build artifacts

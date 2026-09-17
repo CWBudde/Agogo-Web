@@ -814,7 +814,7 @@
 
 #### Phase S.10.1: External Fixtures & Honest Round-Trip Testing
 
-**Goal:** Establish ground truth. Today there is not a single `.psd`/`.psb` file or `testdata/` directory anywhere in `packages/engine-wasm`, so no test can distinguish "correct" from "self-consistent".
+**Goal:** Establish ground truth. Before this phase there was not a single `.psd`/`.psb` file anywhere in `packages/engine-wasm`, so no test could distinguish "correct" from "self-consistent". There are now 16, written by two tools that have never seen Agogo's code.
 
 **Acceptance criterion:** A licensed fixture corpus lives in the repo with provenance; import assertions compare against externally-derived expectations, not against Agogo's own writer; and the `AgogoProject` bypass is disabled in fixture tests.
 
@@ -822,12 +822,26 @@
   - [x] `LoadPSD` now reconstructs the document from PSD layer/composite structures before considering `resources.AgogoProject`; invalid PSD content can no longer succeed through the embedded archive alone
   - [x] `LoadPSDWithOptions(..., PSDLoadOptions{IgnoreEmbeddedProject: true})` forces the spec-only result, and the existing writer round-trip exercises it while asserting the reconstructed layer tree and visible warnings
   - [x] Product rule: `AgogoProject` is an optional fidelity bonus layered on top of a successful PSD parse, never a replacement for correct parsing; spec-only tests must ignore it and unsupported PSD content must remain independently testable
-- [ ] Build the fixture corpus with licensing recorded per file (self-authored in Photoshop, CC0, or explicitly redistributable — no scraped sample files)
-- [ ] Cover the matrix that actually exercises the parser: 8-bit RGB and grayscale; RAW/RLE/ZIP/ZIP-with-prediction compression; nested groups; layer masks with non-zero offsets; clipping masks; all blend modes; adjustment and text layers; layer effects; PSB (>30000px) and a PSD near the dimension limit
-- [ ] Derive expectations independently — record per-fixture expected layer tree, bounds, blend modes, and sampled pixel values from Photoshop or a known-good third-party reader, not from Agogo's output
-- [ ] Add the writer half: export each fixture and verify the bytes reopen correctly in a reader that is not Agogo's own; document the verification method (manual Photoshop check is acceptable if recorded, but automate what can be automated)
-- [ ] Add a golden-warning assertion per fixture so a regression that starts silently dropping data shows up as a changed warning set
-- [ ] Keep fixture size bounded (small canvases, few layers) so the corpus does not bloat the repo or CI
+- [x] Build the fixture corpus with licensing recorded per file — 16 fixtures in `internal/io/psdfixture/testdata/corpus/`, all self-authored CC0-1.0, provenance per sidecar plus a `LICENSES.md` section; `TestProvenanceIsComplete` gates it
+  - [x] Generators are non-Agogo and non-Photoshop: ImageMagick 6.9.12 (flat) and pytoshop 1.2.1 (layered). GIMP 3.2.6 was abandoned — every `gimp-file-save` hangs and hung instances ignore SIGTERM
+- [ ] Cover the matrix that actually exercises the parser — **20 of 26 capabilities covered, ~85 KB total**; `manifest.json` is the ledger and `TestCorpusMatrixCoverage` fails on an uncovered capability that is not explicitly deferred
+  - [x] 8-bit RGB and grayscale; RAW and RLE (composite *and* layer channels); nested groups; open vs closed folders; pass-through vs isolated groups; layer masks with non-zero offsets, disabled and inverted; clipping masks; all 27 blend modes; PSB; a PSD exactly on the 30000 px limit; a 16-bit file asserted to be *rejected*
+  - [ ] ZIP and ZIP-with-prediction, adjustment layers, text layers, layer effects, and fill opacity (`iOpa`) — no available writer emits them; each carries a `deferred` PLAN.md reference in the manifest rather than being silently absent
+- [x] Derive expectations independently — every sidecar is emitted by psd-tools 1.19.0 (`tools/psdfixtures/derive_expectations.py`), a third implementation distinct from both generators, so a generator bug cannot confirm itself; `TestExpectationSourceIsNotAgogo` enforces it
+- [x] Add the writer half: `TestPSDFixtureReexportSurvivesSelfReimport` re-exports every fixture, compares the re-import **against the external expectation** (not against the pre-export document), and dumps the bytes to `_dump/` for `just fixtures-verify`, which re-reads them with psd-tools and ImageMagick. Last run: 15/15 accepted. Logged per fixture in `testdata/VERIFICATION.md`
+  - [x] All 27 blend keys survive Agogo's *write* byte-exact, trailing spaces included; `pass` survives for pass-through groups
+  - [ ] Not verified in Photoshop itself — no licence available, so the claim is "two independent third-party readers accept Agogo's output", not "Photoshop accepts it"
+- [x] Add a golden-warning assertion per fixture — `warnings` is an exact order-insensitive set per sidecar; all 16 fixtures currently import with zero warnings
+- [x] Keep fixture size bounded — `TestCorpusSizeBudget` enforces 128 KiB per file and 1 MiB total against soft targets of 24 KiB / 512 KiB; the corpus is ~85 KB of binaries
+- [x] Fixtures seed the parser fuzz targets: `FuzzParse`, `FuzzParseLayerAndMaskInfo`, `FuzzParseCompositeImageData` and `FuzzParseLayerExtraData` now run every fixture on an ordinary `go test` (closes part of the S.10.6 bullet below)
+
+**Findings the corpus produced immediately** — each recorded in a sidecar `writer.lossy`/`lossyReason` or in `testdata/README.md`, and each fails the suite if it changes:
+
+- **`SavePSD` destroys pixel data on clipped layers.** A clipped layer's stored bounds are cut to the intersection with its clip base — (8,6) 18x14 is re-exported as (8,9) 11x11 — so content outside the base is gone on save. Photoshop keeps it. (S.10.3)
+- **Re-export trims a layer to its mask rect when the mask is inverted**, so an inverted mask stops being non-destructive. (S.10.4)
+- **Mask attenuation is not bit-exact across a round trip.** (S.10.4)
+- **The open/closed folder flag is lost at import.** The parser reads `lsct` 1 vs 2 correctly — `rgb8-group-closed-folder` asserts it at record scope — but the engine model has nowhere to store expanded state. This is the S.10.3 item below, now backed by a file.
+- **`FillOpacity` is never read from or written to PSD** — `iOpa` appears nowhere in the codebase and `newLayerBase` defaults it to 1. Two-sided gap. (S.10.7)
 
 #### Phase S.10.2: Compression & Channel Decode Correctness
 
@@ -835,15 +849,16 @@
 
 **Acceptance criterion:** RAW, RLE, ZIP, and ZIP-with-prediction channels decode correctly from real Photoshop files for both layer channels and the composite image, and Agogo's encoder produces bytes those same decoders and Photoshop accept.
 
-- [ ] **Update stale status:** the compression constants and ZIP channel payload read are covered by local spec-shaped tests, but still need verification against S.10.1 genuine Photoshop fixtures
-- [ ] Validate `decodeZipChannel` / `decodeZipImageData` / `applyZipPredictionInPlace` (`pixels.go:140–207`) on real ZIP and ZIP-prediction fixtures, including the prediction reset at each row boundary
+- [x] **Update stale status:** RAW and RLE are now verified against external fixtures (`rgb8-flat-raw`, `rgb8-flat-rle`, `rgb8-rle-layers` — the last covering layer channels, not just the composite). ZIP remains covered only by local spec-shaped tests
+- [x] 16-bit input is verified to be *rejected* against a real 16-bit file written by ImageMagick (`depth16-rejected`), not just by a synthetic header
+- [ ] Validate `decodeZipChannel` / `decodeZipImageData` / `applyZipPredictionInPlace` (`pixels.go:140–207`) on real ZIP and ZIP-prediction fixtures, including the prediction reset at each row boundary — **still blocked: no available writer emits ZIP channels; needs a Photoshop-authored file**
   - [x] Local tests verify prediction resets independently at every row and channel for layer and composite decoding
 - [ ] Validate RLE/PackBits both directions: `DecodePackBits` (`helpers.go:80`) against Photoshop-written scanlines, and `EncodePackBitsRow` (`helpers.go:351`) for the pathological runs (alternating bytes, 128-byte runs, single-byte rows) where PackBits encoders classically go wrong
   - [x] Local pathological PackBits tests cover empty/single-byte rows, alternating 128-byte literals, 128/129-byte runs, truncation, and decoded-output overflow
   - [x] Fixed composite RLE layout so all row-count entries precede all compressed scanlines, rather than interleaving each plane's counts and data
 - [x] Verify the per-row byte-count table is read and written with the right width for PSD vs PSB (2 bytes vs 4) — direct encode/decode tests cover both widths
 - [x] Handle bit depths beyond 8 explicitly: 1/16/32-bit input now returns an actionable error instead of being decoded as 8-bit
-- [ ] Add per-compression decode tests over fixtures and an encode→decode→compare test for each scheme
+- [ ] Add per-compression decode tests over fixtures and an encode→decode→compare test for each scheme — done for RAW and RLE via the corpus; ZIP still outstanding
 
 #### Phase S.10.3: Layer Group & Section-Divider Semantics
 
@@ -852,14 +867,18 @@
 **Acceptance criterion:** Nested groups from Photoshop fixtures import with correct nesting, order, and group attributes; Agogo-written groups reopen in Photoshop with the same structure; and unbalanced markers degrade to a warning plus a flat-but-complete tree, never to dropped layers.
 
 - [x] Fix the inverted divider handling: type 3 now opens the bottom boundary and type 1/2 closes the folder at its top, preserving bottom-to-top child order and nested groups
-- [ ] Preserve the open/closed distinction (type 1 vs 2) as group expanded state rather than discarding it
+- [ ] Preserve the open/closed distinction (type 1 vs 2) as group expanded state rather than discarding it — **now falsified by a fixture**: `rgb8-group-closed-folder` carries both an open (`lsct` 1) and a closed (`lsct` 2) folder; the parser reads both correctly (asserted at record scope) but the engine model has nowhere to store it, so both import identically
 - [ ] Fix the writer side to match and verify against Photoshop
-  - [x] `buildSectionDivider` emits the 12-byte section type + `8BIM` + blend-key form; external-application acceptance remains fixture-gated
+  - [x] `buildSectionDivider` emits the 12-byte section type + `8BIM` + blend-key form
+  - [x] External acceptance verified: psd-tools and ImageMagick both re-open Agogo's exported groups with correct nesting, and the pass-through group keeps its `pass` blend key
 - [x] Ensure the writer emits the bounding-divider record for each group and the folder record after its children in bottom-to-top order
 - [x] Carry group attributes through both directions: visibility, opacity, blend mode, clipping (`ClipToBelow`), and `pass` pass-through vs isolated blending
 - [x] Make unbalanced markers non-destructive: unclosed boundaries flatten their accumulated children with a warning; unmatched folder records warn without consuming sibling layers
 - [ ] Add fixture tests for deep nesting, adjacent sibling groups, a group as the first/last layer, empty groups, and clipping across a group boundary
-  - [x] Constructed-record regressions cover nested groups, type-2 closed folders, attributes, and unclosed-boundary flattening; genuine fixtures remain required
+  - [x] Constructed-record regressions cover nested groups, type-2 closed folders, attributes, and unclosed-boundary flattening
+  - [x] External fixtures now cover two-level nesting (`rgb8-nested-groups`), adjacent sibling groups and pass-through vs isolated (`rgb8-group-passthrough`), and open vs closed folders (`rgb8-group-closed-folder`)
+  - [ ] Empty groups and clipping across a group boundary are still uncovered
+- [ ] **Writer defect found by the corpus:** `SavePSD` hard-clips a clipped layer's stored bounds to the intersection with its clip base — `rgb8-clipping`'s (8,6) 18x14 layer is re-exported as (8,9) 11x11 — so pixels outside the base are destroyed on save. Photoshop keeps them. Recorded as a `writer.lossy` entry, so the suite fails when it is fixed and the entry goes stale
 
 #### Phase S.10.4: Layer Masks (Read & Write)
 
@@ -876,6 +895,9 @@
 - [x] Fix the writer: document-sized masks emit an explicit `(0, 0, Height, Width)` rectangle plus channel −2 pixel data; group masks now emit their channel as well
 - [x] Keep user-mask −2 and real-mask −3 channel IDs distinct; only −2 populates the current user-mask model, so −3 is not silently misattributed
 - [ ] Add fixture tests for offset masks, disabled masks, inverted masks, masks larger and smaller than their layer, and a mask on a group
+  - [x] External fixtures cover an offset mask smaller than its layer with default fill 255 (`rgb8-layer-mask-offset`), a disabled mask (`rgb8-mask-disabled`) and an inverted mask (`rgb8-mask-inverted`); all three import with correct rect, default fill and flags
+  - [ ] A mask larger than its layer, and a mask on a group, are still uncovered
+- [ ] **Writer defects found by the corpus:** re-export trims the layer to the mask rect when the mask is inverted (so an inverted mask stops being non-destructive), and mask attenuation is not bit-exact across a round trip. Both recorded as `writer.lossy` entries with reasons
 
 #### Phase S.10.5: Complete Blend-Mode Mapping
 
@@ -887,8 +909,9 @@
 - [x] Use one authoritative table for both `MapBlendMode` and `BlendKey`
 - [x] Respect byte-exact 4-byte keys, including significant trailing spaces; exhaustive tests pin every emitted key
 - [x] Replace silent unknown-key fallback with a metadata warning naming the key before importing as Normal
-- [ ] Add a table-driven exhaustive round-trip test over all 27 `model.BlendMode` values plus a fixture whose layers use every Photoshop mode
-  - [x] The exhaustive 27-mode round-trip table is present; the external every-mode fixture remains blocked on S.10.1
+- [x] Add a table-driven exhaustive round-trip test over all 27 `model.BlendMode` values plus a fixture whose layers use every Photoshop mode
+  - [x] The exhaustive 27-mode round-trip table is present
+  - [x] `rgb8-blend-modes` is an external fixture with 27 layers, one per PSD blend key. All 27 import to the right `model.BlendMode` with zero warnings, and all 27 survive Agogo's *write* byte-exact — trailing spaces included (`mul `, `hue `, `sat `, `colr`, `lum `) — as re-read by psd-tools
 
 #### Phase S.10.6: Parser Hardening Against Hostile Input
 
@@ -902,8 +925,10 @@
 - [x] Bound decompression output: zlib reads stop at expected size + 1 and PackBits refuses packets that exceed expected decoded output
 - [x] Enforce PSD/PSB dimension, channel-count, and 512 MiB decoded-image safety limits before pixel allocation, using overflow-safe size math
 - [x] Guard layer/channel structural loops with spec limits and minimum remaining-record sizes; additional-info loops consume a complete bounded block or error
-- [ ] Add `Fuzz*` targets for `Parse`, `ParseLayerAndMaskInfo`, `ParseCompositeImageData`, `DecodePackBits`, and the descriptor reader; seed the corpus from S.10.1 fixtures and check in any crashers found
-  - [x] Fuzz targets exist for all five parser surfaces and their checked-in synthetic seeds run in normal Go tests; genuine-fixture seeds await S.10.1
+- [x] Add `Fuzz*` targets for `Parse`, `ParseLayerAndMaskInfo`, `ParseCompositeImageData`, `DecodePackBits`, and the descriptor reader; seed the corpus from S.10.1 fixtures and check in any crashers found
+  - [x] Fuzz targets exist for all five parser surfaces and their checked-in synthetic seeds run in normal Go tests
+  - [x] All 16 external fixtures now seed `FuzzParse`, and their extracted sections seed `FuzzParseLayerAndMaskInfo`, `FuzzParseCompositeImageData` and `FuzzParseLayerExtraData`, on every ordinary `go test` (`internal/io/psd/fixture_seed_test.go`). No crashers found so far
+  - [ ] `FuzzParseDescriptorTextValue` and `FuzzDecodePackBits` still run on synthetic seeds only — the corpus has no text descriptor, and no RLE payload is extracted yet
 - [x] Convert panics to errors at both `psd.Parse` and the engine `LoadPSDWithOptions` boundary so malformed input cannot become a Wasm trap
 - [ ] Add explicit truncation tests: every fixture cut at many offsets must produce an error or partial-with-warnings result, never a panic
   - [x] Every truncation offset of a valid synthetic minimal PSD is covered; external fixtures remain unavailable
