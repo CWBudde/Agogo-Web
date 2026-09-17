@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-clipping",
+  "file": "rgb8-clipping.psd",
+  "description": "32x24 RGB/8; a base layer with a clipped layer above it (clipping flag set).",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_clipping",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": [
+      "compositePixels is deliberately NOT asserted for this fixture. The sidecar's composite samples come from psd-tools re-rendering the layer stack, and Agogo renders it too; those are two different renderers. Where the stack is plain source-over they agree (every other fixture asserts compositePixels and passes), but this fixture exists precisely to exercise semantics where two renderers are not obliged to agree pixel-for-pixel. Per-layer rasters are still asserted via layerPixels, which is unambiguous. Comparing renderers here would assert that Agogo matches psd-tools' arithmetic, which is not the contract. Clipping-group compositing differs between implementations."
+    ]
+  },
+  "assert": ["document", "tree", "warnings", "psdRecords", "layerPixels", "writer"],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Clip Base",
+      "name": "Clip Base",
+      "type": "pixel",
+      "bounds": {
+        "x": 3,
+        "y": 9,
+        "w": 16,
+        "h": 11
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Clipped",
+      "name": "Clipped",
+      "type": "pixel",
+      "bounds": {
+        "x": 8,
+        "y": 6,
+        "w": 18,
+        "h": 14
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": true,
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Clip Base",
+      "sectionType": 0,
+      "bounds": {
+        "x": 3,
+        "y": 9,
+        "w": 16,
+        "h": 11
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Clipped",
+      "sectionType": 0,
+      "bounds": {
+        "x": 8,
+        "y": 6,
+        "w": 18,
+        "h": 14
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": true,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Clip Base",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Clip Base",
+      "space": "layer",
+      "x": 15,
+      "y": 0,
+      "rgba": [102, 34, 187, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Clipped",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Clipped",
+      "space": "layer",
+      "x": 17,
+      "y": 0,
+      "rgba": [223, 223, 215, 254],
+      "tolerance": 0
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": ["layers[2].bounds", "layerPixels[5]"],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "partial",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. Field-level losses are listed in writer.lossy with writer.lossyReason. See testdata/VERIFICATION.md."
+    },
+    "lossyReason": "PLAN.md S.10.3: SavePSD hard-clips a clipped layer's stored bounds to the intersection with its clip base - (8,6) 18x14 is re-exported as (8,9) 11x11 - so pixels outside the base are destroyed on save. Photoshop keeps them; moving the base there brings the hidden content back. Verified by reading both the fixture and _dump/rgb8-clipping.reexport.psd with psd-tools."
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

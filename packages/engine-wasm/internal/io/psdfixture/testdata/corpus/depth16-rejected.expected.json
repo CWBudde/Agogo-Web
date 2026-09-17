@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "depth16-rejected",
+  "file": "depth16-rejected.psd",
+  "description": "NEGATIVE fixture: a valid 16x16 RGB/16 PSD that psd-tools reads without complaint. Agogo must refuse it with an actionable bit-depth error instead of mis-decoding it as 8-bit; that refusal is the behaviour under test.",
+  "provenance": {
+    "sourceTool": "ImageMagick",
+    "sourceToolVersion": "6.9.12-98",
+    "generatedBy": "tools/psdfixtures/generate_imagemagick.sh#fixture_depth16_rejected",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() confirms the container is valid and readable by a third-party implementation; the expectation is that Agogo refuses it anyway. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": ["import"],
+  "import": {
+    "expect": "error",
+    "errorContains": "unsupported PSD bit depth"
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

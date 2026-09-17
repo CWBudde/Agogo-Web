@@ -1,0 +1,1186 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-blend-modes",
+  "file": "rgb8-blend-modes.psd",
+  "description": "32x24 RGB/8; 27 layers, one per PSD blend key, covering every mode except pass-through.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_blend_modes",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": [
+      "compositePixels is deliberately NOT asserted for this fixture. The sidecar's composite samples come from psd-tools re-rendering the layer stack, and Agogo renders it too; those are two different renderers. Where the stack is plain source-over they agree (every other fixture asserts compositePixels and passes), but this fixture exists precisely to exercise semantics where two renderers are not obliged to agree pixel-for-pixel. Per-layer rasters are still asserted via layerPixels, which is unambiguous. Comparing renderers here would assert that Agogo matches psd-tools' arithmetic, which is not the contract. Blend-mode arithmetic differs between implementations."
+    ]
+  },
+  "assert": ["document", "tree", "warnings", "psdRecords", "layerPixels", "writer"],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "luminosity",
+      "name": "luminosity",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "luminosity",
+      "psdBlendKey": "lum ",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "color",
+      "name": "color",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "color",
+      "psdBlendKey": "colr",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "saturation",
+      "name": "saturation",
+      "type": "pixel",
+      "bounds": {
+        "x": 24,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "saturation",
+      "psdBlendKey": "sat ",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "hue",
+      "name": "hue",
+      "type": "pixel",
+      "bounds": {
+        "x": 18,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "hue",
+      "psdBlendKey": "hue ",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "divide",
+      "name": "divide",
+      "type": "pixel",
+      "bounds": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "divide",
+      "psdBlendKey": "fdiv",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "subtract",
+      "name": "subtract",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "subtract",
+      "psdBlendKey": "fsub",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "exclusion",
+      "name": "exclusion",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "exclusion",
+      "psdBlendKey": "smud",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "difference",
+      "name": "difference",
+      "type": "pixel",
+      "bounds": {
+        "x": 24,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "difference",
+      "psdBlendKey": "diff",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "hard_mix",
+      "name": "hard_mix",
+      "type": "pixel",
+      "bounds": {
+        "x": 18,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "hard-mix",
+      "psdBlendKey": "hMix",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "pin_light",
+      "name": "pin_light",
+      "type": "pixel",
+      "bounds": {
+        "x": 12,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "pin-light",
+      "psdBlendKey": "pLit",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "linear_light",
+      "name": "linear_light",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "linear-light",
+      "psdBlendKey": "lLit",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "vivid_light",
+      "name": "vivid_light",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "vivid-light",
+      "psdBlendKey": "vLit",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "hard_light",
+      "name": "hard_light",
+      "type": "pixel",
+      "bounds": {
+        "x": 24,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "hard-light",
+      "psdBlendKey": "hLit",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "soft_light",
+      "name": "soft_light",
+      "type": "pixel",
+      "bounds": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "soft-light",
+      "psdBlendKey": "sLit",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "overlay",
+      "name": "overlay",
+      "type": "pixel",
+      "bounds": {
+        "x": 12,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "overlay",
+      "psdBlendKey": "over",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "lighter_color",
+      "name": "lighter_color",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "lighter-color",
+      "psdBlendKey": "lgCl",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "linear_dodge",
+      "name": "linear_dodge",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "linear-dodge",
+      "psdBlendKey": "lddg",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "color_dodge",
+      "name": "color_dodge",
+      "type": "pixel",
+      "bounds": {
+        "x": 24,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "color-dodge",
+      "psdBlendKey": "div ",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "screen",
+      "name": "screen",
+      "type": "pixel",
+      "bounds": {
+        "x": 18,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "screen",
+      "psdBlendKey": "scrn",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "lighten",
+      "name": "lighten",
+      "type": "pixel",
+      "bounds": {
+        "x": 12,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "lighten",
+      "psdBlendKey": "lite",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "darker_color",
+      "name": "darker_color",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "darker-color",
+      "psdBlendKey": "dkCl",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "linear_burn",
+      "name": "linear_burn",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "linear-burn",
+      "psdBlendKey": "lbrn",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "color_burn",
+      "name": "color_burn",
+      "type": "pixel",
+      "bounds": {
+        "x": 24,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "color-burn",
+      "psdBlendKey": "idiv",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "multiply",
+      "name": "multiply",
+      "type": "pixel",
+      "bounds": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "multiply",
+      "psdBlendKey": "mul ",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "darken",
+      "name": "darken",
+      "type": "pixel",
+      "bounds": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "darken",
+      "psdBlendKey": "dark",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "dissolve",
+      "name": "dissolve",
+      "type": "pixel",
+      "bounds": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "dissolve",
+      "psdBlendKey": "diss",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "normal",
+      "name": "normal",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "luminosity",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "luminosity",
+      "psdBlendKey": "lum ",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "color",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "color",
+      "psdBlendKey": "colr",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "saturation",
+      "sectionType": 0,
+      "bounds": {
+        "x": 24,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "saturation",
+      "psdBlendKey": "sat ",
+      "mask": null
+    },
+    {
+      "index": 4,
+      "name": "hue",
+      "sectionType": 0,
+      "bounds": {
+        "x": 18,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "hue",
+      "psdBlendKey": "hue ",
+      "mask": null
+    },
+    {
+      "index": 5,
+      "name": "divide",
+      "sectionType": 0,
+      "bounds": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "divide",
+      "psdBlendKey": "fdiv",
+      "mask": null
+    },
+    {
+      "index": 6,
+      "name": "subtract",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "subtract",
+      "psdBlendKey": "fsub",
+      "mask": null
+    },
+    {
+      "index": 7,
+      "name": "exclusion",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "exclusion",
+      "psdBlendKey": "smud",
+      "mask": null
+    },
+    {
+      "index": 8,
+      "name": "difference",
+      "sectionType": 0,
+      "bounds": {
+        "x": 24,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "difference",
+      "psdBlendKey": "diff",
+      "mask": null
+    },
+    {
+      "index": 9,
+      "name": "hard_mix",
+      "sectionType": 0,
+      "bounds": {
+        "x": 18,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "hard-mix",
+      "psdBlendKey": "hMix",
+      "mask": null
+    },
+    {
+      "index": 10,
+      "name": "pin_light",
+      "sectionType": 0,
+      "bounds": {
+        "x": 12,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "pin-light",
+      "psdBlendKey": "pLit",
+      "mask": null
+    },
+    {
+      "index": 11,
+      "name": "linear_light",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "linear-light",
+      "psdBlendKey": "lLit",
+      "mask": null
+    },
+    {
+      "index": 12,
+      "name": "vivid_light",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 12,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "vivid-light",
+      "psdBlendKey": "vLit",
+      "mask": null
+    },
+    {
+      "index": 13,
+      "name": "hard_light",
+      "sectionType": 0,
+      "bounds": {
+        "x": 24,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "hard-light",
+      "psdBlendKey": "hLit",
+      "mask": null
+    },
+    {
+      "index": 14,
+      "name": "soft_light",
+      "sectionType": 0,
+      "bounds": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "soft-light",
+      "psdBlendKey": "sLit",
+      "mask": null
+    },
+    {
+      "index": 15,
+      "name": "overlay",
+      "sectionType": 0,
+      "bounds": {
+        "x": 12,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "overlay",
+      "psdBlendKey": "over",
+      "mask": null
+    },
+    {
+      "index": 16,
+      "name": "lighter_color",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "lighter-color",
+      "psdBlendKey": "lgCl",
+      "mask": null
+    },
+    {
+      "index": 17,
+      "name": "linear_dodge",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "linear-dodge",
+      "psdBlendKey": "lddg",
+      "mask": null
+    },
+    {
+      "index": 18,
+      "name": "color_dodge",
+      "sectionType": 0,
+      "bounds": {
+        "x": 24,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "color-dodge",
+      "psdBlendKey": "div ",
+      "mask": null
+    },
+    {
+      "index": 19,
+      "name": "screen",
+      "sectionType": 0,
+      "bounds": {
+        "x": 18,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "screen",
+      "psdBlendKey": "scrn",
+      "mask": null
+    },
+    {
+      "index": 20,
+      "name": "lighten",
+      "sectionType": 0,
+      "bounds": {
+        "x": 12,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "lighten",
+      "psdBlendKey": "lite",
+      "mask": null
+    },
+    {
+      "index": 21,
+      "name": "darker_color",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "darker-color",
+      "psdBlendKey": "dkCl",
+      "mask": null
+    },
+    {
+      "index": 22,
+      "name": "linear_burn",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "linear-burn",
+      "psdBlendKey": "lbrn",
+      "mask": null
+    },
+    {
+      "index": 23,
+      "name": "color_burn",
+      "sectionType": 0,
+      "bounds": {
+        "x": 24,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "color-burn",
+      "psdBlendKey": "idiv",
+      "mask": null
+    },
+    {
+      "index": 24,
+      "name": "multiply",
+      "sectionType": 0,
+      "bounds": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "multiply",
+      "psdBlendKey": "mul ",
+      "mask": null
+    },
+    {
+      "index": 25,
+      "name": "darken",
+      "sectionType": 0,
+      "bounds": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "darken",
+      "psdBlendKey": "dark",
+      "mask": null
+    },
+    {
+      "index": 26,
+      "name": "dissolve",
+      "sectionType": 0,
+      "bounds": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "dissolve",
+      "psdBlendKey": "diss",
+      "mask": null
+    },
+    {
+      "index": 27,
+      "name": "normal",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "luminosity",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "color",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "saturation",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 68, 85, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "hue",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [240, 240, 232, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "divide",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "subtract",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "exclusion",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 0
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. See testdata/VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

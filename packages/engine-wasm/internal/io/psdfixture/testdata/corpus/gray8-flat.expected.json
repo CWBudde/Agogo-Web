@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "id": "gray8-flat",
+  "file": "gray8-flat.psd",
+  "description": "16x16 grayscale/8, distinct grey bands, 144 dpi resolution resource (ImageMagick writes it as 0x00900001, one LSB above exactly 144).",
+  "provenance": {
+    "sourceTool": "ImageMagick",
+    "sourceToolVersion": "6.9.12-98",
+    "generatedBy": "tools/psdfixtures/generate_imagemagick.sh#fixture_gray8_flat",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 16,
+    "height": 16,
+    "colorMode": "gray",
+    "bitDepth": 8,
+    "resolution": 144.00001525878906,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "L1",
+      "name": "L1",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 16
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "L1",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 16
+      },
+      "channelIds": [0],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "L1",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [32, 32, 32, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "L1",
+      "space": "layer",
+      "x": 15,
+      "y": 0,
+      "rgba": [96, 96, 96, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "L1",
+      "space": "layer",
+      "x": 0,
+      "y": 15,
+      "rgba": [160, 160, 160, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "L1",
+      "space": "layer",
+      "x": 15,
+      "y": 15,
+      "rgba": [224, 224, 224, 255],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [32, 32, 32, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 15,
+      "y": 0,
+      "rgba": [96, 96, 96, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 15,
+      "rgba": [160, 160, 160, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 15,
+      "y": 15,
+      "rgba": [224, 224, 224, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. See testdata/VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

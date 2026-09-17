@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-group-closed-folder",
+  "file": "rgb8-group-closed-folder.psd",
+  "description": "32x24 RGB/8; an open folder (lsct 1) and a closed folder (lsct 2) in one file, so a reader that discards the flag is falsified.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_group_closed_folder",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Open Folder",
+      "name": "Open Folder",
+      "type": "group",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "isolated": true,
+      "mask": {
+        "present": false
+      },
+      "children": [
+        {
+          "path": "Open Folder/Open Child",
+          "name": "Open Child",
+          "type": "pixel",
+          "bounds": {
+            "x": 16,
+            "y": 13,
+            "w": 13,
+            "h": 9
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": false,
+          "mask": {
+            "present": false
+          }
+        }
+      ]
+    },
+    {
+      "path": "Closed Folder",
+      "name": "Closed Folder",
+      "type": "group",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "isolated": true,
+      "mask": {
+        "present": false
+      },
+      "children": [
+        {
+          "path": "Closed Folder/Closed Child",
+          "name": "Closed Child",
+          "type": "pixel",
+          "bounds": {
+            "x": 3,
+            "y": 2,
+            "w": 12,
+            "h": 9
+          },
+          "blendMode": "normal",
+          "psdBlendKey": "norm",
+          "opacity255": 255,
+          "fillOpacity255": 255,
+          "visible": true,
+          "clipToBelow": false,
+          "mask": {
+            "present": false
+          }
+        }
+      ]
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "</Layer group>",
+      "sectionType": 3,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Open Child",
+      "sectionType": 0,
+      "bounds": {
+        "x": 16,
+        "y": 13,
+        "w": 13,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "Open Folder",
+      "sectionType": 1,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "passThrough": false,
+      "mask": null
+    },
+    {
+      "index": 4,
+      "name": "</Layer group>",
+      "sectionType": 3,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 5,
+      "name": "Closed Child",
+      "sectionType": 0,
+      "bounds": {
+        "x": 3,
+        "y": 2,
+        "w": 12,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 6,
+      "name": "Closed Folder",
+      "sectionType": 2,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "passThrough": false,
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Open Folder/Open Child",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [240, 240, 232, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Open Folder/Open Child",
+      "space": "layer",
+      "x": 12,
+      "y": 0,
+      "rgba": [102, 34, 187, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Closed Folder/Closed Child",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Closed Folder/Closed Child",
+      "space": "layer",
+      "x": 11,
+      "y": 0,
+      "rgba": [17, 153, 153, 254],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 8,
+      "y": 6,
+      "rgba": [240, 240, 232, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 18,
+      "rgba": [34, 170, 170, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. See testdata/VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

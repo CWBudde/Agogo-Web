@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-mask-inverted",
+  "file": "rgb8-mask-inverted.psd",
+  "description": "32x24 RGB/8; the offset-mask geometry with the invert-when-blending flag set.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_mask_inverted",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Masked Inverted",
+      "name": "Masked Inverted",
+      "type": "pixel",
+      "bounds": {
+        "x": 4,
+        "y": 3,
+        "w": 24,
+        "h": 18
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": true,
+        "enabled": true
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Masked Inverted",
+      "sectionType": 0,
+      "bounds": {
+        "x": 4,
+        "y": 3,
+        "w": 24,
+        "h": 18
+      },
+      "channelIds": [-1, 0, 1, 2, -2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": {
+        "present": true,
+        "enabled": true,
+        "rect": {
+          "x": 10,
+          "y": 7,
+          "w": 12,
+          "h": 8
+        },
+        "defaultFill": 255,
+        "inverted": true
+      }
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 23,
+      "rgba": [221, 221, 0, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Inverted",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Inverted",
+      "space": "layer",
+      "x": 23,
+      "y": 0,
+      "rgba": [17, 153, 153, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Inverted",
+      "space": "layer",
+      "x": 0,
+      "y": 17,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Masked Inverted",
+      "space": "layer",
+      "x": 23,
+      "y": 17,
+      "rgba": [223, 223, 215, 254],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [204, 51, 102, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [239, 239, 105, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 24,
+      "y": 12,
+      "rgba": [238, 238, 17, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [
+      "layers[1].bounds",
+      "layerPixels[4]",
+      "layerPixels[5]",
+      "layerPixels[6]",
+      "layerPixels[7]",
+      "compositePixels[5]"
+    ],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "partial",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. Field-level losses are listed in writer.lossy with writer.lossyReason. See testdata/VERIFICATION.md."
+    },
+    "lossyReason": "PLAN.md S.10.4: re-export shrinks the masked layer to the mask rect - (4,3) 24x18 becomes (10,7) 12x8 - because an inverted mask leaves only that region opaque and the writer trims to the opaque bounding box. The layer's own pixels outside the mask rect are lost, so the mask stops being non-destructive."
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "id": "colormode.rgb8",
+      "title": "RGB colour mode, 8 bits per channel"
+    },
+    {
+      "id": "colormode.gray8",
+      "title": "Grayscale colour mode, 8 bits per channel"
+    },
+    {
+      "id": "compression.raw",
+      "title": "Raw (uncompressed) channel data"
+    },
+    {
+      "id": "compression.rle",
+      "title": "PackBits/RLE channel data"
+    },
+    {
+      "id": "compression.zip",
+      "title": "ZIP channel data without prediction",
+      "deferred": "PLAN.md S.10.2: needs a Photoshop-authored file. Neither ImageMagick nor pytoshop emits ZIP-compressed layer channels; pytoshop offers raw and RLE only."
+    },
+    {
+      "id": "compression.zip-prediction",
+      "title": "ZIP channel data with prediction",
+      "deferred": "PLAN.md S.10.2: needs a Photoshop-authored file. No available writer emits ZIP-with-prediction channels."
+    },
+    {
+      "id": "structure.nested-groups",
+      "title": "Nested layer groups and their section dividers"
+    },
+    {
+      "id": "structure.group-passthrough",
+      "title": "Pass-through group blend mode"
+    },
+    {
+      "id": "structure.group-isolated",
+      "title": "Isolated (Normal) group blend mode"
+    },
+    {
+      "id": "mask.offset-rect",
+      "title": "Layer mask whose rectangle differs from the layer rectangle"
+    },
+    {
+      "id": "mask.disabled",
+      "title": "Layer mask present but disabled"
+    },
+    {
+      "id": "mask.default-fill-255",
+      "title": "Layer mask with default fill 255 outside its rectangle"
+    },
+    {
+      "id": "mask.inverted",
+      "title": "Layer mask with the inverted flag set"
+    },
+    {
+      "id": "clipping.mask",
+      "title": "Clipping group (layer clipped to the layer below)"
+    },
+    {
+      "id": "blend.all-27",
+      "title": "All 27 Photoshop blend modes on individual layers"
+    },
+    {
+      "id": "layer.adjustment",
+      "title": "Adjustment layer with real parameters",
+      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits live adjustment layers (levl/curv/hue2 and friends)."
+    },
+    {
+      "id": "layer.text",
+      "title": "Live text layer with a TySh descriptor",
+      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits a TySh text layer with its engine data."
+    },
+    {
+      "id": "layer.effects",
+      "title": "Layer effects / styles (lfx2)",
+      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. No available writer emits lfx2/lrFX layer effects."
+    },
+    {
+      "id": "layer.hidden",
+      "title": "Hidden layer"
+    },
+    {
+      "id": "opacity.partial",
+      "title": "Layer opacity below 255"
+    },
+    {
+      "id": "fill-opacity.partial",
+      "title": "Fill opacity below 255 (iOpa)",
+      "deferred": "PLAN.md S.10.7: needs a Photoshop-authored file. iOpa is Photoshop-only, and Agogo neither reads nor writes it, so the gap is two-sided."
+    },
+    {
+      "id": "size.psb",
+      "title": "Large-document PSB container"
+    },
+    {
+      "id": "size.near-psd-limit",
+      "title": "PSD near the 30000 px dimension limit"
+    },
+    {
+      "id": "depth.16-rejected",
+      "title": "16 bits per channel is rejected explicitly, not mis-read"
+    },
+    {
+      "id": "structure.group-open-closed",
+      "title": "Open (lsct 1) vs closed (lsct 2) folder records"
+    },
+    {
+      "id": "compression.rle-layer-channels",
+      "title": "PackBits/RLE compression on layer channels, not only the composite"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "depth16-rejected",
+      "file": "depth16-rejected.psd",
+      "capabilities": ["depth.16-rejected"],
+      "bytes": 792,
+      "sha256": "ece7c4b6d7590696604ce9d0d8aa6ed021efa1fb2c0dde916ca57c357d37dc4e"
+    },
+    {
+      "id": "gray8-flat",
+      "file": "gray8-flat.psd",
+      "capabilities": ["colormode.gray8"],
+      "bytes": 356,
+      "sha256": "1f1f075be13ddd56d46de9279d79f21f3b170166a28db04e02c8f5fb851f8daa"
+    },
+    {
+      "id": "near-psd-limit",
+      "file": "near-psd-limit.psd",
+      "capabilities": ["size.near-psd-limit"],
+      "bytes": 5868,
+      "sha256": "8630573b1d709210fe327070984dec696f749aa9a6c3380f2fda7a398b1952dc"
+    },
+    {
+      "id": "psb-flat",
+      "file": "psb-flat.psb",
+      "capabilities": ["size.psb"],
+      "bytes": 1004,
+      "sha256": "74e29e1d55b3e4b0f47468e1f354fb6bfcbb3c9cfa7f20676972e62414eb329c"
+    },
+    {
+      "id": "rgb8-blend-modes",
+      "file": "rgb8-blend-modes.psd",
+      "capabilities": ["blend.all-27"],
+      "bytes": 11862,
+      "sha256": "17cc9f8eaf46b8d7615a43d0ed75815a0cd827192707d865c80a289690f84164"
+    },
+    {
+      "id": "rgb8-clipping",
+      "file": "rgb8-clipping.psd",
+      "capabilities": ["clipping.mask"],
+      "bytes": 7554,
+      "sha256": "10c758e3df9dca87ad82425dfeb571c2901b6fbfc9d980ce6bf98df8d485d6d4"
+    },
+    {
+      "id": "rgb8-flat-raw",
+      "file": "rgb8-flat-raw.psd",
+      "capabilities": ["colormode.rgb8", "compression.raw"],
+      "bytes": 1656,
+      "sha256": "20e36005be286613b32c5d4d2d3cc14d22d3e2461492d82fc52e3294c2431d06"
+    },
+    {
+      "id": "rgb8-flat-rle",
+      "file": "rgb8-flat-rle.psd",
+      "capabilities": ["colormode.rgb8", "compression.rle"],
+      "bytes": 792,
+      "sha256": "7206f0693b73c5aab146c7166dd614f179d50cd6dc700aa4f259f72385260050"
+    },
+    {
+      "id": "rgb8-group-closed-folder",
+      "file": "rgb8-group-closed-folder.psd",
+      "capabilities": ["structure.group-open-closed"],
+      "bytes": 7294,
+      "sha256": "101ac05ad003f9da7a4208f1a844d6c0cd372991f6ebc174c4b78264e372f520"
+    },
+    {
+      "id": "rgb8-group-passthrough",
+      "file": "rgb8-group-passthrough.psd",
+      "capabilities": ["structure.group-passthrough", "structure.group-isolated"],
+      "bytes": 7350,
+      "sha256": "180b3e262c28b9baa3f4da1c255e65cb60a09a6156c90176cf773edd15f7d4fd"
+    },
+    {
+      "id": "rgb8-layer-mask-offset",
+      "file": "rgb8-layer-mask-offset.psd",
+      "capabilities": ["mask.offset-rect", "mask.default-fill-255"],
+      "bytes": 7570,
+      "sha256": "617cdd806eb01aac5d8b1328e319db9e422011010d9358d0acc522cce0971aa4"
+    },
+    {
+      "id": "rgb8-mask-disabled",
+      "file": "rgb8-mask-disabled.psd",
+      "capabilities": ["mask.disabled"],
+      "bytes": 7596,
+      "sha256": "0a8cf8e2b1f51e579024a8a68c8d82212325005c23947e77b8f5fe108e7c79d5"
+    },
+    {
+      "id": "rgb8-mask-inverted",
+      "file": "rgb8-mask-inverted.psd",
+      "capabilities": ["mask.inverted"],
+      "bytes": 7596,
+      "sha256": "3c2d12c834a6c28e485ead0b35bf756bad937e2ba97001cff3d24d369b94d2b5"
+    },
+    {
+      "id": "rgb8-nested-groups",
+      "file": "rgb8-nested-groups.psd",
+      "capabilities": ["structure.nested-groups"],
+      "bytes": 7690,
+      "sha256": "056f3beee7532fd0d239b41dbd1f1e4e3280591641d2ee1a605c89d6887ab968"
+    },
+    {
+      "id": "rgb8-opacity-hidden",
+      "file": "rgb8-opacity-hidden.psd",
+      "capabilities": ["layer.hidden", "opacity.partial"],
+      "bytes": 7492,
+      "sha256": "140d275d6dfea50fec5656849a17be3e74b06858c3173c085eb55e09a2851608"
+    },
+    {
+      "id": "rgb8-rle-layers",
+      "file": "rgb8-rle-layers.psd",
+      "capabilities": ["compression.rle-layer-channels"],
+      "bytes": 2516,
+      "sha256": "29195dd03a81d03f2961fed63618d48085d929d8d917d1244d7372a9e4962ee9"
+    }
+  ]
+}

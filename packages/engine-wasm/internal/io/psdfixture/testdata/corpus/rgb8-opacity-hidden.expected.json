@@ -1,0 +1,330 @@
+{
+  "schemaVersion": 1,
+  "id": "rgb8-opacity-hidden",
+  "file": "rgb8-opacity-hidden.psd",
+  "description": "32x24 RGB/8; layers at opacity 128 and 64 plus one layer with the visible flag clear.",
+  "provenance": {
+    "sourceTool": "pytoshop",
+    "sourceToolVersion": "1.2.1",
+    "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_opacity_hidden",
+    "generatedOn": "2026-09-16",
+    "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
+    "license": "CC0-1.0",
+    "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
+    "redistributable": true
+  },
+  "expectationSource": {
+    "tool": "psd-tools",
+    "toolVersion": "1.19.0",
+    "script": "tools/psdfixtures/derive_expectations.py",
+    "derivedOn": "2026-09-16",
+    "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
+    "manualChecks": []
+  },
+  "assert": [
+    "document",
+    "tree",
+    "warnings",
+    "psdRecords",
+    "layerPixels",
+    "compositePixels",
+    "writer"
+  ],
+  "document": {
+    "width": 32,
+    "height": 24,
+    "colorMode": "rgb",
+    "bitDepth": 8,
+    "resolution": 72.0,
+    "isPSB": false
+  },
+  "warnings": [],
+  "layers": [
+    {
+      "path": "Background",
+      "name": "Background",
+      "type": "pixel",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Half Opacity",
+      "name": "Half Opacity",
+      "type": "pixel",
+      "bounds": {
+        "x": 5,
+        "y": 12,
+        "w": 15,
+        "h": 10
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 128,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Quarter Opacity",
+      "name": "Quarter Opacity",
+      "type": "pixel",
+      "bounds": {
+        "x": 16,
+        "y": 4,
+        "w": 14,
+        "h": 9
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 64,
+      "fillOpacity255": 255,
+      "visible": true,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Hidden",
+      "name": "Hidden",
+      "type": "pixel",
+      "bounds": {
+        "x": 1,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "mask": {
+        "present": false
+      }
+    }
+  ],
+  "psdRecords": [
+    {
+      "index": 0,
+      "name": "Background",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 24
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 1,
+      "name": "Half Opacity",
+      "sectionType": 0,
+      "bounds": {
+        "x": 5,
+        "y": 12,
+        "w": 15,
+        "h": 10
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 128,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 2,
+      "name": "Quarter Opacity",
+      "sectionType": 0,
+      "bounds": {
+        "x": 16,
+        "y": 4,
+        "w": 14,
+        "h": 9
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 64,
+      "visible": true,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 3,
+      "name": "Hidden",
+      "sectionType": 0,
+      "bounds": {
+        "x": 1,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "channelIds": [-1, 0, 1, 2],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    }
+  ],
+  "layerPixels": [
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Background",
+      "space": "layer",
+      "x": 31,
+      "y": 0,
+      "rgba": [187, 34, 85, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Half Opacity",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [119, 51, 204, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Half Opacity",
+      "space": "layer",
+      "x": 14,
+      "y": 0,
+      "rgba": [223, 223, 215, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Quarter Opacity",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [238, 119, 17, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Quarter Opacity",
+      "space": "layer",
+      "x": 13,
+      "y": 0,
+      "rgba": [17, 153, 153, 254],
+      "tolerance": 0
+    },
+    {
+      "layer": "Hidden",
+      "space": "layer",
+      "x": 0,
+      "y": 0,
+      "rgba": [240, 240, 232, 255],
+      "tolerance": 0
+    },
+    {
+      "layer": "Hidden",
+      "space": "layer",
+      "x": 11,
+      "y": 0,
+      "rgba": [221, 102, 0, 254],
+      "tolerance": 0
+    }
+  ],
+  "compositePixels": [
+    {
+      "x": 0,
+      "y": 0,
+      "rgba": [51, 102, 204, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 0,
+      "rgba": [186, 34, 85, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 0,
+      "y": 23,
+      "rgba": [102, 204, 51, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 31,
+      "y": 23,
+      "rgba": [220, 220, 0, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 6,
+      "rgba": [213, 68, 81, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 24,
+      "y": 6,
+      "rgba": [161, 81, 119, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 8,
+      "y": 12,
+      "rgba": [111, 127, 128, 255],
+      "tolerance": 1
+    },
+    {
+      "x": 16,
+      "y": 12,
+      "rgba": [239, 239, 152, 255],
+      "tolerance": 1
+    }
+  ],
+  "writer": {
+    "format": "psd",
+    "expect": "lossy",
+    "lossy": [],
+    "externalVerification": {
+      "tool": "psd-tools",
+      "toolVersion": "1.19.0",
+      "verifiedOn": "2026-09-16",
+      "result": "pass",
+      "notes": "tools/psdfixtures/verify_dump.py --identify re-read the Agogo re-export with psd-tools 1.19.0 and ImageMagick 6.9.12-98; both accepted the file and reported the expected structure. See testdata/VERIFICATION.md."
+    }
+  },
+  "fuzz": {
+    "seed": true
+  },
+  "knownGaps": []
+}

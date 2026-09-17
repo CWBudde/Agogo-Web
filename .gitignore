@@ -13,6 +13,13 @@ packages/engine-wasm/engine
 packages/engine-wasm/coverage.out
 packages/engine-wasm/coverage.html
 *.test
+# Failing PSD fixture comparisons dump their artifacts here; the leading
+# underscore keeps the directory invisible to the go tool and to go:embed.
+packages/engine-wasm/internal/io/psdfixture/_dump/
+
+# Fixture tooling scratch output
+__pycache__/
+.fixtures-out/
 
 # ── OS / Editor ──────────────────────────────────────────────────────────────
 .DS_Store
