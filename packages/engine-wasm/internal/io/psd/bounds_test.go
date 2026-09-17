@@ -217,29 +217,11 @@ func TestParseCompositeImageDataBoundsRowCountTable(t *testing.T) {
 	boundsRequireError(t, err, "composite RLE row count 16800000 exceeds remaining input 0")
 }
 
-// A4: descriptor item counts get the same remaining-input guard as the layer
-// and channel counts.
-func TestParseDescriptorTextValueRejectsImpossibleItemCount(t *testing.T) {
-	var data bytes.Buffer
-	writeUnicodeString(&data, "")    // descriptor name
-	writeDescriptorID(&data, "null") // class id
-	writeUint32(&data, math.MaxUint32)
-
-	_, _, err := ParseDescriptorTextValue(data.Bytes(), map[string]struct{}{"Txt ": {}})
-	boundsRequireError(t, err, "descriptor item count 4294967295 exceeds remaining input")
-}
-
-func TestParseDescriptorTextValueStillReadsPlausibleItems(t *testing.T) {
-	var data bytes.Buffer
-	WriteDescriptor(&data, "", "null", []DescriptorItem{{Key: "Txt ", Type: "TEXT", Text: "hello"}})
-	text, _, err := ParseDescriptorTextValue(data.Bytes(), map[string]struct{}{"Txt ": {}})
-	if err != nil {
-		t.Fatalf("ParseDescriptorTextValue: %v", err)
-	}
-	if text != "hello" {
-		t.Fatalf("descriptor text = %q, want %q", text, "hello")
-	}
-}
+// A4's descriptor item-count guard moved with the parser it guards: the
+// equivalent assertions now live in internal/io/descriptor (see
+// TestParseRejectsItemCountLargerThanRemainingInput and its siblings, which
+// also measure that the rejection happens before the item slice is reserved).
+// The PSD-side text path is covered by text_metadata_test.go.
 
 // A5: a reader that cannot report its remaining input must fail closed rather
 // than silently fall back to an unbounded read.
