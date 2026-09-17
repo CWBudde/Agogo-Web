@@ -48,6 +48,13 @@ func savePSDDocument(doc *Document, forcePSB bool) ([]byte, error) {
 		RenderComposite: func() []byte {
 			return doc.renderCompositeSurface()
 		},
+		// The exported raster is the layer's own pixels, so the mask has to
+		// travel as the -2 channel. Hand psdexport the coverage that actually
+		// attenuates the layer - raster mask intersected with vector mask,
+		// density and feather applied - rather than the raw LayerMask.
+		ResolveMask: func(layer LayerNode) *LayerMask {
+			return doc.effectiveLayerMask(layer)
+		},
 	})
 }
 
