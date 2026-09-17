@@ -51,8 +51,13 @@ func TestSavePSDAndLoadPSDRoundTripPreservesAgogoDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPSD: %v", err)
 	}
+	// Both blocks Agogo writes for non-raster state are lost on the way back in,
+	// and both now say so. TySh has always been reported; AgAJ is the private
+	// JSON block, and its silence used to hide the fact that an adjustment layer
+	// survives an Agogo round trip only through the embedded project archive.
 	wantWarnings := []string{
-		"layer \"Title\": unsupported metadata block TySh imported as flattened pixel layer",
+		"layer \"Title\": metadata block TySh imported as a flattened pixel layer",
+		"layer \"Curves\": metadata block AgAJ imported as a flattened pixel layer",
 	}
 	if !slices.Equal(warnings, wantWarnings) {
 		t.Fatalf("warnings = %v, want %v", warnings, wantWarnings)
