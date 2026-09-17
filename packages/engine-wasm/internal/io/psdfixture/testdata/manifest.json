@@ -110,6 +110,22 @@
     {
       "id": "compression.rle-layer-channels",
       "title": "PackBits/RLE compression on layer channels, not only the composite"
+    },
+    {
+      "id": "structure.group-empty",
+      "title": "A group with no children at all"
+    },
+    {
+      "id": "clipping.across-group-boundary",
+      "title": "A clipped layer whose only candidate base lies outside its group"
+    },
+    {
+      "id": "mask.larger-than-layer",
+      "title": "A layer mask whose rect strictly contains the layer rect"
+    },
+    {
+      "id": "mask.on-group",
+      "title": "A raster mask carried on a group's opening record"
     }
   ],
   "fixtures": [
@@ -156,6 +172,13 @@
       "sha256": "10c758e3df9dca87ad82425dfeb571c2901b6fbfc9d980ce6bf98df8d485d6d4"
     },
     {
+      "id": "rgb8-clipping-across-group",
+      "file": "rgb8-clipping-across-group.psd",
+      "capabilities": ["clipping.across-group-boundary"],
+      "bytes": 8398,
+      "sha256": "bbec9e5a77bb71660e3b730502aa20b293f6c0db1bbd375f45c11d1e161fe784"
+    },
+    {
       "id": "rgb8-flat-raw",
       "file": "rgb8-flat-raw.psd",
       "capabilities": ["colormode.rgb8", "compression.raw"],
@@ -175,6 +198,20 @@
       "capabilities": ["structure.group-open-closed"],
       "bytes": 7294,
       "sha256": "101ac05ad003f9da7a4208f1a844d6c0cd372991f6ebc174c4b78264e372f520"
+    },
+    {
+      "id": "rgb8-group-empty",
+      "file": "rgb8-group-empty.psd",
+      "capabilities": ["structure.group-empty"],
+      "bytes": 6880,
+      "sha256": "da87d5897b69f9a496effda3b432470e974fe62bfb3072e2618524e59f2d015b"
+    },
+    {
+      "id": "rgb8-group-mask",
+      "file": "rgb8-group-mask.psd",
+      "capabilities": ["mask.on-group"],
+      "bytes": 7408,
+      "sha256": "c30ab4a087c4b4c6e736439a829a64020225ffaaff80e776dbed47da4e6b8ead"
     },
     {
       "id": "rgb8-group-passthrough",
@@ -203,6 +240,13 @@
       "capabilities": ["mask.inverted"],
       "bytes": 7596,
       "sha256": "3c2d12c834a6c28e485ead0b35bf756bad937e2ba97001cff3d24d369b94d2b5"
+    },
+    {
+      "id": "rgb8-mask-larger-than-layer",
+      "file": "rgb8-mask-larger-than-layer.psd",
+      "capabilities": ["mask.larger-than-layer"],
+      "bytes": 6920,
+      "sha256": "239fcf5e9177e858bd97c168ec3669da62f6f486ca3a5c8b018b87866518d742"
     },
     {
       "id": "rgb8-nested-groups",

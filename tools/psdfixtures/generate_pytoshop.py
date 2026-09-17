@@ -362,6 +362,10 @@ class GroupNode:
     visible: bool = True
     closed: bool = False
     clipping: bool = False
+    # A group carries its mask on the OPENING (lsct 1/2) record, never on the
+    # bounding divider. The mask attenuates the whole group's result, so the
+    # composite folds it into every descendant's alpha.
+    mask: MaskSpec | None = None
 
 
 # ══ flattening to layer records ═══════════════════════════════════════════════
@@ -381,32 +385,42 @@ def _channels(pixels: np.ndarray, compression: int) -> "OrderedDict[int, layers.
     return channels
 
 
+def _apply_mask(
+    name: str,
+    spec: "MaskSpec | None",
+    channels: "OrderedDict[int, layers.ChannelImageData]",
+    compression: int,
+) -> layers.LayerMask:
+    """Build the mask block and append its -2 channel, for an image or a group.
+
+    Returns the block to assign to record.mask. The channel must be added BEFORE
+    the record is constructed — see defect 4 in the README.
+    """
+    if spec is None:
+        return _AbsentLayerMask()
+    if spec.data.shape != (spec.height, spec.width):
+        die(
+            f"{name}: mask channel is {spec.data.shape} but the mask rect is "
+            f"{(spec.height, spec.width)} — the -2 channel must match the MASK rect, "
+            "not the layer rect"
+        )
+    channels[enums.ChannelId.user_layer_mask] = layers.ChannelImageData(
+        image=np.ascontiguousarray(spec.data), compression=compression
+    )
+    return layers.LayerMask(
+        top=spec.top,
+        left=spec.left,
+        bottom=spec.bottom,
+        right=spec.right,
+        default_color=spec.default_color,
+        layer_mask_disabled=spec.disabled,
+        invert_layer_mask_when_blending=spec.inverted,
+    )
+
+
 def _image_record(node: ImageNode, compression: int, layer_id: int) -> layers.LayerRecord:
     channels = _channels(node.pixels, compression)
-    mask_block: layers.LayerMask = _AbsentLayerMask()
-
-    spec = node.mask
-    if spec is not None:
-        if spec.data.shape != (spec.height, spec.width):
-            die(
-                f"{node.name}: mask channel is {spec.data.shape} but the mask rect is "
-                f"{(spec.height, spec.width)} — the -2 channel must match the MASK rect, "
-                "not the layer rect"
-            )
-        mask_block = layers.LayerMask(
-            top=spec.top,
-            left=spec.left,
-            bottom=spec.bottom,
-            right=spec.right,
-            default_color=spec.default_color,
-            layer_mask_disabled=spec.disabled,
-            invert_layer_mask_when_blending=spec.inverted,
-        )
-        # The mask channel goes last, after the colour channels, and must be added
-        # BEFORE the record is constructed — see defect 4.
-        channels[enums.ChannelId.user_layer_mask] = layers.ChannelImageData(
-            image=np.ascontiguousarray(spec.data), compression=compression
-        )
+    mask_block = _apply_mask(node.name, node.mask, channels, compression)
 
     record = _LayerRecord(
         top=node.top,
@@ -441,6 +455,8 @@ def _group_records(
         enums.SectionDividerSetting.closed if node.closed else enums.SectionDividerSetting.open
     )
     header_id = next_id()
+    header_channels: "OrderedDict[int, layers.ChannelImageData]" = OrderedDict()
+    header_mask = _apply_mask(node.name, node.mask, header_channels, compression)
     header = _LayerRecord(
         name=node.name,
         blend_mode=node.blend_mode,
@@ -448,13 +464,14 @@ def _group_records(
         visible=node.visible,
         clipping=node.clipping,
         pixel_data_irrelevant=True,
+        channels=header_channels,
         blocks=[
             tagged_block.UnicodeLayerName(name=node.name),
             tagged_block.SectionDividerSetting(type=divider),
             tagged_block.LayerId(id=header_id),
         ],
     )
-    header.mask = _AbsentLayerMask()
+    header.mask = header_mask
 
     records = [header]
     records.extend(_flatten(node.children, compression, next_id))
@@ -488,19 +505,58 @@ def _flatten(
 # ══ composite ═════════════════════════════════════════════════════════════════
 
 
-def _visible_images_bottom_to_top(nodes: Sequence[ImageNode | GroupNode]) -> list[ImageNode]:
-    out: list[ImageNode] = []
+def _visible_images_bottom_to_top(
+    nodes: Sequence[ImageNode | GroupNode],
+    width: int = CANVAS_W,
+    height: int = CANVAS_H,
+    inherited: np.ndarray | None = None,
+) -> list[tuple[ImageNode, np.ndarray | None]]:
+    """Visible image layers bottom-to-top, each paired with its inherited group mask."""
+    out: list[tuple[ImageNode, np.ndarray | None]] = []
     for node in reversed(list(nodes)):
         if isinstance(node, GroupNode):
-            if node.visible:
-                out.extend(_visible_images_bottom_to_top(node.children))
+            if not node.visible:
+                continue
+            plane = _mask_plane(node.mask, width, height)
+            if plane is None:
+                combined = inherited
+            elif inherited is None:
+                combined = plane
+            else:
+                combined = inherited * plane / 255.0
+            out.extend(_visible_images_bottom_to_top(node.children, width, height, combined))
         elif node.visible:
-            out.append(node)
+            out.append((node, inherited))
     return out
 
 
-def _effective_alpha(node: ImageNode, width: int, height: int) -> np.ndarray:
-    """Layer alpha over the whole canvas, with the layer mask and opacity folded in."""
+def _mask_plane(spec: "MaskSpec | None", width: int, height: int) -> np.ndarray | None:
+    """A mask spec expanded to a whole-canvas 0..255 coverage plane, or None."""
+    if spec is None or spec.disabled:
+        return None
+    plane = np.full((height, width), 255.0 if spec.default_color else 0.0, dtype=np.float32)
+    m_top = max(0, spec.top)
+    m_left = max(0, spec.left)
+    m_bottom = min(height, spec.bottom)
+    m_right = min(width, spec.right)
+    if m_bottom > m_top and m_right > m_left:
+        plane[m_top:m_bottom, m_left:m_right] = spec.data[
+            m_top - spec.top : m_bottom - spec.top, m_left - spec.left : m_right - spec.left
+        ]
+    if spec.inverted:
+        plane = 255.0 - plane
+    return plane
+
+
+def _effective_alpha(
+    node: ImageNode, width: int, height: int, inherited: np.ndarray | None = None
+) -> np.ndarray:
+    """Layer alpha over the whole canvas, with the layer mask and opacity folded in.
+
+    `inherited` is the coverage contributed by enclosing group masks, already
+    expanded to the canvas. A group mask attenuates everything inside the group,
+    so it multiplies in exactly like the layer's own mask.
+    """
     alpha = np.zeros((height, width), dtype=np.float32)
     top = max(0, node.top)
     left = max(0, node.left)
@@ -513,20 +569,11 @@ def _effective_alpha(node: ImageNode, width: int, height: int) -> np.ndarray:
         / 255.0
     )
 
-    spec = node.mask
-    if spec is not None and not spec.disabled:
-        plane = np.full((height, width), 255.0 if spec.default_color else 0.0, dtype=np.float32)
-        m_top = max(0, spec.top)
-        m_left = max(0, spec.left)
-        m_bottom = min(height, spec.bottom)
-        m_right = min(width, spec.right)
-        if m_bottom > m_top and m_right > m_left:
-            plane[m_top:m_bottom, m_left:m_right] = spec.data[
-                m_top - spec.top : m_bottom - spec.top, m_left - spec.left : m_right - spec.left
-            ]
-        if spec.inverted:
-            plane = 255.0 - plane
+    plane = _mask_plane(node.mask, width, height)
+    if plane is not None:
         alpha *= plane / 255.0
+    if inherited is not None:
+        alpha *= inherited / 255.0
 
     return alpha * (node.opacity / 255.0)
 
@@ -543,8 +590,8 @@ def _composite(
     arithmetic, which is exactly the coupling the corpus forbids.
     """
     canvas = np.zeros((height, width, 3), dtype=np.float32)
-    for node in _visible_images_bottom_to_top(nodes):
-        alpha = _effective_alpha(node, width, height)[:, :, None]
+    for node, inherited in _visible_images_bottom_to_top(nodes, width, height):
+        alpha = _effective_alpha(node, width, height, inherited)[:, :, None]
         source = np.zeros((height, width, 3), dtype=np.float32)
         top = max(0, node.top)
         left = max(0, node.left)
@@ -880,6 +927,157 @@ def fixture_rgb8_clipping(out: Path) -> Path:
     return _emit(out, "rgb8-clipping", nodes)
 
 
+def fixture_rgb8_group_empty(out: Path) -> Path:
+    """A group with no children at all, beside a populated one.
+
+    An empty group is an lsct bounding divider (3) immediately followed by its
+    folder record (1), with nothing between them. A stack machine that assumes a
+    divider is always followed by at least one child either drops the group or
+    swallows the next sibling; the populated group beside it is what makes those
+    two failures distinguishable from a correct read.
+    """
+    nodes = [
+        GroupNode(name="Empty Group", children=[]),
+        GroupNode(
+            name="Populated Group",
+            children=[
+                ImageNode(
+                    name="Populated Child",
+                    top=4,
+                    left=5,
+                    pixels=quadrants(14, 11, TEAL, VIOLET, ORANGE, CHALK),
+                )
+            ],
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-group-empty", nodes)
+
+
+def fixture_rgb8_clipping_across_group(out: Path) -> Path:
+    """A clipped layer at the bottom of a group, whose only candidate base is outside it.
+
+    Clipping does not cross a group boundary in Photoshop: "Boundary Clipped" is the
+    bottom-most layer inside its group, so "Outside Base" below the group is NOT its
+    clip base. "In-Group Clipped" is the control - its base sits directly beneath it
+    inside the same group, so it must clip normally. A reader that resolves the clip
+    base by walking the flat record list instead of the tree gets the first one wrong
+    and the second one right.
+    """
+    nodes = [
+        GroupNode(
+            name="Boundary Group",
+            children=[
+                ImageNode(
+                    name="Boundary Clipped",
+                    top=2,
+                    left=3,
+                    pixels=quadrants(13, 9, ORANGE, CHALK, VIOLET, TEAL),
+                    clipping=True,
+                )
+            ],
+        ),
+        GroupNode(
+            name="Inner Group",
+            children=[
+                ImageNode(
+                    name="In-Group Clipped",
+                    top=12,
+                    left=16,
+                    pixels=quadrants(13, 9, VIOLET, TEAL, CHALK, ORANGE),
+                    clipping=True,
+                ),
+                ImageNode(
+                    name="In-Group Base",
+                    top=14,
+                    left=13,
+                    pixels=quadrants(12, 8, TEAL, SLATE, ORANGE, VIOLET),
+                ),
+            ],
+        ),
+        ImageNode(
+            name="Outside Base",
+            top=4,
+            left=1,
+            pixels=quadrants(11, 8, SLATE, CHALK, TEAL, VIOLET),
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-clipping-across-group", nodes)
+
+
+def fixture_rgb8_mask_larger_than_layer(out: Path) -> Path:
+    """A layer mask whose rect strictly CONTAINS the layer rect.
+
+    The offset-mask fixture covers a mask smaller than its layer; this is the other
+    direction. The -2 channel here is bigger than the layer's colour channels, so a
+    reader that sizes the mask from the layer rect under-reads it, and one that blits
+    without clipping to the layer writes out of bounds.
+
+    Layer rect  (6,8)-(18,22) = 14x12 at (8,6)
+    Mask  rect  (2,4)-(22,28) = 24x20 at (4,2)
+    """
+    mask = MaskSpec(
+        top=2,
+        left=4,
+        bottom=22,
+        right=28,
+        data=mask_ramp(24, 20),
+        default_color=False,  # outside the mask rect the layer is hidden
+    )
+    nodes = [
+        ImageNode(
+            name="Masked Larger",
+            top=6,
+            left=8,
+            pixels=quadrants(14, 12, VIOLET, TEAL, ORANGE, CHALK),
+            mask=mask,
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-mask-larger-than-layer", nodes)
+
+
+def fixture_rgb8_group_mask(out: Path) -> Path:
+    """A raster mask on a GROUP, attenuating both of its children.
+
+    The mask lives on the group's opening (lsct 1) record, never on the bounding
+    divider. A reader that only looks for masks on pixel layers loses it silently,
+    and one that attaches it to the divider attaches it to a record that is not a
+    layer at all. The unmasked sibling layer outside the group is the control.
+    """
+    mask = MaskSpec(
+        top=4,
+        left=6,
+        bottom=18,
+        right=24,
+        data=mask_ramp(18, 14),
+        default_color=False,
+    )
+    nodes = [
+        GroupNode(
+            name="Masked Group",
+            mask=mask,
+            children=[
+                ImageNode(
+                    name="Group Child Top",
+                    top=3,
+                    left=5,
+                    pixels=quadrants(12, 9, ORANGE, CHALK, VIOLET, TEAL),
+                ),
+                ImageNode(
+                    name="Group Child Bottom",
+                    top=11,
+                    left=14,
+                    pixels=quadrants(13, 10, VIOLET, SLATE, TEAL, CHALK),
+                ),
+            ],
+        ),
+        background(),
+    ]
+    return _emit(out, "rgb8-group-mask", nodes)
+
+
 def fixture_rgb8_rle_layers(out: Path) -> Path:
     """A multi-layer file whose LAYER channels are RLE-compressed, not just the composite.
 
@@ -929,6 +1127,10 @@ FIXTURES: "OrderedDict[str, Callable[[Path], Path]]" = OrderedDict(
         ("rgb8-mask-disabled", fixture_rgb8_mask_disabled),
         ("rgb8-mask-inverted", fixture_rgb8_mask_inverted),
         ("rgb8-clipping", fixture_rgb8_clipping),
+        ("rgb8-clipping-across-group", fixture_rgb8_clipping_across_group),
+        ("rgb8-group-empty", fixture_rgb8_group_empty),
+        ("rgb8-group-mask", fixture_rgb8_group_mask),
+        ("rgb8-mask-larger-than-layer", fixture_rgb8_mask_larger_than_layer),
         ("rgb8-rle-layers", fixture_rgb8_rle_layers),
     ]
 )

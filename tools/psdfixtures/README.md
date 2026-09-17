@@ -142,6 +142,17 @@ hides: `lsct` section dividers, `pass` group blending, an offset layer-mask rect
 its own `-2` channel, the mask-disabled and invert flags, and the clipping flag.
 Output is deterministic — regenerating produces byte-identical files.
 
+`GroupNode` also takes a `mask`, which is emitted on the group's **opening** (`lsct`
+1/2) record and never on the bounding divider, and the script's stored composite
+folds a group mask into every descendant's alpha. An empty `children` list produces a
+genuinely childless group: a bounding divider immediately followed by its folder
+record.
+
+Installing pytoshop needs one extra step: it has an undeclared dependency on `six`,
+so `pip install pytoshop six` — and install it into a venv, because building its
+extension against a Debian-patched system `setuptools` fails with
+`AttributeError: install_layout`.
+
 Each fixture is a function `fixture_<id_with_underscores>`, which is what
 `provenance.generatedBy` points at.
 

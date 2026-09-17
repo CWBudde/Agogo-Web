@@ -95,16 +95,16 @@ fixture is a release blocker exactly like the GPC dependency in
 
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
-no fixture can currently exist for it. 16 fixtures cover 20 of 26 capabilities in
-about 85 KB of binaries.
+no fixture can currently exist for it. 20 fixtures cover 24 of 30 capabilities in
+about 115 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |
 | Colour mode | RGB/8, Grayscale/8 | CMYK, Lab, indexed, duotone are outside the engine's scope |
 | Bit depth | 8 | 16 bpc is asserted to be *rejected explicitly* rather than mis-read |
 | Compression | Raw, RLE on the composite, RLE on layer channels | ZIP and ZIP-with-prediction |
-| Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping | — |
-| Masks | Offset rectangle, disabled, inverted, default fill 255 | Vector and real-mask parameter blocks |
+| Structure | Nested groups, pass-through vs isolated, open vs closed folders, hidden layers, clipping, empty groups, clipping across a group boundary | — |
+| Masks | Offset rectangle, disabled, inverted, default fill 255, larger than its layer, on a group | Vector and real-mask parameter blocks |
 | Blending | All 27 modes, in both directions | — |
 | Opacity | Layer opacity below 255 | Fill opacity (`iOpa`) |
 | Container | PSD, PSB, exactly on the 30000 px PSD limit | — |
@@ -112,8 +112,8 @@ about 85 KB of binaries.
 
 ### Cross-implementation differences that are NOT asserted
 
-`rgb8-blend-modes` and `rgb8-clipping` deliberately do **not** assert
-`compositePixels`. Those samples come from psd-tools re-rendering the layer stack,
+`rgb8-blend-modes`, `rgb8-clipping` and `rgb8-clipping-across-group` deliberately do
+**not** assert `compositePixels`. Those samples come from psd-tools re-rendering the layer stack,
 and Agogo renders it too — two different renderers. Where the stack is plain
 source-over they agree, and every other fixture asserts `compositePixels` and
 passes. These two exist precisely to exercise semantics where two renderers are
@@ -175,7 +175,15 @@ matching, so neither a regression nor a fix can land unnoticed:
   `psdimport` rasterizes the layer mask to document size and discards the mask
   rectangle, so the re-export stores a full-canvas `mask.rect`; on
   `rgb8-mask-inverted` the invert flag is folded into the raster and comes back
-  `false` (S.10.4).
+  `false` (S.10.4). `rgb8-mask-larger-than-layer` and `rgb8-group-mask` add the
+  default-fill byte to the same entry: they are authored with fill 0, and the
+  rasterized mask folds it in, so the re-export stores 255.
+- **`rgb8-clipping-across-group`** — clipping does not cross a group boundary, so
+  the boundary-clipped layer has no base among its siblings and
+  `normalizeGroupClipping` clears its `ClipToBelow`. Photoshop keeps the byte set,
+  so moving a layer underneath re-establishes the clip; in Agogo the intent is
+  gone. Recorded as a `knownGaps` entry on the model path plus a `writer.lossy`
+  entry on the record's `clipping` field (S.10.3).
 
 ### Losses the corpus found and that are now fixed
 
