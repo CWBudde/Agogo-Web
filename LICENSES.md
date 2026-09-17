@@ -57,3 +57,33 @@ All frontend dependencies use permissive open-source licenses (MIT / Apache-2.0)
 | typescript | Apache-2.0 |
 
 No copyleft (GPL/LGPL) frontend dependencies are present.
+
+---
+
+## Test Fixtures (`packages/engine-wasm/internal/io/psdfixture/testdata/corpus`)
+
+The PSD/PSB fixture corpus exists so PSD interop can be tested against files Agogo
+did not write. Every fixture is **self-authored** — generated from scratch by a
+checked-in script, containing only solid colour blocks. No file is scraped, and no
+third-party artwork, sample file, or Photoshop-shipped asset is included, so no
+third-party fixture licence or attribution applies.
+
+- **Licence:** CC0-1.0 (public domain dedication) for every fixture.
+- **Author:** Christian Budde, MeKo-Tech.
+- **Provenance:** recorded per file in the `provenance` block of each
+  `<id>.expected.json` sidecar, and summarised in
+  `packages/engine-wasm/internal/io/psdfixture/testdata/README.md`.
+
+### Generator and reference-reader tooling
+
+These run offline, from `tools/psdfixtures/`. They are developer tooling only —
+neither `go test` nor `just ci` depends on them, and neither is a module dependency.
+
+| Tool | Version | Licence | Role |
+|------|---------|---------|------|
+| ImageMagick | 6.9.12-98 | ImageMagick License (Apache-2.0-like) | writes the flat fixtures |
+| pytoshop | 1.2.1 | BSD-3-Clause | writes the layered fixtures |
+| psd-tools | 1.19.0 | MIT | derives the expectation sidecars; re-reads Agogo's output |
+
+The generator and the expectation-deriver are deliberately **different**
+implementations, so a bug in one cannot confirm itself through the other.
