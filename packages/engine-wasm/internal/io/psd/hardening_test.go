@@ -81,9 +81,10 @@ func FuzzParse(f *testing.F) {
 func FuzzDecodePackBits(f *testing.F) {
 	f.Add([]byte{0, 'A'}, uint16(1))
 	f.Add([]byte{0x80}, uint16(0))
-	// Not seeded from the corpus while every fixture is RAW-compressed; the
-	// pathological-run coverage in compression_test.go carries this target until
-	// an RLE fixture lands (PLAN.md S.10.2).
+	// Real scanlines from every RLE-compressed composite in the corpus, on top
+	// of the synthetic edge cases above and the pathological-run coverage in
+	// compression_test.go.
+	addPackBitsRowSeeds(f)
 	f.Fuzz(func(t *testing.T, data []byte, expected uint16) {
 		_, _ = DecodePackBits(data, int(expected%4096))
 	})

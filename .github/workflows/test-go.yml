@@ -52,3 +52,64 @@ jobs:
           name: psd-fixture-reexports
           path: packages/engine-wasm/internal/io/psdfixture/_dump
           if-no-files-found: ignore
+
+  # A short mutation pass over the PSD parser fuzz targets. The `go test` job
+  # above already EXECUTES every seed (synthetic plus the whole fixture corpus)
+  # under -race; this job is the part that generates new inputs.
+  #
+  # It is a separate job so it runs in parallel with the coverage run rather
+  # than adding its ~3 minutes to that job's critical path.
+  #
+  # -race is deliberately NOT used here: race-instrumented fuzzing runs about
+  # 20x fewer executions per second, and a local trial aborted with a spurious
+  # "context deadline exceeded" while gathering baseline coverage. Race
+  # coverage of these code paths comes from the seed execution in the job above.
+  #
+  # 30s per target is the smallest budget that reaches well past the seed
+  # corpus: locally that is ~0.9M-2M executions for the byte-level targets and
+  # ~200k for whole-file FuzzParse. `go test -fuzz` accepts exactly one target
+  # per invocation, hence one step each.
+  go-fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: packages/engine-wasm/go.mod
+          cache-dependency-path: packages/engine-wasm/go.sum
+
+      - name: Fuzz Parse
+        run: go test -run '^$' -fuzz '^FuzzParse$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz DecodePackBits
+        run: go test -run '^$' -fuzz '^FuzzDecodePackBits$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz ParseLayerAndMaskInfo
+        run: go test -run '^$' -fuzz '^FuzzParseLayerAndMaskInfo$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz ParseLayerExtraData
+        run: go test -run '^$' -fuzz '^FuzzParseLayerExtraData$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz ParseCompositeImageData
+        run: go test -run '^$' -fuzz '^FuzzParseCompositeImageData$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      - name: Fuzz ParseDescriptorTextValue
+        run: go test -run '^$' -fuzz '^FuzzParseDescriptorTextValue$' -fuzztime=30s ./internal/io/psd/
+        working-directory: packages/engine-wasm
+
+      # A crasher is written to testdata/fuzz/<Target>/ next to the package.
+      # Publish it so it can be checked in verbatim rather than reconstructed
+      # from the log.
+      - name: Upload fuzz crashers
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: psd-fuzz-crashers
+          path: packages/engine-wasm/internal/io/psd/testdata/fuzz
+          if-no-files-found: ignore

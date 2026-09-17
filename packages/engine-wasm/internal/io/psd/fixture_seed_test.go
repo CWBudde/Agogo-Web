@@ -2,6 +2,7 @@ package psd
 
 import (
 	"encoding/binary"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -68,11 +69,55 @@ func addSectionSeeds(f *testing.F, extract func([]byte) ([]byte, bool)) {
 	}
 }
 
+// addPackBitsRowSeeds seeds FuzzDecodePackBits from the real RLE scanlines in
+// the corpus. Each seed is a packed row plus the decoded byte width that row
+// claims, because the target takes both.
+//
+// A seed is not required to decode cleanly inside the target — the target folds
+// the width down with %4096, so a wide row such as near-psd-limit's 30000-byte
+// scanline is presented as a long run against a short output buffer. That is a
+// useful input, not a broken seed.
+func addPackBitsRowSeeds(f *testing.F) {
+	f.Helper()
+	seen := make(map[string]struct{})
+	for _, fixture := range fuzzSeedFixtures(f) {
+		rows, ok := extractRLERows(fixture.Data)
+		if !ok {
+			continue
+		}
+		for _, row := range rows {
+			if len(row.packed) == 0 || len(row.packed) > maxFuzzSeedBytes {
+				continue
+			}
+			key := string(row.packed) + "\x00" + strconv.Itoa(int(row.decodedLen))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			f.Add(row.packed, row.decodedLen)
+		}
+	}
+}
+
+// packBitsRow is one RLE scanline: the packed bytes and the number of bytes it
+// decodes to.
+type packBitsRow struct {
+	packed     []byte
+	decodedLen uint16
+}
+
 // psdSections is a byte-level split of a PSD/PSB stream. It deliberately does
 // not reuse Parser: a fuzz seed must remain extractable from a file the parser
 // itself rejects, and reusing the parser here would silently drop such a file.
 type psdSections struct {
-	psb               bool
+	psb bool
+	// width, height, channels and depth come straight from the header. The RLE
+	// row table is sized by channels*height, and a row's decoded length by
+	// width*depth/8, so extraction needs all four.
+	width             int
+	height            int
+	channels          int
+	depth             int
 	colorMode         []byte
 	resources         []byte
 	layerAndMask      []byte
@@ -91,6 +136,10 @@ func splitSections(data []byte) (psdSections, bool) {
 		return out, false
 	}
 	out.psb = binary.BigEndian.Uint16(data[4:6]) == 2
+	out.channels = int(binary.BigEndian.Uint16(data[12:14]))
+	out.height = int(binary.BigEndian.Uint32(data[14:18]))
+	out.width = int(binary.BigEndian.Uint32(data[18:22]))
+	out.depth = int(binary.BigEndian.Uint16(data[22:24]))
 
 	offset := psdHeaderLen
 	section := func(lengthBytes int) ([]byte, int, bool) {
@@ -150,6 +199,75 @@ func extractCompositeSection(data []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return sections.imageData, true
+}
+
+// extractRLERows returns the first packed scanline of each channel of an
+// RLE-compressed composite, paired with the byte length that row decodes to.
+//
+// Layout after the 2-byte compression id: channels*height row byte counts
+// (uint16 for PSD, uint32 for PSB), then the packed rows back to back in the
+// same order. Only composites with compression id 1 yield rows; everything
+// else — RAW, ZIP, a short section, a header this function cannot trust —
+// returns false, in keeping with the best-effort contract of addSectionSeeds.
+func extractRLERows(data []byte) ([]packBitsRow, bool) {
+	sections, ok := splitSections(data)
+	if !ok || len(sections.imageData) < 2 {
+		return nil, false
+	}
+	if binary.BigEndian.Uint16(sections.imageData[:2]) != CompressionRLE {
+		return nil, false
+	}
+	if sections.channels <= 0 || sections.height <= 0 || sections.width <= 0 {
+		return nil, false
+	}
+	// Decoded bytes per row. The corpus is 8- and 16-bit; anything else is not
+	// a whole number of bytes per sample and is left to the parser to reject.
+	if sections.depth != 8 && sections.depth != 16 {
+		return nil, false
+	}
+	decodedLen := sections.width * (sections.depth / 8)
+	if decodedLen > int(^uint16(0)) {
+		return nil, false
+	}
+
+	countWidth := 2
+	if sections.psb {
+		countWidth = 4
+	}
+	rowCount := sections.channels * sections.height
+	tableEnd := 2 + rowCount*countWidth
+	if tableEnd < 2 || tableEnd > len(sections.imageData) {
+		return nil, false
+	}
+
+	counts := make([]int, rowCount)
+	for i := range counts {
+		offset := 2 + i*countWidth
+		if countWidth == 2 {
+			counts[i] = int(binary.BigEndian.Uint16(sections.imageData[offset : offset+2]))
+		} else {
+			counts[i] = int(binary.BigEndian.Uint32(sections.imageData[offset : offset+4]))
+		}
+	}
+
+	// Walk every row so the offsets stay exact, but keep only the first row of
+	// each channel: the planes differ from one another, while rows within a
+	// plane are near-identical and would only pad the seed corpus.
+	rows := make([]packBitsRow, 0, sections.channels)
+	offset := tableEnd
+	for i, count := range counts {
+		if count < 0 || count > len(sections.imageData)-offset {
+			return nil, false
+		}
+		if i%sections.height == 0 {
+			rows = append(rows, packBitsRow{
+				packed:     sections.imageData[offset : offset+count],
+				decodedLen: uint16(decodedLen),
+			})
+		}
+		offset += count
+	}
+	return rows, len(rows) > 0
 }
 
 // extractFirstLayerExtraData returns the extra-data block of the first layer
