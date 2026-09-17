@@ -214,6 +214,20 @@ type LayerExpect struct {
 	// model carried the flag stay valid under DisallowUnknownFields.
 	Expanded *bool `json:"expanded"`
 
+	// AdjustmentKind and AdjustmentParams apply to adjustment layers only.
+	// Both are optional, so the sidecars written before the corpus carried an
+	// adjustment fixture stay valid under DisallowUnknownFields.
+	//
+	// AdjustmentParams is compared as JSON with the EXPECTED object's keys
+	// driving the comparison, not as raw bytes: the engine writes a
+	// json.RawMessage whose key order and whitespace are its own business,
+	// while the values are the thing being asserted. A key the expectation
+	// does not mention is not checked, which is what lets a sidecar pin the
+	// fields that have an engine home without also pinning every default the
+	// importer happens to fill in.
+	AdjustmentKind   *string          `json:"adjustmentKind"`
+	AdjustmentParams *json.RawMessage `json:"adjustmentParams"`
+
 	Mask       *MaskExpect    `json:"mask"`
 	StyleKinds *[]string      `json:"styleKinds"`
 	Children   *[]LayerExpect `json:"children"`

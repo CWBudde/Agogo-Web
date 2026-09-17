@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -469,12 +470,104 @@ func compareLayerNode(c *collector, path string, exp LayerExpect, node model.Lay
 		got := styleKinds(node)
 		c.emit(path+".styleKinds", equalStrings(want, got), fmtList(want), fmtList(got))
 	}
+	if exp.AdjustmentKind != nil {
+		got, _ := adjustmentOf(node)
+		c.emit(path+".adjustmentKind", *exp.AdjustmentKind == got, *exp.AdjustmentKind, orDash(got))
+	}
+	if exp.AdjustmentParams != nil {
+		_, params := adjustmentOf(node)
+		compareAdjustmentParams(c, path+".adjustmentParams", *exp.AdjustmentParams, params)
+	}
 	if exp.Mask != nil {
 		compareModelMask(c, path+".mask", *exp.Mask, node.Mask())
 	}
 	if exp.Children != nil {
 		compareLayerLevel(c, path+".children", *exp.Children, node.Children())
 	}
+}
+
+// adjustmentOf returns the kind and raw parameters of an adjustment layer, or
+// zero values for any other node. A non-adjustment layer is reported as a
+// mismatch by the caller rather than skipped: "this should have imported as an
+// adjustment and did not" is exactly the failure the corpus exists to catch.
+func adjustmentOf(node model.LayerNode) (string, json.RawMessage) {
+	layer, ok := node.(*model.AdjustmentLayer)
+	if !ok {
+		return "", nil
+	}
+	return layer.AdjustmentKind, layer.Params
+}
+
+// compareAdjustmentParams asserts the expectation's keys against the layer's
+// parameters, one path per key, and ignores keys the expectation does not
+// mention.
+//
+// Comparing the raw bytes would assert the importer's key order and number
+// formatting, neither of which is a fact about the PSD file. Comparing key by
+// key also means a failure names the parameter that differs — ".gamma" rather
+// than a wall of JSON — and lets a sidecar pin the fields that have an engine
+// home without pinning every default the importer fills in around them.
+func compareAdjustmentParams(c *collector, path string, want json.RawMessage, got json.RawMessage) {
+	var wantFields map[string]json.RawMessage
+	if err := json.Unmarshal(want, &wantFields); err != nil {
+		c.emit(path, false, "<object>", "<unreadable expectation: "+err.Error()+">")
+		return
+	}
+	var gotFields map[string]json.RawMessage
+	if len(got) > 0 {
+		if err := json.Unmarshal(got, &gotFields); err != nil {
+			c.emit(path, false, "<object>", "<unreadable params: "+err.Error()+">")
+			return
+		}
+	}
+
+	// An expectation of {} asserts that the layer has no parameters to get
+	// wrong — invert is the real case. Without this the scope would silently
+	// check nothing at all.
+	if len(wantFields) == 0 {
+		c.emit(path, len(gotFields) == 0, "{}", fmtList(sortedKeys(gotFields)))
+		return
+	}
+
+	for _, key := range sortedKeys(wantFields) {
+		keyPath := path + "." + key
+		gotValue, present := gotFields[key]
+		if !present {
+			c.emit(keyPath, false, string(wantFields[key]), "-")
+			continue
+		}
+		c.emit(keyPath, equalJSON(wantFields[key], gotValue), string(wantFields[key]), string(gotValue))
+	}
+}
+
+// equalJSON compares two JSON values by their decoded shape, so that 1 and 1.0,
+// or a differing key order inside a nested object, are not reported as a
+// difference in the PSD file.
+func equalJSON(a, b json.RawMessage) bool {
+	var left, right any
+	if err := json.Unmarshal(a, &left); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &right); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
+}
+
+func sortedKeys(fields map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func orDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 // compareOpacity converts the sidecar byte to the model's [0,1] float. The
