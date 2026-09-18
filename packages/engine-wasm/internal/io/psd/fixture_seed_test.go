@@ -110,8 +110,10 @@ func extractAdjustmentPayloads(data []byte) [][]byte {
 		if signature != "8BIM" && signature != "8B64" {
 			continue
 		}
-		key := string(data[at+4 : at+8])
-		if _, wanted := adjustmentSeedKeys[key]; !wanted {
+		// Indexed with the conversion inline so the compiler can look the key
+		// up without allocating a string; this runs once per byte of every
+		// seeded fixture.
+		if _, wanted := adjustmentSeedKeys[string(data[at+4:at+8])]; !wanted {
 			continue
 		}
 		length := binary.BigEndian.Uint32(data[at+8 : at+headerLen])
