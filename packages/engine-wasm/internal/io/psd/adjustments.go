@@ -265,7 +265,8 @@ func parseHueSaturation(payload []byte) (*AdjustmentPayload, error) {
 	enable, _ := reader.ReadByte()
 	_, _ = reader.ReadByte() // pad
 
-	if _, err := readInt16Triple(reader); err != nil { // colorization
+	colorization, err := readInt16Triple(reader)
+	if err != nil {
 		return nil, err
 	}
 	master, err := readInt16Triple(reader)
@@ -273,13 +274,25 @@ func parseHueSaturation(payload []byte) (*AdjustmentPayload, error) {
 		return nil, err
 	}
 
+	// The block carries TWO triples and a mode byte that says which one is
+	// live. psd-tools' compositor is the reference here, because it is a
+	// renderer rather than a naming convention
+	// (psd_tools/composite/adjustments.py): a non-zero byte means colorize, and
+	// it then uses the colorization triple and ignores the master triple and
+	// every per-range entry; a zero byte means hue adjustment, and it uses
+	// master plus the ranges. Its API property for the byte is
+	// `enable_colorization`, which agrees.
+	colorize := enable != 0
+	live := master
+	if colorize {
+		live = colorization
+	}
+
 	params := map[string]any{
-		"hueShift":   int(master[0]),
-		"saturation": int(master[1]),
-		"lightness":  int(master[2]),
-		// Photoshop stores colorize as "not enabled": the master triple means
-		// colorize values when the enable byte is 0.
-		"colorize": enable == 0,
+		"hueShift":   int(live[0]),
+		"saturation": int(live[1]),
+		"lightness":  int(live[2]),
+		"colorize":   colorize,
 	}
 
 	var lost []string
@@ -292,6 +305,12 @@ func parseHueSaturation(payload []byte) (*AdjustmentPayload, error) {
 		settings, err := readInt16Triple(reader)
 		if err != nil {
 			return nil, err
+		}
+		// In colorize mode neither Photoshop nor the engine consults the
+		// per-range entries, so they are read past rather than carried: they
+		// are inert in the file, not lost in translation.
+		if colorize {
+			continue
 		}
 		if !isDefaultHueEdges(bucket, edges) {
 			edgesCarried = true
@@ -362,38 +381,87 @@ func parseColorBalance(payload []byte) (*AdjustmentPayload, error) {
 	return adjustment("color-balance", tones, nil)
 }
 
-// parseChannelMixer reads a mixr block: version, the monochrome flag, then five
-// int16 for one output row — four source weights in percent and a constant.
+// mixrRowSize is one output row: four source weights in percent plus a constant,
+// all int16.
+const mixrRowSize = 5 * 2
+
+// mixrOutputRows are the engine's parameter keys for the first three output
+// rows, in the order the block stores them.
+var mixrOutputRows = [3]string{"red", "green", "blue"}
+
+// parseChannelMixer reads a mixr block: version, the monochrome flag, then one
+// five-int16 row per output channel.
 //
-// The engine has a row per output channel and no constant term at all, so the
-// constant is reported as lost. Photoshop repeats the five-value group per
-// output channel; anything past the first group is reported too rather than
-// guessed at, because the repeat count is not in the block.
+// Reading only the first row is not a conservative simplification, it is a
+// corruption: channelMixerAdjustmentFactory builds its matrix straight from
+// Red/Green/Blue with no defaulting, so a params object carrying only "red"
+// gives the green and blue outputs an all-zero row and the imported layer
+// blacks out two channels. Every row the payload contains is therefore read,
+// and any row it does not contain is filled with the identity weighting rather
+// than left at zero — an absent row must mean "leave this channel alone".
 func parseChannelMixer(payload []byte) (*AdjustmentPayload, error) {
-	const want = 2 + 2 + 5*2
-	if len(payload) < want {
-		return nil, fmt.Errorf("mixr needs %d bytes, got %d", want, len(payload))
+	const headerSize = 2 + 2
+	if len(payload) < headerSize+mixrRowSize {
+		return nil, fmt.Errorf("mixr needs %d bytes, got %d", headerSize+mixrRowSize, len(payload))
 	}
 	if version := binary.BigEndian.Uint16(payload[:2]); version != 1 {
 		return nil, fmt.Errorf("mixr version %d is not 1", version)
 	}
 	monochrome := binary.BigEndian.Uint16(payload[2:4]) != 0
-	values := make([]int16, 5)
-	for index := range values {
-		at := 4 + index*2
-		values[index] = int16(binary.BigEndian.Uint16(payload[at : at+2]))
+
+	rows := (len(payload) - headerSize) / mixrRowSize
+	weights := make([][]int, 0, len(mixrOutputRows))
+	var lost []string
+	constants := false
+	fourth := false
+
+	for row := range min(rows, len(mixrOutputRows)) {
+		at := headerSize + row*mixrRowSize
+		var values [5]int16
+		for field := range values {
+			values[field] = int16(binary.BigEndian.Uint16(payload[at+field*2 : at+field*2+2])) //nolint:gosec // a signed field read big-endian
+		}
+		weights = append(weights, []int{int(values[0]), int(values[1]), int(values[2])})
+		// values[3] is the fourth source weight, present for documents with a
+		// fourth colour channel; the engine's matrix is 3x3.
+		fourth = fourth || values[3] != 0
+		constants = constants || values[4] != 0
 	}
 
-	params := map[string]any{
-		"monochrome": monochrome,
-		"red":        []int{int(values[0]), int(values[1]), int(values[2])},
+	params := map[string]any{"monochrome": monochrome}
+	switch {
+	case monochrome:
+		// Photoshop's monochrome mixer has ONE grey row. The engine still runs
+		// the full 3x3 matrix and takes the luminance of the result, so the row
+		// has to go into all three outputs: that makes mixed = (g, g, g), whose
+		// luminance is g. Putting it in "red" alone would leave the other two
+		// rows at zero and the luminance would come out at a fraction of g.
+		for _, name := range mixrOutputRows {
+			params[name] = weights[0]
+		}
+	default:
+		for index, name := range mixrOutputRows {
+			if index < len(weights) {
+				params[name] = weights[index]
+				continue
+			}
+			// An absent row must mean "leave this channel alone", never "zero
+			// it". Identity is the only reading that cannot corrupt the image.
+			identity := []int{0, 0, 0}
+			identity[index] = 100
+			params[name] = identity
+			lost = append(lost, fmt.Sprintf("mixr %s output row (absent; left unchanged)", name))
+		}
 	}
-	var lost []string
-	if values[4] != 0 {
+
+	if fourth {
+		lost = append(lost, "mixr fourth source weight")
+	}
+	if constants {
 		lost = append(lost, "mixr constant term")
 	}
-	if len(payload) > want {
-		lost = append(lost, "mixr rows past the first output channel")
+	if rows > len(mixrOutputRows) {
+		lost = append(lost, "mixr output rows past blue")
 	}
 	return adjustment("channel-mixer", params, lost)
 }
@@ -451,10 +519,19 @@ func parsePosterize(payload []byte) (*AdjustmentPayload, error) {
 }
 
 // parseInvert reads an nvrt block, which has no payload: Invert has nothing to
-// configure. A non-empty payload is not an error — it is a newer writer with
-// something to say that this reader does not need.
-func parseInvert(_ []byte) (*AdjustmentPayload, error) {
-	return adjustment("invert", map[string]any{}, nil)
+// configure.
+//
+// A non-empty payload is not an error — Invert cannot be misconfigured, so
+// there is no reading of extra bytes that makes the layer wrong. It is still
+// reported: under the fallback contract "this reader did not understand part of
+// the file" has to be visible, and silently discarding bytes because the block
+// is usually empty is how a future field disappears without trace.
+func parseInvert(payload []byte) (*AdjustmentPayload, error) {
+	var lost []string
+	if len(payload) > 0 {
+		lost = append(lost, fmt.Sprintf("nvrt payload of %d bytes (the block is defined as empty)", len(payload)))
+	}
+	return adjustment("invert", map[string]any{}, lost)
 }
 
 // parsePhotoFilter reads a phfl block. Version 2 stores a colour space and four
@@ -484,12 +561,16 @@ func parsePhotoFilter(payload []byte) (*AdjustmentPayload, error) {
 	density := binary.BigEndian.Uint32(payload[12:16])
 	luminosity := payload[16]
 
-	var lost []string
 	if colorSpace != 0 {
-		// Space 0 is RGB. Anything else would need a colour conversion the
-		// engine does not have, so the filter colour cannot be trusted.
-		lost = append(lost, fmt.Sprintf("phfl colour space %d (not RGB)", colorSpace))
+		// Space 0 is RGB. Reading a CMYK or Lab triple as if it were RGB gives
+		// a filter colour with no relation to the file's, so the block is
+		// refused outright: the fallback contract is that a layer is either
+		// reconstructed correctly or reported, never reconstructed wrongly and
+		// warned about. The caller records the refusal and the layer falls
+		// through to the flatten path.
+		return nil, fmt.Errorf("phfl colour space %d is not RGB and the engine cannot convert it", colorSpace)
 	}
+	var lost []string
 	params := map[string]any{
 		"color": []int{
 			int(components[0] / 257),
@@ -554,6 +635,39 @@ func parseAdjustmentDescriptor(payload []byte, key string) (descriptor.Descripto
 	return parsed, nil
 }
 
+// descriptorRGB reads a nested Photoshop colour object into the engine's
+// three-byte RGB form.
+//
+// Photoshop writes an RGBC descriptor whose components are doubles in 0..255.
+// All three must be present: a colour missing a channel is not a colour, and
+// defaulting the absent one to zero would silently darken it.
+func descriptorRGB(d descriptor.Descriptor, key string) ([3]int, bool) {
+	colour, ok := d.Object(key)
+	if !ok {
+		return [3]int{}, false
+	}
+	var out [3]int
+	for index, component := range [3]string{"Rd  ", "Grn ", "Bl  "} {
+		value, ok := colour.Get(component)
+		if !ok || value.Type != descriptor.TypeDouble {
+			return [3]int{}, false
+		}
+		out[index] = clampByte(value.Float)
+	}
+	return out, true
+}
+
+func clampByte(value float64) int {
+	switch {
+	case value <= 0:
+		return 0
+	case value >= 255:
+		return 255
+	default:
+		return int(math.Round(value))
+	}
+}
+
 // parseBlackAndWhite reads a blwh block: six long percentages plus the tint.
 func parseBlackAndWhite(payload []byte) (*AdjustmentPayload, error) {
 	parsed, err := parseAdjustmentDescriptor(payload, "blwh")
@@ -580,10 +694,23 @@ func parseBlackAndWhite(payload []byte) (*AdjustmentPayload, error) {
 	// The engine treats an absent key and an explicit false alike, but the file
 	// distinguishes "this writer said no tint" from "this writer said nothing",
 	// and the importer's job is to report what the file says.
+	var lost []string
 	if _, ok := parsed.Get("useTint"); ok {
-		params["tint"] = parsed.Bool("useTint", false)
+		tint := parsed.Bool("useTint", false)
+		params["tint"] = tint
+		// The tint COLOUR has to come with the flag. blackWhiteAdjustmentFactory
+		// substitutes a fixed brown when tintColor is absent, so a tinted layer
+		// imported with the flag alone renders a different colour from
+		// Photoshop while looking entirely successful.
+		if tint {
+			if colour, ok := descriptorRGB(parsed, "tintColor"); ok {
+				params["tintColor"] = colour
+			} else {
+				lost = append(lost, "blwh tint colour (the engine's default brown is used instead)")
+			}
+		}
 	}
-	return adjustment("black-white", params, nil)
+	return adjustment("black-white", params, lost)
 }
 
 // parseBrightnessContrast reads a CgEd block, the descriptor form Photoshop

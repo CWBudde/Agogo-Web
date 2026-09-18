@@ -84,6 +84,12 @@ func BuildLayerNodes(header psdio.Header, layers []psdio.LayerRecord) ([]model.L
 		if record.Adjustment != nil {
 			layer := model.NewAdjustmentLayer(name, record.Adjustment.Kind, record.Adjustment.Params)
 			applyRecordFlags(layer, record)
+			// An adjustment layer can carry lrFX/lfx2 like any other. Those are
+			// already parsed into representable style kinds, so not copying
+			// them here would discard work the reader had already done.
+			if len(record.Effects.StyleStack()) > 0 {
+				layer.SetStyleStack(record.Effects.StyleStack())
+			}
 			layer.SetMask(buildLayerMask(header, record))
 			for _, lost := range record.Adjustment.Lost {
 				warnings = append(warnings, fmt.Sprintf(
