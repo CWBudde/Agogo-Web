@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	agg "github.com/cwbudde/agg_go"
 )
 
 // AdjustmentPixelFunc transforms a single RGBA pixel using the adjustment's
@@ -110,7 +112,41 @@ func applyAdjustmentLayerToSurface(surface []byte, docW, docH int, layer *Adjust
 	return nil
 }
 
+// applyAdjustmentLayerRectToSurface applies the transform to the backdrop and
+// merges the result back, honouring the layer's opacity and blend mode.
+//
+// An adjustment layer RECOLOURS the backdrop; it is not a layer composited over
+// it. The difference is the alpha channel: compositing an adjusted image
+// source-over would give a half-transparent backdrop an alpha of 0.75 where it
+// had 0.5, so the adjustment would add coverage that no pixel of it ever had.
+// The model instead is
+//
+//	blended = blend(backdrop, adjusted, mode)          // colour only
+//	out.rgb = lerp(backdrop.rgb, blended.rgb, coverage * opacity)
+//	out.a   = lerp(backdrop.a,  adjusted.a,  coverage)
+//
+// which leaves alpha to the backdrop and the transform, exactly as before this
+// function learned about opacity and blend modes.
 func applyAdjustmentLayerRectToSurface(surface []byte, docW, docH int, layer *AdjustmentLayer, clipAlpha []byte, resolvedParams json.RawMessage, transform AdjustmentPixelFunc, rect DirtyRect) error {
+	opacity := clampUnit(effectiveLayerOpacity(layer))
+	if opacity <= 0 {
+		return nil
+	}
+	mode := layer.BlendMode()
+
+	// Normal at full opacity is the overwhelmingly common case and is exactly
+	// "replace the backdrop within the coverage", so it keeps the direct loop:
+	// the general path below needs two rect-sized buffers and a pass through the
+	// compositor, and this is the hot path S.4 spent its budget on.
+	if mode == BlendModeNormal && opacity >= 1 {
+		return applyAdjustmentRectDirect(surface, docW, layer, clipAlpha, resolvedParams, transform, rect)
+	}
+	return applyAdjustmentRectBlended(surface, docW, layer, clipAlpha, resolvedParams, transform, rect, mode, opacity)
+}
+
+// applyAdjustmentRectDirect is the Normal-at-100% path: the transformed pixel
+// replaces the backdrop, scaled by coverage alone.
+func applyAdjustmentRectDirect(surface []byte, docW int, layer *AdjustmentLayer, clipAlpha []byte, resolvedParams json.RawMessage, transform AdjustmentPixelFunc, rect DirtyRect) error {
 	mask := layer.Mask()
 	for y := rect.Y; y < rect.Y+rect.H; y++ {
 		for x := rect.X; x < rect.X+rect.W; x++ {
@@ -142,6 +178,100 @@ func applyAdjustmentLayerRectToSurface(surface []byte, docW, docH int, layer *Ad
 			surface[index+1] = blendByte(surface[index+1], g, coverage)
 			surface[index+2] = blendByte(surface[index+2], b, coverage)
 			surface[index+3] = blendByte(surface[index+3], a, coverage)
+		}
+	}
+	return nil
+}
+
+// applyAdjustmentRectBlended handles a non-Normal blend mode or a reduced
+// opacity.
+//
+// The blend itself goes through the same agg_go compositor every other layer
+// uses rather than a hand-written mode switch: the 27 modes and their edge cases
+// are exactly what must not be reimplemented here. It is fed two fully opaque
+// rect-sized images — the backdrop's colour and the adjusted colour — because
+// with both opaque, source-over reduces to `lerp(dest, blend(dest, src),
+// opacity)`, which is the colour half of the model above. The surviving loop
+// then merges that back under the coverage and restores the backdrop's alpha.
+func applyAdjustmentRectBlended(surface []byte, docW int, layer *AdjustmentLayer, clipAlpha []byte, resolvedParams json.RawMessage, transform AdjustmentPixelFunc, rect DirtyRect, mode BlendMode, opacity float64) error {
+	pixels := rect.W * rect.H
+	if pixels <= 0 {
+		return nil
+	}
+
+	adjusted := acquireSurface(pixels * 4)
+	defer releaseSurface(adjusted)
+	backdrop := acquireSurface(pixels * 4)
+	defer releaseSurface(backdrop)
+
+	for y := range rect.H {
+		for x := range rect.W {
+			index := ((rect.Y+y)*docW + rect.X + x) * 4
+			if index < 0 || index+3 >= len(surface) {
+				continue
+			}
+			offset := (y*rect.W + x) * 4
+
+			r, g, b, a, err := transform(surface[index], surface[index+1], surface[index+2], surface[index+3], resolvedParams)
+			if err != nil {
+				return fmt.Errorf("adjustment layer %q: %w", layer.Name(), err)
+			}
+			adjusted[offset], adjusted[offset+1], adjusted[offset+2], adjusted[offset+3] = r, g, b, a
+
+			// Opaque copies: the blend is a colour operation, and letting the
+			// backdrop's own alpha reach the compositor would turn it into a
+			// coverage operation as well.
+			backdrop[offset] = surface[index]
+			backdrop[offset+1] = surface[index+1]
+			backdrop[offset+2] = surface[index+2]
+			backdrop[offset+3] = 255
+		}
+	}
+
+	// Blend into a copy of the adjusted colours so `adjusted` keeps the
+	// transform's alpha for the merge below.
+	blended := acquireSurface(pixels * 4)
+	defer releaseSurface(blended)
+	copy(blended, adjusted)
+	for offset := 3; offset < len(blended); offset += 4 {
+		blended[offset] = 255
+	}
+
+	if err := compositeImageStraight(
+		backdrop, rect.W, rect.H,
+		blended, rect.W, rect.H,
+		agg.Rect{X2: rect.W, Y2: rect.H},
+		agg.PointI{},
+		mode, opacity,
+		nil, agg.PointI{},
+		nil, engineDissolveSeed,
+	); err != nil {
+		return fmt.Errorf("adjustment layer %q: blend: %w", layer.Name(), err)
+	}
+
+	mask := layer.Mask()
+	for y := range rect.H {
+		docY := rect.Y + y
+		for x := range rect.W {
+			docX := rect.X + x
+			index := (docY*docW + docX) * 4
+			if index < 0 || index+3 >= len(surface) {
+				continue
+			}
+
+			coverage := clipSurfaceAlphaAt(clipAlpha, docW, docX, docY)
+			coverage = scaleMaskedAlpha(coverage, layerMaskAlphaAt(mask, docX, docY))
+			if coverage == 0 {
+				continue
+			}
+			offset := (y*rect.W + x) * 4
+
+			surface[index] = blendByte(surface[index], backdrop[offset], coverage)
+			surface[index+1] = blendByte(surface[index+1], backdrop[offset+1], coverage)
+			surface[index+2] = blendByte(surface[index+2], backdrop[offset+2], coverage)
+			// Alpha follows the transform, never the blend: an adjustment layer
+			// recolours what is there and must not add or remove coverage.
+			surface[index+3] = blendByte(surface[index+3], adjusted[offset+3], coverage)
 		}
 	}
 	return nil
@@ -181,6 +311,8 @@ func adjustmentCacheMatches(layer *AdjustmentLayer, kind string, resolvedParams 
 	return layer.Cache.Kind == kind &&
 		layer.Cache.DocW == docW &&
 		layer.Cache.DocH == docH &&
+		layer.Cache.Opacity == effectiveLayerOpacity(layer) &&
+		layer.Cache.BlendMode == layer.BlendMode() &&
 		len(layer.Cache.Output) == docW*docH*4 &&
 		bytes.Equal(layer.Cache.ResolvedParams, resolvedParams)
 }
@@ -192,6 +324,8 @@ func updateAdjustmentCache(layer *AdjustmentLayer, kind string, resolvedParams j
 	layer.Cache.Kind = kind
 	layer.Cache.DocW = docW
 	layer.Cache.DocH = docH
+	layer.Cache.Opacity = effectiveLayerOpacity(layer)
+	layer.Cache.BlendMode = layer.BlendMode()
 	layer.Cache.ResolvedParams = cloneJSONRawMessage(resolvedParams)
 	if len(layer.Cache.Output) != len(surface) {
 		layer.Cache.Output = make([]byte, len(surface))

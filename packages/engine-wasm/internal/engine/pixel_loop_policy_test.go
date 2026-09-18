@@ -18,7 +18,8 @@ import (
 // manualPixelLoopAllowlist is the executable index for PIXEL_LOOP_POLICY.md.
 // Keep the rationale here short; the policy owns the full reason of record.
 var manualPixelLoopAllowlist = map[string]string{
-	"adjustments.go:applyAdjustmentLayerRectToSurface":      "ticket S9-MASK-COMPOSITE: the adjustment callback stays pixel-domain; move its mask blend to CompositeImage",
+	"adjustments.go:applyAdjustmentRectBlended":             "keep: the blend goes through CompositeImage; the surviving loop restores the backdrop's alpha, which a composite cannot express",
+	"adjustments.go:applyAdjustmentRectDirect":              "ticket S9-MASK-COMPOSITE: the adjustment callback stays pixel-domain; move its mask blend to CompositeImage",
 	"agg_composite.go:applyBlendIfChannelsClipped":          "keep: BlendIf channel gating is a conditional channel operation, not rasterization or a comp-op",
 	"brush.go:cloneStampDabResource":                        "ticket S9-BRUSH-SAMPLING: replace private bilinear source sampling while retaining dab-mask generation",
 	"brush.go:eraseBackgroundDabResource":                   "keep: tolerance erase decides from each destination pixel's colour before changing alpha",

@@ -499,6 +499,12 @@ type AdjustmentCache struct {
 	DocW           int
 	DocH           int
 	Output         []byte
+	// Opacity and BlendMode are part of the cache key, not decoration: the
+	// cached Output is the surface AFTER the layer has been merged, so a change
+	// to either produces different pixels from identical params and would
+	// otherwise be served from a stale cache.
+	Opacity   float64
+	BlendMode BlendMode
 }
 
 func NewAdjustmentLayer(name, adjustmentKind string, params json.RawMessage) *AdjustmentLayer {
