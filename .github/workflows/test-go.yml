@@ -69,6 +69,24 @@ jobs:
   # corpus: locally that is ~0.9M-2M executions for the byte-level targets and
   # ~200k for whole-file FuzzParse. `go test -fuzz` accepts exactly one target
   # per invocation, hence one step each.
+  #
+  # READING A RED RUN: this job can fail WITHOUT having found anything. A
+  # target that ends with
+  #
+  #     --- FAIL: FuzzParseLayerExtraData (30.09s)
+  #         context deadline exceeded
+  #
+  # and no "Failing input written to testdata/fuzz/..." line is the coordinator
+  # timing out while shutting its workers down, not a crasher — the same
+  # spurious error noted above for -race, which also shows up here when the
+  # runner is loaded. Observed 2026-09-18: 1.6M execs at ~51k/s where the same
+  # target does ~96k/s locally, and the identical commit passed on re-run.
+  #
+  # So before assuming a regression, check for the artifact: a real finding
+  # uploads `psd-fuzz-crashers` and names the failing input. If there is no
+  # artifact, re-run the job. Deliberately NOT retried automatically — a target
+  # that started timing out because an input became genuinely slow is a finding
+  # worth seeing, and an automatic retry would bury it.
   go-fuzz-smoke:
     runs-on: ubuntu-latest
     steps:
