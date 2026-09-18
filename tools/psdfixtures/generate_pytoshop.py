@@ -601,13 +601,20 @@ def _hue2(
     master: tuple[int, int, int],
     items: Sequence[tuple[tuple[int, int, int, int], tuple[int, int, int]]],
     colorization: tuple[int, int, int] = (0, 0, 0),
-    enable: int = 1,
+    colorize: bool = False,
 ) -> bytes:
-    """hue2: version 2, the colorize triple, the master triple, then six ranges.
+    """hue2: version 2, the mode byte, the colorize triple, the master triple, six ranges.
 
     Each range is four int16 hue edges followed by its own hue/saturation/
     lightness triple. The six are reds, yellows, greens, cyans, blues, magentas.
+
+    The mode byte says which triple is live, and the polarity is the trap: a
+    NON-ZERO byte means colorize, and the colorization triple is then the live
+    one while the master triple and all six ranges are ignored. psd-tools calls
+    the byte `enable_colorization` and its compositor
+    (psd_tools/composite/adjustments.py) branches on it exactly that way.
     """
+    enable = 1 if colorize else 0
     if len(items) != 6:
         die(f"hue2 needs exactly 6 ranges, got {len(items)}")
     out = struct.pack(">HBx", 2, enable)
@@ -643,15 +650,21 @@ def _blnc(
     return _pad4(out)
 
 
-def _mixr(monochrome: int, data: Sequence[int]) -> bytes:
-    """mixr: version, the monochrome flag, then five int16 for ONE output row.
+def _mixr(monochrome: int, rows: Sequence[Sequence[int]]) -> bytes:
+    """mixr: version, the monochrome flag, then five int16 PER OUTPUT ROW.
 
-    Four of the five are the source weights in percent and the fifth is the
-    constant. Photoshop repeats the block per output channel.
+    Four of the five are source weights in percent and the fifth is the
+    constant. Photoshop writes one row per output channel — red, green, blue for
+    an RGB document, or a single grey row when monochrome is set. A fixture with
+    only the red row would let a reader that decodes just the first row pass,
+    while producing an image with the green and blue outputs zeroed.
     """
-    if len(data) != 5:
-        die(f"mixr needs 5 values, got {len(data)}")
-    return struct.pack(">2H", 1, monochrome) + struct.pack(">5h", *data)
+    out = struct.pack(">2H", 1, monochrome)
+    for row in rows:
+        if len(row) != 5:
+            die(f"a mixr row needs 5 values, got {len(row)}")
+        out += struct.pack(">5h", *row)
+    return out
 
 
 def _selc(method: int, plates: Sequence[tuple[int, int, int, int]]) -> bytes:
@@ -1706,6 +1719,25 @@ def fixture_rgb8_adjustment_core(out: Path) -> Path:
             ],
         ),
         AdjustmentNode(
+            name="Hue Saturation Colorized",
+            # The colorize mode, with a colorization triple that differs from the
+            # master triple in every component. The pair is what makes the mode
+            # byte falsifiable: a reader with the polarity inverted, or one that
+            # always takes master, produces (25, -30, 10) here instead of
+            # (210, 40, -15) and fails.
+            blocks=[
+                (
+                    "hue2",
+                    _hue2(
+                        master=(25, -30, 10),
+                        colorization=(210, 40, -15),
+                        colorize=True,
+                        items=[((0, 0, 0, 0), (0, 0, 0))] * 6,
+                    ),
+                )
+            ],
+        ),
+        AdjustmentNode(
             name="Hue Saturation",
             blocks=[
                 (
@@ -1713,7 +1745,15 @@ def fixture_rgb8_adjustment_core(out: Path) -> Path:
                     _hue2(
                         master=(25, -30, 10),
                         items=[
-                            ((315, 345, 15, 45), (12, -5, 3)),  # reds
+                            # The reds range has DELIBERATELY moved edges. Every
+                            # other bucket keeps Photoshop's defaults (the sector
+                            # centred on bucket*60 with a 30-degree falloff), so
+                            # a reader that drops the edges reproduces five of
+                            # six correctly and still has to report this one.
+                            # With all six left at their defaults the "movable
+                            # hue edges are lost" warning never fires and the
+                            # assertion is vacuous.
+                            ((300, 330, 20, 50), (12, -5, 3)),  # reds, edges moved
                             ((15, 45, 75, 105), (-8, 20, 0)),  # yellows
                             ((75, 105, 135, 165), (0, 0, -12)),  # greens
                             ((135, 165, 195, 225), (5, 5, 5)),  # cyans
@@ -1744,7 +1784,23 @@ def fixture_rgb8_adjustment_binary(out: Path) -> Path:
         ),
         AdjustmentNode(
             name="Channel Mixer",
-            blocks=[("mixr", _mixr(0, (80, 10, 10, 0, 5)))],
+            # All three output rows, each distinct, so a reader that decodes
+            # only the first is visible in the expectation rather than merely
+            # incomplete. The red row also carries a non-zero constant, which
+            # the engine cannot represent and must report.
+            blocks=[
+                (
+                    "mixr",
+                    _mixr(
+                        0,
+                        [
+                            (80, 10, 10, 0, 5),  # red   <- .8R +.1G +.1B, +5 const
+                            (-20, 120, 0, 0, 0),  # green
+                            (5, -15, 110, 0, 0),  # blue
+                        ],
+                    ),
+                )
+            ],
         ),
         AdjustmentNode(
             name="Selective Color",

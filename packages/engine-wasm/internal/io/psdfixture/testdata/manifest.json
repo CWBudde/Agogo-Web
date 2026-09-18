@@ -296,15 +296,15 @@
         "mask.offset-rect",
         "clipping.mask"
       ],
-      "bytes": 6678,
-      "sha256": "5558e817fcb8f13bf92d63e4d8343abe48b43b3bb89ce96ccda3351287061346"
+      "bytes": 6942,
+      "sha256": "571e90b5bab1bc11e3b47c8229e271e1fbe28b564c2c069ce1b74b2b8e483912"
     },
     {
       "id": "rgb8-adjustment-binary",
       "file": "rgb8-adjustment-binary.psd",
       "capabilities": ["layer.adjustment", "colormode.rgb8", "compression.raw"],
-      "bytes": 6586,
-      "sha256": "451133d38438091d8b23965958c61d754f11833013a509d9b2f513b653bb9db5"
+      "bytes": 6606,
+      "sha256": "cd79cd551692d9277b8ffa08ba5aef25333a6b003e9cc0f286c05dc4efdb7c92"
     },
     {
       "id": "rgb8-adjustment-descriptor",

@@ -82,9 +82,18 @@ both generators, so a generator bug cannot confirm itself through the deriver. I
 reads the binary and emits `<id>.expected.json`; no Agogo code is in the loop.
 `corpus_test.go` enforces that `expectationSource.tool` never matches `/agogo/i`.
 
-One expectation is **not** derived: `warnings`. psd-tools cannot know what Agogo
-should warn about, so the deriver emits `[]` ("must import clean") and a human
-confirms it. Every fixture in the corpus does currently import with zero warnings.
+Three expectations are **not** derived, because each is a claim about Agogo rather
+than about the file, and this script may not look at Agogo: `warnings` (what the
+engine should diagnose), `writer.lossy` (what Agogo's writer fails to reproduce)
+and `writer.externalVerification.result` (a check that has to actually run). All
+three are supplied through flags — `--warning`, `--lossy`/`--lossy-reason`,
+`--verification-result` — rather than hand-edited into the emitted JSON, so that
+regenerating a fixture cannot silently empty them.
+
+Most fixtures import with zero warnings. The three `rgb8-adjustment-*` ones do
+not, and that is the point: each asserts the exact diagnostic Agogo must raise for
+a value the engine cannot represent, such as `levl`'s per-channel level records or
+`mixr`'s constant term.
 
 ## Licensing
 
@@ -106,7 +115,7 @@ fixture is a release blocker exactly like the GPC dependency in
 `manifest.json` is the authoritative list; the table below is its narrative form.
 A capability is *covered* when at least one fixture claims it, and *deferred* when
 no fixture can currently exist for it. 26 fixtures cover 28 of 30 capabilities in
-about 141 KB of binaries.
+about 142 KB of binaries.
 
 | Area | Covered by the corpus | Deferred |
 | --- | --- | --- |

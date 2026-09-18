@@ -7,7 +7,7 @@
     "sourceTool": "pytoshop",
     "sourceToolVersion": "1.2.1",
     "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_adjustment_descriptor",
-    "generatedOn": "2026-09-17",
+    "generatedOn": "2026-09-18",
     "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
     "license": "CC0-1.0",
     "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
@@ -17,7 +17,7 @@
     "tool": "psd-tools",
     "toolVersion": "1.19.0",
     "script": "tools/psdfixtures/derive_expectations.py",
-    "derivedOn": "2026-09-17",
+    "derivedOn": "2026-09-18",
     "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
     "manualChecks": [
       "Brightness/Contrast carries brit (+11/-7) and CgEd (+30/-20) with deliberately different values; the expectation pins the CgEd numbers, so a reader preferring the obsolete block fails."
@@ -255,6 +255,7 @@
     "format": "psd",
     "expect": "lossy",
     "lossy": [
+      "warnings",
       "layers[1].type",
       "layers[1].adjustmentKind",
       "layers[1].adjustmentParams.brightness",
@@ -269,14 +270,13 @@
       "layers[2].adjustmentParams.blues",
       "layers[2].adjustmentParams.magentas",
       "layers[2].adjustmentParams.tint",
-      "warnings",
       "psdRecords[0].channelIds"
     ],
     "lossyReason": "PLAN.md S.10.7: psdexport cannot yet write a native adjustment block. It emits the private AgAJ JSON block instead, so a re-exported adjustment layer reads back as a pixel layer with no adjustmentKind and no parameters, and the import warnings change accordingly. Native adjustment EXPORT is the open half of S.10.7; this batch did the read side. The channelIds and mask.rect entries are the long-standing S.10.2 writer differences: psdexport emits channels in its own fixed order and rasterizes a mask to document bounds.",
     "externalVerification": {
       "tool": "psd-tools",
       "toolVersion": "1.19.0",
-      "verifiedOn": "2026-09-17",
+      "verifiedOn": "2026-09-18",
       "result": "partial",
       "notes": "psd-tools reads every re-exported record back; the adjustments read as kind=pixel for the same writer gap. See VERIFICATION.md."
     }

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import struct
 import sys
 from pathlib import Path
 from typing import Any
@@ -314,6 +315,9 @@ def _layer_type(layer: Any) -> str:
 
 _HUE_BUCKETS = ("reds", "yellows", "greens", "cyans", "blues", "magentas")
 
+# mixr output rows, in the order the block stores them.
+_CHANNEL_MIXER_ROWS = ("red", "green", "blue")
+
 # selc stores ten plates; the first is unused and the rest are these, in order.
 _SELECTIVE_BUCKETS = (
     "reds", "yellows", "greens", "cyans", "blues", "magentas",
@@ -357,21 +361,28 @@ def _adjustment(layer: Any) -> tuple[str, dict[str, Any]] | None:
         return "curves", params
 
     if kind == "huesaturation":
-        hue, saturation, lightness = data.master
+        # The block carries two triples and a mode byte saying which is live.
+        # psd-tools' own compositor (psd_tools/composite/adjustments.py) is the
+        # reference: a non-zero byte means colorize, and it then uses the
+        # colorization triple and ignores both the master triple and every
+        # per-range entry.
+        colorize = bool(data.enable)
+        hue, saturation, lightness = data.colorization if colorize else data.master
         params = {
             "hueShift": int(hue),
             "saturation": int(saturation),
             "lightness": int(lightness),
-            "colorize": bool(data.enable == 0),
+            "colorize": colorize,
         }
-        for name, item in zip(_HUE_BUCKETS, data.items):
-            bucket_hue, bucket_sat, bucket_light = item[1]
-            if bucket_hue or bucket_sat or bucket_light:
-                params[name] = {
-                    "hueShift": int(bucket_hue),
-                    "saturation": int(bucket_sat),
-                    "lightness": int(bucket_light),
-                }
+        if not colorize:
+            for name, item in zip(_HUE_BUCKETS, data.items):
+                bucket_hue, bucket_sat, bucket_light = item[1]
+                if bucket_hue or bucket_sat or bucket_light:
+                    params[name] = {
+                        "hueShift": int(bucket_hue),
+                        "saturation": int(bucket_sat),
+                        "lightness": int(bucket_light),
+                    }
         return "huesat", params
 
     if kind == "colorbalance":
@@ -386,15 +397,32 @@ def _adjustment(layer: Any) -> tuple[str, dict[str, Any]] | None:
         }
 
     if kind == "channelmixer":
-        # psd-tools surfaces five int16 for ONE output row - four source weights
-        # in percent and a constant - and hands the rest back as `unknown`. The
-        # engine has a row per output channel and no constant at all, so only
-        # the red row maps and the constant is reported as lost.
-        red = [int(v) for v in data.data[:3]]
-        return "channel-mixer", {
-            "monochrome": bool(data.monochrome),
-            "red": red,
-        }
+        # psd-tools parses only the FIRST output row into `data` and hands the
+        # remaining rows back as raw bytes in `unknown`, so the rest is unpacked
+        # here. Deriving only the red row would make the sidecar agree with a
+        # reader that does the same, while the engine's matrix - which has no
+        # defaulting - would zero the green and blue outputs.
+        monochrome = bool(data.monochrome)
+        rows = [[int(v) for v in data.data[:3]]]
+        rest = bytes(data.unknown or b"")
+        for at in range(0, len(rest) - 9, 10):
+            rows.append([int(v) for v in struct.unpack(">3h", rest[at : at + 6])])
+
+        params: dict[str, Any] = {"monochrome": monochrome}
+        if monochrome:
+            # One grey row, replicated: the engine runs the full 3x3 matrix and
+            # takes the luminance of the result, so mixed must be (g, g, g).
+            for name in _CHANNEL_MIXER_ROWS:
+                params[name] = rows[0]
+        else:
+            for index, name in enumerate(_CHANNEL_MIXER_ROWS):
+                if index < len(rows):
+                    params[name] = rows[index]
+                else:
+                    identity = [0, 0, 0]
+                    identity[index] = 100
+                    params[name] = identity
+        return "channel-mixer", params
 
     if kind == "selectivecolor":
         params = {"mode": "absolute" if int(data.method) else "relative"}

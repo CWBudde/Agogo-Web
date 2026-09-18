@@ -7,7 +7,7 @@
     "sourceTool": "pytoshop",
     "sourceToolVersion": "1.2.1",
     "generatedBy": "tools/psdfixtures/generate_pytoshop.py#fixture_rgb8_adjustment_core",
-    "generatedOn": "2026-09-17",
+    "generatedOn": "2026-09-18",
     "author": "Christian Budde <christian.wilhelm.budde@meko.de>",
     "license": "CC0-1.0",
     "licenseNote": "Self-authored from scratch; no third-party artwork; CC0-1.0 for redistribution in this repository.",
@@ -17,11 +17,13 @@
     "tool": "psd-tools",
     "toolVersion": "1.19.0",
     "script": "tools/psdfixtures/derive_expectations.py",
-    "derivedOn": "2026-09-17",
+    "derivedOn": "2026-09-18",
     "method": "psd-tools PSDImage.open() for structure and layer records; composite() for compositePixels; layer.numpy() for layerPixels. No Agogo code in the loop.",
     "manualChecks": [
       "The levl block sets the composite record plus red, green and blue; the engine holds one set of level values, so only the composite maps and the rest is warned about.",
-      "Curves sets a composite curve and a red curve, so a reader that discards the curv channel bitmap fails here."
+      "Curves sets a composite curve and a red curve, so a reader that discards the curv channel bitmap fails here.",
+      "The two Hue/Saturation layers are a pair: one colorized with a colorization triple differing from master in every component, one not. A reader with the mode byte inverted, or one that always reads master, fails on the colorized layer.",
+      "The reds hue range has deliberately moved edges while the other five keep Photoshop defaults, so the movable-edge loss warning actually fires."
     ]
   },
   "assert": [
@@ -42,7 +44,8 @@
     "isPSB": false
   },
   "warnings": [
-    "layer \"Levels\": levl per-channel level records has no engine equivalent and was not imported"
+    "layer \"Levels\": levl per-channel level records has no engine equivalent and was not imported",
+    "layer \"Hue Saturation\": hue2 per-range hue edges has no engine equivalent and was not imported"
   ],
   "layers": [
     {
@@ -111,6 +114,27 @@
           "saturation": -30,
           "lightness": 15
         }
+      },
+      "mask": {
+        "present": false
+      }
+    },
+    {
+      "path": "Hue Saturation Colorized",
+      "name": "Hue Saturation Colorized",
+      "type": "adjustment",
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "opacity255": 255,
+      "fillOpacity255": 255,
+      "visible": false,
+      "clipToBelow": false,
+      "adjustmentKind": "huesat",
+      "adjustmentParams": {
+        "hueShift": 210,
+        "saturation": 40,
+        "lightness": -15,
+        "colorize": true
       },
       "mask": {
         "present": false
@@ -225,7 +249,7 @@
     },
     {
       "index": 2,
-      "name": "Curves",
+      "name": "Hue Saturation Colorized",
       "sectionType": 0,
       "bounds": {
         "x": 0,
@@ -243,6 +267,24 @@
     },
     {
       "index": 3,
+      "name": "Curves",
+      "sectionType": 0,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "channelIds": [],
+      "opacity255": 255,
+      "visible": false,
+      "clipping": false,
+      "blendMode": "normal",
+      "psdBlendKey": "norm",
+      "mask": null
+    },
+    {
+      "index": 4,
       "name": "Levels",
       "sectionType": 0,
       "bounds": {
@@ -363,6 +405,7 @@
     "format": "psd",
     "expect": "lossy",
     "lossy": [
+      "warnings",
       "layers[1].type",
       "layers[1].adjustmentKind",
       "layers[1].adjustmentParams.hueShift",
@@ -377,25 +420,30 @@
       "layers[1].adjustmentParams.magentas",
       "layers[2].type",
       "layers[2].adjustmentKind",
-      "layers[2].adjustmentParams.points",
-      "layers[2].adjustmentParams.redPoints",
+      "layers[2].adjustmentParams.hueShift",
+      "layers[2].adjustmentParams.saturation",
+      "layers[2].adjustmentParams.lightness",
+      "layers[2].adjustmentParams.colorize",
       "layers[3].type",
       "layers[3].adjustmentKind",
-      "layers[3].adjustmentParams.channel",
-      "layers[3].adjustmentParams.gamma",
-      "layers[3].adjustmentParams.inputBlack",
-      "layers[3].adjustmentParams.inputWhite",
-      "layers[3].adjustmentParams.outputBlack",
-      "layers[3].adjustmentParams.outputWhite",
-      "warnings",
+      "layers[3].adjustmentParams.points",
+      "layers[3].adjustmentParams.redPoints",
+      "layers[4].type",
+      "layers[4].adjustmentKind",
+      "layers[4].adjustmentParams.channel",
+      "layers[4].adjustmentParams.gamma",
+      "layers[4].adjustmentParams.inputBlack",
+      "layers[4].adjustmentParams.inputWhite",
+      "layers[4].adjustmentParams.outputBlack",
+      "layers[4].adjustmentParams.outputWhite",
       "psdRecords[0].channelIds",
-      "psdRecords[3].mask.rect"
+      "psdRecords[4].mask.rect"
     ],
     "lossyReason": "PLAN.md S.10.7: psdexport cannot yet write a native adjustment block. It emits the private AgAJ JSON block instead, so a re-exported adjustment layer reads back as a pixel layer with no adjustmentKind and no parameters, and the import warnings change accordingly. Native adjustment EXPORT is the open half of S.10.7; this batch did the read side. The channelIds and mask.rect entries are the long-standing S.10.2 writer differences: psdexport emits channels in its own fixed order and rasterizes a mask to document bounds.",
     "externalVerification": {
       "tool": "psd-tools",
       "toolVersion": "1.19.0",
-      "verifiedOn": "2026-09-17",
+      "verifiedOn": "2026-09-18",
       "result": "partial",
       "notes": "psd-tools reads every re-exported record back: the Levels layer keeps opacity 160, blend key `mul `, its mask and the cleared visible flag. The adjustments themselves read as kind=pixel, because psdexport writes AgAJ rather than levl/curv/hue2 (PLAN.md S.10.7, native export still open). See VERIFICATION.md."
     }
