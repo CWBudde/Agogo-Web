@@ -560,7 +560,18 @@ func parseLayerAdditionalInfo(_ string, key string, payload []byte, record *Laye
 		return parseLayerObjectEffectsPayload(payload, record)
 	case "TySh":
 		return parseTextLayerMetadata(key, payload, record)
-	case "levl", "curv", "hue2", "AgAJ":
+	case "levl", "curv", "hue2", "blnc", "mixr", "selc", "thrs", "post",
+		"nvrt", "phfl", "blwh", "brit", "CgEd":
+		// Two passes over the same payload, deliberately. The metadata pass
+		// describes the block as it appeared in the file and never fails; the
+		// reconstruction pass builds the engine layer and can. A block that
+		// cannot be reconstructed still leaves its description behind, so the
+		// importer can say what was in the record it could not use.
+		if err := parseLayerAdjustmentMetadata(key, payload, record); err != nil {
+			return err
+		}
+		return parseLayerAdjustmentBlock(key, payload, record)
+	case "AgAJ":
 		return parseLayerAdjustmentMetadata(key, payload, record)
 	case "SoLd", "PlLd", "plLd":
 		return parseLayerSmartObjectMetadata(key, payload, record)

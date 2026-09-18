@@ -59,6 +59,7 @@ with `AttributeError: install_layout`. It also has an undeclared dependency on
 | `generate_gimp.scm` | superseded by `generate_pytoshop.py`; kept only as a GIMP reference |
 | `generate_gimp.sh` | driver for the above — superseded |
 | `derive_expectations.py` | reads a fixture with psd-tools, emits `<id>.expected.json` |
+| `regenerate_adjustments.sh` | the three `rgb8-adjustment-*` fixtures end to end; their sidecars carry ~30 `writer.lossy` paths each, which is too much to retype |
 | `requirements.txt` | the pinned Python toolchain; `just fixtures-setup` installs it |
 | `verify_dump.py` | re-reads Agogo-*written* PSDs with psd-tools (+ optional `identify`) |
 
@@ -298,6 +299,34 @@ constant-row code path out of the picture as a side effect.
 6. **Move the fixture and its sidecar into the corpus** under
    `packages/engine-wasm/internal/io/psdfixture/`, and register it in the manifest.
 
+## Adjustment layers
+
+An adjustment layer is a layer record with an **empty rect and no colour
+channels**; the adjustment lives entirely in a tagged block. `AdjustmentNode` in
+`generate_pytoshop.py` emits that shape, and the `_levl`, `_curv`, `_hue2`,
+`_blnc`, `_mixr`, `_selc`, `_thrs`, `_post`, `_nvrt`, `_phfl`, `_brit`, `_blwh`
+and `_cged` helpers build the payloads.
+
+Three things about them are worth knowing before adding another:
+
+- **The payloads are hand-built from the spec, on purpose.** psd-tools can
+  construct any of these structures in two lines, and using it would be a
+  mistake: psd-tools is the *deriver*. If it wrote the bytes as well as read
+  them, the sidecar would assert nothing but its own self-consistency. Written
+  here from the spec, a layout error shows up as psd-tools refusing to parse.
+- **`AdjustmentNode.visible` defaults to `False`, and a visible one is a hard
+  error.** The composite stored in a PSD is a flattened preview and this
+  generator computes that preview itself; it does not implement Photoshop's
+  adjustment maths. A visible adjustment would therefore store a preview that
+  contradicts the layer stack — the one thing the generator must never produce.
+  The block, its parameters and the record's own flags are all still asserted.
+- **`brit` is obsolete; `CgEd` carries the live values.** psd-tools maps its
+  `BrightnessContrast` layer to `CgEd` and marks `brit` obsolete. Photoshop
+  writes both, so `fixture_rgb8_adjustment_descriptor` writes both with
+  deliberately *different* numbers, and the expectation pins the `CgEd` ones. A
+  reader that prefers the legacy block fails there rather than passing by
+  coincidence.
+
 ## Sidecar notes
 
 - **`assert` and the data blocks are derived together, never written by hand.** The
@@ -321,8 +350,17 @@ constant-row code path out of the picture as a side effect.
   Biome would emit — scalar arrays inlined when they fit 100 columns. Plain
   `json.dumps(indent=2)` does **not** satisfy this and would break CI.
 - `writer.externalVerification.result` is emitted as `"pending"`. It is a claim about
-  an external check that has not run yet; promote it to `"pass"` only after
-  `just fixtures-verify` actually passes.
+  an external check that has not run yet; promote it with `--verification-result`
+  (and `--verification-notes`) only after `just fixtures-verify` actually passes,
+  and add the row to `VERIFICATION.md` in the same change.
+- **`--warning` and `--lossy` are flags, not hand edits.** psd-tools cannot derive
+  either one: the golden warning set is a statement about diagnostics the *engine*
+  should raise, and `writer.lossy` is a statement about Agogo's *writer*, and this
+  script may look at neither. They are passed on the command line so that
+  regenerating a fixture cannot silently empty them — which would turn a fixture
+  that asserts a diagnostic into one that asserts clean import. `--lossy` requires
+  `--lossy-reason`, because an allowlist without a stated reason is
+  indistinguishable from data being dropped on purpose.
 
 ## Verifying Agogo's own output
 

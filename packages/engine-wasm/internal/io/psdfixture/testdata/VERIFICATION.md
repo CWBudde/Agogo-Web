@@ -29,6 +29,9 @@ asserts the `writer` scope must have a row below.
 | `rgb8-clipping-across-group` | psd-tools (ImageMagick refuses) | 1.19.0 / 6.9.12-98 | 2026-09-17 | partial | Nesting and the in-group clip pair survive. The boundary-clipped layer's clipping byte does not: it has no base among its siblings, so the engine clears the flag (knownGaps entry + writer.lossy). |
 | `rgb8-mask-larger-than-layer` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-17 | pass | The layer keeps its own (8,6) 14x12 bounds under a 24x20 mask; only the stored mask rect and default fill are widened. |
 | `rgb8-group-mask` | psd-tools (ImageMagick refuses) | 1.19.0 / 6.9.12-98 | 2026-09-17 | pass | The mask stays on the group's opening record and still attenuates both children; only the stored mask rect and default fill are widened. |
+| `rgb8-adjustment-core` | psd-tools (ImageMagick refuses) | 1.19.0 / 6.9.12-98 | 2026-09-17 | partial | The Levels layer's record survives in full — opacity 160, blend key `mul `, the mask and the cleared visible flag all read back. The adjustment itself does not: psd-tools reports `kind=pixel` for all three, because `psdexport` writes the private `AgAJ` block instead of `levl`/`curv`/`hue2`. Native adjustment export is the open half of S.10.7; every affected path is in `writer.lossy`. |
+| `rgb8-adjustment-binary` | psd-tools (ImageMagick refuses) | 1.19.0 / 6.9.12-98 | 2026-09-17 | partial | Same writer gap for all seven layers. The read leg is what this fixture pins, and it is asserted at model scope by the import test. |
+| `rgb8-adjustment-descriptor` | psd-tools (ImageMagick refuses) | 1.19.0 / 6.9.12-98 | 2026-09-17 | partial | Same writer gap. Note the read leg here is the sharper claim: the source file carries `brit` (+11/-7) beside `CgEd` (+30/-20) and the import must take the descriptor. |
 | `rgb8-rle-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-16 | pass | Three RLE-compressed layers re-open with correct bounds and pixels. |
 | `rgb8-zip-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-17 | pass | Three ZIP-compressed layer channels decode and re-open with correct bounds and pixels. The re-export is not itself ZIP — `psdexport` picks its own channel compression — so this row verifies the decoder leg, not a ZIP writer. |
 | `rgb8-zip-prediction-layers` | psd-tools + ImageMagick | 1.19.0 / 6.9.12-98 | 2026-09-17 | pass | Same three layers under ZIP-with-prediction. The predictor resets at every row boundary; a decoder that carries the running sum across rows disagrees on 736 of 768 bytes of the first channel, including the sampled bottom-row pixels, so this fixture is not vacuous. |
@@ -43,7 +46,7 @@ cd ../.. && just fixtures-verify
 The Go test writes each re-export to `internal/io/psdfixture/_dump/` (gitignored, and
 uploaded as a CI artifact); `just fixtures-verify` re-reads them with psd-tools and,
 via `--identify`, with ImageMagick as a second independent implementation. The last
-run reported `22/22 file(s) parsed` - every file Agogo wrote was accepted by a reader
+run reported `25/25 file(s) parsed` - every file Agogo wrote was accepted by a reader
 that is not Agogo's own.
 
 That run had ImageMagick installed, so it also retired an earlier caveat: the
@@ -51,11 +54,13 @@ That run had ImageMagick installed, so it also retired an earlier caveat: the
 been re-read by psd-tools plus, where that reader accepts the file at all,
 ImageMagick.
 
-The exception is every *group*-bearing file, and its `Tool` column says so rather
-than claiming a reader that never got past the header. ImageMagick refuses all six
-- `rgb8-nested-groups`, `rgb8-group-passthrough`, `rgb8-group-closed-folder`,
-`rgb8-group-empty`, `rgb8-clipping-across-group` and `rgb8-group-mask` - with
-`improper image header` at `psd.c/ReadPSDLayersInternal/1781`. It refuses the
+The exception is every file containing a record with no channels, and its `Tool`
+column says so rather than claiming a reader that never got past the header.
+ImageMagick refuses all nine - the six group-bearing files
+(`rgb8-nested-groups`, `rgb8-group-passthrough`, `rgb8-group-closed-folder`,
+`rgb8-group-empty`, `rgb8-clipping-across-group`, `rgb8-group-mask`) and the three
+adjustment files, whose adjustment records are channel-free for the same reason -
+with `improper image header` at `psd.c/ReadPSDLayersInternal/1781`. It refuses the
 pytoshop-authored *source* fixtures identically, because a group divider record
 carries no channels at all, so this is a limitation of that reader rather than
 something Agogo emits wrongly; the psd-tools leg alone carries those rows.

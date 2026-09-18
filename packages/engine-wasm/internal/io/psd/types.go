@@ -101,6 +101,23 @@ type AdjustmentMeta struct {
 	Malformed  bool
 }
 
+// AdjustmentPayload is a reconstructed adjustment layer: the engine's
+// adjustment kind and the JSON parameter object that goes with it.
+//
+// It is separate from AdjustmentMeta, which stays a description of the block as
+// it appeared in the file (key, declared version, payload length). Meta answers
+// "what was in this record"; this answers "what layer should be built from it",
+// and only the blocks that have an engine equivalent produce one.
+//
+// Lost records the fields the block carried that the engine has nowhere to put.
+// The importer turns each entry into a warning, so a value is never silently
+// dropped and never silently rounded into a field that means something else.
+type AdjustmentPayload struct {
+	Kind   string
+	Params json.RawMessage
+	Lost   []string
+}
+
 type SmartObjectMeta struct {
 	Key           string
 	Version       uint32
@@ -165,6 +182,7 @@ type LayerRecord struct {
 	VectorMask        *VectorMaskMeta
 	Effects           *LayerEffectsMeta
 	Adjustments       []AdjustmentMeta
+	Adjustment        *AdjustmentPayload
 	SmartObject       *SmartObjectMeta
 	Text              *TextLayerMeta
 	ChannelPixels     map[int16][]byte

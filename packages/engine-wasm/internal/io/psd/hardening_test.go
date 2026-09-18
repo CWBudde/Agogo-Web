@@ -134,6 +134,42 @@ func FuzzParseTextLayerMetadata(f *testing.F) {
 	})
 }
 
+// FuzzParseAdjustmentBlock drives every adjustment reconstruction with the same
+// bytes, so each parser sees payloads shaped for a different block. That is the
+// point: the dispatch hands a parser whatever the file put under its key, and a
+// levl parser fed a descriptor must refuse it rather than read 29 records out of
+// six bytes.
+//
+// The invariant is only that nothing panics and that a refusal leaves no
+// half-built adjustment behind — a parser that errors must not also have
+// written to the record.
+func FuzzParseAdjustmentBlock(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0, 2})
+	f.Add([]byte{0, 0, 0, 16})
+	addAdjustmentBlockSeeds(f)
+
+	keys := []string{
+		"levl", "curv", "hue2", "blnc", "mixr", "selc",
+		"thrs", "post", "nvrt", "phfl", "blwh", "brit", "CgEd",
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		for _, key := range keys {
+			record := &LayerRecord{}
+			if err := parseLayerAdjustmentBlock(key, data, record); err != nil {
+				if record.Adjustment != nil {
+					t.Fatalf("%s failed with %v but still set an adjustment: %+v",
+						key, err, record.Adjustment)
+				}
+				continue
+			}
+			if record.Adjustment != nil && record.Adjustment.Kind == "" {
+				t.Fatalf("%s produced an adjustment with no kind", key)
+			}
+		}
+	})
+}
+
 func FuzzParseCompositeImageData(f *testing.F) {
 	f.Add([]byte{0, CompressionRaw, 1, 2, 3})
 	// As above: the seeded sections do not match the 1x1 header, on purpose.

@@ -80,14 +80,20 @@ check-formatted:
 # ── Linting ───────────────────────────────────────────────────────────────────
 
 # Run all linters
+#
+# The golangci-lint invocation deliberately matches .github/workflows/test-go-lint.yml,
+# which runs the linter with its defaults over the whole module. It used to pass
+# `--tests=false ./internal/...` here, so `just lint` was green while CI was red on
+# any finding in a _test.go file or outside internal/ — a local gate that cannot
+# fail where CI does is worse than no local gate.
 lint:
     cd packages/engine-wasm && go vet ./...
-    cd packages/engine-wasm && GOCACHE=$(mktemp -d) GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --tests=false --timeout=2m ./internal/...
+    cd packages/engine-wasm && GOCACHE=$(mktemp -d) GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --timeout=5m ./...
     bun run --cwd apps/editor-web lint
 
 # Auto-fix all lint issues
 lint-fix:
-    cd packages/engine-wasm && GOCACHE=$(mktemp -d) GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --fix --tests=false --timeout=2m ./internal/...
+    cd packages/engine-wasm && GOCACHE=$(mktemp -d) GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --fix --timeout=5m ./...
     bun run --cwd apps/editor-web lint:fix
 
 # ── Combined ──────────────────────────────────────────────────────────────────

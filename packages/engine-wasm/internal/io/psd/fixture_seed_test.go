@@ -69,6 +69,67 @@ func addSectionSeeds(f *testing.F, extract func([]byte) ([]byte, bool)) {
 	}
 }
 
+// adjustmentSeedKeys are the tagged-block keys FuzzParseAdjustmentBlock drives.
+var adjustmentSeedKeys = map[string]struct{}{
+	"levl": {}, "curv": {}, "hue2": {}, "blnc": {}, "mixr": {}, "selc": {},
+	"thrs": {}, "post": {}, "nvrt": {}, "phfl": {}, "blwh": {}, "brit": {}, "CgEd": {},
+}
+
+// addAdjustmentBlockSeeds seeds FuzzParseAdjustmentBlock with the real
+// adjustment payloads in the corpus.
+//
+// It scans for the block signature rather than parsing the file, because the
+// parser does not keep raw payloads and because a seed does not have to come
+// from a well-formed record — an adjustment payload is interesting to the
+// target wherever it was found.
+func addAdjustmentBlockSeeds(f *testing.F) {
+	f.Helper()
+	seen := make(map[string]struct{})
+	for _, fixture := range fuzzSeedFixtures(f) {
+		for _, payload := range extractAdjustmentPayloads(fixture.Data) {
+			if len(payload) > maxFuzzSeedBytes {
+				continue
+			}
+			if _, duplicate := seen[string(payload)]; duplicate {
+				continue
+			}
+			seen[string(payload)] = struct{}{}
+			f.Add(payload)
+		}
+	}
+}
+
+// extractAdjustmentPayloads returns every adjustment tagged-block payload in
+// the file, found by scanning for "8BIM" or "8B64" followed by a key the target
+// drives.
+func extractAdjustmentPayloads(data []byte) [][]byte {
+	const headerLen = 4 + 4 + 4
+	var out [][]byte
+	for at := 0; at+headerLen <= len(data); at++ {
+		signature := string(data[at : at+4])
+		if signature != "8BIM" && signature != "8B64" {
+			continue
+		}
+		// Indexed with the conversion inline so the compiler can look the key
+		// up without allocating a string; this runs once per byte of every
+		// seeded fixture.
+		if _, wanted := adjustmentSeedKeys[string(data[at+4:at+8])]; !wanted {
+			continue
+		}
+		length := binary.BigEndian.Uint32(data[at+8 : at+headerLen])
+		end := at + headerLen + int(length)
+		if length > uint64Max32 || end < at || end > len(data) {
+			continue
+		}
+		out = append(out, data[at+headerLen:end])
+	}
+	return out
+}
+
+// uint64Max32 bounds the declared length before it is added to an offset, so a
+// hostile four-byte length cannot overflow the int conversion on 32-bit builds.
+const uint64Max32 = 1 << 30
+
 // addPackBitsRowSeeds seeds FuzzDecodePackBits from the real RLE scanlines in
 // the corpus. Each seed is a packed row plus the decoded byte width that row
 // claims, because the target takes both.
